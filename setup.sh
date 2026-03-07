@@ -962,6 +962,16 @@ WantedBy=multi-user.target"
         log "opencode-telegram already installed: $(opencode-telegram --version 2>/dev/null | head -1)"
       fi
 
+      # Validate credentials early — warn if missing so user knows before service start
+      if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+        warn "TELEGRAM_BOT_TOKEN not set — service will fail to start until you add it."
+        warn "  Edit $SERVICE_HOME/.config/opencode-telegram-bot/.env after setup."
+      fi
+      if [ -z "$TELEGRAM_ALLOWED_USER_ID" ]; then
+        warn "TELEGRAM_ALLOWED_USER_ID not set — service will fail to start until you add it."
+        warn "  Get your ID from @userinfobot on Telegram, then edit the .env file."
+      fi
+
       # Find binaries
       if [ "$DRY_RUN" = true ]; then
         TELEGRAM_BIN="/usr/bin/opencode-telegram"
@@ -971,14 +981,28 @@ WantedBy=multi-user.target"
         OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
       fi
 
-      # --- opencode-serve.service ---
-      # The Telegram bot connects to opencode's HTTP server (localhost:4096)
-      SERVE_ENV_LINES="Environment=HOME=$SERVICE_HOME"
-      SERVE_ENV_LINES="$SERVE_ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
-      if [ -n "$OPENCODE_MODEL" ]; then
-        SERVE_ENV_LINES="$SERVE_ENV_LINES\nEnvironment=OPENCODE_MODEL=$OPENCODE_MODEL"
+      # --- opencode-serve env file ---
+      # Keeps model config out of the unit file. Marked optional (-) so the
+      # service starts even if the file is absent (e.g. default model only).
+      SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
+      run_cmd mkdir -p "$SERVICE_HOME/.config"
+      if [ "$DRY_RUN" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would write opencode-serve config to $SERVE_ENV_FILE"
+      else
+        {
+          [ -n "$OPENCODE_MODEL" ] && echo "OPENCODE_MODEL=$OPENCODE_MODEL"
+          true  # ensure file is always created (may be empty if no overrides)
+        } > "$SERVE_ENV_FILE"
+        chmod 600 "$SERVE_ENV_FILE"
+        if [ "$RUN_AS_ROOT" = false ]; then
+          chown "$SERVICE_USER:$SERVICE_USER" "$SERVE_ENV_FILE"
+        fi
       fi
 
+      # --- opencode-serve.service ---
+      # The Telegram bot connects to opencode's HTTP server (localhost:4096).
+      # HOME and PATH are runtime environment, not config — inline is correct here.
+      # Model config comes from EnvironmentFile so it never lives in a world-readable unit.
       OPENCODE_SERVE_CONFIG="[Unit]
 Description=OpenCode Server (wp-opencode)
 After=network.target
@@ -987,7 +1011,9 @@ After=network.target
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
-$(echo -e "$SERVE_ENV_LINES")
+Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-$SERVE_ENV_FILE
 ExecStart=$OPENCODE_BIN serve
 Restart=always
 RestartSec=10
@@ -999,7 +1025,7 @@ WantedBy=multi-user.target"
       run_cmd systemctl daemon-reload
       run_cmd systemctl enable opencode-serve
 
-      # --- Write Telegram bot .env file ---
+      # --- Telegram bot .env file (single source of truth for all app config) ---
       TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
       run_cmd mkdir -p "$TELEGRAM_CONFIG_DIR"
       if [ "$RUN_AS_ROOT" = false ]; then
@@ -1024,18 +1050,8 @@ LOG_LEVEL=info"
       fi
 
       # --- opencode-telegram.service ---
-      TELEGRAM_ENV_LINES="Environment=HOME=$SERVICE_HOME"
-      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
-      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_API_URL=http://localhost:4096"
-      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_MODEL_PROVIDER=${OPENCODE_MODEL_PROVIDER:-opencode}"
-      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID:-big-pickle}"
-      if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-        TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
-      fi
-      if [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
-        TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=TELEGRAM_ALLOWED_USER_ID=$TELEGRAM_ALLOWED_USER_ID"
-      fi
-
+      # Secrets and app config come exclusively from EnvironmentFile.
+      # HOME and PATH are runtime environment — inline is correct and not sensitive.
       TELEGRAM_SYSTEMD_CONFIG="[Unit]
 Description=OpenCode Telegram Bot (wp-opencode)
 After=network.target opencode-serve.service
@@ -1045,7 +1061,9 @@ Requires=opencode-serve.service
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
-$(echo -e "$TELEGRAM_ENV_LINES")
+Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=$TELEGRAM_CONFIG_DIR/.env
 ExecStart=$TELEGRAM_BIN start
 Restart=always
 RestartSec=10
