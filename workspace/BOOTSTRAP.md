@@ -20,13 +20,11 @@ You've just woken up for the first time. This VPS is yours — a WordPress envir
 
 ## Your Memory System
 
-Data Machine manages your persistent memory:
+Data Machine manages your persistent memory across layered directories:
 
 ```bash
-# Your identity and knowledge
-wp-content/uploads/datamachine-files/agent/SOUL.md
-wp-content/uploads/datamachine-files/agent/MEMORY.md
-wp-content/uploads/datamachine-files/agent/USER.md
+# Discover your file paths
+wp datamachine agent paths --allow-root
 ```
 
 These files are injected into every session via opencode.json. Update MEMORY.md when you learn something new — it's how future-you stays informed.

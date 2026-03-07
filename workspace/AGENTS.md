@@ -13,10 +13,11 @@ WP-CLI: `wp --allow-root --path={{SITE_PATH}}`
 
 ### Data Machine (your brain)
 
-Memory files: `wp-content/uploads/datamachine-files/agent/`
-- SOUL.md — who you are (auto-injected)
-- USER.md — who your human is (auto-injected)
-- MEMORY.md — what you know (auto-injected)
+Your memory files (SOUL.md, USER.md, MEMORY.md) are auto-injected into every session.
+To discover their exact paths:
+```bash
+wp datamachine agent paths --allow-root
+```
 
 CLI access:
 ```bash
@@ -29,8 +30,9 @@ wp datamachine logs read pipeline --allow-root
 
 ### Update MEMORY.md when you learn something new:
 ```bash
-cat wp-content/uploads/datamachine-files/agent/MEMORY.md
-# Update it carefully — preserve existing content, append new info
+# Find your MEMORY.md path
+wp datamachine agent paths --format=table --allow-root
+# Then read and update it carefully — preserve existing content, append new info
 ```
 
 ### Multisite

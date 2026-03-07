@@ -703,28 +703,35 @@ else
 log "Generating opencode.json..."
 
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
-  # Detect multisite uploads path
-  # On multisite subsites, uploads live at wp-content/uploads/sites/{id}/
-  # On single site or main site, uploads live at wp-content/uploads/
+  # Discover agent file paths via Data Machine CLI (layered architecture).
+  # wp-opencode always installs the latest DM, so `agent paths` is always available.
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
-    IS_MULTISITE=$(wp eval 'echo is_multisite() ? "yes" : "no";' --allow-root --path="$SITE_PATH" 2>/dev/null || echo "no")
-    if [ "$IS_MULTISITE" = "yes" ]; then
-      BLOG_ID=$(wp eval 'echo get_current_blog_id();' --allow-root --path="$SITE_PATH" 2>/dev/null || echo "1")
-      if [ "$BLOG_ID" != "1" ]; then
-        DM_AGENT_PATH="wp-content/uploads/sites/${BLOG_ID}/datamachine-files/agent"
-      else
-        DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
-      fi
-      log "Multisite detected (blog_id=$BLOG_ID). Agent files: $DM_AGENT_PATH"
-    else
-      DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
+    DM_PATHS_JSON=$(wp datamachine agent paths --format=json --allow-root --path="$SITE_PATH" 2>/dev/null)
+    if [ -z "$DM_PATHS_JSON" ]; then
+      error "'wp datamachine agent paths' returned empty — is Data Machine active?"
     fi
+    # Extract relative_files array from JSON — these are the correct layered paths
+    DM_AGENT_FILES=$(echo "$DM_PATHS_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for f in data.get('relative_files', []):
+    print(f)
+")
+    log "Agent files discovered via 'wp datamachine agent paths'"
   else
-    DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
+    # Dry-run: can't query WP, use placeholder paths
+    DM_AGENT_FILES="wp-content/uploads/datamachine-files/shared/SITE.md
+wp-content/uploads/datamachine-files/agents/AGENT_SLUG/SOUL.md
+wp-content/uploads/datamachine-files/agents/AGENT_SLUG/MEMORY.md
+wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
+    log "Dry-run: using placeholder agent paths"
   fi
 
-  # With Data Machine: inject all 3 agent files into prompt (SOUL → USER → MEMORY)
-  OPENCODE_PROMPT="{file:./AGENTS.md}\n{file:./${DM_AGENT_PATH}/SOUL.md}\n{file:./${DM_AGENT_PATH}/USER.md}\n{file:./${DM_AGENT_PATH}/MEMORY.md}"
+  # Build prompt from discovered files (layered: SITE.md → SOUL.md → MEMORY.md → USER.md)
+  OPENCODE_PROMPT="{file:./AGENTS.md}"
+  while IFS= read -r rel_path; do
+    OPENCODE_PROMPT="$OPENCODE_PROMPT\n{file:./${rel_path}}"
+  done <<< "$DM_AGENT_FILES"
 else
   # Without Data Machine: just AGENTS.md
   OPENCODE_PROMPT='{file:./AGENTS.md}'
@@ -1120,7 +1127,7 @@ if [ "$MULTISITE" = true ]; then
 fi
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   echo "Data Machine:"
-  echo "  Agent files: $SITE_PATH/wp-content/uploads/datamachine-files/agent/"
+  echo "  Discover:    wp datamachine agent paths --allow-root"
   echo "  Workspace:   /var/lib/datamachine/workspace/"
   echo ""
 fi
