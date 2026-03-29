@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Phase 4.5: Create Data Machine agent during setup with scaffolded SOUL.md and MEMORY.md (#15)
+- `AGENT_SLUG` environment variable to override the auto-derived agent slug
+- Agent slug shown in setup completion summary and saved to credentials file
 - `--multisite` flag for fresh installs — converts WordPress to multisite (subdirectory by default)
 - `--subdomain` flag — use with `--multisite` for subdomain-based multisite (requires wildcard DNS)
 - `--no-skills` flag — skip WordPress agent skills installation
