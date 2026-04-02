@@ -23,9 +23,10 @@ wp help datamachine <group> <command>   # Full usage, flags, and examples
 wp datamachine agent paths --allow-root # Discover your memory file paths
 ```
 
-For source-level understanding, grep the local plugin:
+For source-level understanding, grep the local codebase:
 ```bash
-grep -r "pattern" wp-content/plugins/data-machine/
+grep -r "pattern" wp-content/plugins/<plugin>/   # Plugin source
+grep -r "pattern" wp-content/themes/<theme>/      # Theme source
 ```
 
 ### Update MEMORY.md when you learn something new:
