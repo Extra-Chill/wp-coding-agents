@@ -55,7 +55,7 @@ INSTALL_CHAT=true
 CHAT_BRIDGE="kimaki"
 SHOW_HELP=false
 DRY_RUN=false
-RUN_AS_ROOT=false
+RUN_AS_ROOT=true
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 INSTALL_SKILLS=true
@@ -93,6 +93,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --root)
       RUN_AS_ROOT=true
+      shift
+      ;;
+    --non-root)
+      RUN_AS_ROOT=false
       shift
       ;;
     --dry-run)
@@ -144,7 +148,8 @@ OPTIONS:
   --no-skills        Skip WordPress agent skills installation
   --skills-only      Only run skills installation (Phase 8.5) on existing site
   --skip-ssl         Skip SSL/HTTPS configuration
-  --root             Run agent as root (default: dedicated service user)
+  --root             Run agent as root (default)
+  --non-root         Run agent as dedicated service user (opencode)
   --dry-run          Print commands without executing
   --help, -h         Show this help
 

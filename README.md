@@ -80,7 +80,8 @@ systemctl start kimaki
 | `--no-skills` | Skip WordPress agent skills |
 | `--skip-deps` | Skip apt packages |
 | `--skip-ssl` | Skip SSL/HTTPS |
-| `--root` | Run agent as root (default: dedicated service user) |
+| `--root` | Run agent as root (default) |
+| `--non-root` | Run agent as dedicated service user (`opencode`) |
 | `--dry-run` | Print commands without executing |
 
 ### Examples
@@ -138,6 +139,16 @@ These are injected into every session via `opencode.json`. The agent doesn't man
 - No persistent memory between sessions
 - No self-scheduling
 - Good for development-only setups where you just need a coding assistant
+
+## Why Root?
+
+wp-opencode defaults to running the agent as `root`. On a single-purpose agent VPS, root keeps things simple:
+
+- **Package management works.** Tools like Kimaki self-upgrade via `npm i -g`, which writes to `/usr/lib/node_modules/`. A non-root user can't do this without sudo configuration, so upgrades fail silently or require manual intervention.
+- **No permission drift.** Files created by different processes (npm, systemd, git) all share the same owner. No chown chasing.
+- **The VPS *is* the agent.** These aren't shared servers with multiple users. The agent is the sole tenant. User separation doesn't add meaningful security — the agent already has full control of the WordPress site, database, and filesystem.
+
+If you're running on a shared server or have compliance requirements for user separation, use `--non-root` to create a dedicated `opencode` service user. Just know you'll need to handle permission issues for global package operations (e.g., add sudoers rules for npm).
 
 ## Requirements
 
