@@ -953,10 +953,29 @@ if [ "$INSTALL_SKILLS" = true ]; then
     fi
   fi
 
-  # Copy Data Machine skill if DM was installed and skill exists in repo
-  if [ "$INSTALL_DATA_MACHINE" = true ] && [ -d "$SCRIPT_DIR/skills/data-machine" ]; then
-    log "Copying Data Machine skill..."
-    run_cmd cp -r "$SCRIPT_DIR/skills/data-machine" "$SKILLS_DIR/" || true
+  # Clone Data Machine skills repo if DM was installed
+  if [ "$INSTALL_DATA_MACHINE" = true ]; then
+    DM_SKILLS_REPO="https://github.com/Extra-Chill/data-machine-skills.git"
+
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $DM_SKILLS_REPO (extract skill dirs to $SKILLS_DIR)"
+    else
+      DM_SKILLS_TMP=$(mktemp -d)
+      if git clone --depth 1 "$DM_SKILLS_REPO" "$DM_SKILLS_TMP" 2>/dev/null; then
+        for skill_dir in "$DM_SKILLS_TMP"/*/; do
+          skill_name=$(basename "$skill_dir")
+          if [ -f "$skill_dir/SKILL.md" ]; then
+            cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
+            log "  Installed skill: $skill_name"
+          fi
+        done
+        rm -rf "$DM_SKILLS_TMP"
+        log "Data Machine skills installed (latest version)"
+      else
+        warn "Could not clone Data Machine skills from $DM_SKILLS_REPO"
+        rm -rf "$DM_SKILLS_TMP"
+      fi
+    fi
   fi
 
   # Note: wp-opencode-setup skill is NOT deployed to the VPS.
