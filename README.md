@@ -146,9 +146,9 @@ wp-opencode defaults to running the agent as `root`. On a single-purpose agent V
 
 - **Package management works.** Tools like Kimaki self-upgrade via `npm i -g`, which writes to `/usr/lib/node_modules/`. A non-root user can't do this without sudo configuration, so upgrades fail silently or require manual intervention.
 - **No permission drift.** Files created by different processes (npm, systemd, git) all share the same owner. No chown chasing.
-- **The VPS *is* the agent.** These aren't shared servers with multiple users. The agent is the sole tenant. User separation doesn't add meaningful security — the agent already has full control of the WordPress site, database, and filesystem.
+- **These are dedicated agent servers.** Even when multiple agents share a VPS, they share the same toolchain (Node.js, npm, OpenCode). User separation between agents doesn't add meaningful security — they already share the filesystem, database server, and package tree. Isolation happens at the WordPress and Data Machine layer (scoped agent files, permissions, memory), not at the OS user level.
 
-If you're running on a shared server or have compliance requirements for user separation, use `--non-root` to create a dedicated `opencode` service user. Just know you'll need to handle permission issues for global package operations (e.g., add sudoers rules for npm).
+If you have compliance requirements for OS-level user separation, use `--non-root` to create a dedicated `opencode` service user. Just know you'll need to handle permission issues for global package operations (e.g., add sudoers rules for npm).
 
 ## Requirements
 
