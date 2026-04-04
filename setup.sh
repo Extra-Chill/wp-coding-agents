@@ -851,6 +851,16 @@ OPENCODE_JSON="$OPENCODE_JSON\n    \"plan\": {"
 OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
 OPENCODE_JSON="$OPENCODE_JSON\n    }"
 OPENCODE_JSON="$OPENCODE_JSON\n  }"
+
+# Permission: allow Data Machine workspace as external directory
+if [ "$INSTALL_DATA_MACHINE" = true ]; then
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"/var/lib/datamachine/workspace/**\": \"allow\""
+  OPENCODE_JSON="$OPENCODE_JSON\n    }"
+  OPENCODE_JSON="$OPENCODE_JSON\n  }"
+fi
+
 OPENCODE_JSON="$OPENCODE_JSON\n}"
 
 if [ "$DRY_RUN" = true ]; then
