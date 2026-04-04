@@ -1,0 +1,12 @@
+{
+  "auto_cleanup": false,
+  "changelog_target": "docs/changelog.md",
+  "id": "wp-opencode",
+  "remote_path": "",
+  "version_targets": [
+    {
+      "file": "VERSION",
+      "pattern": "^([0-9.]+)$"
+    }
+  ]
+}
