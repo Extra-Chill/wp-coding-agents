@@ -125,6 +125,10 @@ Data Machine manages three files that define the agent:
 
 These are injected into every session via `opencode.json`. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
+## Abilities
+
+Data Machine exposes all agent functionality through WordPress core's [Abilities API](https://developer.wordpress.org/reference/functions/wp_register_ability/) (`wp_register_ability`). Every tool an agent can use is a native WordPress primitive — discoverable, permissioned, and executable via REST, CLI, or chat. No proprietary abstraction layer.
+
 ## With or Without Data Machine
 
 **With DM (default):**
