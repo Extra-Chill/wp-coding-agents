@@ -257,7 +257,6 @@ Credentials are stored in `~/.config/opencode-telegram-bot/.env` (chmod 600). Yo
 
 ## Related Projects
 
-- **[mattic-agent-kit](https://github.com/chubes4/mattic-agent-kit)** — AI agent kit for Automattic. Registers abilities via the Abilities API that consume ContextA8C for Automattic data access, powered by Data Machine for memory and automation.
 - **[wp-openclaw](https://github.com/Sarai-Chinwag/wp-openclaw)** — Same concept, uses [OpenClaw](https://github.com/openclaw/openclaw) as an all-in-one agent runtime. OpenClaw manages its own memory, skills, and channels. Better for standalone autonomous agents that need to self-manage everything. wp-opencode is the composable alternative — separate tools, each doing one thing.
 - **[Data Machine](https://github.com/Extra-Chill/data-machine)** — The memory and scheduling layer. Works with any AI agent framework, not just OpenCode.
 - **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** — Developer tools extension for Data Machine. Workspace management, GitHub integration, git operations.
