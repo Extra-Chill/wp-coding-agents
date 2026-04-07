@@ -1156,8 +1156,6 @@ if [ "$INSTALL_CHAT" = true ]; then
     </array>
     <key>WorkingDirectory</key>
     <string>$SITE_PATH</string>
-    <key>RunAtLoad</key>
-    <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
