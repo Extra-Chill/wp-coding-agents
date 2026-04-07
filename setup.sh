@@ -44,6 +44,87 @@ write_file() {
   fi
 }
 
+# Run a WP-CLI command with the correct flags for the current platform.
+# Usage: wp_cmd option get siteurl
+#        wp_cmd plugin activate data-machine
+wp_cmd() {
+  # shellcheck disable=SC2086
+  run_cmd wp "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
+}
+
+# Activate a plugin, handling multisite --url= branching.
+# Usage: activate_plugin data-machine
+activate_plugin() {
+  local slug="$1"
+  if [ "$MULTISITE" = true ]; then
+    wp_cmd plugin activate "$slug" --url="$SITE_DOMAIN" || \
+      warn "$slug may already be active"
+  else
+    wp_cmd plugin activate "$slug" || \
+      warn "$slug may already be active"
+  fi
+}
+
+# Install a WordPress plugin from a git repo.
+# Handles: clone, composer install, activate, file ownership.
+# Usage: install_plugin data-machine https://github.com/Extra-Chill/data-machine.git
+install_plugin() {
+  local slug="$1"
+  local repo_url="$2"
+  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
+
+  if [ ! -d "$plugin_dir" ] || [ "$DRY_RUN" = true ]; then
+    run_cmd git clone "$repo_url" "$plugin_dir"
+    if [ -f "$plugin_dir/composer.json" ] || [ "$DRY_RUN" = true ]; then
+      run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install \
+        --no-dev --no-interaction --working-dir="$plugin_dir" || \
+        warn "Composer failed, some $slug features may not work"
+    fi
+  fi
+
+  activate_plugin "$slug"
+  fix_ownership "$plugin_dir"
+}
+
+# Set file ownership to www-data (no-op in local mode).
+# Usage: fix_ownership /path/to/dir
+fix_ownership() {
+  if [ "$LOCAL_MODE" = false ]; then
+    run_cmd chown -R www-data:www-data "$1"
+  fi
+}
+
+# Install agent skills from a git repo.
+# Clones the repo, copies directories containing SKILL.md to the target.
+# Usage: install_skills_from_repo https://github.com/WordPress/agent-skills.git "WordPress agent skills"
+install_skills_from_repo() {
+  local repo_url="$1"
+  local label="${2:-skills}"
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $repo_url (extract skill dirs to $SKILLS_DIR)"
+    return
+  fi
+
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  if git clone --depth 1 "$repo_url" "$tmp_dir" 2>/dev/null; then
+    for skill_dir in "$tmp_dir"/*/; do
+      local skill_name
+      skill_name=$(basename "$skill_dir")
+      if [ -f "$skill_dir/SKILL.md" ]; then
+        cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
+        log "  Installed skill: $skill_name"
+      fi
+    done
+    rm -rf "$tmp_dir"
+    log "$label installed (latest version)"
+  else
+    warn "Could not clone $label from $repo_url"
+    rm -rf "$tmp_dir"
+  fi
+}
+
 # ============================================================================
 # Parse arguments
 # ============================================================================
@@ -512,54 +593,15 @@ fi
 
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   log "Phase 4: Installing Data Machine..."
-  DM_PLUGIN_DIR="$SITE_PATH/wp-content/plugins/data-machine"
+  install_plugin data-machine https://github.com/Extra-Chill/data-machine.git
 
-  if [ ! -d "$DM_PLUGIN_DIR" ] || [ "$DRY_RUN" = true ]; then
-    run_cmd git clone https://github.com/Extra-Chill/data-machine.git "$DM_PLUGIN_DIR"
-    if [ -f "$DM_PLUGIN_DIR/composer.json" ] || [ "$DRY_RUN" = true ]; then
-      run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install \
-        --no-dev --no-interaction --working-dir="$DM_PLUGIN_DIR" || \
-        warn "Composer failed, some Data Machine features may not work"
-    fi
-  fi
-
-  # Activate DM — on multisite, activate per-site (not network-wide)
   if [ "$MULTISITE" = true ]; then
-    run_cmd wp plugin activate data-machine $WP_ROOT_FLAG --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
-      warn "Data Machine may already be active"
     log "Data Machine activated on main site. Activate on subsites with:"
     log "  wp plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
-  else
-    run_cmd wp plugin activate data-machine $WP_ROOT_FLAG --path="$SITE_PATH" || \
-      warn "Data Machine may already be active"
-  fi
-  if [ "$LOCAL_MODE" = false ]; then
-    run_cmd chown -R www-data:www-data "$DM_PLUGIN_DIR"
   fi
 
-  # Install Data Machine Code (developer tools extension: workspace, GitHub, git)
-  DMC_PLUGIN_DIR="$SITE_PATH/wp-content/plugins/data-machine-code"
-
-  if [ ! -d "$DMC_PLUGIN_DIR" ] || [ "$DRY_RUN" = true ]; then
-    log "Installing Data Machine Code (developer tools)..."
-    run_cmd git clone https://github.com/Extra-Chill/data-machine-code.git "$DMC_PLUGIN_DIR"
-    if [ -f "$DMC_PLUGIN_DIR/composer.json" ] || [ "$DRY_RUN" = true ]; then
-      run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install \
-        --no-dev --no-interaction --working-dir="$DMC_PLUGIN_DIR" || \
-        warn "Composer failed, some Data Machine Code features may not work"
-    fi
-  fi
-
-  if [ "$MULTISITE" = true ]; then
-    run_cmd wp plugin activate data-machine-code $WP_ROOT_FLAG --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
-      warn "Data Machine Code may already be active"
-  else
-    run_cmd wp plugin activate data-machine-code $WP_ROOT_FLAG --path="$SITE_PATH" || \
-      warn "Data Machine Code may already be active"
-  fi
-  if [ "$LOCAL_MODE" = false ]; then
-    run_cmd chown -R www-data:www-data "$DMC_PLUGIN_DIR"
-  fi
+  log "Installing Data Machine Code (developer tools)..."
+  install_plugin data-machine-code https://github.com/Extra-Chill/data-machine-code.git
 else
   log "Phase 4: Skipping Data Machine (--no-data-machine)"
 fi
@@ -585,17 +627,18 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     # Get site title for the agent display name
+    # shellcheck disable=SC2086
     AGENT_NAME=$(wp option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
 
     # Check if agent already exists (idempotent for re-runs)
+    # shellcheck disable=SC2086
     EXISTING_AGENT=$(wp datamachine agents show "$AGENT_SLUG" --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "")
 
     if [ -z "$EXISTING_AGENT" ]; then
       log "Creating agent: $AGENT_SLUG ($AGENT_NAME)"
-      run_cmd wp datamachine agents create "$AGENT_SLUG" \
+      wp_cmd datamachine agents create "$AGENT_SLUG" \
         --name="$AGENT_NAME" \
-        --owner=1 \
-        $WP_ROOT_FLAG --path="$SITE_PATH"
+        --owner=1
 
       # Scaffold SOUL.md — basic identity template
       log "Scaffolding SOUL.md..."
@@ -618,6 +661,7 @@ Be genuinely helpful. Skip filler. Be resourceful — read the file, check the c
 ## Context
 I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent memory, scheduling, and AI tools."
 
+      # shellcheck disable=SC2086
       echo "$SOUL_CONTENT" | wp datamachine agent files write SOUL.md \
         --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
@@ -628,6 +672,7 @@ I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent me
 ## Operational Notes
 - Agent created during wp-opencode setup on $(date +%Y-%m-%d)"
 
+      # shellcheck disable=SC2086
       echo "$MEMORY_CONTENT" | wp datamachine agent files write MEMORY.md \
         --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
@@ -1012,53 +1057,10 @@ if [ "$INSTALL_SKILLS" = true ]; then
   log "Phase 8.5: Installing agent skills..."
   run_cmd mkdir -p "$SKILLS_DIR"
 
-  # Clone WordPress agent skills dynamically (always latest)
-  WP_SKILLS_REPO="https://github.com/WordPress/agent-skills.git"
+  install_skills_from_repo "https://github.com/WordPress/agent-skills.git" "WordPress agent skills"
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $WP_SKILLS_REPO (extract skill dirs to $SKILLS_DIR)"
-  else
-    WP_SKILLS_TMP=$(mktemp -d)
-    if git clone --depth 1 "$WP_SKILLS_REPO" "$WP_SKILLS_TMP" 2>/dev/null; then
-      for skill_dir in "$WP_SKILLS_TMP"/*/; do
-        skill_name=$(basename "$skill_dir")
-        if [ -f "$skill_dir/SKILL.md" ]; then
-          cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
-          log "  Installed skill: $skill_name"
-        fi
-      done
-      rm -rf "$WP_SKILLS_TMP"
-      log "WordPress agent skills installed (latest version)"
-    else
-      warn "Could not clone WordPress agent skills from $WP_SKILLS_REPO"
-      warn "Install later: git clone $WP_SKILLS_REPO && copy skill dirs to $SKILLS_DIR/"
-      rm -rf "$WP_SKILLS_TMP"
-    fi
-  fi
-
-  # Clone Data Machine skills repo if DM was installed
   if [ "$INSTALL_DATA_MACHINE" = true ]; then
-    DM_SKILLS_REPO="https://github.com/Extra-Chill/data-machine-skills.git"
-
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $DM_SKILLS_REPO (extract skill dirs to $SKILLS_DIR)"
-    else
-      DM_SKILLS_TMP=$(mktemp -d)
-      if git clone --depth 1 "$DM_SKILLS_REPO" "$DM_SKILLS_TMP" 2>/dev/null; then
-        for skill_dir in "$DM_SKILLS_TMP"/*/; do
-          skill_name=$(basename "$skill_dir")
-          if [ -f "$skill_dir/SKILL.md" ]; then
-            cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
-            log "  Installed skill: $skill_name"
-          fi
-        done
-        rm -rf "$DM_SKILLS_TMP"
-        log "Data Machine skills installed (latest version)"
-      else
-        warn "Could not clone Data Machine skills from $DM_SKILLS_REPO"
-        rm -rf "$DM_SKILLS_TMP"
-      fi
-    fi
+    install_skills_from_repo "https://github.com/Extra-Chill/data-machine-skills.git" "Data Machine skills"
   fi
 
   # Note: wp-opencode-setup skill is NOT deployed to the VPS.
