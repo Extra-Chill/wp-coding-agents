@@ -948,12 +948,20 @@ if [ -n "$OPENCODE_SMALL_MODEL" ]; then
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
 fi
 
-# Context filter plugin — only when DM handles memory/scheduling
+# OpenCode plugins — only when DM handles memory/scheduling via Kimaki
 if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
-  OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": [\"/opt/kimaki-config/plugins/dm-context-filter.ts\"]"
+  # dm-context-filter: strips redundant Kimaki context when DM manages it
+  # dm-agent-sync: dynamically registers all DM agents in the agent switcher
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": ["
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"/opt/kimaki-config/plugins/dm-context-filter.ts\","
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"/opt/kimaki-config/plugins/dm-agent-sync.ts\""
+  OPENCODE_JSON="$OPENCODE_JSON\n  ]"
 fi
 
-# Agent prompt config — always include so DM memory files are injected
+# Agent prompt config — always include so DM memory files are injected.
+# The dm-agent-sync plugin will discover additional agents at runtime and
+# register them in the agent switcher. This static config provides the
+# initial/default agent for build and plan modes.
 OPENCODE_JSON="$OPENCODE_JSON,\n  \"agent\": {"
 OPENCODE_JSON="$OPENCODE_JSON\n    \"build\": {"
 OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
