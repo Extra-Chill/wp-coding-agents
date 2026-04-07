@@ -2,15 +2,15 @@
 
 **A lean, composable AI agent on WordPress.**
 
-wp-opencode puts an AI agent on a VPS with WordPress as its operating layer. Each component does one thing: [OpenCode](https://opencode.ai) handles code, [Data Machine](https://github.com/Extra-Chill/data-machine) handles memory and scheduling, and a pluggable chat bridge (e.g., [Kimaki](https://kimaki.xyz)) handles communication. The agent's context window stays clean — no overhead for systems it's not using.
+wp-opencode puts an AI agent on a VPS with WordPress as its operating layer. Each component does one thing: [OpenCode](https://opencode.ai) handles code, [Data Machine](https://github.com/Extra-Chill/data-machine) handles memory and scheduling, and a pluggable chat bridge ([Kimaki](https://kimaki.xyz) for Discord, [opencode-telegram](https://github.com/grinev/opencode-telegram-bot) for Telegram, or none) handles communication. The agent's context window stays clean — no overhead for systems it's not using.
 
 ## How It Works
 
 ```
- You (Discord/chat)
+ You (Discord / Telegram / SSH)
    │
    ▼
- Kimaki (chat bridge)
+ Chat bridge (Kimaki, Telegram, or direct)
    │
    ▼
  OpenCode (coding agent)
@@ -64,7 +64,7 @@ ssh root@your-server-ip
 git clone https://github.com/Extra-Chill/wp-opencode.git
 cd wp-opencode
 SITE_DOMAIN=yourdomain.com ./setup.sh
-systemctl start kimaki
+systemctl start kimaki  # or: systemctl start opencode-serve opencode-telegram
 ```
 
 ## Setup Options
@@ -74,7 +74,7 @@ systemctl start kimaki
 | `--existing` | Add to existing WordPress (skip WP install) |
 | `--no-data-machine` | Skip Data Machine (no persistent memory/scheduling) |
 | `--no-chat` | Skip chat bridge |
-| `--chat <bridge>` | Chat bridge to install (default: kimaki) |
+| `--chat <bridge>` | Chat bridge to install: `kimaki` (Discord, default) or `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
 | `--subdomain` | Subdomain multisite (use with `--multisite`, requires wildcard DNS) |
 | `--no-skills` | Skip WordPress agent skills |
@@ -89,6 +89,9 @@ systemctl start kimaki
 ```bash
 # Full setup: WordPress + DM + Discord
 SITE_DOMAIN=example.com ./setup.sh
+
+# Telegram instead of Discord
+SITE_DOMAIN=example.com TELEGRAM_BOT_TOKEN=xxx TELEGRAM_ALLOWED_USER_ID=123 ./setup.sh --chat telegram
 
 # No chat bridge (SSH-only access)
 SITE_DOMAIN=example.com ./setup.sh --no-chat
@@ -110,7 +113,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **WordPress** | Site platform, WP-CLI access | No |
 | **[OpenCode](https://opencode.ai)** | AI coding agent runtime | No |
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | `--no-data-machine` |
-| **[Kimaki](https://kimaki.xyz)** | Discord chat bridge | `--no-chat` |
+| **[Kimaki](https://kimaki.xyz)** or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord or Telegram) | `--no-chat` |
 | **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
 
 ## Memory System
@@ -154,14 +157,36 @@ wp-opencode defaults to running the agent as `root`. On a single-purpose agent V
 
 If you have compliance requirements for OS-level user separation, use `--non-root` to create a dedicated `opencode` service user. Just know you'll need to handle permission issues for global package operations (e.g., add sudoers rules for npm).
 
-## Kimaki Configuration
+## Chat Bridge Configuration
 
-When Kimaki is the chat bridge (default), wp-opencode installs post-upgrade hooks that:
+### Kimaki (Discord)
+
+The default chat bridge. wp-opencode installs post-upgrade hooks that:
 
 - **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
 - **Filter redundant context** — When Data Machine is installed, a plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
 
 To customize the kill list, edit `kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
+
+### Telegram
+
+Use `--chat telegram` to install [opencode-telegram](https://github.com/grinev/opencode-telegram-bot) instead. This sets up two systemd services: `opencode-serve` (the OpenCode HTTP server) and `opencode-telegram` (the bot that connects to it).
+
+Required environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_ALLOWED_USER_ID` | Your numeric Telegram user ID (get from [@userinfobot](https://t.me/userinfobot)) |
+
+Optional:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENCODE_MODEL_PROVIDER` | `opencode` | Model provider for the bot |
+| `OPENCODE_MODEL_ID` | `big-pickle` | Model ID for the bot |
+
+Credentials are stored in `~/.config/opencode-telegram-bot/.env` (chmod 600). You can set them as environment variables during setup or edit the file after install.
 
 ## Requirements
 
