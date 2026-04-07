@@ -1,12 +1,13 @@
 #!/bin/bash
 #
 # wp-opencode setup script
-# Bootstrap WordPress + Data Machine + OpenCode on a VPS
+# Bootstrap WordPress + Data Machine + OpenCode on a VPS or local machine
 # with a pluggable chat interface layer.
 #
 # Usage:
-#   Fresh install:    SITE_DOMAIN=example.com ./setup.sh
+#   Fresh VPS:        SITE_DOMAIN=example.com ./setup.sh
 #   Existing WP:      EXISTING_WP=/var/www/mysite ./setup.sh --existing
+#   Local (macOS):    EXISTING_WP=/path/to/wordpress ./setup.sh --local
 #   Without Discord:  ./setup.sh --no-chat
 #   Without DM:       ./setup.sh --no-data-machine
 #
@@ -48,6 +49,7 @@ write_file() {
 # ============================================================================
 
 MODE="fresh"
+LOCAL_MODE=false
 SKIP_DEPS=false
 SKIP_SSL=false
 INSTALL_DATA_MACHINE=true
@@ -69,6 +71,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --existing)
       MODE="existing"
+      shift
+      ;;
+    --local)
+      LOCAL_MODE=true
+      MODE="existing"
+      SKIP_DEPS=true
+      SKIP_SSL=true
+      RUN_AS_ROOT=false
       shift
       ;;
     --skip-deps)
@@ -129,15 +139,19 @@ if [ "$SHOW_HELP" = true ]; then
   cat << 'HELP'
 wp-opencode setup script
 
-Bootstrap WordPress + Data Machine + OpenCode on a fresh VPS,
+Bootstrap WordPress + Data Machine + OpenCode on a VPS or local machine,
 with a pluggable chat bridge for talking to your agent.
 
 USAGE:
-  Fresh install:     SITE_DOMAIN=example.com ./setup.sh
+  Fresh VPS:          SITE_DOMAIN=example.com ./setup.sh
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
+  Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
 
 OPTIONS:
   --existing         Add OpenCode to existing WordPress (skip WP install)
+  --local            Local machine mode (skip infrastructure: no apt, nginx,
+                     systemd, SSL, service users). Works with any local
+                     WordPress install (Studio, MAMP, manual, etc.)
   --no-data-machine  Skip Data Machine plugin (no persistent memory/scheduling)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki)
@@ -182,34 +196,61 @@ HELP
   exit 0
 fi
 
-# Check root
-if [ "$DRY_RUN" = false ] && [ "$EUID" -ne 0 ]; then
-  error "Please run as root (sudo ./setup.sh)"
+# Check root (not required in local mode)
+if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
+  error "Please run as root (sudo ./setup.sh). Use --local for local installs."
 fi
 
-# Detect OS
-if [ -f /etc/os-release ]; then
-  . /etc/os-release
-  OS=$ID
+# Detect OS and platform
+PLATFORM="linux"
+case "$(uname -s)" in
+  Darwin) PLATFORM="mac"; OS="macos" ;;
+  Linux)
+    if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      OS=$ID
+    else
+      if [ "$DRY_RUN" = true ]; then
+        OS="ubuntu"
+        warn "Cannot detect OS (dry-run mode), assuming Ubuntu"
+      else
+        error "Cannot detect OS. This script supports Ubuntu/Debian."
+      fi
+    fi
+    ;;
+  *) error "Unsupported OS: $(uname -s)" ;;
+esac
+
+# Validate Linux distro (only matters for fresh/VPS installs)
+if [ "$PLATFORM" = "linux" ] && [ "$LOCAL_MODE" = false ]; then
+  if [[ "$OS" != "ubuntu" && "$OS" != "debian" ]]; then
+    if [ "$DRY_RUN" = true ]; then
+      warn "Unsupported OS: $OS (continuing in dry-run mode)"
+      OS="ubuntu"
+    else
+      error "VPS mode supports Ubuntu/Debian only. Detected: $OS. Use --local for local installs."
+    fi
+  fi
+fi
+
+# Auto-enable local mode on macOS
+if [ "$PLATFORM" = "mac" ] && [ "$LOCAL_MODE" = false ]; then
+  LOCAL_MODE=true
+  MODE="existing"
+  SKIP_DEPS=true
+  SKIP_SSL=true
+  RUN_AS_ROOT=false
+  log "macOS detected — enabling local mode automatically"
+fi
+
+# WP-CLI flag: --allow-root on VPS, omit on local
+if [ "$LOCAL_MODE" = true ]; then
+  WP_ROOT_FLAG=""
 else
-  if [ "$DRY_RUN" = true ]; then
-    OS="ubuntu"
-    warn "Cannot detect OS (dry-run mode), assuming Ubuntu"
-  else
-    error "Cannot detect OS. This script supports Ubuntu/Debian."
-  fi
+  WP_ROOT_FLAG="--allow-root"
 fi
 
-if [[ "$OS" != "ubuntu" && "$OS" != "debian" ]]; then
-  if [ "$DRY_RUN" = true ]; then
-    warn "Unsupported OS: $OS (continuing in dry-run mode)"
-    OS="ubuntu"
-  else
-    error "This script supports Ubuntu/Debian only. Detected: $OS"
-  fi
-fi
-
-log "Detected OS: $OS"
+log "Detected OS: $OS (platform: $PLATFORM, local: $LOCAL_MODE)"
 log "Mode: $MODE"
 log "Chat bridge: $CHAT_BRIDGE"
 log "Data Machine: $INSTALL_DATA_MACHINE"
@@ -235,11 +276,14 @@ detect_php_version() {
     return
   fi
 
-  apt update -qq 2>/dev/null
-  PHP_VERSION=$(apt-cache search '^php[0-9]+\.[0-9]+-fpm$' 2>/dev/null | \
-    sed -E 's/^php([0-9]+\.[0-9]+)-fpm.*/\1/' | \
-    sort -t. -k1,1nr -k2,2nr | \
-    head -1)
+  # apt-based detection only on Linux
+  if [ "$PLATFORM" != "mac" ]; then
+    apt update -qq 2>/dev/null
+    PHP_VERSION=$(apt-cache search '^php[0-9]+\.[0-9]+-fpm$' 2>/dev/null | \
+      sed -E 's/^php([0-9]+\.[0-9]+)-fpm.*/\1/' | \
+      sort -t. -k1,1nr -k2,2nr | \
+      head -1)
+  fi
 
   if [ -n "$PHP_VERSION" ]; then
     log "Best available PHP version: $PHP_VERSION"
@@ -266,16 +310,16 @@ if [ "$MODE" = "existing" ]; then
   if [ "$DRY_RUN" = true ]; then
     SITE_DOMAIN="${SITE_DOMAIN:-$(basename "$SITE_PATH")}"
   else
-    SITE_DOMAIN=$(cd "$SITE_PATH" && wp option get siteurl --allow-root 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
+    SITE_DOMAIN=$(cd "$SITE_PATH" && wp option get siteurl $WP_ROOT_FLAG 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
   fi
   log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
 
   # Detect if existing WP is multisite
   if [ "$DRY_RUN" = false ]; then
-    IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && wp eval 'echo is_multisite() ? "yes" : "no";' --allow-root 2>/dev/null || echo "no")
+    IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && wp eval 'echo is_multisite() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
     if [ "$IS_EXISTING_MULTISITE" = "yes" ]; then
       MULTISITE=true
-      IS_SUBDOMAIN=$(cd "$SITE_PATH" && wp eval 'echo is_subdomain_install() ? "yes" : "no";' --allow-root 2>/dev/null || echo "no")
+      IS_SUBDOMAIN=$(cd "$SITE_PATH" && wp eval 'echo is_subdomain_install() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
       if [ "$IS_SUBDOMAIN" = "yes" ]; then
         MULTISITE_TYPE="subdomain"
       fi
@@ -455,7 +499,7 @@ fi
 # Create the service user early so subsequent phases can chown to it.
 # Phase 6 handles permissions and is idempotent (detects existing user).
 
-if [ "$RUN_AS_ROOT" = false ]; then
+if [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = false ]; then
   if ! id -u "$SERVICE_USER" &>/dev/null || [ "$DRY_RUN" = true ]; then
     log "Phase 3.9: Creating service user '$SERVICE_USER'..."
     run_cmd useradd -m -s /bin/bash -G www-data "$SERVICE_USER"
@@ -481,15 +525,17 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
 
   # Activate DM — on multisite, activate per-site (not network-wide)
   if [ "$MULTISITE" = true ]; then
-    run_cmd wp plugin activate data-machine --allow-root --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
+    run_cmd wp plugin activate data-machine $WP_ROOT_FLAG --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
       warn "Data Machine may already be active"
     log "Data Machine activated on main site. Activate on subsites with:"
-    log "  wp plugin activate data-machine --url=subsite.$SITE_DOMAIN --allow-root"
+    log "  wp plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
   else
-    run_cmd wp plugin activate data-machine --allow-root --path="$SITE_PATH" || \
+    run_cmd wp plugin activate data-machine $WP_ROOT_FLAG --path="$SITE_PATH" || \
       warn "Data Machine may already be active"
   fi
-  run_cmd chown -R www-data:www-data "$DM_PLUGIN_DIR"
+  if [ "$LOCAL_MODE" = false ]; then
+    run_cmd chown -R www-data:www-data "$DM_PLUGIN_DIR"
+  fi
 
   # Install Data Machine Code (developer tools extension: workspace, GitHub, git)
   DMC_PLUGIN_DIR="$SITE_PATH/wp-content/plugins/data-machine-code"
@@ -505,13 +551,15 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   fi
 
   if [ "$MULTISITE" = true ]; then
-    run_cmd wp plugin activate data-machine-code --allow-root --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
+    run_cmd wp plugin activate data-machine-code $WP_ROOT_FLAG --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
       warn "Data Machine Code may already be active"
   else
-    run_cmd wp plugin activate data-machine-code --allow-root --path="$SITE_PATH" || \
+    run_cmd wp plugin activate data-machine-code $WP_ROOT_FLAG --path="$SITE_PATH" || \
       warn "Data Machine Code may already be active"
   fi
-  run_cmd chown -R www-data:www-data "$DMC_PLUGIN_DIR"
+  if [ "$LOCAL_MODE" = false ]; then
+    run_cmd chown -R www-data:www-data "$DMC_PLUGIN_DIR"
+  fi
 else
   log "Phase 4: Skipping Data Machine (--no-data-machine)"
 fi
@@ -537,17 +585,17 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     # Get site title for the agent display name
-    AGENT_NAME=$(wp option get blogname --allow-root --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
+    AGENT_NAME=$(wp option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
 
     # Check if agent already exists (idempotent for re-runs)
-    EXISTING_AGENT=$(wp datamachine agents show "$AGENT_SLUG" --format=json --allow-root --path="$SITE_PATH" 2>/dev/null || echo "")
+    EXISTING_AGENT=$(wp datamachine agents show "$AGENT_SLUG" --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "")
 
     if [ -z "$EXISTING_AGENT" ]; then
       log "Creating agent: $AGENT_SLUG ($AGENT_NAME)"
       run_cmd wp datamachine agents create "$AGENT_SLUG" \
         --name="$AGENT_NAME" \
         --owner=1 \
-        --allow-root --path="$SITE_PATH"
+        $WP_ROOT_FLAG --path="$SITE_PATH"
 
       # Scaffold SOUL.md — basic identity template
       log "Scaffolding SOUL.md..."
@@ -571,7 +619,7 @@ Be genuinely helpful. Skip filler. Be resourceful — read the file, check the c
 I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent memory, scheduling, and AI tools."
 
       echo "$SOUL_CONTENT" | wp datamachine agent files write SOUL.md \
-        --agent="$AGENT_SLUG" --allow-root --path="$SITE_PATH"
+        --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       # Scaffold MEMORY.md — empty starter
       log "Scaffolding MEMORY.md..."
@@ -581,7 +629,7 @@ I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent me
 - Agent created during wp-opencode setup on $(date +%Y-%m-%d)"
 
       echo "$MEMORY_CONTENT" | wp datamachine agent files write MEMORY.md \
-        --agent="$AGENT_SLUG" --allow-root --path="$SITE_PATH"
+        --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       log "Agent '$AGENT_SLUG' created with SOUL.md and MEMORY.md"
     else
@@ -762,7 +810,9 @@ fi
 # ============================================================================
 # User was created in Phase 3.9. This phase handles file permissions.
 
-if [ "$RUN_AS_ROOT" = false ]; then
+if [ "$LOCAL_MODE" = true ]; then
+  log "Phase 6: Local mode — skipping service user setup"
+elif [ "$RUN_AS_ROOT" = false ]; then
   log "Phase 6: Configuring service user permissions..."
 
   if ! id -u "$SERVICE_USER" &>/dev/null || [ "$DRY_RUN" = true ]; then
@@ -810,7 +860,7 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
-    DM_PATHS_JSON=$(wp datamachine agent paths --format=json $AGENT_FLAG --allow-root --path="$SITE_PATH" 2>/dev/null)
+    DM_PATHS_JSON=$(wp datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
     if [ -z "$DM_PATHS_JSON" ]; then
       error "'wp datamachine agent paths' returned empty — is Data Machine active and agent created?"
     fi
@@ -912,7 +962,7 @@ else
 
 ## WordPress Environment
 Site root: \`$SITE_PATH\`
-WP-CLI: \`wp --allow-root --path=$SITE_PATH\`
+WP-CLI: \`wp $WP_ROOT_FLAG --path=$SITE_PATH\`
 
 ## Safety
 - Don't leak private data
@@ -1064,28 +1114,34 @@ if [ "$INSTALL_CHAT" = true ]; then
         log "Kimaki already installed: $(kimaki --version 2>/dev/null | head -1)"
       fi
 
-      # Copy Kimaki config (post-upgrade hooks, context filter plugin)
-      KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-      run_cmd cp -r "$SCRIPT_DIR/kimaki" "$KIMAKI_CONFIG_DIR"
-      run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
-
-      # Build environment lines for systemd
-      ENV_LINES="Environment=HOME=$SERVICE_HOME"
-      ENV_LINES="$ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
-      ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
-
-      if [ -n "$KIMAKI_BOT_TOKEN" ]; then
-        ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
-      fi
-
-      # Find kimaki binary
-      if [ "$DRY_RUN" = true ]; then
-        KIMAKI_BIN="/usr/bin/kimaki"
+      if [ "$LOCAL_MODE" = true ]; then
+        # Local mode: install Kimaki but skip systemd service.
+        # User runs kimaki manually or via tmux/launchd.
+        log "Local mode: Kimaki installed. Run manually with:"
+        log "  cd $SITE_PATH && kimaki"
       else
-        KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
-      fi
+        # VPS mode: copy config and create systemd service
+        KIMAKI_CONFIG_DIR="/opt/kimaki-config"
+        run_cmd cp -r "$SCRIPT_DIR/kimaki" "$KIMAKI_CONFIG_DIR"
+        run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
 
-      SYSTEMD_CONFIG="[Unit]
+        # Build environment lines for systemd
+        ENV_LINES="Environment=HOME=$SERVICE_HOME"
+        ENV_LINES="$ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
+        ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
+
+        if [ -n "$KIMAKI_BOT_TOKEN" ]; then
+          ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
+        fi
+
+        # Find kimaki binary
+        if [ "$DRY_RUN" = true ]; then
+          KIMAKI_BIN="/usr/bin/kimaki"
+        else
+          KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
+        fi
+
+        SYSTEMD_CONFIG="[Unit]
 Description=Kimaki Discord Bot (wp-opencode)
 After=network.target
 
@@ -1102,9 +1158,10 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
 
-      write_file "/etc/systemd/system/kimaki.service" "$SYSTEMD_CONFIG"
-      run_cmd systemctl daemon-reload
-      run_cmd systemctl enable kimaki
+        write_file "/etc/systemd/system/kimaki.service" "$SYSTEMD_CONFIG"
+        run_cmd systemctl daemon-reload
+        run_cmd systemctl enable kimaki
+      fi
       ;;
 
     telegram)
@@ -1254,6 +1311,9 @@ else
 fi
 echo "=============================================="
 echo ""
+if [ "$LOCAL_MODE" = true ]; then
+  echo "Platform:   Local ($OS)"
+fi
 echo "WordPress:"
 echo "  URL:      https://$SITE_DOMAIN"
 echo "  Admin:    https://$SITE_DOMAIN/wp-admin"
@@ -1277,13 +1337,15 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   if [ -n "$AGENT_SLUG" ]; then
     echo "  Agent:       $AGENT_SLUG"
   fi
-  echo "  Discover:    wp datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} --allow-root"
+  echo "  Discover:    wp datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
   echo "  Workspace:   /var/lib/datamachine/workspace/ (created on first use)"
   echo ""
 fi
 echo "Agent:"
-if [ "$RUN_AS_ROOT" = true ]; then
+if [ "$LOCAL_MODE" = true ]; then
+  echo "  User:     $(whoami) (local)"
+elif [ "$RUN_AS_ROOT" = true ]; then
   echo "  User:     root"
 else
   echo "  User:     $SERVICE_USER (non-root)"
@@ -1298,8 +1360,9 @@ else
 fi
 echo ""
 
-# Save credentials
-CREDENTIALS_CONTENT="# wp-opencode credentials (keep this secure!)
+# Save credentials (VPS only — local installs don't generate credentials)
+if [ "$LOCAL_MODE" = false ]; then
+  CREDENTIALS_CONTENT="# wp-opencode credentials (keep this secure!)
 # Generated: $(date)
 
 SITE_DOMAIN=$SITE_DOMAIN
@@ -1316,16 +1379,34 @@ MULTISITE_TYPE=$MULTISITE_TYPE
 SERVICE_USER=$SERVICE_USER
 CHAT_BRIDGE=$CHAT_BRIDGE"
 
-CREDENTIALS_FILE="$SERVICE_HOME/.wp-opencode-credentials"
-write_file "$CREDENTIALS_FILE" "$CREDENTIALS_CONTENT"
-run_cmd chmod 600 "$CREDENTIALS_FILE"
-log "Credentials saved to $CREDENTIALS_FILE"
+  CREDENTIALS_FILE="$SERVICE_HOME/.wp-opencode-credentials"
+  write_file "$CREDENTIALS_FILE" "$CREDENTIALS_CONTENT"
+  run_cmd chmod 600 "$CREDENTIALS_FILE"
+  log "Credentials saved to $CREDENTIALS_FILE"
+fi
 
 echo "=============================================="
 echo "Next steps"
 echo "=============================================="
 echo ""
-if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
+if [ "$LOCAL_MODE" = true ]; then
+  # Local mode next steps
+  if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
+    echo "  Start your agent:"
+    echo "    cd $SITE_PATH && kimaki"
+    echo ""
+  else
+    echo "  Start your agent:"
+    echo "    cd $SITE_PATH && opencode"
+    echo ""
+  fi
+  if [ "$INSTALL_DATA_MACHINE" = true ]; then
+    echo "  Configure Data Machine:"
+    echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
+    echo "    - Or via WP-CLI: wp datamachine settings --path=$SITE_PATH"
+    echo ""
+  fi
+elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
   if [ -n "$KIMAKI_BOT_TOKEN" ]; then
     echo "  Bot token configured via KIMAKI_BOT_TOKEN."
     echo "  Start the agent:  systemctl start kimaki"
@@ -1367,7 +1448,7 @@ else
   echo "    cd $SITE_PATH && opencode"
 fi
 echo ""
-if [ "$INSTALL_DATA_MACHINE" = true ]; then
+if [ "$LOCAL_MODE" = false ] && [ "$INSTALL_DATA_MACHINE" = true ]; then
   echo "  Configure Data Machine:"
   echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
   echo "    - Or via WP-CLI: wp datamachine settings --allow-root"

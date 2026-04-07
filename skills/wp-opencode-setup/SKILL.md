@@ -1,14 +1,14 @@
 ---
 name: wp-opencode-setup
-description: "Install wp-opencode on a VPS. Use this skill from your LOCAL machine to deploy a self-contained WordPress + OpenCode environment on a remote server."
-compatibility: "Requires SSH access to target VPS. Ubuntu/Debian recommended. The LOCAL agent needs bash and SSH."
+description: "Install wp-opencode on a VPS or local machine. Use this skill from your LOCAL machine to deploy a self-contained WordPress + OpenCode environment on a remote server, or to set up a local agent on your own machine."
+compatibility: "For VPS: requires SSH access, Ubuntu/Debian recommended. For local: requires an existing WordPress install (WordPress Studio, MAMP, manual, etc.) and Node.js."
 ---
 
 # WP-OpenCode Setup Skill
 
-**Purpose:** Help a user install wp-opencode on a remote VPS from their local machine.
+**Purpose:** Help a user install wp-opencode on a remote VPS or their local machine.
 
-This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with installation. Once OpenCode is running on the VPS with a chat bridge (e.g., Kimaki for Discord), this skill is no longer needed — the VPS agent takes over.
+This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with installation. Once OpenCode is running on the VPS with a chat bridge (e.g., Kimaki for Discord), this skill is no longer needed — the VPS agent takes over. For local installs, the agent runs directly on the user's machine.
 
 ---
 
@@ -18,11 +18,12 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 ### Question 1: Installation Type
 
-> "Are you setting up a **fresh WordPress site**, or do you have an **existing WordPress site** you want to add OpenCode to?"
+> "Are you setting up a **fresh WordPress site on a VPS**, do you have an **existing WordPress site**, or do you want to run **locally on your own machine**?"
 
 **Options:**
-- **Fresh install** — New VPS, new WordPress site
-- **Existing WordPress** — Site already running, just add OpenCode
+- **Fresh VPS install** — New VPS, new WordPress site
+- **Existing WordPress (VPS)** — Site already running on a server, just add OpenCode
+- **Local install** — Use an existing WordPress on your own machine (WordPress Studio, MAMP, etc.)
 - **Migration** — Site exists elsewhere, moving to this VPS
 
 ### Question 2: Autonomous Operation
@@ -39,18 +40,24 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 > - **Discord (via Kimaki)** — Default. Your agent gets a Discord bot.
 > - **No chat bridge** — Run OpenCode manually via SSH when needed."
 
-### Question 4: Server Details
+### Question 4: Server/Local Details
+
+**For VPS installs:**
 
 > "I'll need some details about your server:
 > 1. What's the **server IP address**?
 > 2. Do you have **SSH access**? (key or password)
 > 3. What **domain** will this site use?"
 
+**For local installs:**
+
+> "Where is WordPress installed on your machine? (e.g., `~/Studio/my-wordpress-website`, `/Applications/MAMP/htdocs/wordpress`)"
+
 ### Question 5: For Existing WordPress
 
-If they chose existing WordPress:
+If they chose existing WordPress (VPS or local):
 
-> "Where is WordPress installed on the server? (e.g., `/var/www/mysite`)"
+> "Where is WordPress installed? (e.g., `/var/www/mysite` or `~/Studio/my-site`)"
 
 ---
 
@@ -60,10 +67,13 @@ Based on their answers, construct the appropriate command:
 
 | Scenario | Command |
 |----------|---------|
-| Fresh + DM + Discord | `SITE_DOMAIN=example.com ./setup.sh` |
-| Fresh + DM, no Discord | `SITE_DOMAIN=example.com ./setup.sh --no-chat` |
-| Fresh, no DM | `SITE_DOMAIN=example.com ./setup.sh --no-data-machine` |
-| Existing + DM | `EXISTING_WP=/var/www/mysite ./setup.sh --existing` |
+| Fresh VPS + DM + Discord | `SITE_DOMAIN=example.com ./setup.sh` |
+| Fresh VPS + DM, no Discord | `SITE_DOMAIN=example.com ./setup.sh --no-chat` |
+| Fresh VPS, no DM | `SITE_DOMAIN=example.com ./setup.sh --no-data-machine` |
+| Existing VPS + DM | `EXISTING_WP=/var/www/mysite ./setup.sh --existing` |
+| **Local + DM + Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
+| **Local + DM, no Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat` |
+| **Local, no DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-data-machine` |
 | Multisite | `SITE_DOMAIN=example.com ./setup.sh --multisite` |
 | Subdomain multisite | `SITE_DOMAIN=example.com ./setup.sh --multisite --subdomain` |
 
@@ -92,7 +102,19 @@ Only continue after explicit confirmation.
 
 ---
 
-## Run via SSH
+## Run the Setup
+
+### Local Install
+
+Run directly on your machine — no SSH needed:
+
+```bash
+git clone https://github.com/Extra-Chill/wp-opencode.git
+cd wp-opencode
+<constructed command from above>
+```
+
+### VPS Install via SSH
 
 ```bash
 ssh root@<server-ip>
@@ -151,8 +173,10 @@ Use when the user says things like:
 - "Help me install wp-opencode on my server"
 - "Set up OpenCode on this VPS"
 - "Add OpenCode to my existing WordPress site"
+- "Set up a local AI agent on my machine"
+- "Install wp-opencode with WordPress Studio"
 
-**Do NOT use** for ongoing WordPress management — that's the VPS agent's job after installation.
+**Do NOT use** for ongoing WordPress management — that's the agent's job after installation.
 
 ---
 
