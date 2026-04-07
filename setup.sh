@@ -428,14 +428,17 @@ if [ "$LOCAL_MODE" = true ]; then
   SERVICE_USER="$(whoami)"
   SERVICE_HOME="$HOME"
   KIMAKI_DATA_DIR="$HOME/.kimaki"
+  DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-$HOME/.datamachine/workspace}"
 elif [ "$RUN_AS_ROOT" = true ]; then
   SERVICE_USER="root"
   SERVICE_HOME="/root"
   KIMAKI_DATA_DIR="/root/.kimaki"
+  DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
 else
   SERVICE_USER="opencode"
   SERVICE_HOME="/home/opencode"
   KIMAKI_DATA_DIR="/home/opencode/.kimaki"
+  DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -976,12 +979,12 @@ OPENCODE_JSON="$OPENCODE_JSON\n    }"
 OPENCODE_JSON="$OPENCODE_JSON\n  }"
 
 # Permission: allow Data Machine Code workspace as external directory.
-# data-machine-code creates /var/lib/datamachine/workspace/ lazily on first use.
+# data-machine-code creates the workspace directory lazily on first use.
 # OpenCode still needs an allowlist entry to access paths outside the project root.
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
   OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"/var/lib/datamachine/workspace/**\": \"allow\""
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
   OPENCODE_JSON="$OPENCODE_JSON\n    }"
   OPENCODE_JSON="$OPENCODE_JSON\n  }"
 fi
@@ -1411,7 +1414,7 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   fi
   echo "  Discover:    wp datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
-  echo "  Workspace:   /var/lib/datamachine/workspace/ (created on first use)"
+  echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
   echo ""
 fi
 echo "Agent:"
