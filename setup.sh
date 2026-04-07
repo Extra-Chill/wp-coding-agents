@@ -609,6 +609,20 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
 
   log "Installing Data Machine Code (developer tools)..."
   install_plugin data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+
+  # Set workspace path in wp-config.php if not already defined.
+  # On macOS the default /var/lib/datamachine/workspace isn't writable,
+  # so data-machine-code's Workspace class resolves to empty string without this.
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
+    if ! grep -q 'DATAMACHINE_WORKSPACE_PATH' "$SITE_PATH/wp-config.php"; then
+      wp_cmd config set DATAMACHINE_WORKSPACE_PATH "$DM_WORKSPACE_DIR" --type=constant
+      log "Set DATAMACHINE_WORKSPACE_PATH to $DM_WORKSPACE_DIR"
+    else
+      log "DATAMACHINE_WORKSPACE_PATH already defined in wp-config.php"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} wp config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
+  fi
 else
   log "Phase 4: Skipping Data Machine (--no-data-machine)"
 fi
