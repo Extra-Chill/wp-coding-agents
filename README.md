@@ -26,7 +26,7 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
    └── Data Machine ── self-scheduling + AI tools
 ```
 
-Data Machine creates three memory files on activation. They're injected into every session — the agent wakes up knowing who it is, who you are, and what it's been working on. No memory management overhead in the context window.
+Data Machine creates SOUL.md and MEMORY.md on activation. The setup script scaffolds additional context files for the agent. These are all injected into every session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
 
 ## Runtime Auto-Discovery
 
@@ -185,15 +185,14 @@ Both modes use the same Data Machine agent engine, same abilities, same memory s
 
 ## Memory System
 
-Data Machine manages three files that define the agent:
+Data Machine creates two core files on activation:
 
-| File | Priority | Purpose |
-|------|----------|---------|
-| **SOUL.md** | 10 | Identity — name, voice, rules |
-| **USER.md** | 20 | Human profile — who you are, preferences |
-| **MEMORY.md** | 30 | Knowledge — project state, lessons learned |
+| File | Purpose |
+|------|---------|
+| **SOUL.md** | Identity — name, voice, rules |
+| **MEMORY.md** | Knowledge — project state, lessons learned |
 
-These are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+The setup script scaffolds additional context files (SITE.md, USER.md, etc.) depending on configuration. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
 ## Abilities
 
