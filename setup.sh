@@ -80,6 +80,13 @@ install_plugin() {
         --no-dev --no-interaction --working-dir="$plugin_dir" || \
         warn "Composer failed, some $slug features may not work"
     fi
+    if [ -f "$plugin_dir/package.json" ] || [ "$DRY_RUN" = true ]; then
+      log "Building $slug JS assets..."
+      run_cmd npm install --prefix "$plugin_dir" || \
+        warn "npm install failed for $slug"
+      run_cmd npm run build --prefix "$plugin_dir" || \
+        warn "npm build failed for $slug — admin pages may not work"
+    fi
   fi
 
   activate_plugin "$slug"
@@ -1330,18 +1337,22 @@ WantedBy=multi-user.target"
         warn "  Get your ID from @userinfobot on Telegram, then edit the .env file."
       fi
 
-      # Find binaries
+      # Find binaries (platform-aware dry-run defaults)
       if [ "$DRY_RUN" = true ]; then
-        TELEGRAM_BIN="/usr/bin/opencode-telegram"
-        OPENCODE_BIN="/usr/bin/opencode"
+        if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
+          TELEGRAM_BIN="/opt/homebrew/bin/opencode-telegram"
+          OPENCODE_BIN="/opt/homebrew/bin/opencode"
+        else
+          TELEGRAM_BIN="/usr/bin/opencode-telegram"
+          OPENCODE_BIN="/usr/bin/opencode"
+        fi
       else
         TELEGRAM_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
         OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
       fi
 
       # --- opencode-serve env file ---
-      # Keeps model config out of the unit file. Marked optional (-) so the
-      # service starts even if the file is absent (e.g. default model only).
+      # Keeps model config out of the unit/plist. Written for all environments.
       SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
       run_cmd mkdir -p "$SERVICE_HOME/.config"
       if [ "$DRY_RUN" = true ]; then
@@ -1352,16 +1363,157 @@ WantedBy=multi-user.target"
           true  # ensure file is always created (may be empty if no overrides)
         } > "$SERVE_ENV_FILE"
         chmod 600 "$SERVE_ENV_FILE"
-        if [ "$RUN_AS_ROOT" = false ]; then
+        if [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = false ]; then
           chown "$SERVICE_USER:$SERVICE_USER" "$SERVE_ENV_FILE"
         fi
       fi
 
-      # --- opencode-serve.service ---
-      # The Telegram bot connects to opencode's HTTP server (localhost:4096).
-      # HOME and PATH are runtime environment, not config — inline is correct here.
-      # Model config comes from EnvironmentFile so it never lives in a world-readable unit.
-      OPENCODE_SERVE_CONFIG="[Unit]
+      # --- Telegram bot .env file (single source of truth for all app config) ---
+      TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+      run_cmd mkdir -p "$TELEGRAM_CONFIG_DIR"
+      if [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = false ]; then
+        run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR"
+      fi
+
+      TELEGRAM_ENV_CONTENT="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID:-}
+OPENCODE_API_URL=http://localhost:4096
+OPENCODE_MODEL_PROVIDER=${OPENCODE_MODEL_PROVIDER:-opencode}
+OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID:-big-pickle}
+LOG_LEVEL=info"
+
+      if [ "$DRY_RUN" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would write Telegram bot config to $TELEGRAM_CONFIG_DIR/.env"
+      else
+        echo "$TELEGRAM_ENV_CONTENT" > "$TELEGRAM_CONFIG_DIR/.env"
+        chmod 600 "$TELEGRAM_CONFIG_DIR/.env"
+        if [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = false ]; then
+          chown "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR/.env"
+        fi
+      fi
+
+      if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
+        # macOS: TWO launchd plists (opencode-serve + opencode-telegram)
+        SERVE_PLIST_LABEL="com.extrachill.opencode-serve"
+        TELEGRAM_PLIST_LABEL="com.extrachill.opencode-telegram"
+        PLIST_DIR="$HOME/Library/LaunchAgents"
+        SERVE_PLIST="$PLIST_DIR/$SERVE_PLIST_LABEL.plist"
+        TELEGRAM_PLIST="$PLIST_DIR/$TELEGRAM_PLIST_LABEL.plist"
+        TELEGRAM_LOG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+
+        run_cmd mkdir -p "$PLIST_DIR"
+
+        # --- com.extrachill.opencode-serve plist ---
+        # launchd doesn't support EnvironmentFile, so model config is baked in
+        SERVE_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>Label</key>
+    <string>$SERVE_PLIST_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$OPENCODE_BIN</string>
+        <string>serve</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$SITE_PATH</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$TELEGRAM_LOG_DIR/opencode-serve.log</string>
+    <key>StandardErrorPath</key>
+    <string>$TELEGRAM_LOG_DIR/opencode-serve.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>$SERVICE_HOME</string>$(if [ -n "$OPENCODE_MODEL" ]; then echo "
+        <key>OPENCODE_MODEL</key>
+        <string>$OPENCODE_MODEL</string>"; fi)
+    </dict>
+</dict>
+</plist>"
+
+        write_file "$SERVE_PLIST" "$SERVE_PLIST_CONTENT"
+
+        # --- com.extrachill.opencode-telegram plist ---
+        # Tokens inlined since launchd doesn't support EnvironmentFile
+        TELEGRAM_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>Label</key>
+    <string>$TELEGRAM_PLIST_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$TELEGRAM_BIN</string>
+        <string>start</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$SITE_PATH</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$TELEGRAM_LOG_DIR/opencode-telegram.log</string>
+    <key>StandardErrorPath</key>
+    <string>$TELEGRAM_LOG_DIR/opencode-telegram.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>$SERVICE_HOME</string>$(if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "
+        <key>TELEGRAM_BOT_TOKEN</key>
+        <string>$TELEGRAM_BOT_TOKEN</string>"; fi)$(if [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then echo "
+        <key>TELEGRAM_ALLOWED_USER_ID</key>
+        <string>$TELEGRAM_ALLOWED_USER_ID</string>"; fi)
+        <key>OPENCODE_API_URL</key>
+        <string>http://localhost:4096</string>
+    </dict>
+</dict>
+</plist>"
+
+        write_file "$TELEGRAM_PLIST" "$TELEGRAM_PLIST_CONTENT"
+
+        # Bootstrap both if tokens are provided
+        if [ "$DRY_RUN" = false ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
+          launchctl bootout "gui/$(id -u)" "$SERVE_PLIST" 2>/dev/null || true
+          launchctl bootstrap "gui/$(id -u)" "$SERVE_PLIST"
+          launchctl bootout "gui/$(id -u)" "$TELEGRAM_PLIST" 2>/dev/null || true
+          launchctl bootstrap "gui/$(id -u)" "$TELEGRAM_PLIST"
+          log "Telegram bot launchd services installed and started"
+        elif [ "$DRY_RUN" = false ]; then
+          log "Telegram credentials not set — services not started"
+          log "Add tokens to $TELEGRAM_CONFIG_DIR/.env, then re-run setup or bootstrap manually:"
+          log "  launchctl bootstrap gui/$(id -u) $SERVE_PLIST"
+          log "  launchctl bootstrap gui/$(id -u) $TELEGRAM_PLIST"
+        fi
+
+        log "OpenCode serve: $SERVE_PLIST_LABEL"
+        log "Telegram bot:   $TELEGRAM_PLIST_LABEL"
+        log "  Start:  launchctl kickstart gui/$(id -u)/$SERVE_PLIST_LABEL"
+        log "          launchctl kickstart gui/$(id -u)/$TELEGRAM_PLIST_LABEL"
+        log "  Stop:   launchctl kill SIGTERM gui/$(id -u)/$SERVE_PLIST_LABEL"
+        log "          launchctl kill SIGTERM gui/$(id -u)/$TELEGRAM_PLIST_LABEL"
+        log "  Logs:   tail -f $TELEGRAM_LOG_DIR/opencode-serve.log"
+        log "          tail -f $TELEGRAM_LOG_DIR/opencode-telegram.log"
+
+      elif [ "$LOCAL_MODE" = true ]; then
+        # Non-macOS local: manual run instructions
+        log "Local mode: Telegram bot installed. Run manually with:"
+        log "  cd $SITE_PATH && opencode serve &"
+        log "  opencode-telegram start"
+
+      else
+        # VPS: systemd services (opencode-serve + opencode-telegram)
+
+        # --- opencode-serve.service ---
+        # The Telegram bot connects to opencode's HTTP server (localhost:4096).
+        # HOME and PATH are runtime environment, not config — inline is correct here.
+        # Model config comes from EnvironmentFile so it never lives in a world-readable unit.
+        OPENCODE_SERVE_CONFIG="[Unit]
 Description=OpenCode Server (wp-opencode)
 After=network.target
 
@@ -1379,38 +1531,14 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
 
-      write_file "/etc/systemd/system/opencode-serve.service" "$OPENCODE_SERVE_CONFIG"
-      run_cmd systemctl daemon-reload
-      run_cmd systemctl enable opencode-serve
+        write_file "/etc/systemd/system/opencode-serve.service" "$OPENCODE_SERVE_CONFIG"
+        run_cmd systemctl daemon-reload
+        run_cmd systemctl enable opencode-serve
 
-      # --- Telegram bot .env file (single source of truth for all app config) ---
-      TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
-      run_cmd mkdir -p "$TELEGRAM_CONFIG_DIR"
-      if [ "$RUN_AS_ROOT" = false ]; then
-        run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR"
-      fi
-
-      TELEGRAM_ENV_CONTENT="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID:-}
-OPENCODE_API_URL=http://localhost:4096
-OPENCODE_MODEL_PROVIDER=${OPENCODE_MODEL_PROVIDER:-opencode}
-OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID:-big-pickle}
-LOG_LEVEL=info"
-
-      if [ "$DRY_RUN" = true ]; then
-        echo -e "${BLUE}[dry-run]${NC} Would write Telegram bot config to $TELEGRAM_CONFIG_DIR/.env"
-      else
-        echo "$TELEGRAM_ENV_CONTENT" > "$TELEGRAM_CONFIG_DIR/.env"
-        chmod 600 "$TELEGRAM_CONFIG_DIR/.env"
-        if [ "$RUN_AS_ROOT" = false ]; then
-          chown "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR/.env"
-        fi
-      fi
-
-      # --- opencode-telegram.service ---
-      # Secrets and app config come exclusively from EnvironmentFile.
-      # HOME and PATH are runtime environment — inline is correct and not sensitive.
-      TELEGRAM_SYSTEMD_CONFIG="[Unit]
+        # --- opencode-telegram.service ---
+        # Secrets and app config come exclusively from EnvironmentFile.
+        # HOME and PATH are runtime environment — inline is correct and not sensitive.
+        TELEGRAM_SYSTEMD_CONFIG="[Unit]
 Description=OpenCode Telegram Bot (wp-opencode)
 After=network.target opencode-serve.service
 Requires=opencode-serve.service
@@ -1429,9 +1557,10 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
 
-      write_file "/etc/systemd/system/opencode-telegram.service" "$TELEGRAM_SYSTEMD_CONFIG"
-      run_cmd systemctl daemon-reload
-      run_cmd systemctl enable opencode-telegram
+        write_file "/etc/systemd/system/opencode-telegram.service" "$TELEGRAM_SYSTEMD_CONFIG"
+        run_cmd systemctl daemon-reload
+        run_cmd systemctl enable opencode-telegram
+      fi
       ;;
 
     *)
@@ -1550,9 +1679,31 @@ if [ "$LOCAL_MODE" = true ]; then
     fi
     echo "    Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
     echo ""
+  elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "telegram" ] && [ "$PLATFORM" = "mac" ]; then
+    if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
+      echo "  Telegram (launchd services):"
+      echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.opencode-serve"
+      echo "            launchctl kickstart gui/$(id -u)/com.extrachill.opencode-telegram"
+      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.opencode-serve"
+      echo "            launchctl kill SIGTERM gui/$(id -u)/com.extrachill.opencode-telegram"
+    else
+      echo "  Telegram setup:"
+      echo "    1. Add tokens to $SERVICE_HOME/.config/opencode-telegram-bot/.env"
+      echo "    2. Enable services:"
+      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-serve.plist"
+      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-telegram.plist"
+    fi
+    echo "    Logs:   tail -f $SERVICE_HOME/.config/opencode-telegram-bot/opencode-serve.log"
+    echo "            tail -f $SERVICE_HOME/.config/opencode-telegram-bot/opencode-telegram.log"
+    echo ""
   elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
     echo "  Start your agent:"
     echo "    cd $SITE_PATH && kimaki"
+    echo ""
+  elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "telegram" ]; then
+    echo "  Start your agent:"
+    echo "    cd $SITE_PATH && opencode serve &"
+    echo "    opencode-telegram start"
     echo ""
   else
     echo "  Start your agent:"
