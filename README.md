@@ -26,7 +26,7 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
    └── Data Machine ── self-scheduling + AI tools
 ```
 
-Data Machine creates SOUL.md and MEMORY.md on activation. The setup script scaffolds additional context files for the agent. These are all injected into every session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
+On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. Every registered file is injected into each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
 
 ## Runtime Auto-Discovery
 
@@ -185,14 +185,29 @@ Both modes use the same Data Machine agent engine, same abilities, same memory s
 
 ## Memory System
 
-Data Machine creates two core files on activation:
+Data Machine manages memory files across three layers, each scoped to a different owner:
+
+### Shared Layer (all agents)
 
 | File | Purpose |
 |------|---------|
-| **SOUL.md** | Identity — name, voice, rules |
-| **MEMORY.md** | Knowledge — project state, lessons learned |
+| **SITE.md** | Auto-generated site context — WordPress config, active plugins, post counts. Read-only. |
+| **RULES.md** | Behavioral constraints for every agent. Admin-editable. |
 
-The setup script scaffolds additional context files (SITE.md, USER.md, etc.) depending on configuration. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+### Agent Layer (per agent)
+
+| File | Purpose |
+|------|---------|
+| **SOUL.md** | Identity — name, voice, rules. Rarely changes. |
+| **MEMORY.md** | Knowledge — project state, lessons learned. Grows over time. |
+
+### User Layer (per human)
+
+| File | Purpose |
+|------|---------|
+| **USER.md** | Information about the human the agent works with. Injected in chat and editor contexts only. |
+
+On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
 ## Abilities
 
