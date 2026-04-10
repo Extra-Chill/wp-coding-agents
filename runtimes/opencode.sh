@@ -9,6 +9,107 @@ runtime_install() {
   else
     log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
   fi
+
+  _install_opencode_wrapper
+}
+
+# Install a wrapper script that syncs Kimaki's Anthropic OAuth credentials
+# into ~/.claude/.credentials.json for opencode-claude-auth to consume.
+# On VPS, Kimaki manages token refresh — the wrapper keeps the claude creds
+# file in sync before each opencode invocation.
+_install_opencode_wrapper() {
+  # Only needed when kimaki is the chat bridge (it manages OAuth tokens)
+  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
+    return
+  fi
+
+  if [ "$LOCAL_MODE" = true ]; then
+    # Local installs don't use the wrapper — credentials come from the user's
+    # own claude auth or keychain directly.
+    return
+  fi
+
+  local OPENCODE_BIN
+  OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "/usr/bin/opencode")
+
+  # Don't wrap if opencode is already a wrapper script (re-runs)
+  if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
+    log "OpenCode wrapper already installed — skipping"
+    return
+  fi
+
+  # Find the real opencode binary (after npm install, it's in node_modules)
+  local REAL_BIN
+  REAL_BIN=$(readlink -f "$OPENCODE_BIN" 2>/dev/null || echo "$OPENCODE_BIN")
+  # If the resolved path is still a wrapper, dig deeper
+  if head -1 "$REAL_BIN" 2>/dev/null | grep -q "bash"; then
+    REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/opencode"
+  fi
+
+  if [ ! -f "$REAL_BIN" ]; then
+    warn "Could not find real opencode binary — skipping wrapper install"
+    return
+  fi
+
+  log "Installing OpenCode credential sync wrapper..."
+
+  local WRAPPER_CONTENT='#!/usr/bin/env bash
+set -euo pipefail
+
+# Syncs Anthropic credentials from Kimaki'\''s account store into the format
+# opencode-claude-auth reads (~/.claude/.credentials.json). Kimaki manages
+# OAuth token refresh — this wrapper forwards fresh tokens on each invocation.
+
+KIMAKI_ACCOUNTS="${HOME}/.local/share/opencode/anthropic-oauth-accounts.json"
+CLAUDE_CREDENTIALS="${HOME}/.claude/.credentials.json"
+
+if [[ -f "$KIMAKI_ACCOUNTS" ]] && command -v node >/dev/null 2>&1; then
+  node -e '"'"'
+    const fs = require("fs");
+    const path = require("path");
+    try {
+      const accounts = JSON.parse(fs.readFileSync(process.env.KIMAKI_ACCOUNTS, "utf-8"));
+      if (!accounts.accounts || accounts.accounts.length === 0) process.exit(0);
+      const idx = accounts.activeIndex ?? 0;
+      const acct = accounts.accounts[idx] ?? accounts.accounts[0];
+      if (!acct || !acct.refresh) process.exit(0);
+      const claudePath = process.env.CLAUDE_CREDENTIALS;
+      let creds = {};
+      try { creds = JSON.parse(fs.readFileSync(claudePath, "utf-8")); } catch {}
+      const kimakiExpires = acct.expires || 0;
+      const claudeExpires = creds.claudeAiOauth?.expiresAt || 0;
+      if (kimakiExpires > claudeExpires) {
+        creds.claudeAiOauth = creds.claudeAiOauth || {};
+        creds.claudeAiOauth.refreshToken = acct.refresh;
+        creds.claudeAiOauth.expiresAt = acct.expires;
+        if (acct.access) creds.claudeAiOauth.accessToken = acct.access;
+        creds.claudeAiOauth.subscriptionType = "max";
+        creds.claudeAiOauth.scopes = ["user:file_upload","user:inference","user:mcp_servers","user:profile","user:sessions:claude_code"];
+        creds.claudeAiOauth.rateLimitTier = "default_claude_max_20x";
+        fs.mkdirSync(path.dirname(claudePath), { recursive: true });
+        fs.writeFileSync(claudePath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+      }
+    } catch {}
+  '"'"' 2>/dev/null || true
+fi
+
+# Legacy sync: claude creds → opencode auth.json (fallback for built-in auth)
+AUTH_DST="${HOME}/.local/share/opencode/auth.json"
+if [[ -f "$CLAUDE_CREDENTIALS" ]] && command -v jq >/dev/null 2>&1; then
+  mkdir -p "$(dirname "$AUTH_DST")"
+  jq "{anthropic:{type:\"oauth\",refresh:(.claudeAiOauth.refreshToken//error(\"missing\")),access:(.claudeAiOauth.accessToken//error(\"missing\")),expires:(.claudeAiOauth.expiresAt//error(\"missing\"))}}" "$CLAUDE_CREDENTIALS" > "${AUTH_DST}.tmp" 2>/dev/null && mv "${AUTH_DST}.tmp" "$AUTH_DST"
+fi
+
+exec '"${REAL_BIN}"' "$@"
+'
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install OpenCode wrapper at $OPENCODE_BIN"
+  else
+    echo "$WRAPPER_CONTENT" > "$OPENCODE_BIN"
+    chmod +x "$OPENCODE_BIN"
+    log "Installed credential sync wrapper at $OPENCODE_BIN → $REAL_BIN"
+  fi
 }
 
 runtime_discover_dm_paths() {
