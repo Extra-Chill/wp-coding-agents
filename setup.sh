@@ -126,6 +126,10 @@ while [[ $# -gt 0 ]]; do
       AGENT_SLUG="$2"
       shift 2
       ;;
+    --agent-name)
+      AGENT_NAME="$2"
+      shift 2
+      ;;
     --help|-h)
       SHOW_HELP=true
       shift
@@ -160,6 +164,7 @@ OPTIONS:
   --runtime <name>   Coding agent runtime (auto-detected if omitted)
                      Available: ${AVAILABLE_RUNTIMES[*]}
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
+  --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --no-data-machine  Skip Data Machine plugin (no persistent memory/scheduling)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki for opencode,
@@ -184,6 +189,7 @@ ENVIRONMENT VARIABLES:
   DB_USER            Database user (fresh install only)
   DB_PASS            Database password (auto-generated if not set)
   AGENT_SLUG         Override agent slug (default: derived from domain)
+  AGENT_NAME         Override agent display name (default: blogname)
   OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
   OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)

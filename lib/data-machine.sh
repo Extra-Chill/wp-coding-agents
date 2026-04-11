@@ -46,7 +46,7 @@ create_dm_agent() {
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     # shellcheck disable=SC2086
-    AGENT_NAME=$($WP_CMD option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
+    AGENT_NAME="${AGENT_NAME:-$($WP_CMD option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")}"
 
     # Check if agent already exists (idempotent for re-runs)
     # shellcheck disable=SC2086
@@ -63,7 +63,7 @@ create_dm_agent() {
       SOUL_CONTENT="# Agent Soul — ${AGENT_SLUG}
 
 ## Identity
-I am ${AGENT_SLUG} — an AI agent managing ${AGENT_NAME} (${SITE_DOMAIN}). I operate on this WordPress site via WP-CLI and Data Machine.
+I am ${AGENT_NAME} — an AI agent managing ${SITE_DOMAIN}. I operate on this WordPress site via WP-CLI and Data Machine.
 
 ## Voice & Tone
 Be genuinely helpful. Skip filler. Be resourceful — read the file, check the context, search for it, then ask if stuck.
