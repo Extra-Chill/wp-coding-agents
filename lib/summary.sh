@@ -119,34 +119,34 @@ _print_local_next_steps() {
   if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$PLATFORM" = "mac" ]; then
     if [ -n "$KIMAKI_BOT_TOKEN" ]; then
       echo "  Kimaki (launchd service):"
-      echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.kimaki"
-      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.kimaki"
+      echo "    Start:  launchctl kickstart gui/$(id -u)/com.wp.kimaki"
+      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.wp.kimaki"
     else
       echo "  Kimaki setup:"
       echo "    1. Run onboarding:  cd $SITE_PATH && kimaki"
-      echo "    2. Enable service:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.kimaki.plist"
+      echo "    2. Enable service:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.kimaki.plist"
     fi
     echo "    Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
     echo ""
   elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "cc-connect" ] && [ "$PLATFORM" = "mac" ]; then
     echo "  cc-connect (launchd service):"
-    echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.cc-connect"
-    echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.cc-connect"
+    echo "    Start:  launchctl kickstart gui/$(id -u)/com.wp.cc-connect"
+    echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.wp.cc-connect"
     echo "    Logs:   tail -f ${CC_DATA_DIR:-$SERVICE_HOME/.cc-connect}/cc-connect.log"
     echo ""
   elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "telegram" ] && [ "$PLATFORM" = "mac" ]; then
     if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
       echo "  Telegram (launchd services):"
-      echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.opencode-serve"
-      echo "            launchctl kickstart gui/$(id -u)/com.extrachill.opencode-telegram"
-      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.opencode-serve"
-      echo "            launchctl kill SIGTERM gui/$(id -u)/com.extrachill.opencode-telegram"
+      echo "    Start:  launchctl kickstart gui/$(id -u)/com.wp.opencode-serve"
+      echo "            launchctl kickstart gui/$(id -u)/com.wp.opencode-telegram"
+      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.wp.opencode-serve"
+      echo "            launchctl kill SIGTERM gui/$(id -u)/com.wp.opencode-telegram"
     else
       echo "  Telegram setup:"
       echo "    1. Add tokens to $SERVICE_HOME/.config/opencode-telegram-bot/.env"
       echo "    2. Enable services:"
-      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-serve.plist"
-      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-telegram.plist"
+      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.opencode-serve.plist"
+      echo "       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.opencode-telegram.plist"
     fi
     echo "    Logs:   tail -f $SERVICE_HOME/.config/opencode-telegram-bot/opencode-serve.log"
     echo "            tail -f $SERVICE_HOME/.config/opencode-telegram-bot/opencode-telegram.log"

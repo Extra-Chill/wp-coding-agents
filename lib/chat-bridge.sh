@@ -39,7 +39,7 @@ _install_kimaki() {
 }
 
 _install_kimaki_launchd() {
-  KIMAKI_PLIST_LABEL="com.extrachill.kimaki"
+  KIMAKI_PLIST_LABEL="com.wp.kimaki"
   KIMAKI_PLIST_DIR="$HOME/Library/LaunchAgents"
   KIMAKI_PLIST="$KIMAKI_PLIST_DIR/$KIMAKI_PLIST_LABEL.plist"
 
@@ -189,7 +189,7 @@ working_directory = \"$SITE_PATH\""
 }
 
 _install_cc_connect_launchd() {
-  CC_PLIST_LABEL="com.extrachill.cc-connect"
+  CC_PLIST_LABEL="com.wp.cc-connect"
   CC_PLIST_DIR="$HOME/Library/LaunchAgents"
   CC_PLIST="$CC_PLIST_DIR/$CC_PLIST_LABEL.plist"
 
@@ -363,8 +363,8 @@ LOG_LEVEL=info"
 }
 
 _install_telegram_launchd() {
-  SERVE_PLIST_LABEL="com.extrachill.opencode-serve"
-  TELEGRAM_PLIST_LABEL="com.extrachill.opencode-telegram"
+  SERVE_PLIST_LABEL="com.wp.opencode-serve"
+  TELEGRAM_PLIST_LABEL="com.wp.opencode-telegram"
   PLIST_DIR="$HOME/Library/LaunchAgents"
   SERVE_PLIST="$PLIST_DIR/$SERVE_PLIST_LABEL.plist"
   TELEGRAM_PLIST="$PLIST_DIR/$TELEGRAM_PLIST_LABEL.plist"

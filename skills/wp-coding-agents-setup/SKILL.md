@@ -253,8 +253,8 @@ systemctl enable kimaki
 **Local (macOS — launchd):**
 ```bash
 # Set KIMAKI_BOT_TOKEN in the plist if not already configured
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.kimaki.plist
-launchctl kickstart gui/$(id -u)/com.extrachill.kimaki
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.kimaki.plist
+launchctl kickstart gui/$(id -u)/com.wp.kimaki
 ```
 
 ### cc-connect
@@ -267,8 +267,8 @@ systemctl enable cc-connect
 
 **Local (macOS — launchd):**
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.cc-connect.plist
-launchctl kickstart gui/$(id -u)/com.extrachill.cc-connect
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.cc-connect.plist
+launchctl kickstart gui/$(id -u)/com.wp.cc-connect
 ```
 
 ### Telegram
@@ -288,8 +288,8 @@ systemctl enable opencode-serve opencode-telegram
 
 **Local (macOS — launchd):**
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-serve.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-telegram.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.opencode-serve.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wp.opencode-telegram.plist
 ```
 
 3. **Verify:** Send a message to your bot on Telegram — it should respond via OpenCode.
