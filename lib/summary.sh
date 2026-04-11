@@ -111,8 +111,6 @@ _print_next_steps() {
     echo ""
   fi
 
-  echo "  Your agent will read BOOTSTRAP.md on first run."
-  echo ""
 }
 
 _print_local_next_steps() {
