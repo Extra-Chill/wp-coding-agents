@@ -31,7 +31,14 @@ install_plugin() {
   local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
 
   if [ ! -d "$plugin_dir" ] || [ "$DRY_RUN" = true ]; then
-    run_cmd git clone "$repo_url" "$plugin_dir"
+    # Prefer gh CLI for GitHub repos (avoids proxy/auth issues).
+    local gh_nwo
+    gh_nwo=$(echo "$repo_url" | sed -n 's|^https://github\.com/\([^/]*/[^/]*\)\(\.git\)\{0,1\}$|\1|p')
+    if [ -n "$gh_nwo" ] && command -v gh &>/dev/null; then
+      run_cmd gh repo clone "$gh_nwo" "$plugin_dir"
+    else
+      run_cmd git clone "$repo_url" "$plugin_dir"
+    fi
   fi
 
   # Install dependencies even if plugin was pre-cloned.
