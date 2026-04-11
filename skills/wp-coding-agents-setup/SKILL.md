@@ -51,7 +51,15 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 > - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot). OpenCode only.
 > - **No chat bridge** — Run the agent manually via SSH or terminal when needed."
 
-### Question 5: Server/Local Details
+### Question 5: Agent Name
+
+> "What would you like to name your agent? This becomes the agent slug used by Data Machine for identity and memory files.
+>
+> Default: derived from your site domain (e.g., `example` for example.com, `my-site` for my-site.local)"
+
+Maps to `--agent-slug <name>`. If the user is happy with the default, skip this flag.
+
+### Question 6: Server/Local Details
 
 **For VPS installs:**
 
@@ -64,7 +72,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 > "Where is WordPress installed on your machine? (e.g., `~/Studio/my-wordpress-website`, `/Applications/MAMP/htdocs/wordpress`)"
 
-### Question 6: For Existing WordPress
+### Question 7: For Existing WordPress
 
 If they chose existing WordPress (VPS or local):
 
@@ -112,6 +120,7 @@ Before running anything, summarize what you're about to do:
 > "Here's the plan:
 > - **Server:** 123.45.67.89
 > - **Domain:** example.com
+> - **Agent name:** example (or custom name)
 > - **Type:** Fresh install
 > - **Runtime:** OpenCode
 > - **Data Machine:** Yes
