@@ -268,12 +268,6 @@ runtime_generate_instructions() {
     fi
   fi
 
-  # Copy BOOTSTRAP.md if not already present
-  if [ -f "$SCRIPT_DIR/workspace/BOOTSTRAP.md" ] && [ ! -f "$SITE_PATH/BOOTSTRAP.md" ]; then
-    run_cmd cp "$SCRIPT_DIR/workspace/BOOTSTRAP.md" "$SITE_PATH/BOOTSTRAP.md"
-  elif [ -f "$SITE_PATH/BOOTSTRAP.md" ]; then
-    log "BOOTSTRAP.md already exists — skipping"
-  fi
 }
 
 runtime_merge_mcp_servers() {
