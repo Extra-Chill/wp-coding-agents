@@ -267,13 +267,15 @@ hooks = settings.setdefault('hooks', {})
 session_hooks = hooks.setdefault('SessionStart', [])
 
 already_registered = any(
-    (isinstance(h, str) and h == hook_cmd) or
-    (isinstance(h, dict) and h.get('command') == hook_cmd)
+    isinstance(h, dict) and (
+        h.get('command') == hook_cmd or
+        any(hook.get('command') == hook_cmd for hook in h.get('hooks', []))
+    )
     for h in session_hooks
 )
 
 if not already_registered:
-    session_hooks.append({'command': hook_cmd})
+    session_hooks.append({'matcher': '', 'hooks': [{'type': 'command', 'command': hook_cmd}]})
 
 with open(settings_path, 'w') as f:
     json.dump(settings, f, indent=2)
