@@ -20,20 +20,36 @@ fi
 # ---------------------------------------------------------------------------
 
 detect_wp_cmd() {
+  # 1. Installed Studio CLI
   if [ -f "$SITE_PATH/STUDIO.md" ] && command -v studio &>/dev/null; then
     echo "studio wp"
     return
   fi
 
-  if ! command -v wp &>/dev/null; then
-    return 1
+  # 2. Dev CLI — site lives inside the Studio repo (developers working on Studio itself)
+  if [ -f "$SITE_PATH/STUDIO.md" ]; then
+    local search_dir="$SITE_PATH"
+    while [ "$search_dir" != "/" ]; do
+      local dev_cli="$search_dir/apps/cli/dist/cli/main.mjs"
+      if [ -f "$dev_cli" ]; then
+        echo "node $dev_cli wp"
+        return
+      fi
+      search_dir=$(dirname "$search_dir")
+    done
   fi
 
-  local cmd="wp --path=$SITE_PATH"
-  if [ "$(id -u)" -eq 0 ]; then
-    cmd="$cmd --allow-root"
+  # 3. System wp-cli
+  if command -v wp &>/dev/null; then
+    local cmd="wp --path=$SITE_PATH"
+    if [ "$(id -u)" -eq 0 ]; then
+      cmd="$cmd --allow-root"
+    fi
+    echo "$cmd"
+    return
   fi
-  echo "$cmd"
+
+  return 1
 }
 
 WP_CMD=$(detect_wp_cmd) || exit 0
@@ -44,16 +60,16 @@ WP_CMD=$(detect_wp_cmd) || exit 0
 
 AGENTS_RAW=$($WP_CMD datamachine agents list --format=json 2>/dev/null) || exit 0
 
-# Extract JSON array (wp may append summary text after the array)
-AGENTS_JSON=$(echo "$AGENTS_RAW" | sed -n '/^\[/,/^\]/p')
-if [ -z "$AGENTS_JSON" ]; then
-  exit 0
-fi
-
-# Parse active agent slugs
-ACTIVE_SLUGS=$(echo "$AGENTS_JSON" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
+# Extract JSON array. WP-CLI may append summary text (e.g. "Total: 2 agent(s).")
+# on the same line as the closing bracket. Use Python to safely extract the array.
+ACTIVE_SLUGS=$(echo "$AGENTS_RAW" | python3 -c "
+import sys, json, re
+raw = sys.stdin.read()
+# Extract the JSON array — everything from first [ to its matching ]
+match = re.search(r'\[.*\]', raw, re.DOTALL)
+if not match:
+    sys.exit(0)
+data = json.loads(match.group())
 for a in data:
     if a.get('status') == 'active':
         print(a['agent_slug'])
@@ -70,12 +86,14 @@ fi
 ALL_FILES=""
 while IFS= read -r slug; do
   PATHS_RAW=$($WP_CMD datamachine agent paths --agent="$slug" --format=json 2>/dev/null) || continue
-  PATHS_JSON=$(echo "$PATHS_RAW" | sed -n '/^{/,/^}/p')
-  [ -z "$PATHS_JSON" ] && continue
 
-  FILES=$(echo "$PATHS_JSON" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
+  FILES=$(echo "$PATHS_RAW" | python3 -c "
+import sys, json, re
+raw = sys.stdin.read()
+match = re.search(r'\{.*\}', raw, re.DOTALL)
+if not match:
+    sys.exit(0)
+data = json.loads(match.group())
 for f in data.get('relative_files', []):
     print(f)
 " 2>/dev/null) || continue
