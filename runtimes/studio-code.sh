@@ -13,14 +13,33 @@
 runtime_install() {
   log "Phase 7: Checking Studio Code..."
 
-  if ! command -v studio &> /dev/null; then
+  if command -v studio &> /dev/null; then
+    log "Studio CLI available: $(studio --version 2>/dev/null || echo 'unknown')"
+  elif [ -n "$SITE_PATH" ]; then
+    # Dev CLI — walk up from site path to find the built CLI in the Studio repo.
+    local search_dir="$SITE_PATH"
+    local found=false
+    while [ "$search_dir" != "/" ]; do
+      if [ -f "$search_dir/apps/cli/dist/cli/main.mjs" ]; then
+        log "Studio dev CLI found at $search_dir/apps/cli/dist/cli/main.mjs"
+        found=true
+        break
+      fi
+      search_dir=$(dirname "$search_dir")
+    done
+    if [ "$found" = false ]; then
+      if [ "$DRY_RUN" = true ]; then
+        warn "Studio CLI not found (dry-run — continuing)"
+      else
+        error "Studio CLI not found. Install WordPress Studio and enable the CLI: Settings → Studio CLI for terminal."
+      fi
+    fi
+  else
     if [ "$DRY_RUN" = true ]; then
       warn "Studio CLI not found (dry-run — continuing)"
     else
       error "Studio CLI not found. Install WordPress Studio and enable the CLI: Settings → Studio CLI for terminal."
     fi
-  else
-    log "Studio CLI available: $(studio --version 2>/dev/null || echo 'unknown')"
   fi
 }
 
