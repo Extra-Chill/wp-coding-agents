@@ -234,9 +234,9 @@ Data Machine exposes all agent functionality through WordPress core's [Abilities
 - Task queues for multi-phase projects
 - Agent Ping webhooks for fleet coordination
 - AI tools (content generation, publishing, search)
-- Managed workspace for git repos (`/var/lib/datamachine/workspace/`)
+- Managed workspace for git repos (`/var/lib/datamachine/workspace/`) with **per-branch worktrees** so multiple parallel agent sessions can edit different branches of the same repo without stepping on each other (`workspace worktree add <repo> <branch>` → operate on the `<repo>@<branch-slug>` handle)
 - GitHub integration (issues, PRs, repos)
-- Policy-controlled git operations (add, commit, push with allowlists)
+- Policy-controlled git operations (add, commit, push with allowlists; primary checkout is read-only by default)
 
 **Without DM (`--no-data-machine`):**
 - Agent responds when prompted, no autonomous operation
