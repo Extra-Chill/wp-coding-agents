@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Kimaki plugin: strip `--worktree` / `--cwd` examples and the per-turn "## worktree" block from the agent context. Data Machine Code owns the workspace and creates its own worktrees; leaving Kimaki's worktree language in the prompt caused the agent to try running work inside a Kimaki worktree instead of the DM Code workspace.
+
 ## [0.2.1] - 2026-04-07
 
 ### Changed
