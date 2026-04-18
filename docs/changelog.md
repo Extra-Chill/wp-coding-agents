@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.3.0] - 2026-04-18
+
+### Added
+- add launchd service for Kimaki on macOS
+- add multi-agent support via dm-agent-sync plugin
+
+### Changed
+- Patch opencode-claude-auth to use PascalCase mcp_ tool names
+- Add --runtime-only flag to skip infrastructure phases
+- Replace python3 with jq for settings.json merge and fix hook format
+- delegate AGENTS.md generation to SectionRegistry compose
+- Improve AGENTS.md: add abilities, expand Data Machine, drop stale sections
+- Add Studio Code runtime support
+- Remove BOOTSTRAP.md — setup skills handle first-run
+- Use gh repo clone for GitHub URLs in install_plugin
+- Add DM workspace to Claude Code additionalDirectories
+- Rename launchd service prefix from com.extrachill to com.wp
+- Install composer/npm deps for pre-cloned plugins
+- Decouple agent display name from slug in SOUL.md and setup
+- Add agent naming question to setup skill
+- Add credential sync wrapper for opencode-claude-auth + Kimaki
+- Unify AGENTS.md as single source of truth for agent instructions
+- Add opencode-claude-auth to OpenCode runtime for Claude Max/Pro OAuth
+- Use --content flag for agent file writes, add SessionStart hook for DM sync
+- Modularize setup.sh, add runtime auto-discovery, merge Claude Code
+- Build JS assets in install_plugin, add macOS launchd for Telegram
+- Update setup skill: add Telegram, WP_CMD, dry-run, local verification
+- Add EXTRA_PLUGINS, MCP_SERVERS, and WP_CMD env var support
+- Move platform detection before root check
+- Set DATAMACHINE_WORKSPACE_PATH in wp-config.php during setup
+- Use platform-aware workspace path for Data Machine Code
+- Remove RunAtLoad from Kimaki launchd plist
+- lean down AGENTS.md template (93 → 33 lines)
+
+### Fixed
+- fix(kimaki-plugin): strip worktree conflicts + low-value sections from agent context
+- Fix Studio Code runtime writing invalid SessionStart hook format
+- Fix Studio Code runtime to detect dev CLI
+- Fix dm-agent-sync hook: detect dev CLI, handle inline JSON summary
+- Fix install_plugin gh clone failing on macOS due to .git suffix
+- Fix README: accurately describe the memory system
+- Fix README: DM creates two files on activation, not three
+- Fix OpenCode plugin paths for local mode
+- Fix Kimaki launchd: only start service when bot token is provided
+- Fix opencode.json prompt strings to use escaped newlines
+- Fix JSON extraction from wp datamachine agent paths on SQLite
+- Fix KIMAKI_DATA_DIR for local mode
+
 ## [0.2.1] - 2026-04-07
 
 ### Changed
