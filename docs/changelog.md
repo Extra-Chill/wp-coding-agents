@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0] - 2026-04-19
+
+### Added
+- add upgrade.sh for safe VPS upgrades
+
+### Fixed
+- use in-place compose for AGENTS.md
+
 ## [0.3.0] - 2026-04-18
 
 ### Added
