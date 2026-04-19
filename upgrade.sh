@@ -336,31 +336,34 @@ regenerate_agents_md() {
     return 0
   fi
 
-  # Backup existing
+  # Backup existing (compose writes in-place to the registered location)
   if [ -f "$AGENTS_MD" ]; then
     cp "$AGENTS_MD" "$BACKUP"
     log "  Backup: $BACKUP"
   fi
 
-  # Compose into a temp file so we can diff
-  local TMP_AGENTS
-  TMP_AGENTS=$(mktemp)
-  if (cd "$SITE_PATH" && $WP_CMD datamachine agent compose "$TMP_AGENTS" $WP_ROOT_FLAG 2>/dev/null); then
-    if [ -f "$AGENTS_MD" ] && cmp -s "$TMP_AGENTS" "$AGENTS_MD"; then
+  # `datamachine agent compose AGENTS.md` writes in-place to the registered
+  # composable file path. It does NOT accept an arbitrary output path —
+  # the filename must be a registered MemoryFileRegistry entry.
+  if (cd "$SITE_PATH" && $WP_CMD datamachine agent compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+    if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
-      rm -f "$TMP_AGENTS" "$BACKUP" 2>/dev/null || true
+      rm -f "$BACKUP" 2>/dev/null || true
     else
-      if [ -f "$AGENTS_MD" ]; then
-        log "  Changes detected:"
-        diff -u "$AGENTS_MD" "$TMP_AGENTS" 2>/dev/null | head -40 | sed 's/^/    /' || true
-      fi
-      mv "$TMP_AGENTS" "$AGENTS_MD"
       log "  AGENTS.md regenerated"
+      if [ -f "$BACKUP" ]; then
+        log "  Diff (first 40 lines):"
+        diff -u "$BACKUP" "$AGENTS_MD" 2>/dev/null | head -40 | sed 's/^/    /' || true
+      fi
       UPDATED_ITEMS+=("AGENTS.md")
     fi
   else
-    rm -f "$TMP_AGENTS"
     warn "  datamachine agent compose failed — AGENTS.md unchanged"
+    # Restore from backup if compose wrote a partial file
+    if [ -f "$BACKUP" ] && [ -f "$AGENTS_MD" ] && ! cmp -s "$BACKUP" "$AGENTS_MD"; then
+      cp "$BACKUP" "$AGENTS_MD"
+      warn "  Restored AGENTS.md from backup"
+    fi
   fi
 }
 
