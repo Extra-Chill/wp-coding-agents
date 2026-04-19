@@ -24,14 +24,22 @@ import re
 def find_transforms():
     """Auto-detect the transforms.js file in common locations."""
     candidates = [
-        # Local macOS
+        # Local macOS (nested packages path)
         os.path.expanduser(
             "~/.cache/opencode/packages/opencode-claude-auth@latest/"
             "node_modules/opencode-claude-auth/dist/transforms.js"
         ),
-        # VPS (service user)
+        # VPS service user (nested packages path)
         "/home/opencode/.cache/opencode/packages/opencode-claude-auth@latest/"
         "node_modules/opencode-claude-auth/dist/transforms.js",
+        # VPS running as root — flat layout, no packages/ subdir
+        os.path.expanduser(
+            "~/.cache/opencode/node_modules/"
+            "opencode-claude-auth/dist/transforms.js"
+        ),
+        # Service user — flat layout, no packages/ subdir
+        "/home/opencode/.cache/opencode/node_modules/"
+        "opencode-claude-auth/dist/transforms.js",
     ]
     for path in candidates:
         if os.path.isfile(path):
