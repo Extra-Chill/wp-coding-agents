@@ -4,17 +4,30 @@
 # Safely upgrade a live wp-coding-agents install without touching user state.
 #
 # Phases:
-#   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge)
-#   2. Sync kimaki config + plugins
-#        VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + kill list)
-#        Local: $(npm root -g)/kimaki/plugins for plugins,
-#               $KIMAKI_DATA_DIR/kimaki-config/ for post-upgrade.sh + kill list,
-#               and runs post-upgrade.sh inline (no launchd ExecStartPre hook).
+#   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
+#      supports kimaki, cc-connect, telegram).
+#   2. Sync chat-bridge config (dispatches per bridge)
+#        kimaki:
+#          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + kill list)
+#          Local: $(npm root -g)/kimaki/plugins for plugins,
+#                 $KIMAKI_DATA_DIR/kimaki-config/ for post-upgrade.sh + kill
+#                 list, and runs post-upgrade.sh inline (no launchd
+#                 ExecStartPre hook).
+#        cc-connect: no per-install artifacts; reports binary version and
+#          reminds user to `npm update -g cc-connect`.
+#        telegram: no per-install artifacts; reports binary versions and
+#          reminds user to `npm update -g @grinev/opencode-telegram-bot`.
 #   3. Sync agent skills (WordPress + Data Machine)
 #   4. Regenerate AGENTS.md via Data Machine compose
-#   5. Smart systemd update (VPS only; merges host-specific Environment= lines)
-#   6. Re-apply opencode-claude-auth PascalCase patch
-#   7. Summary
+#   5. Smart systemd update (VPS only; dispatches per bridge)
+#        kimaki     → kimaki.service
+#        cc-connect → cc-connect.service
+#        telegram   → opencode-serve.service + opencode-telegram.service
+#      Each unit's existing Environment= lines are preserved (host custom
+#      values, secrets) while structural lines are refreshed from the same
+#      template as lib/chat-bridge.sh.
+#   6. Re-apply opencode-claude-auth PascalCase patch (opencode runtime only)
+#   7. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
 #   ./upgrade.sh                 # run all phases (auto-detects environment)
@@ -95,14 +108,19 @@ Safely upgrade a live install without touching user state.
 USAGE:
   ./upgrade.sh                  Run all phases (auto-detects local vs VPS)
   ./upgrade.sh --dry-run        Preview what would change
-  ./upgrade.sh --kimaki-only    Only sync kimaki config + plugins
+  ./upgrade.sh --kimaki-only    Only sync chat-bridge config (kept name for
+                                backwards compat — also handles cc-connect
+                                and telegram when they are the detected bridge)
   ./upgrade.sh --skills-only    Only sync agent skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
 
-PLUGIN INSTALL TARGETS:
+SUPPORTED CHAT BRIDGES:
+  kimaki, cc-connect, telegram  (auto-detected per environment)
+
+KIMAKI PLUGIN INSTALL TARGETS:
   VPS:   /opt/kimaki-config/plugins
   Local: \$(npm root -g)/kimaki/plugins
 
@@ -166,10 +184,15 @@ source "$RUNTIME_FILE"
 
 # Detect chat bridge from installed services / installed binaries.
 # VPS: systemd unit files are the source of truth.
-# Local: no systemd — fall back to launchd plist (macOS) or `command -v kimaki`.
+# Local: no systemd — fall back to launchd plist (macOS) or `command -v <bridge>`.
+# Ordering matches install priority: kimaki > cc-connect > telegram.
 if [ "$LOCAL_MODE" = true ]; then
   if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ] || command -v kimaki &>/dev/null; then
     CHAT_BRIDGE="kimaki"
+  elif [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ] || command -v cc-connect &>/dev/null; then
+    CHAT_BRIDGE="cc-connect"
+  elif [ -f "$HOME/Library/LaunchAgents/com.wp.opencode-telegram.plist" ] || command -v opencode-telegram &>/dev/null; then
+    CHAT_BRIDGE="telegram"
   fi
 else
   if [ -f "/etc/systemd/system/kimaki.service" ]; then
@@ -219,16 +242,63 @@ _run_filter_active() {
 }
 
 # ============================================================================
-# Phase 2: Sync /opt/kimaki-config (plugins, post-upgrade.sh, skills-kill-list)
+# Phase 2: Sync chat-bridge config
+#   kimaki    → plugins + post-upgrade.sh + skills-kill-list (see below).
+#   cc-connect → no per-install artifacts beyond the npm package; config.toml
+#                is user-owned. Report version and remind user to
+#                `npm update -g cc-connect` for upstream updates.
+#   telegram  → no per-install artifacts beyond the npm package; .env files
+#                contain user secrets and are not touched. Report versions
+#                and remind user to `npm update -g @grinev/opencode-telegram-bot`.
 # ============================================================================
 
-sync_kimaki_config() {
+sync_chat_bridge_config() {
   _run_filter_active kimaki || return 0
 
-  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
-    log "Phase 2: Skipping (kimaki is not the chat bridge)"
-    return 0
+  case "$CHAT_BRIDGE" in
+    kimaki)     _sync_kimaki_config ;;
+    cc-connect) _sync_cc_connect_config ;;
+    telegram)   _sync_telegram_config ;;
+    *) log "Phase 2: Skipping (no chat bridge detected)" ;;
+  esac
+}
+
+_sync_cc_connect_config() {
+  log "Phase 2: cc-connect detected — no per-install artifacts to sync."
+  if command -v cc-connect &>/dev/null; then
+    local cc_version
+    cc_version=$(cc-connect --version 2>/dev/null | head -1 || echo "unknown")
+    log "  cc-connect version: $cc_version"
+  else
+    warn "  cc-connect binary not on PATH"
   fi
+  log "  To update upstream:  npm update -g cc-connect"
+  log "  User config (never touched):  \$CC_DATA_DIR/config.toml (defaults to \$HOME/.cc-connect/config.toml)"
+}
+
+_sync_telegram_config() {
+  log "Phase 2: telegram detected — no per-install artifacts to sync."
+  if command -v opencode-telegram &>/dev/null; then
+    local tg_version
+    tg_version=$(opencode-telegram --version 2>/dev/null | head -1 || echo "unknown")
+    log "  opencode-telegram version: $tg_version"
+  else
+    warn "  opencode-telegram binary not on PATH"
+  fi
+  if command -v opencode &>/dev/null; then
+    local oc_version
+    oc_version=$(opencode --version 2>/dev/null | head -1 || echo "unknown")
+    log "  opencode version: $oc_version"
+  else
+    warn "  opencode binary not on PATH"
+  fi
+  log "  To update upstream:  npm update -g @grinev/opencode-telegram-bot"
+  log "  User env files (never touched):"
+  log "    \$HOME/.config/opencode-serve.env"
+  log "    \$HOME/.config/opencode-telegram-bot/.env"
+}
+
+_sync_kimaki_config() {
 
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
@@ -448,61 +518,108 @@ regenerate_agents_md() {
 
 # ============================================================================
 # Phase 5: Smart systemd update (merges host-specific Environment= lines)
+#   Dispatches per chat bridge. Each bridge regenerates its unit file(s) from
+#   the same template as lib/chat-bridge.sh, preserves existing Environment=
+#   lines, writes + daemon-reloads, NEVER restarts.
 # ============================================================================
 
-update_kimaki_systemd() {
+update_chat_bridge_systemd() {
   _run_filter_active systemd || return 0
-
-  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
-    log "Phase 5: Skipping (kimaki is not the chat bridge)"
-    return 0
-  fi
 
   if [ "$LOCAL_MODE" = true ]; then
     log "Phase 5: Skipping (local mode — no systemd)"
     return 0
   fi
 
-  log "Phase 5: Checking kimaki.service template..."
+  case "$CHAT_BRIDGE" in
+    kimaki)     _update_kimaki_systemd ;;
+    cc-connect) _update_cc_connect_systemd ;;
+    telegram)   _update_telegram_systemd ;;
+    *) log "Phase 5: Skipping (no chat bridge detected)" ;;
+  esac
+}
 
-  local UNIT_FILE="/etc/systemd/system/kimaki.service"
-  if [ ! -f "$UNIT_FILE" ]; then
-    warn "  $UNIT_FILE does not exist — skipping"
+# Helper: merge new Environment= lines from a template into the current unit,
+# preserving every existing Environment= line the host has customised (e.g.
+# BUN_INSTALL, custom PATH, secrets) and appending template keys that are
+# missing. Returns the merged block on stdout.
+_merge_systemd_env_lines() {
+  local current_env="$1"
+  local template_env="$2"
+  local merged="$current_env"
+  while IFS= read -r tmpl_line; do
+    [ -z "$tmpl_line" ] && continue
+    local key
+    key=$(echo "$tmpl_line" | sed -n 's/^Environment=\([^=]*\)=.*/\1/p')
+    [ -z "$key" ] && continue
+    if ! echo "$current_env" | grep -q "^Environment=${key}="; then
+      if [ -n "$merged" ]; then
+        merged="$merged
+$tmpl_line"
+      else
+        merged="$tmpl_line"
+      fi
+    fi
+  done <<< "$template_env"
+  echo "$merged"
+}
+
+# Helper: diff + write + daemon-reload a single systemd unit.
+# Args: $1 unit path, $2 new unit content, $3 human label for summary line.
+_smart_update_systemd_unit() {
+  local unit_file="$1"
+  local new_unit="$2"
+  local label="${3:-$(basename "$unit_file")}"
+
+  if [ ! -f "$unit_file" ]; then
+    warn "  $unit_file does not exist — skipping"
     return 0
   fi
 
-  # Extract current Environment= lines (preserves host customizations like BUN_INSTALL)
+  if echo "$new_unit" | cmp -s - "$unit_file"; then
+    log "  $(basename "$unit_file"): unchanged"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would update $unit_file"
+    echo -e "${BLUE}[dry-run]${NC} Diff:"
+    diff -u "$unit_file" <(echo "$new_unit") 2>/dev/null | head -30 | sed 's/^/    /' || true
+    echo -e "${BLUE}[dry-run]${NC} Would run: systemctl daemon-reload"
+    return 0
+  fi
+
+  cp "$unit_file" "${unit_file}.backup.$TIMESTAMP"
+  echo "$new_unit" > "$unit_file"
+  log "  Updated $unit_file (backup: ${unit_file}.backup.$TIMESTAMP)"
+  log "  Diff:"
+  diff -u "${unit_file}.backup.$TIMESTAMP" "$unit_file" 2>/dev/null | head -30 | sed 's/^/    /' || true
+  systemctl daemon-reload
+  log "  systemctl daemon-reload complete"
+  log "  NOTE: $label NOT restarted — run the restart command in the summary when ready"
+  UPDATED_ITEMS+=("$label (daemon-reloaded, not restarted)")
+}
+
+_update_kimaki_systemd() {
+  log "Phase 5: Checking kimaki.service template..."
+
+  local UNIT_FILE="/etc/systemd/system/kimaki.service"
+  [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
+
   local CURRENT_ENV
   CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
 
-  # Generate fresh unit template (mirrors _install_kimaki_systemd in lib/chat-bridge.sh)
   local KIMAKI_BIN
   KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
   local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
 
-  # Default template Environment lines
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
 
-  # Merge: start with current env, add template keys that are missing.
-  # This preserves host-specific lines (BUN_INSTALL, custom PATH) AND
-  # ensures required vars (KIMAKI_DATA_DIR) are present.
-  local MERGED_ENV="$CURRENT_ENV"
-  while IFS= read -r tmpl_line; do
-    [ -z "$tmpl_line" ] && continue
-    # Extract key: Environment=KEY=value → KEY
-    local key
-    key=$(echo "$tmpl_line" | sed -n 's/^Environment=\([^=]*\)=.*/\1/p')
-    [ -z "$key" ] && continue
-    # If not already present, append
-    if ! echo "$CURRENT_ENV" | grep -q "^Environment=${key}="; then
-      MERGED_ENV="$MERGED_ENV
-$tmpl_line"
-    fi
-  done <<< "$TEMPLATE_ENV"
+  local MERGED_ENV
+  MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
 
-  # Build the fresh unit
   local NEW_UNIT="[Unit]
 Description=Kimaki Discord Bot (wp-coding-agents)
 After=network.target
@@ -520,30 +637,122 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
 
-  # Compare
-  if echo "$NEW_UNIT" | cmp -s - "$UNIT_FILE"; then
-    log "  kimaki.service: unchanged"
-    return 0
+  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "kimaki.service"
+}
+
+_update_cc_connect_systemd() {
+  log "Phase 5: Checking cc-connect.service template..."
+
+  local UNIT_FILE="/etc/systemd/system/cc-connect.service"
+  [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
+
+  local CURRENT_ENV
+  CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
+
+  local CC_BIN
+  CC_BIN=$(which cc-connect 2>/dev/null || echo "/usr/bin/cc-connect")
+
+  # Mirrors _install_cc_connect_systemd in lib/chat-bridge.sh.
+  # CC_CONNECT_TOKEN is only added if setup originally set it (lives in current env).
+  local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
+
+  local MERGED_ENV
+  MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
+
+  local NEW_UNIT="[Unit]
+Description=cc-connect Chat Bridge (wp-coding-agents)
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SITE_PATH
+$MERGED_ENV
+ExecStart=$CC_BIN
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target"
+
+  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "cc-connect.service"
+}
+
+_update_telegram_systemd() {
+  log "Phase 5: Checking opencode-serve.service + opencode-telegram.service templates..."
+
+  local SERVE_UNIT="/etc/systemd/system/opencode-serve.service"
+  local TG_UNIT="/etc/systemd/system/opencode-telegram.service"
+
+  local OPENCODE_BIN TG_BIN SERVE_ENV_FILE TG_CONFIG_DIR
+  OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
+  TG_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
+  SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
+  TG_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+
+  # --- opencode-serve.service ---
+  if [ -f "$SERVE_UNIT" ]; then
+    local SERVE_CURRENT_ENV
+    SERVE_CURRENT_ENV=$(grep '^Environment=' "$SERVE_UNIT" || true)
+    local SERVE_TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
+    local SERVE_MERGED_ENV
+    SERVE_MERGED_ENV=$(_merge_systemd_env_lines "$SERVE_CURRENT_ENV" "$SERVE_TEMPLATE_ENV")
+
+    local SERVE_NEW="[Unit]
+Description=OpenCode Server (wp-coding-agents)
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SITE_PATH
+$SERVE_MERGED_ENV
+EnvironmentFile=-$SERVE_ENV_FILE
+ExecStart=$OPENCODE_BIN serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target"
+
+    _smart_update_systemd_unit "$SERVE_UNIT" "$SERVE_NEW" "opencode-serve.service"
+  else
+    warn "  $SERVE_UNIT does not exist — skipping"
   fi
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would update $UNIT_FILE"
-    echo -e "${BLUE}[dry-run]${NC} Diff:"
-    diff -u "$UNIT_FILE" <(echo "$NEW_UNIT") 2>/dev/null | head -30 | sed 's/^/    /' || true
-    echo -e "${BLUE}[dry-run]${NC} Would run: systemctl daemon-reload"
-    return 0
-  fi
+  # --- opencode-telegram.service ---
+  if [ -f "$TG_UNIT" ]; then
+    local TG_CURRENT_ENV
+    TG_CURRENT_ENV=$(grep '^Environment=' "$TG_UNIT" || true)
+    local TG_TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
+    local TG_MERGED_ENV
+    TG_MERGED_ENV=$(_merge_systemd_env_lines "$TG_CURRENT_ENV" "$TG_TEMPLATE_ENV")
 
-  # Backup and write
-  cp "$UNIT_FILE" "${UNIT_FILE}.backup.$TIMESTAMP"
-  echo "$NEW_UNIT" > "$UNIT_FILE"
-  log "  Updated $UNIT_FILE (backup: ${UNIT_FILE}.backup.$TIMESTAMP)"
-  log "  Diff:"
-  diff -u "${UNIT_FILE}.backup.$TIMESTAMP" "$UNIT_FILE" 2>/dev/null | head -30 | sed 's/^/    /' || true
-  systemctl daemon-reload
-  log "  systemctl daemon-reload complete"
-  log "  NOTE: kimaki.service NOT restarted — run 'systemctl restart kimaki' when ready"
-  UPDATED_ITEMS+=("kimaki.service (daemon-reloaded, not restarted)")
+    local TG_NEW="[Unit]
+Description=OpenCode Telegram Bot (wp-coding-agents)
+After=network.target opencode-serve.service
+Requires=opencode-serve.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SITE_PATH
+$TG_MERGED_ENV
+EnvironmentFile=$TG_CONFIG_DIR/.env
+ExecStart=$TG_BIN start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target"
+
+    _smart_update_systemd_unit "$TG_UNIT" "$TG_NEW" "opencode-telegram.service"
+  else
+    warn "  $TG_UNIT does not exist — skipping"
+  fi
 }
 
 # ============================================================================
@@ -602,45 +811,112 @@ print_summary() {
   fi
 
   echo ""
-  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-    if [ "$LOCAL_MODE" = true ]; then
-      warn "Restart kimaki when ready (active Discord sessions will die):"
-      if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
-        warn "  launchctl kickstart -k gui/$(id -u)/com.wp.kimaki"
+  _print_bridge_restart_hint
+  _print_verify_block
+}
+
+# Print the correct restart command for the detected chat bridge × environment.
+_print_bridge_restart_hint() {
+  case "$CHAT_BRIDGE" in
+    kimaki)
+      if [ "$LOCAL_MODE" = true ]; then
+        warn "Restart kimaki when ready (active chat sessions will die):"
+        if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
+          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.kimaki"
+        else
+          warn "  Stop your kimaki process and re-run: cd $SITE_PATH && kimaki"
+        fi
       else
-        warn "  Stop your kimaki process and re-run: cd $SITE_PATH && kimaki"
+        warn "Restart kimaki when ready: systemctl restart kimaki"
+        warn "  (Active sessions will die when you restart.)"
       fi
-    else
-      warn "Restart kimaki when ready: systemctl restart kimaki"
-      warn "  (Active sessions will die when you restart.)"
-    fi
-    echo ""
-  fi
+      echo ""
+      ;;
+    cc-connect)
+      if [ "$LOCAL_MODE" = true ]; then
+        warn "Restart cc-connect when ready (active chat sessions will die):"
+        if [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ]; then
+          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.cc-connect"
+        else
+          warn "  Stop your cc-connect process and re-run: cd $SITE_PATH && cc-connect"
+        fi
+      else
+        warn "Restart cc-connect when ready: systemctl restart cc-connect"
+        warn "  (Active sessions will die when you restart.)"
+      fi
+      echo ""
+      ;;
+    telegram)
+      if [ "$LOCAL_MODE" = true ]; then
+        warn "Restart telegram stack when ready (active chat sessions will die):"
+        if [ -f "$HOME/Library/LaunchAgents/com.wp.opencode-serve.plist" ]; then
+          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.opencode-serve"
+          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.opencode-telegram"
+        else
+          warn "  Stop your opencode serve + opencode-telegram processes and restart manually"
+        fi
+      else
+        warn "Restart telegram stack when ready:"
+        warn "  systemctl restart opencode-serve opencode-telegram"
+        warn "  (Active sessions will die when you restart.)"
+      fi
+      echo ""
+      ;;
+  esac
+}
 
-  local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-$KIMAKI_CONFIG_DIR/plugins}"
-
+_print_verify_block() {
   log "Verify:"
-  if [ "$LOCAL_MODE" = true ]; then
-    if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
-      log "  launchctl print gui/$(id -u)/com.wp.kimaki | head -20  # chat bridge status"
-    else
-      log "  pgrep -fl kimaki                  # chat bridge status"
-    fi
-  else
-    log "  systemctl status kimaki           # chat bridge status"
-  fi
-  log "  ls $PLUGINS_DIR                   # plugin versions"
-  log "  cat $SITE_PATH/AGENTS.md | head -20  # agent instructions"
-  log "  ls $(runtime_skills_dir)          # installed skills"
+  case "$CHAT_BRIDGE" in
+    kimaki)
+      if [ "$LOCAL_MODE" = true ]; then
+        if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
+          log "  launchctl print gui/$(id -u)/com.wp.kimaki | head -20   # chat bridge status"
+        else
+          log "  pgrep -fl kimaki                                        # chat bridge status"
+        fi
+      else
+        log "  systemctl status kimaki                                  # chat bridge status"
+      fi
+      local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+      log "  ls $PLUGINS_DIR   # plugin versions"
+      ;;
+    cc-connect)
+      if [ "$LOCAL_MODE" = true ]; then
+        if [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ]; then
+          log "  launchctl print gui/$(id -u)/com.wp.cc-connect | head -20   # chat bridge status"
+        else
+          log "  pgrep -fl cc-connect                                        # chat bridge status"
+        fi
+      else
+        log "  systemctl status cc-connect                                 # chat bridge status"
+      fi
+      log "  cc-connect --version                                        # binary version"
+      ;;
+    telegram)
+      if [ "$LOCAL_MODE" = true ]; then
+        log "  launchctl print gui/$(id -u)/com.wp.opencode-serve | head -20     # opencode-serve status"
+        log "  launchctl print gui/$(id -u)/com.wp.opencode-telegram | head -20  # telegram bot status"
+      else
+        log "  systemctl status opencode-serve opencode-telegram           # chat bridge status"
+      fi
+      log "  opencode-telegram --version                                 # binary version"
+      ;;
+    *)
+      log "  (no chat bridge detected)"
+      ;;
+  esac
+  log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
+  log "  ls $(runtime_skills_dir)              # installed skills"
 }
 
 # ============================================================================
 # Execute
 # ============================================================================
 
-sync_kimaki_config
+sync_chat_bridge_config
 sync_skills
 regenerate_agents_md
-update_kimaki_systemd
+update_chat_bridge_systemd
 reapply_claude_auth_patch
 print_summary

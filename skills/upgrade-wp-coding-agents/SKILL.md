@@ -18,19 +18,41 @@ The user says something like:
 - "My dm-context-filter.ts is out of date"
 - "Regenerate AGENTS.md from the latest template"
 
-## Step 1 — Detect the environment
+## Step 1 — Detect the environment and chat bridge
 
-Before running anything, identify which side you are on. The script auto-detects, but you should know too so you can give the user the right restart instructions.
+Before running anything, identify (a) which side you are on and (b) which chat bridge is installed. The script auto-detects both, but you should know too so you can give the user the right restart instructions.
+
+### Environment signals
 
 | Signal | VPS | Local |
 |---|---|---|
-| `/etc/systemd/system/kimaki.service` exists | yes | no |
+| `/etc/systemd/system/<bridge>.service` exists | yes | no |
 | `command -v studio` succeeds | usually no | usually yes |
 | Platform | Linux | macOS or Linux |
-| Plugins land at | `/opt/kimaki-config/plugins` | `$(npm root -g)/kimaki/plugins` |
-| Restart command | `systemctl restart kimaki` | `launchctl kickstart -k gui/$(id -u)/com.wp.kimaki` (launchd) or "stop the kimaki process" (manual) |
 
 **On macOS the script auto-enables `--local`.** On Linux without `--local`, the script assumes VPS.
+
+### Supported chat bridges
+
+`upgrade.sh` auto-detects one of three chat bridges based on installed service files or binaries:
+
+| Bridge | VPS unit(s) | Local launchd plist(s) | Per-install artifacts |
+|---|---|---|---|
+| **kimaki** | `kimaki.service` | `com.wp.kimaki.plist` | `/opt/kimaki-config/` on VPS; `$(npm root -g)/kimaki/plugins` + `$KIMAKI_DATA_DIR/kimaki-config/` on local |
+| **cc-connect** | `cc-connect.service` | `com.wp.cc-connect.plist` | none (user owns `$HOME/.cc-connect/config.toml`) |
+| **telegram** | `opencode-serve.service` + `opencode-telegram.service` | `com.wp.opencode-serve.plist` + `com.wp.opencode-telegram.plist` | none (user owns `.env` files under `$HOME/.config/opencode-*/`) |
+
+Ordering matches install priority: kimaki > cc-connect > telegram if more than one is installed.
+
+### Restart commands per bridge × environment
+
+| Bridge | VPS | Local (launchd) | Local (manual) |
+|---|---|---|---|
+| kimaki | `systemctl restart kimaki` | `launchctl kickstart -k gui/$(id -u)/com.wp.kimaki` | stop the `kimaki` process and re-run |
+| cc-connect | `systemctl restart cc-connect` | `launchctl kickstart -k gui/$(id -u)/com.wp.cc-connect` | stop the `cc-connect` process and re-run |
+| telegram | `systemctl restart opencode-serve opencode-telegram` | `launchctl kickstart -k gui/$(id -u)/com.wp.opencode-serve` **and** `... com.wp.opencode-telegram` | stop both `opencode serve` and `opencode-telegram start`, then restart |
+
+The script's summary block prints these verbatim for the detected combination — do not guess, just pass through what the summary shows.
 
 ## Step 2 — Resolve the repo path
 
@@ -112,21 +134,17 @@ diff -u "$NPM_ROOT/kimaki/plugins/dm-context-filter.ts" \
 head -20 /path/to/site/AGENTS.md
 ```
 
-## Step 6 — Tell the user to restart kimaki
+## Step 6 — Tell the user to restart the chat bridge
 
-The upgrade script never restarts the chat bridge automatically — active Discord sessions would die mid-turn. Hand the right command to the user based on what was detected:
+The upgrade script never restarts the chat bridge automatically — active chat sessions would die mid-turn. Hand the right command to the user based on what the summary block printed. See the restart-command table in Step 1.
 
-- **VPS:** `systemctl restart kimaki`
-- **Local launchd (macOS):** `launchctl kickstart -k gui/$(id -u)/com.wp.kimaki`
-- **Local manual:** stop the running kimaki process and re-launch with `cd <site> && kimaki`
-
-> Always say something like: *"Restart kimaki when ready — active sessions will die."* Let the user pick the moment.
+> Always say something like: *"Restart &lt;bridge&gt; when ready — active sessions will die."* Let the user pick the moment. For the telegram bridge there are two services (`opencode-serve` + `opencode-telegram`) — restart both, in that order.
 
 ## Scope flags
 
 These work in both VPS and local mode:
 
-- `--kimaki-only` — only sync the kimaki config + plugins
+- `--kimaki-only` — only sync the chat-bridge config (name kept for backwards compatibility — also handles cc-connect and telegram when they are the detected bridge)
 - `--skills-only` — only refresh agent skills (WordPress/agent-skills + Extra-Chill/data-machine-skills)
 - `--agents-md-only` — only regenerate AGENTS.md via `datamachine agent compose`
 
