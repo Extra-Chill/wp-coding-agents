@@ -209,8 +209,15 @@ runtime_generate_config() {
 
   # opencode-claude-auth: Claude Max/Pro OAuth auth + billing header injection
   # + system prompt relocation to avoid Anthropic's third-party app detection.
-  # Safe to always include — no-op when Claude credentials aren't present.
-  OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
+  #
+  # Skip when CHAT_BRIDGE=kimaki. Kimaki v0.6.0+ ships a built-in
+  # AnthropicAuthPlugin that handles the same concerns (OAuth, token refresh,
+  # request/response rewriting, multi-account rotation). Loading both plugins
+  # causes them to compete for the same `anthropic` auth provider in OpenCode.
+  # See Extra-Chill/wp-coding-agents#51.
+  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
+  fi
 
   # DM context filter + agent sync — only when DM handles memory via Kimaki
   if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
