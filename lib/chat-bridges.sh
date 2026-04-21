@@ -88,14 +88,26 @@ bridge_binaries() {
   esac
 }
 
-# Human-readable display name for prose in summary / restart hints.
+# Human-readable display name for prose in restart hints etc.
 # Multi-service bridges use "X stack" to signal that the restart command
-# hits multiple services.
+# hits multiple services. Lowercase for mid-sentence usage.
 bridge_display_name() {
   case "$1" in
     kimaki)     echo "kimaki" ;;
     cc-connect) echo "cc-connect" ;;
     telegram)   echo "telegram stack" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Display title for start-of-line headers ("Kimaki (launchd service):").
+# Intentionally separate from bridge_display_name so prose stays natural —
+# cc-connect keeps its lowercase brand name; kimaki and Telegram capitalize.
+bridge_display_title() {
+  case "$1" in
+    kimaki)     echo "Kimaki" ;;
+    cc-connect) echo "cc-connect" ;;
+    telegram)   echo "Telegram" ;;
     *) return 1 ;;
   esac
 }
@@ -543,6 +555,53 @@ bridge_start_hint() {
       ;;
     *)
       echo "bridge_start_hint: unknown env '$env'" >&2
+      return 1 ;;
+  esac
+}
+
+# bridge_stop_hint <bridge> <env>   env = local-launchd | vps
+#
+# Stop instruction for summary output. local-manual returns nothing — the
+# user has their own process management story.
+bridge_stop_hint() {
+  local bridge="$1" env="$2" label units uid
+  uid=$(id -u)
+  case "$env" in
+    local-launchd)
+      for label in $(bridge_launchd_labels "$bridge"); do
+        echo "launchctl kill SIGTERM gui/${uid}/${label}"
+      done
+      ;;
+    vps)
+      units=$(bridge_systemd_units "$bridge" | sed 's/\.service//g')
+      # shellcheck disable=SC2086
+      echo "systemctl stop $units"
+      ;;
+    local-manual)
+      ;;
+    *)
+      echo "bridge_stop_hint: unknown env '$env'" >&2
+      return 1 ;;
+  esac
+}
+
+# bridge_is_ready <bridge>
+#
+# Returns 0 if the bridge has all credentials it needs to actually run,
+# 1 otherwise. cc-connect has no token requirement so it is always ready.
+# Callers can branch between "start it" and "configure first" onboarding.
+bridge_is_ready() {
+  case "$1" in
+    kimaki)
+      [ -n "${KIMAKI_BOT_TOKEN:-}" ]
+      ;;
+    cc-connect)
+      return 0
+      ;;
+    telegram)
+      [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_ALLOWED_USER_ID:-}" ]
+      ;;
+    *)
       return 1 ;;
   esac
 }
