@@ -92,36 +92,39 @@ bridge_binaries() {
 # Detection — returns first matching bridge name on stdout, or empty
 # ===========================================================================
 
-# Local: prefer launchd plists, fall back to `command -v <primary-binary>`.
+# Local: a bridge is "present" if ANY of its launchd plists exist or ANY of
+# its binaries are on PATH. Multi-service bridges (telegram) install a pair
+# of plists — either one signals presence.
 # Priority order matches setup.sh: kimaki > cc-connect > telegram.
 bridge_detect_local() {
-  local bridge label primary
+  local bridge label bin
   for bridge in $(bridge_names); do
-    # First launchd label covers the single-service bridges (kimaki, cc-connect)
-    # and the primary service for multi-service bridges (telegram's serve plist).
-    label=$(bridge_launchd_labels "$bridge" | awk '{print $1}')
-    if [ -f "$HOME/Library/LaunchAgents/${label}.plist" ]; then
-      echo "$bridge"
-      return 0
-    fi
-    primary=$(bridge_binaries "$bridge" | awk '{print $1}')
-    if command -v "$primary" >/dev/null 2>&1; then
-      echo "$bridge"
-      return 0
-    fi
+    for label in $(bridge_launchd_labels "$bridge"); do
+      if [ -f "$HOME/Library/LaunchAgents/${label}.plist" ]; then
+        echo "$bridge"
+        return 0
+      fi
+    done
+    for bin in $(bridge_binaries "$bridge"); do
+      if command -v "$bin" >/dev/null 2>&1; then
+        echo "$bridge"
+        return 0
+      fi
+    done
   done
   return 0
 }
 
-# VPS: systemd unit files. Priority matches local.
+# VPS: a bridge is "present" if ANY of its systemd unit files exist.
 bridge_detect_vps() {
   local bridge unit
   for bridge in $(bridge_names); do
-    unit=$(bridge_systemd_units "$bridge" | awk '{print $1}')
-    if [ -f "/etc/systemd/system/${unit}" ]; then
-      echo "$bridge"
-      return 0
-    fi
+    for unit in $(bridge_systemd_units "$bridge"); do
+      if [ -f "/etc/systemd/system/${unit}" ]; then
+        echo "$bridge"
+        return 0
+      fi
+    done
   done
   return 0
 }

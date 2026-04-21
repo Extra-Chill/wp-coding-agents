@@ -205,26 +205,14 @@ source "$RUNTIME_FILE"
 # which the chat bridge detection below depends on to pick the right branch.
 detect_environment
 
-# Detect chat bridge from installed services / installed binaries.
-# VPS: systemd unit files are the source of truth.
-# Local: no systemd — fall back to launchd plist (macOS) or `command -v <bridge>`.
-# Ordering matches install priority: kimaki > cc-connect > telegram.
+# Detect chat bridge from installed services / installed binaries via the
+# lib/chat-bridges.sh registry. See bridge_detect_local / bridge_detect_vps
+# for the full probe order (launchd plists + command -v on local; systemd
+# unit files on VPS). Priority: kimaki > cc-connect > telegram.
 if [ "$LOCAL_MODE" = true ]; then
-  if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ] || command -v kimaki &>/dev/null; then
-    CHAT_BRIDGE="kimaki"
-  elif [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ] || command -v cc-connect &>/dev/null; then
-    CHAT_BRIDGE="cc-connect"
-  elif [ -f "$HOME/Library/LaunchAgents/com.wp.opencode-telegram.plist" ] || command -v opencode-telegram &>/dev/null; then
-    CHAT_BRIDGE="telegram"
-  fi
+  CHAT_BRIDGE=$(bridge_detect_local)
 else
-  if [ -f "/etc/systemd/system/kimaki.service" ]; then
-    CHAT_BRIDGE="kimaki"
-  elif [ -f "/etc/systemd/system/cc-connect.service" ]; then
-    CHAT_BRIDGE="cc-connect"
-  elif [ -f "/etc/systemd/system/opencode-telegram.service" ]; then
-    CHAT_BRIDGE="telegram"
-  fi
+  CHAT_BRIDGE=$(bridge_detect_vps)
 fi
 
 log "Runtime:     $RUNTIME"
