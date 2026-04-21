@@ -1,0 +1,33 @@
+name: shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax:
+    name: bash -n on all shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check every .sh
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r -d '' f; do
+            if ! bash -n "$f"; then
+              echo "FAIL: $f"
+              fail=1
+            fi
+          done < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
+          exit "$fail"
+
+  bridge-render:
+    name: chat-bridge template byte-equivalence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/bridge-render.sh
+        run: ./tests/bridge-render.sh

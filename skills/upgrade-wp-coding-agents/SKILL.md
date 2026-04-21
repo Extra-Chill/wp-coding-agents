@@ -44,15 +44,9 @@ Before running anything, identify (a) which side you are on and (b) which chat b
 
 Ordering matches install priority: kimaki > cc-connect > telegram if more than one is installed.
 
-### Restart commands per bridge × environment
+### Restart commands
 
-| Bridge | VPS | Local (launchd) | Local (manual) |
-|---|---|---|---|
-| kimaki | `systemctl restart kimaki` | `launchctl kickstart -k gui/$(id -u)/com.wp.kimaki` | stop the `kimaki` process and re-run |
-| cc-connect | `systemctl restart cc-connect` | `launchctl kickstart -k gui/$(id -u)/com.wp.cc-connect` | stop the `cc-connect` process and re-run |
-| telegram | `systemctl restart opencode-serve opencode-telegram` | `launchctl kickstart -k gui/$(id -u)/com.wp.opencode-serve` **and** `... com.wp.opencode-telegram` | stop both `opencode serve` and `opencode-telegram start`, then restart |
-
-The script's summary block prints these verbatim for the detected combination — do not guess, just pass through what the summary shows.
+Do not guess restart commands. The script's summary block prints the exact command for the detected bridge × environment combination at the end of every run — pass that through to the user verbatim. The source of truth for these commands is `lib/chat-bridges.sh::bridge_restart_cmd`; they are rendered once and reused by both `upgrade.sh` and setup-time summary output, so the skill never needs its own copy.
 
 ## Step 2 — Resolve the repo path
 
