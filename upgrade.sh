@@ -182,6 +182,10 @@ if [ ! -f "$RUNTIME_FILE" ]; then
 fi
 source "$RUNTIME_FILE"
 
+# Run detect_environment first — it auto-sets LOCAL_MODE=true on macOS,
+# which the chat bridge detection below depends on to pick the right branch.
+detect_environment
+
 # Detect chat bridge from installed services / installed binaries.
 # VPS: systemd unit files are the source of truth.
 # Local: no systemd — fall back to launchd plist (macOS) or `command -v <bridge>`.
@@ -203,9 +207,6 @@ else
     CHAT_BRIDGE="telegram"
   fi
 fi
-
-# Run detect_environment — populates SITE_PATH, SERVICE_USER, etc.
-detect_environment
 
 log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
