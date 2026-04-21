@@ -54,8 +54,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
-# wordpress is needed for wp_cmd helper used by compose).
-for lib in common detect wordpress skills; do
+# wordpress is needed for wp_cmd helper used by compose; chat-bridges for
+# systemd/launchd template generators shared with setup-time install).
+for lib in common detect wordpress skills chat-bridges; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -783,22 +784,8 @@ Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
 
-  local NEW_UNIT="[Unit]
-Description=Kimaki Discord Bot (wp-coding-agents)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$MERGED_ENV
-ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
+  local NEW_UNIT
+  NEW_UNIT=$(bridge_render_systemd kimaki kimaki.service "$MERGED_ENV")
 
   _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "kimaki.service"
 }

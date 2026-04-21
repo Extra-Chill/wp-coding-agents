@@ -1,5 +1,12 @@
 #!/bin/bash
 # Chat bridge: kimaki, cc-connect, telegram — install, config, service setup
+#
+# Unit-file and plist templates, detection logic, and human-facing command
+# accessors all live in lib/chat-bridges.sh (plural). This file is the
+# install-time entrypoint that stitches per-install values into the registry.
+
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/chat-bridges.sh"
 
 install_chat_bridge() {
   if [ "$INSTALL_CHAT" != true ]; then
@@ -52,41 +59,7 @@ _install_kimaki_launchd() {
   run_cmd mkdir -p "$KIMAKI_DATA_DIR"
   run_cmd mkdir -p "$KIMAKI_PLIST_DIR"
 
-  KIMAKI_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>Label</key>
-    <string>$KIMAKI_PLIST_LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$KIMAKI_BIN</string>
-        <string>--data-dir</string>
-        <string>$KIMAKI_DATA_DIR</string>
-        <string>--auto-restart</string>
-        <string>--no-critique</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$KIMAKI_DATA_DIR/kimaki.log</string>
-    <key>StandardErrorPath</key>
-    <string>$KIMAKI_DATA_DIR/kimaki.error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>KIMAKI_DATA_DIR</key>
-        <string>$KIMAKI_DATA_DIR</string>$(if [ -n "$KIMAKI_BOT_TOKEN" ]; then echo "
-        <key>KIMAKI_BOT_TOKEN</key>
-        <string>$KIMAKI_BOT_TOKEN</string>"; fi)
-    </dict>
-</dict>
-</plist>"
-
-  write_file "$KIMAKI_PLIST" "$KIMAKI_PLIST_CONTENT"
+  write_file "$KIMAKI_PLIST" "$(bridge_render_launchd kimaki "$KIMAKI_PLIST_LABEL")"
 
   if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_BOT_TOKEN" ]; then
     launchctl bootout "gui/$(id -u)" "$KIMAKI_PLIST" 2>/dev/null || true
@@ -110,12 +83,12 @@ _install_kimaki_systemd() {
   run_cmd cp -r "$SCRIPT_DIR/kimaki" "$KIMAKI_CONFIG_DIR"
   run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
 
-  ENV_LINES="Environment=HOME=$SERVICE_HOME"
-  ENV_LINES="$ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
-  ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
-
+  local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
   if [ -n "$KIMAKI_BOT_TOKEN" ]; then
-    ENV_LINES="$ENV_LINES\nEnvironment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
+    ENV_BLOCK="$ENV_BLOCK
+Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
   fi
 
   if [ "$DRY_RUN" = true ]; then
@@ -124,24 +97,8 @@ _install_kimaki_systemd() {
     KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
   fi
 
-  SYSTEMD_CONFIG="[Unit]
-Description=Kimaki Discord Bot (wp-coding-agents)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$(echo -e "$ENV_LINES")
-ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
-  write_file "/etc/systemd/system/kimaki.service" "$SYSTEMD_CONFIG"
+  write_file "/etc/systemd/system/kimaki.service" \
+    "$(bridge_render_systemd kimaki kimaki.service "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable kimaki
 }
