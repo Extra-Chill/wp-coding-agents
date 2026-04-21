@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.2] - 2026-04-21
+
+### Changed
+- refactor(chat-bridges): centralize metadata + unit templates into lib/chat-bridges.sh
+
 ## [0.4.1] - 2026-04-20
 
 ### Fixed
