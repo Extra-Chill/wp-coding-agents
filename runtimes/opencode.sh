@@ -172,12 +172,6 @@ wp-content/uploads/datamachine-files/agents/${DM_DRY_SLUG}/MEMORY.md
 wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
     log "Dry-run: using placeholder agent paths (slug: $DM_DRY_SLUG)"
   fi
-
-  # Build prompt from discovered files
-  OPENCODE_PROMPT="{file:./AGENTS.md}"
-  while IFS= read -r rel_path; do
-    OPENCODE_PROMPT="$OPENCODE_PROMPT\\\\n{file:./${rel_path}}"
-  done <<< "$DM_AGENT_FILES"
 }
 
 runtime_generate_config() {
@@ -237,15 +231,31 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": [${OPENCODE_PLUGINS}\n  ]"
   fi
 
-  # Agent prompt config
-  OPENCODE_JSON="$OPENCODE_JSON,\n  \"agent\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n    \"build\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
-  OPENCODE_JSON="$OPENCODE_JSON\n    },"
-  OPENCODE_JSON="$OPENCODE_JSON\n    \"plan\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
-  OPENCODE_JSON="$OPENCODE_JSON\n    }"
-  OPENCODE_JSON="$OPENCODE_JSON\n  }"
+  # Memory files as top-level "instructions" array.
+  #
+  # Why not "agent.build.prompt"/"agent.plan.prompt": setting those overrides
+  # OpenCode's canonical system prompt opening (<environment>...Skills provide...),
+  # which puts our memory at the top of system[1]. Anthropic's third-party-app
+  # detector fingerprints the first bytes of system[1] for Claude Max OAuth;
+  # when the canonical opening isn't there, it routes the request through
+  # extra-usage billing and returns HTTP 400:
+  #   "Third-party apps now draw from your extra usage..."
+  #
+  # "instructions" loads each file via OpenCode's native Instruction.system()
+  # (packages/opencode/src/session/instruction.ts), which appends them with
+  # the "Instructions from: <path>" prefix AFTER the canonical opening — same
+  # mechanism that auto-discovers AGENTS.md. Keeps the OAuth flow intact.
+  if [ -n "$DM_AGENT_FILES" ]; then
+    OPENCODE_INSTRUCTIONS=""
+    while IFS= read -r rel_path; do
+      [ -z "$rel_path" ] && continue
+      OPENCODE_INSTRUCTIONS="${OPENCODE_INSTRUCTIONS}\n    \"./${rel_path}\","
+    done <<< "$DM_AGENT_FILES"
+    if [ -n "$OPENCODE_INSTRUCTIONS" ]; then
+      OPENCODE_INSTRUCTIONS=$(echo "$OPENCODE_INSTRUCTIONS" | sed 's/,$//')
+      OPENCODE_JSON="$OPENCODE_JSON,\n  \"instructions\": [${OPENCODE_INSTRUCTIONS}\n  ]"
+    fi
+  fi
 
   # Permission: allow DM workspace as external directory
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
