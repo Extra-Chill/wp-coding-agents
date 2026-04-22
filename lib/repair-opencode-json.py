@@ -61,7 +61,8 @@ def expected_plugins(
     if chat_bridge != "kimaki":
         plugins.append("opencode-claude-auth@latest")
 
-    # DM context filter + agent sync: only when DM handles memory via Kimaki.
+    # DM context filter + agent sync: only when the bridge is Kimaki, since
+    # these plugins rewrite Kimaki-specific prompts.
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")

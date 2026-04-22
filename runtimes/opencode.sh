@@ -214,7 +214,8 @@ runtime_generate_config() {
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
   fi
 
-  # DM context filter + agent sync — only when DM memory is surfaced via Kimaki.
+  # DM context filter + agent sync — only when the bridge is Kimaki, since
+  # these plugins rewrite Kimaki-specific prompts.
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
       KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
