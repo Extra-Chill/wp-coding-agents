@@ -82,7 +82,6 @@ SHOW_HELP=false
 LOCAL_MODE=false
 SKIP_DEPS=true
 SKIP_SSL=true
-INSTALL_DATA_MACHINE=true
 INSTALL_CHAT=true
 INSTALL_SKILLS=true
 RUN_AS_ROOT=true
@@ -469,7 +468,7 @@ _sync_kimaki_config() {
 # opencode.json is user-owned (model settings, agent prompt files, permissions,
 # etc.), so this phase is read-only by default. It compares the file's
 # `plugin` array against what current setup would produce for the detected
-# (RUNTIME, CHAT_BRIDGE, INSTALL_DATA_MACHINE) combo and surfaces drift.
+# (RUNTIME, CHAT_BRIDGE) combo and surfaces drift.
 #
 # The most common drift vectors:
 #   - install predates v0.4.0 (no `plugin` key at all)
@@ -503,8 +502,6 @@ check_opencode_json_drift() {
   fi
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
-  local DM_ARG="false"
-  [ "$INSTALL_DATA_MACHINE" = true ] && DM_ARG="true"
 
   # Kimaki plugins dir — match what _sync_kimaki_config resolved.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
@@ -512,14 +509,13 @@ check_opencode_json_drift() {
   if [ "$REPAIR_OPENCODE_JSON" = true ]; then
     log "Phase 2b: Repairing opencode.json plugin array..."
     if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME --chat-bridge $BRIDGE_ARG --install-dm $DM_ARG --kimaki-plugins-dir $PLUGINS_DIR --apply"
+      echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR --apply"
       # Still show the diagnostic even in dry-run
       local dry_out
       dry_out=$(python3 "$HELPER" \
         --file "$OPENCODE_JSON_FILE" \
         --runtime "$RUNTIME" \
         --chat-bridge "$BRIDGE_ARG" \
-        --install-dm "$DM_ARG" \
         --kimaki-plugins-dir "$PLUGINS_DIR" 2>&1 || true)
       echo "$dry_out" | sed 's/^/    /'
       return 0
@@ -530,7 +526,6 @@ check_opencode_json_drift() {
       --file "$OPENCODE_JSON_FILE" \
       --runtime "$RUNTIME" \
       --chat-bridge "$BRIDGE_ARG" \
-      --install-dm "$DM_ARG" \
       --kimaki-plugins-dir "$PLUGINS_DIR" \
       --apply \
       --backup-suffix "$TIMESTAMP" 2>&1) && rc=0 || rc=$?
@@ -564,7 +559,6 @@ check_opencode_json_drift() {
     --file "$OPENCODE_JSON_FILE" \
     --runtime "$RUNTIME" \
     --chat-bridge "$BRIDGE_ARG" \
-    --install-dm "$DM_ARG" \
     --kimaki-plugins-dir "$PLUGINS_DIR" 2>&1) && rc=0 || rc=$?
 
   local status
@@ -600,10 +594,9 @@ sync_skills() {
 
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
+    echo -e "${BLUE}[dry-run]${NC} Would install in-repo skills from $SCRIPT_DIR/skills → $SKILLS_DIR"
     echo -e "${BLUE}[dry-run]${NC} Would clone WordPress/agent-skills → $SKILLS_DIR"
-    if [ "$INSTALL_DATA_MACHINE" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would clone Extra-Chill/data-machine-skills → $SKILLS_DIR"
-    fi
+    echo -e "${BLUE}[dry-run]${NC} Would clone Extra-Chill/data-machine-skills → $SKILLS_DIR"
     if [ "$CHAT_BRIDGE" = "kimaki" ]; then
       echo -e "${BLUE}[dry-run]${NC} Would copy skills to kimaki skills dir"
     fi
@@ -625,11 +618,6 @@ regenerate_agents_md() {
 
   local AGENTS_MD="$SITE_PATH/AGENTS.md"
   local BACKUP="$SITE_PATH/AGENTS.md.backup.$TIMESTAMP"
-
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    warn "  Data Machine not installed — skipping (nothing to compose)"
-    return 0
-  fi
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"

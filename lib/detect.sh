@@ -92,7 +92,6 @@ detect_environment() {
   log "Detected OS: $OS (platform: $PLATFORM, local: $LOCAL_MODE)"
   log "Mode: $MODE"
   log "Runtime: $RUNTIME"
-  log "Data Machine: $INSTALL_DATA_MACHINE"
   log "Multisite: $MULTISITE ($MULTISITE_TYPE)"
   if [ "$DRY_RUN" = true ]; then
     log "Dry-run mode: commands will be printed, not executed"

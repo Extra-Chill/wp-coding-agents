@@ -29,16 +29,14 @@ print_summary() {
     echo "  Type:        $MULTISITE_TYPE"
     echo ""
   fi
-  if [ "$INSTALL_DATA_MACHINE" = true ]; then
-    echo "Data Machine:"
-    if [ -n "$AGENT_SLUG" ]; then
-      echo "  Agent:       $AGENT_SLUG"
-    fi
-    echo "  Discover:    $WP_CMD datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
-    echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
-    echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
-    echo ""
+  echo "Data Machine:"
+  if [ -n "$AGENT_SLUG" ]; then
+    echo "  Agent:       $AGENT_SLUG"
   fi
+  echo "  Discover:    $WP_CMD datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
+  echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
+  echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
+  echo ""
   echo "Agent:"
   if [ "$LOCAL_MODE" = true ]; then
     echo "  User:     $(whoami) (local)"
@@ -71,7 +69,6 @@ WP_ADMIN_PASS=$WP_ADMIN_PASS
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASS=$DB_PASS
-DATA_MACHINE=$INSTALL_DATA_MACHINE
 AGENT_SLUG=$AGENT_SLUG
 MULTISITE=$MULTISITE
 MULTISITE_TYPE=$MULTISITE_TYPE
@@ -100,17 +97,14 @@ _print_next_steps() {
     _print_vps_next_steps
   fi
 
-  if [ "$INSTALL_DATA_MACHINE" = true ]; then
-    echo "  Configure Data Machine:"
-    echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
-    if [ "$LOCAL_MODE" = false ]; then
-      echo "    - Or via WP-CLI: $WP_CMD datamachine settings --allow-root"
-    else
-      echo "    - Or via WP-CLI: $WP_CMD datamachine settings --path=$SITE_PATH"
-    fi
-    echo ""
+  echo "  Configure Data Machine:"
+  echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
+  if [ "$LOCAL_MODE" = false ]; then
+    echo "    - Or via WP-CLI: $WP_CMD datamachine settings --allow-root"
+  else
+    echo "    - Or via WP-CLI: $WP_CMD datamachine settings --path=$SITE_PATH"
   fi
-
+  echo ""
 }
 
 _print_local_next_steps() {

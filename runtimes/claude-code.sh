@@ -19,9 +19,6 @@ runtime_discover_dm_paths() {
   fi
 
   DM_FILES=()
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    return
-  fi
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     AGENT_FLAG=""
@@ -109,24 +106,19 @@ runtime_generate_config() {
     CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_STUDIO}}/,/{{END_IF_STUDIO}}/d')
   fi
 
-  # Process Data Machine conditional
-  if [ "$INSTALL_DATA_MACHINE" = true ]; then
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/d; /{{END_IF_DATA_MACHINE}}/d')
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/,/{{END_IF_NO_DATA_MACHINE}}/d')
-
-    AT_INCLUDES=""
-    for dm_file in "${DM_FILES[@]}"; do
-      AT_INCLUDES="${AT_INCLUDES}@${dm_file}
+  AT_INCLUDES=""
+  for dm_file in "${DM_FILES[@]}"; do
+    AT_INCLUDES="${AT_INCLUDES}@${dm_file}
 "
-    done
+  done
 
-    DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
-    SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
+  DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
+  SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
 ${AT_INCLUDES}
 ${DISCOVER_LINE}
 <!-- DM_AGENT_SYNC_END -->"
 
-    CLAUDE_MD=$(python3 -c "
+  CLAUDE_MD=$(python3 -c "
 import sys
 content = sys.argv[1]
 block = sys.argv[2]
@@ -136,10 +128,6 @@ si = content.index(start)
 ei = content.index(end) + len(end)
 print(content[:si] + block + content[ei:], end='')
 " "$CLAUDE_MD" "$SENTINEL_CONTENT")
-  else
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/,/{{END_IF_DATA_MACHINE}}/d')
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/d; /{{END_IF_NO_DATA_MACHINE}}/d')
-  fi
 
   # Clean up stacked empty lines from conditional removal
   CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/^$/N;/^\n$/d')
@@ -149,10 +137,6 @@ print(content[:si] + block + content[ei:], end='')
 }
 
 runtime_install_hooks() {
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    return
-  fi
-
   log "Installing Claude Code SessionStart hook..."
 
   local hooks_dir="$SITE_PATH/.claude/hooks"
@@ -244,8 +228,9 @@ runtime_generate_instructions() {
 
   log "Generating AGENTS.md..."
 
-  # When Data Machine is installed, compose from registered sections.
-  if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$DRY_RUN" = false ]; then
+  # Compose from Data Machine's SectionRegistry. DM is mandatory, so this is
+  # the only source of truth for AGENTS.md content.
+  if [ "$DRY_RUN" = false ]; then
     if wp_cmd datamachine agent compose AGENTS.md 2>/dev/null; then
       log "AGENTS.md composed from SectionRegistry"
       return
@@ -253,7 +238,7 @@ runtime_generate_instructions() {
     warn "Compose failed — falling back to static template"
   fi
 
-  # Fallback: minimal template for non-DM installs or dry-run.
+  # Fallback for dry-run or compose failure: ship a minimal static template.
   local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
   if [ ! -f "$agents_tmpl" ]; then
     error "AGENTS.md template not found at $agents_tmpl"

@@ -10,7 +10,11 @@
 #   Local (macOS):    EXISTING_WP=/path/to/wordpress ./setup.sh --local
 #   Claude Code:      ./setup.sh --runtime claude-code
 #   Without Discord:  ./setup.sh --no-chat
-#   Without DM:       ./setup.sh --no-data-machine
+#
+# Data Machine is the substrate wp-coding-agents composes on top of — memory
+# files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md, skills,
+# workspace primitive, MCP surface. It is not optional. Uninstall the plugin
+# later if you don't want it.
 #
 
 set -e
@@ -38,7 +42,6 @@ MODE="fresh"
 LOCAL_MODE=false
 SKIP_DEPS=false
 SKIP_SSL=false
-INSTALL_DATA_MACHINE=true
 INSTALL_CHAT=true
 CHAT_BRIDGE=""
 SHOW_HELP=false
@@ -77,10 +80,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-deps)
       SKIP_DEPS=true
-      shift
-      ;;
-    --no-data-machine)
-      INSTALL_DATA_MACHINE=false
       shift
       ;;
     --no-chat)
@@ -172,7 +171,6 @@ OPTIONS:
                      Available: ${AVAILABLE_RUNTIMES[*]}
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
-  --no-data-machine  Skip Data Machine plugin (no persistent memory/scheduling)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki for opencode,
                      cc-connect for claude-code)
