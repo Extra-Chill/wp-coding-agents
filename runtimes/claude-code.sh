@@ -176,10 +176,32 @@ runtime_install_hooks() {
   chmod +x "$hook_dst"
   log "Installed hook: $hook_dst"
 
-  # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json
+  # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json.
+  # additionalDirectories alone is not enough: the Bash tool is gated by explicit
+  # allow rules, so workspace shell ops (ls/git/studio wp datamachine-code …) would
+  # still prompt. Expand permissions.allow with Read/Edit/Write globs on the
+  # workspace plus the datamachine-code Bash surface.
   local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
   local hook_entry
   hook_entry=$(jq -n --arg cmd "$hook_cmd" '{matcher: "", hooks: [{type: "command", command: $cmd}]}')
+
+  local wp_prefix="wp"
+  if [ "$IS_STUDIO" = true ]; then
+    wp_prefix="studio wp"
+  fi
+
+  local workspace_allow_rules
+  workspace_allow_rules=$(jq -n \
+    --arg ws "$DM_WORKSPACE_DIR" \
+    --arg wp "$wp_prefix" \
+    '[
+      "Read(\($ws)/**)",
+      "Edit(\($ws)/**)",
+      "Write(\($ws)/**)",
+      "Bash(\($wp) datamachine-code workspace:*)",
+      "Bash(\($wp) datamachine-code github:*)",
+      "Bash(\($wp) datamachine-code gitsync:*)"
+    ]')
 
   local settings='{}'
   if [ -f "$settings_file" ]; then
@@ -190,12 +212,17 @@ runtime_install_hooks() {
     --arg workspace "$DM_WORKSPACE_DIR" \
     --argjson hook "$hook_entry" \
     --arg cmd "$hook_cmd" \
+    --argjson allow_rules "$workspace_allow_rules" \
     '
     .autoMemoryEnabled = false
 
     | .permissions.additionalDirectories = (
         (.permissions.additionalDirectories // [])
         | if any(. == $workspace) then . else . + [$workspace] end
+      )
+
+    | .permissions.allow = (
+        ((.permissions.allow // []) + $allow_rules) | unique
       )
 
     | .hooks.SessionStart = (
@@ -206,7 +233,7 @@ runtime_install_hooks() {
 
   echo "$settings" | jq . > "$settings_file"
 
-  log "Configured settings.json: SessionStart hook, workspace permissions, autoMemoryEnabled=false"
+  log "Configured settings.json: SessionStart hook, workspace permissions (dir + allow rules), autoMemoryEnabled=false"
 }
 
 runtime_generate_instructions() {

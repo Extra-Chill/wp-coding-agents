@@ -238,8 +238,16 @@ runtime_install_hooks() {
   chmod +x "$hook_dst"
   log "Installed hook: $hook_dst"
 
-  # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json
+  # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json.
+  # additionalDirectories alone is not enough: the Bash tool is gated by explicit
+  # allow rules, so workspace shell ops (ls/git/studio wp datamachine-code …) would
+  # still prompt. Expand permissions.allow with Read/Edit/Write globs on the
+  # workspace plus the datamachine-code Bash surface.
   local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
+  local wp_prefix="wp"
+  if [ "$IS_STUDIO" = true ]; then
+    wp_prefix="studio wp"
+  fi
 
   python3 -c "
 import json, sys, os
@@ -247,6 +255,7 @@ import json, sys, os
 settings_path = sys.argv[1]
 hook_cmd = sys.argv[2]
 workspace_dir = sys.argv[3]
+wp_prefix = sys.argv[4]
 
 settings = {}
 if os.path.isfile(settings_path):
@@ -261,6 +270,20 @@ perms = settings.setdefault('permissions', {})
 additional_dirs = perms.setdefault('additionalDirectories', [])
 if workspace_dir not in additional_dirs:
     additional_dirs.append(workspace_dir)
+
+# Allow rules so the Bash tool + file tools don't prompt for workspace work.
+allow = perms.setdefault('allow', [])
+desired_rules = [
+    f'Read({workspace_dir}/**)',
+    f'Edit({workspace_dir}/**)',
+    f'Write({workspace_dir}/**)',
+    f'Bash({wp_prefix} datamachine-code workspace:*)',
+    f'Bash({wp_prefix} datamachine-code github:*)',
+    f'Bash({wp_prefix} datamachine-code gitsync:*)',
+]
+for rule in desired_rules:
+    if rule not in allow:
+        allow.append(rule)
 
 # Register SessionStart hook (idempotent)
 hooks = settings.setdefault('hooks', {})
@@ -280,9 +303,9 @@ if not already_registered:
 with open(settings_path, 'w') as f:
     json.dump(settings, f, indent=2)
     f.write('\n')
-" "$settings_file" "$hook_cmd" "$DM_WORKSPACE_DIR"
+" "$settings_file" "$hook_cmd" "$DM_WORKSPACE_DIR" "$wp_prefix"
 
-  log "Configured settings.json: SessionStart hook, workspace permissions, autoMemoryEnabled=false"
+  log "Configured settings.json: SessionStart hook, workspace permissions (dir + allow rules), autoMemoryEnabled=false"
 }
 
 runtime_generate_instructions() {

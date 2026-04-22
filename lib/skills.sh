@@ -1,5 +1,5 @@
 #!/bin/bash
-# Skills: agent skill installation from git repos
+# Skills: agent skill installation from git repos and the wp-coding-agents repo itself
 
 # Install agent skills from a git repo.
 # Clones the repo, copies directories containing SKILL.md to the target.
@@ -19,6 +19,7 @@ install_skills_from_repo() {
       local skill_name
       skill_name=$(basename "$skill_dir")
       if [ -f "$skill_dir/SKILL.md" ]; then
+        rm -rf "$SKILLS_DIR/$skill_name"
         cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
         log "  Installed skill: $skill_name"
       fi
@@ -31,12 +32,46 @@ install_skills_from_repo() {
   fi
 }
 
+# Install skills shipped in this repo ($SCRIPT_DIR/skills/).
+# These are the skills that ship with wp-coding-agents itself — e.g.
+# upgrade-wp-coding-agents and wp-coding-agents-setup — so every install
+# can run them without a manual copy step.
+install_skills_from_local_repo() {
+  local src_dir="$SCRIPT_DIR/skills"
+  [ -d "$src_dir" ] || return
+
+  if [ "$DRY_RUN" = true ]; then
+    for skill_dir in "$src_dir"/*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      echo -e "${BLUE}[dry-run]${NC} Would install in-repo skill: $(basename "$skill_dir") → $SKILLS_DIR/"
+    done
+    return
+  fi
+
+  local copied=0
+  for skill_dir in "$src_dir"/*/; do
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      rm -rf "$SKILLS_DIR/$skill_name"
+      cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
+      log "  Installed skill: $skill_name"
+      copied=$((copied + 1))
+    fi
+  done
+  if [ "$copied" -gt 0 ]; then
+    log "wp-coding-agents in-repo skills installed ($copied)"
+  fi
+}
+
 install_skills() {
   SKILLS_DIR="$(runtime_skills_dir)"
 
   if [ "$INSTALL_SKILLS" = true ]; then
     log "Phase 8.5: Installing agent skills..."
     run_cmd mkdir -p "$SKILLS_DIR"
+
+    install_skills_from_local_repo
 
     install_skills_from_repo "https://github.com/WordPress/agent-skills.git" "WordPress agent skills"
 
