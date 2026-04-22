@@ -75,9 +75,7 @@ install_skills() {
 
     install_skills_from_repo "https://github.com/WordPress/agent-skills.git" "WordPress agent skills"
 
-    if [ "$INSTALL_DATA_MACHINE" = true ]; then
-      install_skills_from_repo "https://github.com/Extra-Chill/data-machine-skills.git" "Data Machine skills"
-    fi
+    install_skills_from_repo "https://github.com/Extra-Chill/data-machine-skills.git" "Data Machine skills"
 
     # Copy skills to Kimaki's directory if Kimaki is the chat bridge.
     # Kimaki overrides OpenCode's skill discovery to only look in its

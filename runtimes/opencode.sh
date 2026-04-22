@@ -145,11 +145,6 @@ _patch_claude_auth_plugin() {
 }
 
 runtime_discover_dm_paths() {
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    OPENCODE_PROMPT='{file:./AGENTS.md}'
-    return
-  fi
-
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     AGENT_FLAG=""
     if [ -n "$AGENT_SLUG" ]; then
@@ -219,8 +214,9 @@ runtime_generate_config() {
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
   fi
 
-  # DM context filter + agent sync — only when DM handles memory via Kimaki
-  if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
+  # DM context filter + agent sync — only when the bridge is Kimaki, since
+  # these plugins rewrite Kimaki-specific prompts.
+  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
       KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
       if [ "$DRY_RUN" = false ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
@@ -252,13 +248,11 @@ runtime_generate_config() {
   OPENCODE_JSON="$OPENCODE_JSON\n  }"
 
   # Permission: allow DM workspace as external directory
-  if [ "$INSTALL_DATA_MACHINE" = true ]; then
-    OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
-    OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
-    OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
-    OPENCODE_JSON="$OPENCODE_JSON\n    }"
-    OPENCODE_JSON="$OPENCODE_JSON\n  }"
-  fi
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+  OPENCODE_JSON="$OPENCODE_JSON\n    }"
+  OPENCODE_JSON="$OPENCODE_JSON\n  }"
 
   OPENCODE_JSON="$OPENCODE_JSON\n}"
 
@@ -277,10 +271,10 @@ runtime_generate_instructions() {
 
   log "Phase 8: Generating AGENTS.md..."
 
-  # When Data Machine is installed, compose from registered sections.
-  # This handles WP-CLI prefix resolution, multisite detection, and plugin
-  # sections (intelligence, etc.) automatically at runtime.
-  if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$DRY_RUN" = false ]; then
+  # Compose from Data Machine's SectionRegistry. DM is mandatory, and compose
+  # handles WP-CLI prefix resolution, multisite detection, and plugin sections
+  # (intelligence, etc.) automatically at runtime.
+  if [ "$DRY_RUN" = false ]; then
     if wp_cmd datamachine agent compose AGENTS.md 2>/dev/null; then
       log "AGENTS.md composed from SectionRegistry"
       return
@@ -288,7 +282,7 @@ runtime_generate_instructions() {
     warn "Compose failed — falling back to static template"
   fi
 
-  # Fallback: minimal template for non-DM installs or dry-run.
+  # Fallback for dry-run or compose failure: ship a minimal static template.
   local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
   if [ ! -f "$agents_tmpl" ]; then
     error "AGENTS.md template not found at $agents_tmpl"

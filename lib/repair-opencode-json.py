@@ -2,7 +2,8 @@
 """
 repair-opencode-json.py — Detect and optionally repair the `plugin` array in
 an existing opencode.json against what the current wp-coding-agents setup
-would produce for the detected (RUNTIME, CHAT_BRIDGE, INSTALL_DATA_MACHINE).
+would produce for the detected (RUNTIME, CHAT_BRIDGE). Data Machine is
+always installed.
 
 Exit codes:
   0 — no drift; file is already correct
@@ -19,7 +20,6 @@ CLI usage:
   repair-opencode-json.py --file <path> \
     --runtime <opencode|claude-code|studio-code> \
     --chat-bridge <kimaki|cc-connect|telegram|none> \
-    --install-dm <true|false> \
     [--kimaki-plugins-dir <path>] \
     [--apply] \
     [--backup-suffix <timestamp>]
@@ -39,7 +39,6 @@ from typing import List
 def expected_plugins(
     runtime: str,
     chat_bridge: str,
-    install_dm: bool,
     kimaki_plugins_dir: str,
 ) -> List[str]:
     """Return the `plugin` array wp-coding-agents setup would produce today.
@@ -62,8 +61,9 @@ def expected_plugins(
     if chat_bridge != "kimaki":
         plugins.append("opencode-claude-auth@latest")
 
-    # DM context filter + agent sync: only when DM handles memory via Kimaki.
-    if install_dm and chat_bridge == "kimaki":
+    # DM context filter + agent sync: only when the bridge is Kimaki, since
+    # these plugins rewrite Kimaki-specific prompts.
+    if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
 
@@ -121,11 +121,6 @@ def main() -> int:
         choices=["kimaki", "cc-connect", "telegram", "none"],
     )
     parser.add_argument(
-        "--install-dm",
-        required=True,
-        choices=["true", "false"],
-    )
-    parser.add_argument(
         "--kimaki-plugins-dir",
         default="/opt/kimaki-config/plugins",
         help="Directory where DM plugins live (VPS default: /opt/kimaki-config/plugins)",
@@ -159,11 +154,9 @@ def main() -> int:
         )
         return 2
 
-    install_dm = args.install_dm == "true"
     expected = expected_plugins(
         runtime=args.runtime,
         chat_bridge=args.chat_bridge,
-        install_dm=install_dm,
         kimaki_plugins_dir=args.kimaki_plugins_dir.rstrip("/"),
     )
 

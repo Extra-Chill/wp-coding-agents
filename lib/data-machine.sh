@@ -2,11 +2,6 @@
 # Data Machine: plugin installation, agent creation, SOUL/MEMORY scaffold
 
 install_data_machine() {
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    log "Phase 4: Skipping Data Machine (--no-data-machine)"
-    return
-  fi
-
   log "Phase 4: Installing Data Machine..."
   install_plugin data-machine https://github.com/Extra-Chill/data-machine.git
 
@@ -32,11 +27,6 @@ install_data_machine() {
 }
 
 create_dm_agent() {
-  if [ "$INSTALL_DATA_MACHINE" != true ]; then
-    AGENT_SLUG=""
-    return
-  fi
-
   log "Phase 4.5: Creating Data Machine agent..."
 
   # Derive agent slug from domain

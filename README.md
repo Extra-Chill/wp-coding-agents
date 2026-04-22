@@ -124,7 +124,6 @@ systemctl start kimaki  # or: systemctl start cc-connect
 | `--existing` | Add to existing WordPress (skip WP install) |
 | `--wp-path <path>` | Path to WordPress root (implies `--existing`) |
 | `--agent-slug <slug>` | Override Data Machine agent slug (default: derived from domain) |
-| `--no-data-machine` | Skip Data Machine (no persistent memory/scheduling) |
 | `--no-chat` | Skip chat bridge |
 | `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code and Studio Code), `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
@@ -176,10 +175,10 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 |-----------|------|-----------|
 | **WordPress** | Site platform, WP-CLI access | No (existing install on local) |
 | **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, or **[Studio Code](https://developer.wordpress.com/studio/)** | AI coding agent runtime | Selected via `--runtime` |
-| **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | `--no-data-machine` |
+| **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | No — wp-coding-agents composes on top of DM |
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
-| **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Installed with Data Machine |
+| **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
 | **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
 
 ## VPS vs. Local
@@ -220,15 +219,16 @@ Data Machine manages memory files across three layers, each scoped to a differen
 
 On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
-**Runtime sync (Claude Code / Studio Code):** A SessionStart hook queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. New agents created after setup are automatically discovered — no manual config regeneration needed. Claude Code's built-in auto-memory is disabled when Data Machine is installed, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
+**Runtime sync (Claude Code / Studio Code):** A SessionStart hook queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. New agents created after setup are automatically discovered — no manual config regeneration needed. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
 
 ## Abilities
 
 Data Machine exposes all agent functionality through WordPress core's [Abilities API](https://developer.wordpress.org/reference/functions/wp_register_ability/) (`wp_register_ability`). Every tool an agent can use is a native WordPress primitive — discoverable, permissioned, and executable via REST, CLI, or chat. No proprietary abstraction layer.
 
-## With or Without Data Machine
+## What Data Machine Gives You
 
-**With DM (default):**
+Data Machine is the substrate wp-coding-agents composes on top of — memory, scheduling, workspace, abilities. It is not optional. Installing wp-coding-agents means installing DM. Uninstall the plugin after the fact if you change your mind.
+
 - Persistent memory across sessions (SOUL.md, USER.md, MEMORY.md)
 - Self-scheduling via flows and cron
 - Task queues for multi-phase projects
@@ -237,13 +237,6 @@ Data Machine exposes all agent functionality through WordPress core's [Abilities
 - Managed workspace for git repos (`/var/lib/datamachine/workspace/`) with **per-branch worktrees** so multiple parallel agent sessions can edit different branches of the same repo without stepping on each other (`workspace worktree add <repo> <branch>` → operate on the `<repo>@<branch-slug>` handle)
 - GitHub integration (issues, PRs, repos)
 - Policy-controlled git operations (add, commit, push with allowlists; primary checkout is read-only by default)
-
-**Without DM (`--no-data-machine`):**
-- Agent responds when prompted, no autonomous operation
-- No persistent memory between sessions
-- No self-scheduling
-- No managed workspace or GitHub integration
-- Good for development-only setups where you just need a coding assistant
 
 ## Why Root? (VPS only)
 
@@ -264,7 +257,7 @@ Local installs run as your current user — no root, no service user, no chown.
 The default chat bridge for OpenCode. On VPS, wp-coding-agents installs post-upgrade hooks that:
 
 - **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
-- **Filter redundant context** — When Data Machine is installed, a plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
+- **Filter redundant context** — A plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
 
 To customize the kill list, edit `kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
 

@@ -36,14 +36,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 >
 > If multiple are installed, the script auto-detects. You can also specify with `--runtime` (e.g., `--runtime claude-code,studio-code`)."
 
-### Question 3: Autonomous Operation
-
-> "Do you want **autonomous operation** capabilities? This includes Data Machine — a self-scheduling system that lets your agent set reminders, queue tasks, and operate 24/7 without human intervention.
->
-> - **Yes (recommended for content sites)** — Full autonomy, self-scheduling, proactive operation
-> - **No (simpler setup)** — Agent responds when asked, no self-scheduling overhead"
-
-### Question 4: Chat Bridge
+### Question 3: Chat Bridge
 
 > "How do you want to communicate with your agent?
 >
@@ -52,7 +45,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 > - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot). OpenCode only.
 > - **No chat bridge** — Run the agent manually via SSH or terminal when needed."
 
-### Question 5: Agent Name
+### Question 4: Agent Name
 
 > "What would you like to name your agent? This becomes the agent slug used by Data Machine for identity and memory files.
 >
@@ -60,7 +53,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 Maps to `--agent-slug <name>`. If the user is happy with the default, skip this flag.
 
-### Question 6: Server/Local Details
+### Question 5: Server/Local Details
 
 **For VPS installs:**
 
@@ -73,7 +66,7 @@ Maps to `--agent-slug <name>`. If the user is happy with the default, skip this 
 
 > "Where is WordPress installed on your machine? (e.g., `~/Studio/my-wordpress-website`, `/Applications/MAMP/htdocs/wordpress`)"
 
-### Question 7: For Existing WordPress
+### Question 6: For Existing WordPress
 
 If they chose existing WordPress (VPS or local):
 
@@ -91,7 +84,6 @@ Based on their answers, construct the appropriate command:
 | Fresh VPS + Claude Code + DM | `SITE_DOMAIN=example.com ./setup.sh --runtime claude-code` |
 | Fresh VPS + DM + Telegram | `SITE_DOMAIN=example.com ./setup.sh --chat telegram` |
 | Fresh VPS + DM, no chat | `SITE_DOMAIN=example.com ./setup.sh --no-chat` |
-| Fresh VPS, no DM | `SITE_DOMAIN=example.com ./setup.sh --no-data-machine` |
 | Existing VPS + DM | `EXISTING_WP=/var/www/mysite ./setup.sh --existing` |
 | Existing VPS + Claude Code | `EXISTING_WP=/var/www/mysite ./setup.sh --existing --runtime claude-code` |
 | **Local + OpenCode + DM + Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
@@ -100,7 +92,6 @@ Based on their answers, construct the appropriate command:
 | **Local + multiple runtimes** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code,studio-code` |
 | **Local + DM + Telegram** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat telegram` |
 | **Local + DM, no chat** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat` |
-| **Local, no DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-data-machine` |
 | **Local (Studio) with WP_CMD** | `WP_CMD="studio wp" EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
 | **Using --wp-path** | `./setup.sh --wp-path ~/Studio/my-site --runtime claude-code` |
 | Multisite | `SITE_DOMAIN=example.com ./setup.sh --multisite` |
@@ -126,7 +117,6 @@ Before running anything, summarize what you're about to do:
 > - **Agent name:** example (or custom name)
 > - **Type:** Fresh install
 > - **Runtime:** OpenCode
-> - **Data Machine:** Yes
 > - **Chat bridge:** Kimaki (Discord)
 > - **Command:** `SITE_DOMAIN=example.com ./setup.sh`
 >
@@ -205,7 +195,7 @@ wp option get siteurl --path=/path/to/site
 studio wp option get siteurl
 ```
 
-### Data Machine (if installed)
+### Data Machine
 
 **VPS:**
 ```bash
