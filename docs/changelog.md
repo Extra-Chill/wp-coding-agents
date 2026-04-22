@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-04-22
+
+### Added
+- feat(dm-agent-sync): recompose AGENTS.md at session start
+- install in-repo skills and silence workspace prompts
+
+### Changed
+- make Data Machine mandatory, drop --no-data-machine
+
+### Fixed
+- use instructions array, not agent.build.prompt
+
 ## [0.4.2] - 2026-04-21
 
 ### Changed
