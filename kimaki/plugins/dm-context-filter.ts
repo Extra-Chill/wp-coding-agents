@@ -20,6 +20,22 @@
 //    bot. The agent has no capability to act on this; pure metadata leakage.
 // 9. Upgrading kimaki — ~80 tokens of /upgrade-and-restart playbook. The user
 //    runs the slash command themselves when they want to upgrade.
+// 10. Reading other sessions — ~250 tokens documenting `kimaki session list
+//    --project` / `session search --channel <id>`. These are cross-project
+//    discovery vectors; on a single-project fleet server the agent only ever
+//    needs to list sessions in the current project (no flags required).
+// 11. Project discovery inlines — scattered `kimaki project list|add|create`,
+//    `kimaki send --project`, and bare `kimaki send --channel <channel_id>`
+//    examples that survive section stripping. These let the agent discover
+//    other Discord channels and route minion sessions away from the current
+//    thread. See Extra-Chill/data-machine-code#49.
+//
+// What it injects into the system prompt:
+// - `## Minion Session Routing` — positive instruction telling the agent that
+//   all minion sessions go in the current channel. Defense in depth on top of
+//   the stripping above: even if the agent discovers channel IDs some other
+//   way (training data, --help output, user mention), the instruction steers
+//   it back to ${channelId}. Use --cwd to target a different repo dir.
 //
 // NOTE: "## debugging kimaki issues" is intentionally kept — when Kimaki itself
 // throws errors, the agent needs the kimaki.log path to investigate.
@@ -53,6 +69,7 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "## creating worktrees");
         result = stripSection(result, "## worktree");
         result = stripSection(result, "## cross-project commands");
+        result = stripSection(result, "## reading other sessions");
         result = stripSection(result, "## waiting for a session to finish");
         result = stripSection(result, "## showing diffs");
         result = stripSection(result, "## about critique");
@@ -60,8 +77,13 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "### fetching user comments from critique diffs");
         result = stripSection(result, "### reviewing diffs with AI");
         result = stripWorktreeInlines(result);
+        result = stripProjectDiscoveryInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
+        // Append positive routing instruction so the agent never tries to
+        // discover or send sessions to other channels, even if it learns
+        // channel IDs from --help or training data.
+        result = appendMinionRoutingInstruction(result);
         return result;
       });
     },
@@ -172,6 +194,95 @@ function stripWorktreeInlines(block: string): string {
   );
 
   return result;
+}
+
+/**
+ * Remove project / channel discovery examples that survive section stripping.
+ *
+ * The system prompt bakes the current channel ID into most `kimaki send`
+ * examples via `${channelId}`, which is the safe/correct form for this
+ * session. But several other forms leak the *capability* to target other
+ * channels or projects:
+ *
+ *   - `kimaki project list|add|create` — enumerates every registered project
+ *     with its Discord channel ID.
+ *   - `kimaki send --project <dir>` — resolves a channel from a project dir.
+ *   - `kimaki send --channel <channel_id>` with a literal `<channel_id>`
+ *     placeholder (as opposed to the baked-in current-channel ID) — teaches
+ *     the agent it can pick a channel freely.
+ *
+ * On DM-managed sites the current Discord thread is the only correct target
+ * for minion sessions. Cross-repo work uses DM Code's workspace worktrees,
+ * not cross-channel kimaki sends. See Extra-Chill/data-machine-code#49.
+ *
+ * We keep `${channelId}` examples untouched — those are the intended,
+ * session-scoped forms.
+ */
+function stripProjectDiscoveryInlines(block: string): string {
+  let result = block;
+
+  // Standalone `kimaki project ...` commands on their own lines (inside any
+  // surviving section or orphaned between sections). Covers list|add|create.
+  result = result.replace(
+    /\n+kimaki project (?:list|add|create)[^\n]*\n/g,
+    "\n"
+  );
+
+  // `kimaki send --project /path/...` bash examples, as full lines.
+  result = result.replace(
+    /\n+kimaki send --project [^\n]*\n/g,
+    "\n"
+  );
+
+  // `kimaki send --channel <channel_id> ...` examples that use the literal
+  // placeholder `<channel_id>` rather than the baked-in session channel.
+  // The `${channelId}` form is template-substituted before this plugin runs,
+  // so by the time we see the prompt the current channel is already a
+  // concrete numeric ID — it will not match `<channel_id>` and stays intact.
+  result = result.replace(
+    /\n+kimaki send --channel <channel_id>[^\n]*\n/g,
+    "\n"
+  );
+
+  // Matching `kimaki session search "..." --channel <channel_id>` examples.
+  result = result.replace(
+    /\n+kimaki session search [^\n]*--channel <channel_id>[^\n]*\n/g,
+    "\n"
+  );
+
+  // Any remaining `--project /path/...` flag usage in inline prose or code
+  // blocks. Conservative: only strip whole lines where the flag is the
+  // dominant content (starts with command + --project).
+  result = result.replace(
+    /\n+kimaki (?:session|task) [^\n]*--project [^\n]*\n/g,
+    "\n"
+  );
+
+  return result;
+}
+
+/**
+ * Append a positive minion-session routing instruction.
+ *
+ * Stripping alone is not enough: the agent can still learn channel IDs from
+ * `kimaki --help`, other agents' mentions, or training data. This instruction
+ * is defense in depth — it tells the agent the *policy* (all minion sessions
+ * go in this channel) so that even if a channel ID surfaces some other way,
+ * the agent still routes correctly. Cross-repo work is handled by pointing
+ * `--cwd` at a Data Machine Code workspace worktree, not by switching
+ * channels.
+ */
+function appendMinionRoutingInstruction(block: string): string {
+  const instruction = `
+
+## Minion Session Routing
+
+All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run \`kimaki project list\`, \`kimaki project add\`, \`kimaki project create\`, or \`kimaki send --project\` — those are cross-project discovery commands that route sessions to other agents' channels.
+
+If a minion needs to work in a different repo directory, use \`kimaki send --cwd /path/to/repo\` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (\`studio wp datamachine-code workspace worktree add <repo> <branch>\`) — the worktree becomes the \`--cwd\` target for any follow-up minion session.
+`;
+  // Ensure exactly one blank line between existing content and the appendix.
+  return block.replace(/\s*$/, "") + instruction;
 }
 
 export default fleetContextFilter;
