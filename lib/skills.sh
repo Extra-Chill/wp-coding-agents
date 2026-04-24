@@ -64,6 +64,51 @@ install_skills_from_local_repo() {
   fi
 }
 
+# Mirror every SKILL.md-containing subdir from $SKILLS_DIR into the
+# persistent kimaki-config/skills/ dir. This is the durable source of
+# truth that survives `npm update -g kimaki` wipes — kimaki/post-upgrade.sh
+# reads from this path on every kimaki restart to restore the mirror copy
+# at $(npm root -g)/kimaki/skills/.
+#
+# Path resolution matches the plugin-persistence pattern used elsewhere:
+#   Local: $KIMAKI_DATA_DIR/kimaki-config/skills/ (defaults to ~/.kimaki/kimaki-config/skills/)
+#   VPS:   /opt/kimaki-config/skills/
+install_skills_to_persistent_source() {
+  local persistent_dir
+  if [ "$LOCAL_MODE" = true ]; then
+    local data_dir="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
+    persistent_dir="$data_dir/kimaki-config/skills"
+  else
+    persistent_dir="/opt/kimaki-config/skills"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would mirror skills to persistent source: $persistent_dir/"
+    return
+  fi
+
+  mkdir -p "$persistent_dir" 2>/dev/null || {
+    warn "Could not create persistent skill source dir $persistent_dir — skipping mirror"
+    return
+  }
+
+  local copied=0
+  for skill_dir in "$SKILLS_DIR"/*/; do
+    [ -d "$skill_dir" ] || continue
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      rm -rf "$persistent_dir/$skill_name"
+      cp -r "$skill_dir" "$persistent_dir/$skill_name"
+      copied=$((copied + 1))
+    fi
+  done
+  if [ "$copied" -gt 0 ]; then
+    log "Skills mirrored to persistent source: $persistent_dir/ ($copied)"
+    log "  post-upgrade.sh will restore these on every kimaki restart."
+  fi
+}
+
 install_skills() {
   SKILLS_DIR="$(runtime_skills_dir)"
 
@@ -94,9 +139,16 @@ install_skills() {
             fi
           done
           log "Skills also copied to Kimaki: $KIMAKI_SKILLS_DIR/"
-          warn "Note: Kimaki upgrades (npm update -g kimaki) will remove these. Re-run --skills-only after upgrading."
         fi
       fi
+
+      # Mirror skills into the persistent kimaki-config/skills/ dir so
+      # post-upgrade.sh can restore them on every kimaki restart after
+      # `npm update -g kimaki` wipes $(npm root -g)/kimaki/skills/.
+      # Path mirrors the plugin-persistence pattern:
+      #   Local: $KIMAKI_DATA_DIR/kimaki-config/skills/ (defaults to ~/.kimaki/kimaki-config/skills/)
+      #   VPS:   /opt/kimaki-config/skills/
+      install_skills_to_persistent_source
     fi
   else
     log "Phase 8.5: Skipping agent skills (--no-skills)"

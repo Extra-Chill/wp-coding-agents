@@ -101,7 +101,14 @@ Drop `--dry-run`:
 
 Backups are written next to each touched file with a timestamp suffix. On VPS that means `/opt/kimaki-config.backup.<ts>`, `AGENTS.md.backup.<ts>`, `kimaki.service.backup.<ts>`. On local, the kimaki-config backup lands under `$KIMAKI_DATA_DIR/backups/` (defaults to `~/.kimaki/backups/`).
 
-On local, `upgrade.sh` also runs `post-upgrade.sh` inline to enforce the skills kill list against the npm-installed kimaki package — VPS gets this on the next `systemctl restart kimaki` via the unit's `ExecStartPre`.
+### Persistent skill source
+
+`--skills-only` (and a full run) also mirrors every installed skill into the persistent kimaki-config skill source dir. This is the durable copy that survives `npm update -g kimaki` wipes of `$(npm root -g)/kimaki/skills/`:
+
+- **Local:** `$KIMAKI_DATA_DIR/kimaki-config/skills/` (defaults to `~/.kimaki/kimaki-config/skills/`)
+- **VPS:** `/opt/kimaki-config/skills/`
+
+On local, `upgrade.sh` runs `post-upgrade.sh` inline. On VPS, `kimaki.service`'s `ExecStartPre` runs it on next service start. `post-upgrade.sh` performs two symmetric passes against `$(npm root -g)/kimaki/skills/`: (1) remove the unwanted bundled skills listed in `skills-kill-list.txt`, and (2) restore the wp-coding-agents skills from the persistent source dir. Both passes are idempotent and run on every kimaki restart.
 
 ## Step 5 — Verify
 
