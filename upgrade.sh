@@ -42,10 +42,11 @@
 #   chat-bridge service.
 #
 #   opencode.json is only touched when --repair-opencode-json is passed.
-#   The repair surgically rewrites the `plugin` array to match what current
-#   setup would produce for the detected (runtime, chat bridge, DM) combo,
-#   preserving all other keys. A .backup.<ts> is written alongside. Without
-#   the flag, drift is diagnosed and reported in the summary but not fixed.
+#   The repair surgically rewrites the `plugin` array and migrates
+#   `agent.build.prompt`/`agent.plan.prompt` to a top-level `instructions`
+#   array (fixes Anthropic Claude Max OAuth, see wp-coding-agents#60).
+#   A .backup.<ts> is written alongside. Without the flag, drift is diagnosed
+#   and reported in the summary but not fixed.
 #
 
 set -e
@@ -123,9 +124,11 @@ USAGE:
   ./upgrade.sh --skills-only    Only sync agent skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --repair-opencode-json
-                                Detect AND fix drift between opencode.json's
-                                "plugin" array and what current setup would
-                                produce. Writes a .backup.<ts> alongside.
+                                Detect AND fix drift in opencode.json:
+                                - plugin array → match current setup
+                                - agent.build.prompt → instructions array
+                                  (fixes Anthropic Claude Max OAuth, #60)
+                                Writes a .backup.<ts> alongside.
                                 Default behaviour: diagnose + warn only.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
@@ -148,8 +151,9 @@ NEVER TOUCHED:
 
 OPT-IN TOUCHES:
   - opencode.json — only with --repair-opencode-json. Rewrites the
-    "plugin" array to match current setup output; preserves all other
-    keys; writes a .backup.<ts> alongside.
+    "plugin" array + migrates "agent.build.prompt" to "instructions"
+    array (fixes Anthropic Claude Max OAuth); preserves all other keys;
+    writes a .backup.<ts> alongside.
 HELP
   exit 0
 fi
@@ -472,35 +476,33 @@ _sync_kimaki_config() {
 }
 
 # ============================================================================
-# Phase 2b: Detect + optionally repair opencode.json plugin drift
+# Phase 2b: Detect + optionally repair opencode.json drift
 #
 # opencode.json is user-owned (model settings, agent prompt files, permissions,
-# etc.), so this phase is read-only by default. It compares the file's
-# `plugin` array against what current setup would produce for the detected
-# (RUNTIME, CHAT_BRIDGE) combo and surfaces drift.
+# etc.), so this phase is read-only by default. It compares the file against
+# what current setup would produce and surfaces drift.
 #
-# The most common drift vectors:
-#   - install predates v0.4.0 (no `plugin` key at all)
-#   - install predates #51 fix (stale `opencode-claude-auth@latest` on kimaki)
-#   - new plugins added to setup.sh that the install never got
+# Drift vectors checked:
+#   1. `plugin` array — matches expected plugins for the detected runtime
+#      and chat bridge. Only applies when runtime is opencode.
+#   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that
+#      breaks Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated
+#      to a top-level `instructions` array. This check runs for ALL runtimes
+#      because opencode.json can exist even when the primary runtime is
+#      claude-code (e.g. kimaki spawns opencode sessions).
 #
-# With --repair-opencode-json, the `plugin` array is surgically rewritten to
-# match the expected list. All other keys are preserved. A .backup.<ts> is
-# written alongside.
-#
-# Non-opencode runtimes (claude-code, studio-code) are skipped silently —
-# they use different config mechanisms.
+# With --repair-opencode-json, both drift vectors are repaired surgically.
+# All other keys are preserved. A .backup.<ts> is written alongside.
 # ============================================================================
 
 check_opencode_json_drift() {
-  # Only runs for opencode runtime. Silent skip on others.
-  if [ "$RUNTIME" != "opencode" ]; then
-    return 0
-  fi
+  # Runs whenever opencode.json exists on disk. The repair script handles
+  # both plugin-array drift (opencode runtime only) and prompt migration
+  # (all runtimes — agent.build.prompt → instructions breaks Anthropic
+  # Claude Max OAuth regardless of which runtime is primary).
 
   local OPENCODE_JSON_FILE="$SITE_PATH/opencode.json"
   if [ ! -f "$OPENCODE_JSON_FILE" ]; then
-    warn "Phase 2b: $OPENCODE_JSON_FILE not found — skipping drift check"
     return 0
   fi
 
@@ -516,7 +518,7 @@ check_opencode_json_drift() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
 
   if [ "$REPAIR_OPENCODE_JSON" = true ]; then
-    log "Phase 2b: Repairing opencode.json plugin array..."
+    log "Phase 2b: Repairing opencode.json..."
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR --apply"
       # Still show the diagnostic even in dry-run
@@ -541,14 +543,19 @@ check_opencode_json_drift() {
 
     local status
     status=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
+    local prompt_migration
+    prompt_migration=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('prompt_migration','?'))" 2>/dev/null || echo "?")
 
     case "$status" in
       ok)
-        log "  opencode.json plugin array already correct"
+        log "  opencode.json already correct"
         ;;
       repaired)
         log "  opencode.json repaired (backup: ${OPENCODE_JSON_FILE}.backup.$TIMESTAMP)"
         log "  $out"
+        if [ "$prompt_migration" = "migrated" ]; then
+          UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
+        fi
         UPDATED_ITEMS+=("opencode.json plugin array (repaired)")
         ;;
       skipped)
@@ -572,13 +579,15 @@ check_opencode_json_drift() {
 
   local status
   status=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
+  local prompt_migration
+  prompt_migration=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('prompt_migration','?'))" 2>/dev/null || echo "?")
 
   case "$status" in
     ok)
-      log "Phase 2b: opencode.json plugin array matches current setup"
+      log "Phase 2b: opencode.json matches current setup"
       ;;
     drift)
-      warn "Phase 2b: opencode.json plugin array has drift — re-run with --repair-opencode-json to fix"
+      warn "Phase 2b: opencode.json has drift — re-run with --repair-opencode-json to fix"
       warn "  $out"
       OPENCODE_JSON_DRIFT=true
       ;;
@@ -897,9 +906,9 @@ print_summary() {
 
   if [ "$OPENCODE_JSON_DRIFT" = true ]; then
     echo ""
-    warn "opencode.json plugin-array drift detected."
+    warn "opencode.json drift detected (plugin array or prompt format)."
     warn "  Re-run with: ./upgrade.sh --repair-opencode-json"
-    warn "  (Drift is common on installs that predate #51 or v0.4.0.)"
+    warn "  (Drift is common on installs that predate #51, #60, or v0.4.0.)"
   fi
 
   echo ""
