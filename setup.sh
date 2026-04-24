@@ -53,6 +53,7 @@ INSTALL_SKILLS=true
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
 RUNTIME=""
+DETECTED_RUNTIMES=()
 IS_STUDIO=false
 
 while [[ $# -gt 0 ]]; do
@@ -223,18 +224,35 @@ fi
 # Runtime resolution
 # ============================================================================
 
-# Auto-detect runtime if not specified
-if [ -z "$RUNTIME" ]; then
+# Auto-detect runtime(s).
+#
+# RUNTIME is the "primary" runtime — the one that drives runtime_install,
+# runtime_generate_config, runtime_install_hooks, and the chat-bridge default.
+# First-match cascade: studio-code > claude-code > opencode.
+#
+# DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
+# machine with both claude and opencode installed, skills get installed into
+# every detected runtime's skills dir (see install_skills in lib/skills.sh).
+# Explicit --runtime <name> narrows both lists to that single runtime.
+if [ -n "$RUNTIME" ]; then
+  # User passed --runtime explicitly — respect it, single-runtime mode.
+  DETECTED_RUNTIMES=("$RUNTIME")
+else
   if command -v studio &>/dev/null && [ "${IS_STUDIO:-false}" = true ]; then
-    RUNTIME="studio-code"
-  elif command -v claude &>/dev/null; then
-    RUNTIME="claude-code"
-  elif command -v opencode &>/dev/null; then
-    RUNTIME="opencode"
-  else
-    # Default to opencode (will be installed)
-    RUNTIME="opencode"
+    DETECTED_RUNTIMES+=("studio-code")
   fi
+  if command -v claude &>/dev/null; then
+    DETECTED_RUNTIMES+=("claude-code")
+  fi
+  if command -v opencode &>/dev/null; then
+    DETECTED_RUNTIMES+=("opencode")
+  fi
+  if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
+    # Nothing installed yet — default to opencode (will be installed).
+    DETECTED_RUNTIMES=("opencode")
+  fi
+  # Primary = first match in the cascade above.
+  RUNTIME="${DETECTED_RUNTIMES[0]}"
 fi
 
 # Source the selected runtime
