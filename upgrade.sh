@@ -89,6 +89,7 @@ MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 MODE="existing"
 RUNTIME=""
+DETECTED_RUNTIMES=()
 IS_STUDIO=false
 CHAT_BRIDGE=""
 
@@ -180,18 +181,26 @@ if [ -z "$EXISTING_WP" ]; then
   fi
 fi
 
-# Auto-detect runtime (same logic as setup.sh)
-if [ -z "$RUNTIME" ]; then
+# Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
+# full list (drives multi-runtime skills install); RUNTIME is the primary
+# (first-match cascade). Explicit --runtime narrows to a single runtime.
+if [ -n "$RUNTIME" ]; then
+  DETECTED_RUNTIMES=("$RUNTIME")
+else
   if command -v studio &>/dev/null && [ -f "$EXISTING_WP/STUDIO.md" ]; then
-    RUNTIME="studio-code"
-  elif command -v opencode &>/dev/null; then
-    RUNTIME="opencode"
-  elif command -v claude &>/dev/null; then
-    RUNTIME="claude-code"
-  else
-    warn "No runtime binary found — defaulting to opencode"
-    RUNTIME="opencode"
+    DETECTED_RUNTIMES+=("studio-code")
   fi
+  if command -v claude &>/dev/null; then
+    DETECTED_RUNTIMES+=("claude-code")
+  fi
+  if command -v opencode &>/dev/null; then
+    DETECTED_RUNTIMES+=("opencode")
+  fi
+  if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
+    warn "No runtime binary found — defaulting to opencode"
+    DETECTED_RUNTIMES=("opencode")
+  fi
+  RUNTIME="${DETECTED_RUNTIMES[0]}"
 fi
 
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
