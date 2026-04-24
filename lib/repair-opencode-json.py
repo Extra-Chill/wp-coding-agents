@@ -12,15 +12,28 @@ Checks two independent drift vectors:
      top-level `instructions` array that preserves the canonical system prompt
      opening.
 
+Modes:
+  default          diagnose drift; exit 1 on drift, 0 on clean
+  --additive       add missing managed plugin entries + apply prompt
+                   migration; never remove unexpected entries; exit 0
+                   unless there is unexpected drift that still needs
+                   attention (then exit 1 with status=needs_full_repair)
+  --apply          full reconcile — replace plugin array with exactly
+                   what setup would produce today (removes unexpected
+                   entries). Also applies prompt migration.
+
 Exit codes:
-  0 — no drift; file is already correct
-  1 — drift detected (or repair applied if --apply)
+  0 — file is clean OR additive repair completed with no unexpected drift
+  1 — drift detected without --apply; OR --additive left unexpected
+      entries that need --apply to remove
   2 — usage / IO error
 
 Output (stdout): JSON diagnostic object. Examples:
 
   {"status":"ok","plugins":[...],"prompt_migration":"ok"}
   {"status":"drift","missing":[...],"unexpected":[...],...,"prompt_migration":"needed"}
+  {"status":"additive_repaired","before":[...],"after":[...],"added":[...],"backup":"...","prompt_migration":"migrated"}
+  {"status":"needs_full_repair","after":[...],"unexpected":[...]}
   {"status":"repaired","before":[...],"after":[...],"backup":"/path/to/backup","prompt_migration":"migrated"}
 
 CLI usage:
@@ -28,10 +41,21 @@ CLI usage:
     --runtime <opencode|claude-code|studio-code> \
     --chat-bridge <kimaki|cc-connect|telegram|none> \
     [--kimaki-plugins-dir <path>] \
-    [--apply] \
+    [--additive | --apply] \
     [--backup-suffix <timestamp>]
 
-Only --apply writes to disk. Without it, the tool is a pure diagnostic.
+Without --additive or --apply the tool is a pure diagnostic.
+
+--additive is the default mode called from setup.sh and upgrade.sh: it
+installs managed plugin entries the user is missing (dm-context-filter,
+dm-agent-sync, opencode-claude-auth — whichever apply to the detected
+runtime + chat-bridge combo) and migrates legacy agent prompts to the
+top-level `instructions` array (fixes Anthropic Claude Max OAuth, see
+wp-coding-agents#60). It never removes user-added plugin entries.
+
+--apply is the opt-in full reconciliation, used by
+`upgrade.sh --repair-opencode-json`. It removes unexpected plugin
+entries in addition to the additive behaviour above.
 """
 from __future__ import annotations
 
@@ -215,10 +239,27 @@ def main() -> int:
         default="/opt/kimaki-config/plugins",
         help="Directory where DM plugins live (VPS default: /opt/kimaki-config/plugins)",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--apply",
         action="store_true",
-        help="Write repaired config to disk (with .backup.<suffix> alongside)",
+        help=(
+            "Full reconciliation: replace plugin array with exactly what "
+            "setup would produce today (removes unexpected entries). "
+            "Also applies prompt migration. Writes a .backup.<suffix> "
+            "alongside."
+        ),
+    )
+    mode_group.add_argument(
+        "--additive",
+        action="store_true",
+        help=(
+            "Additive repair: add missing managed plugin entries and apply "
+            "prompt migration. Never removes unexpected entries. Writes a "
+            ".backup.<suffix> alongside. Use this from setup/upgrade "
+            "scripts to fix security-critical plugin drift without "
+            "clobbering user-added entries."
+        ),
     )
     parser.add_argument(
         "--backup-suffix",
@@ -281,11 +322,14 @@ def main() -> int:
     if not has_any_drift:
         result: dict = {"status": "ok", "plugins": current, "prompt_migration": "ok"}
         if plugin_skipped:
-            result["plugins_skipped"] = f"runtime {args.runtime} does not use opencode.json plugin array"
+            result["plugins_skipped"] = (
+                f"runtime {args.runtime} does not use opencode.json plugin array"
+            )
         print(json.dumps(result))
         return 0
 
-    if not args.apply:
+    # Diagnostic mode (no --apply, no --additive): report drift, exit 1.
+    if not args.apply and not args.additive:
         result = {
             "status": "drift",
             "current": current,
@@ -299,11 +343,13 @@ def main() -> int:
             result["prompt_details"] = prompt_result.get("details", "")
             result["prompt_instructions"] = prompt_result.get("instructions", [])
         if plugin_skipped:
-            result["plugins_skipped"] = f"runtime {args.runtime} does not use opencode.json plugin array"
+            result["plugins_skipped"] = (
+                f"runtime {args.runtime} does not use opencode.json plugin array"
+            )
         print(json.dumps(result))
         return 1
 
-    # Apply: write backup, update data, write file.
+    # Write mode (--apply or --additive): back up, mutate, write, report.
     suffix = args.backup_suffix or __import__("datetime").datetime.now().strftime(
         "%Y%m%d-%H%M%S"
     )
@@ -311,7 +357,9 @@ def main() -> int:
     shutil.copy2(args.file, backup_path)
 
     if has_plugin_drift and not plugin_skipped:
-        data["plugin"] = repair(data, expected)
+        # --apply:    replace with exactly `expected` (removes unexpected).
+        # --additive: merge missing entries, preserving user additions.
+        data["plugin"] = repair(data, expected, preserve_extras=args.additive)
 
     prompt_migration_status = "ok"
     if has_prompt_drift:
@@ -322,39 +370,37 @@ def main() -> int:
         json.dump(data, fh, indent=2)
         fh.write("\n")
 
+    after_plugins: List[str] = list(data.get("plugin", current))
+    added = [p for p in expected if p in after_plugins and p not in current]
+    still_unexpected = [p for p in after_plugins if p not in set(expected)]
+
+    if args.additive:
+        # Additive leaves unexpected entries alone. If there were any,
+        # flag them so the caller knows a full reconcile is still needed.
+        status = "needs_full_repair" if still_unexpected else "additive_repaired"
+        result = {
+            "status": status,
+            "before": current,
+            "after": after_plugins,
+            "added": added,
+            "backup": backup_path,
+            "prompt_migration": prompt_migration_status,
+        }
+        if still_unexpected:
+            result["unexpected"] = still_unexpected
+        print(json.dumps(result))
+        # Exit 0 on a clean additive repair; 1 when user still needs to
+        # run --apply to remove unexpected entries.
+        return 1 if still_unexpected else 0
+
     result = {
         "status": "repaired",
         "before": current,
-        "after": data.get("plugin", current),
+        "after": after_plugins,
         "backup": backup_path,
         "prompt_migration": prompt_migration_status,
     }
     print(json.dumps(result))
-    return 1
-
-    # Apply: write backup, update data, write file.
-    suffix = args.backup_suffix or __import__("datetime").datetime.now().strftime(
-        "%Y%m%d-%H%M%S"
-    )
-    backup_path = f"{args.file}.backup.{suffix}"
-    shutil.copy2(args.file, backup_path)
-
-    data["plugin"] = repair(data, expected)
-
-    with open(args.file, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
-        fh.write("\n")
-
-    print(
-        json.dumps(
-            {
-                "status": "repaired",
-                "before": current,
-                "after": data["plugin"],
-                "backup": backup_path,
-            }
-        )
-    )
     return 1
 
 
