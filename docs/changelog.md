@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1] - 2026-04-25
+
+### Fixed
+- include node bin dir in launchd PATH
+- migrate agent.build.prompt to instructions array
+
 ## [0.6.0] - 2026-04-23
 
 ### Added
