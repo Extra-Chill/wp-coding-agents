@@ -298,6 +298,8 @@ bridge_render_launchd() {
 _render_launchd_kimaki() {
   local label="$1"
   [ "$label" = "com.wp.kimaki" ] || { echo "kimaki has no label '$label'" >&2; return 1; }
+  local kimaki_bin_dir
+  kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -324,7 +326,7 @@ _render_launchd_kimaki() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>$kimaki_bin_dir:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>KIMAKI_DATA_DIR</key>
         <string>$KIMAKI_DATA_DIR</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
