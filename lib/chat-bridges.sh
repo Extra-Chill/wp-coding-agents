@@ -465,7 +465,7 @@ bridge_restart_cmd() {
   case "$env" in
     local-launchd)
       for label in $(bridge_launchd_labels "$bridge"); do
-        echo "launchctl kickstart -k gui/${uid}/${label}"
+        echo "launchctl bootout gui/${uid} ~/Library/LaunchAgents/${label}.plist 2>/dev/null || true; launchctl bootstrap gui/${uid} ~/Library/LaunchAgents/${label}.plist"
       done
       ;;
     local-manual)

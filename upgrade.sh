@@ -697,6 +697,70 @@ update_chat_bridge_systemd() {
   esac
 }
 
+update_chat_bridge_launchd() {
+  if [ "$LOCAL_MODE" != true ] || [ "$PLATFORM" != "mac" ]; then
+    return 0
+  fi
+
+  case "$CHAT_BRIDGE" in
+    kimaki) _update_kimaki_launchd ;;
+  esac
+}
+
+_plist_string_after_key() {
+  local plist="$1" key="$2"
+  awk -v key="$key" '
+    $0 ~ "<key>" key "</key>" { found = 1; next }
+    found && /<string>/ { print; exit }
+  ' "$plist" | sed 's/.*<string>\(.*\)<\/string>.*/\1/'
+}
+
+_update_kimaki_launchd() {
+  log "Phase 5a: Checking com.wp.kimaki launchd template..."
+
+  local plist="$HOME/Library/LaunchAgents/com.wp.kimaki.plist"
+  [ -f "$plist" ] || { warn "  $plist does not exist — skipping"; return 0; }
+
+  local KIMAKI_BIN
+  KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/opt/homebrew/bin/kimaki")
+
+  local previous_token="${KIMAKI_BOT_TOKEN:-}"
+  local token_was_set=false
+  [ -n "${KIMAKI_BOT_TOKEN:-}" ] && token_was_set=true
+  if [ -z "${KIMAKI_BOT_TOKEN:-}" ]; then
+    KIMAKI_BOT_TOKEN=$(_plist_string_after_key "$plist" "KIMAKI_BOT_TOKEN" || true)
+  fi
+
+  local new_plist
+  new_plist=$(bridge_render_launchd kimaki com.wp.kimaki)
+
+  if [ "$token_was_set" = true ]; then
+    KIMAKI_BOT_TOKEN="$previous_token"
+  else
+    unset KIMAKI_BOT_TOKEN
+  fi
+
+  if echo "$new_plist" | cmp -s - "$plist"; then
+    log "  com.wp.kimaki.plist: unchanged"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would update $plist"
+    echo -e "${BLUE}[dry-run]${NC} Diff:"
+    diff -u "$plist" <(echo "$new_plist") 2>/dev/null | head -30 | sed 's/^/    /' || true
+    return 0
+  fi
+
+  cp "$plist" "${plist}.backup.$TIMESTAMP"
+  echo "$new_plist" > "$plist"
+  log "  Updated $plist (backup: ${plist}.backup.$TIMESTAMP)"
+  log "  Diff:"
+  diff -u "${plist}.backup.$TIMESTAMP" "$plist" 2>/dev/null | head -30 | sed 's/^/    /' || true
+  log "  NOTE: com.wp.kimaki NOT restarted — run the restart command in the summary when ready"
+  UPDATED_ITEMS+=("com.wp.kimaki.plist (not restarted)")
+}
+
 # Helper: merge new Environment= lines from a template into the current unit,
 # preserving every existing Environment= line the host has customised (e.g.
 # BUN_INSTALL, custom PATH, secrets) and appending template keys that are
@@ -720,6 +784,26 @@ $tmpl_line"
     fi
   done <<< "$template_env"
   echo "$merged"
+}
+
+_ensure_systemd_path_contains() {
+  local current_env="$1" required_dir="$2"
+  if ! echo "$current_env" | grep -q '^Environment=PATH='; then
+    echo "$current_env"
+    return 0
+  fi
+  if echo "$current_env" | grep '^Environment=PATH=' | grep -F -q "$required_dir"; then
+    echo "$current_env"
+    return 0
+  fi
+
+  awk -v dir="$required_dir" '
+    /^Environment=PATH=/ && ! done {
+      sub(/^Environment=PATH=/, "Environment=PATH=" dir ":")
+      done = 1
+    }
+    { print }
+  ' <<< "$current_env"
 }
 
 # Helper: diff + write + daemon-reload a single systemd unit.
@@ -770,9 +854,12 @@ _update_kimaki_systemd() {
   local KIMAKI_BIN
   KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
   local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
+  local KIMAKI_BIN_DIR
+  KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
+  CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$KIMAKI_BIN_DIR")
 
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$KIMAKI_BIN_DIR:/usr/local/bin:/usr/bin:/bin
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
 
   local MERGED_ENV
@@ -986,5 +1073,6 @@ check_opencode_json_drift
 sync_skills
 regenerate_agents_md
 update_chat_bridge_systemd
+update_chat_bridge_launchd
 reapply_claude_auth_patch
 print_summary
