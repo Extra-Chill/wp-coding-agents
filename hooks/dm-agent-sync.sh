@@ -98,7 +98,7 @@ fi
 
 ALL_FILES=""
 while IFS= read -r slug; do
-  PATHS_RAW=$($WP_CMD datamachine agent paths --agent="$slug" --format=json 2>/dev/null) || continue
+  PATHS_RAW=$($WP_CMD datamachine memory paths --agent="$slug" --format=json 2>/dev/null) || continue
 
   FILES=$(echo "$PATHS_RAW" | python3 -c "
 import sys, json, re
@@ -131,7 +131,7 @@ while IFS= read -r f; do
 "
 done <<< "$UNIQUE_FILES"
 
-DISCOVER_LINE="Discover DM paths: \`$WP_CMD datamachine agent paths\`"
+DISCOVER_LINE="Discover DM paths: \`$WP_CMD datamachine memory paths\`"
 NEW_CONTENT="${AT_INCLUDES}
 ${DISCOVER_LINE}"
 

@@ -33,7 +33,7 @@ print_summary() {
   if [ -n "$AGENT_SLUG" ]; then
     echo "  Agent:       $AGENT_SLUG"
   fi
-  echo "  Discover:    $WP_CMD datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
+  echo "  Discover:    $WP_CMD datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
   echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
   echo ""

@@ -25,7 +25,7 @@ runtime_discover_dm_paths() {
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
-    DM_PATHS_RAW=$(wp_cmd datamachine agent paths --format=json $AGENT_FLAG 2>/dev/null || echo "")
+    DM_PATHS_RAW=$(wp_cmd datamachine memory paths --format=json $AGENT_FLAG 2>/dev/null || echo "")
     # SQLite translation layer may emit HTML error noise — extract only JSON
     DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -n "$DM_PATHS_JSON" ]; then
@@ -39,7 +39,7 @@ data = json.load(sys.stdin)
 for f in data.get('relative_files', []):
     print(f)
 " 2>/dev/null)
-      log "Agent files discovered via 'wp datamachine agent paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+      log "Agent files discovered via 'wp datamachine memory paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
     fi
   else
     # Dry-run: use placeholder paths
@@ -112,7 +112,7 @@ runtime_generate_config() {
 "
   done
 
-  DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
+  DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine memory paths\`"
   SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
 ${AT_INCLUDES}
 ${DISCOVER_LINE}
