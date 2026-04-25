@@ -175,9 +175,34 @@ wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
 }
 
 runtime_generate_config() {
-  # Skip if already exists — safe for re-runs
+  # Resolve Kimaki plugin dir + copy plugin files FIRST, unconditionally.
+  # Setup.sh must be idempotent: whether this site has a fresh install or an
+  # existing opencode.json, the kimaki plugins dir on disk must end up with
+  # the current dm-context-filter.ts + dm-agent-sync.ts. Previously this only
+  # ran on fresh installs because the whole function early-returned on an
+  # existing file, which left upgraded installs missing the security policy
+  # filter they're meant to run with. See wp-coding-agents#67.
+  KIMAKI_PLUGINS_DIR=""
+  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
+    if [ "$LOCAL_MODE" = true ]; then
+      KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
+      if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_PLUGINS_DIR" ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
+        mkdir -p "$KIMAKI_PLUGINS_DIR"
+        cp "$SCRIPT_DIR/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+      fi
+    else
+      KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
+    fi
+  fi
+
+  # On existing opencode.json, delegate to the repair helper in --additive
+  # mode. This adds managed plugin entries the user is missing and applies
+  # the prompt → instructions migration (fixes Anthropic Claude Max OAuth,
+  # wp-coding-agents#60) without touching user-added plugins, model settings,
+  # MCP config, permissions, or other keys. Idempotent on clean installs.
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/opencode.json" ]; then
-    log "opencode.json already exists — skipping (delete to regenerate)"
+    _runtime_repair_opencode_json_additive
     return
   fi
 
@@ -209,18 +234,8 @@ runtime_generate_config() {
   fi
 
   # DM context filter + agent sync — only when the bridge is Kimaki, since
-  # these plugins rewrite Kimaki-specific prompts.
+  # these plugins rewrite Kimaki-specific prompts. Paths resolved above.
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-    if [ "$LOCAL_MODE" = true ]; then
-      KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
-      if [ "$DRY_RUN" = false ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
-        mkdir -p "$KIMAKI_PLUGINS_DIR"
-        cp "$SCRIPT_DIR/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
-        cp "$SCRIPT_DIR/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
-      fi
-    else
-      KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
-    fi
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
   fi
@@ -271,6 +286,57 @@ runtime_generate_config() {
   else
     echo -e "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
   fi
+}
+
+# Additive repair of an existing opencode.json. Called when runtime_generate_config
+# finds the file already on disk. Adds managed plugin entries the user is missing,
+# migrates legacy agent.*.prompt → instructions (see wp-coding-agents#60), never
+# removes user-added plugins. For the opt-in full reconciliation that also removes
+# unexpected entries, users run `./upgrade.sh --repair-opencode-json`.
+_runtime_repair_opencode_json_additive() {
+  local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
+  if [ ! -f "$HELPER" ]; then
+    log "opencode.json exists but repair helper not found ($HELPER) — leaving as-is"
+    return
+  fi
+
+  local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
+  local PLUGINS_DIR="${KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local SUFFIX
+  SUFFIX="$(date +%Y%m%d-%H%M%S)"
+
+  log "opencode.json already exists — running additive repair..."
+
+  local repair_out repair_rc
+  repair_out=$(python3 "$HELPER" \
+    --file "$SITE_PATH/opencode.json" \
+    --runtime opencode \
+    --chat-bridge "$BRIDGE_ARG" \
+    --kimaki-plugins-dir "$PLUGINS_DIR" \
+    --additive \
+    --backup-suffix "$SUFFIX" 2>&1) && repair_rc=0 || repair_rc=$?
+
+  local repair_status
+  repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
+
+  case "$repair_status" in
+    ok)
+      log "  opencode.json already up to date"
+      ;;
+    additive_repaired)
+      log "  opencode.json repaired additively (backup: $SITE_PATH/opencode.json.backup.$SUFFIX)"
+      log "  $repair_out"
+      ;;
+    needs_full_repair)
+      warn "  opencode.json additively repaired, but unexpected plugin entries remain"
+      warn "  Review and run './upgrade.sh --repair-opencode-json' if you want them removed"
+      warn "  $repair_out"
+      ;;
+    *)
+      warn "  repair-opencode-json.py returned status=$repair_status (rc=$repair_rc)"
+      warn "  $repair_out"
+      ;;
+  esac
 }
 
 runtime_generate_instructions() {
