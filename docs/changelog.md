@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.3] - 2026-04-26
+
+### Fixed
+- prepend node bin dir on launchd PATH for nvm installs
+- point AGENTS.md regeneration at `datamachine memory compose`
+
 ## [0.6.2] - 2026-04-26
 
 ### Fixed
