@@ -89,11 +89,13 @@ _install_kimaki_systemd() {
     KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
   fi
 
-  local KIMAKI_BIN_DIR
+  local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
+  NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
+  PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
 
   local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
-Environment=PATH=$KIMAKI_BIN_DIR:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
   if [ -n "$KIMAKI_BOT_TOKEN" ]; then
     ENV_BLOCK="$ENV_BLOCK

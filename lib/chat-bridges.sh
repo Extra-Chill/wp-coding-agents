@@ -52,6 +52,94 @@
 # ---------------------------------------------------------------------------
 
 # ===========================================================================
+# Path helpers — resolve binaries that the chat bridge's child processes need
+# at runtime (node for kimaki plugins, etc.) and assemble PATH strings without
+# duplicates so the rendered launchd / systemd files stay clean.
+# ===========================================================================
+
+# _resolve_node_bin_dir [<kimaki-bin-hint>]
+#
+# Prints the directory containing `node` to stdout, or empty if none found.
+# launchd inherits a minimal PATH, so plugins shelling out via `#!/usr/bin/env
+# node` need the node bin dir baked into the rendered plist. nvm users
+# install node under ~/.nvm/versions/node/<v>/bin/, which neither homebrew nor
+# /usr/local/bin/ cover — that gap is the bug this helper closes (#73).
+#
+# Resolution order:
+#   1. `command -v node` in the renderer's interactive shell.
+#   2. The node baked into the kimaki shim itself (parses `exec '<node>' …`
+#      from the shim's first non-shebang line).
+#   3. Empty — caller falls back to its existing PATH and warns.
+_resolve_node_bin_dir() {
+  local kimaki_hint="${1:-}"
+  local node_path=""
+
+  if command -v node >/dev/null 2>&1; then
+    node_path="$(command -v node)"
+  elif [ -n "$kimaki_hint" ] && [ -f "$kimaki_hint" ]; then
+    # Shim looks like:
+    #   #!/bin/sh
+    #   exec '/path/to/node' '--flag' … '/path/to/kimaki.js' "$@"
+    # Walk space-separated tokens on the `exec` line and pick the first
+    # single-quoted absolute path ending in /node. Pure bash so the helper
+    # works under launchd / minimal-PATH contexts where coreutils may be
+    # absent — only the shell's own builtins (read, case, IFS) are used.
+    local exec_line token stripped
+    while IFS= read -r exec_line; do
+      case "$exec_line" in
+        exec\ *)
+          # shellcheck disable=SC2086
+          set -- $exec_line
+          shift  # drop leading "exec"
+          for token in "$@"; do
+            stripped="${token#\'}"
+            stripped="${stripped%\'}"
+            case "$stripped" in
+              */node)
+                node_path="$stripped"
+                break
+                ;;
+            esac
+          done
+          break
+          ;;
+      esac
+    done < "$kimaki_hint"
+  fi
+
+  [ -n "$node_path" ] || return 0
+  [ -x "$node_path" ] || return 0
+  # Pure bash dirname so the helper works in minimal-PATH contexts.
+  local dir="${node_path%/*}"
+  [ -n "$dir" ] || dir="/"
+  printf '%s' "$dir"
+}
+
+# _compose_path_value <dir1> [<dir2> …]
+#
+# Joins directories into a colon-separated PATH value, dropping duplicates and
+# empties while preserving the first-occurrence order. Used by the launchd
+# renderer so prepending the node bin dir doesn't shadow homebrew/system paths
+# or generate `dir::dir` strings when the kimaki and node bins live in the
+# same directory (the pre-PR-#73 npm-global world).
+_compose_path_value() {
+  local seen="" out="" dir
+  for dir in "$@"; do
+    [ -n "$dir" ] || continue
+    case ":$seen:" in
+      *":$dir:"*) continue ;;
+    esac
+    seen="$seen:$dir"
+    if [ -z "$out" ]; then
+      out="$dir"
+    else
+      out="$out:$dir"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+# ===========================================================================
 # Registry — bridge identity data
 # ===========================================================================
 
@@ -298,8 +386,10 @@ bridge_render_launchd() {
 _render_launchd_kimaki() {
   local label="$1"
   [ "$label" = "com.wp.kimaki" ] || { echo "kimaki has no label '$label'" >&2; return 1; }
-  local kimaki_bin_dir
+  local kimaki_bin_dir node_bin_dir path_value
   kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
+  node_bin_dir="$(_resolve_node_bin_dir "$KIMAKI_BIN")"
+  path_value="$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" /opt/homebrew/bin /usr/local/bin /usr/bin /bin)"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -326,7 +416,7 @@ _render_launchd_kimaki() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$kimaki_bin_dir:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>$path_value</string>
         <key>KIMAKI_DATA_DIR</key>
         <string>$KIMAKI_DATA_DIR</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>

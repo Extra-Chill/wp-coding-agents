@@ -126,10 +126,12 @@ capture_old_multi_setup() {
 # Helpers for rebuilding env blocks equivalent to the legacy installers
 # ---------------------------------------------------------------------------
 kimaki_env_block() {
-  local kimaki_bin_dir
+  local kimaki_bin_dir node_bin_dir path_value
   kimaki_bin_dir=$(dirname "$KIMAKI_BIN")
+  node_bin_dir=$(_resolve_node_bin_dir "$KIMAKI_BIN")
+  path_value=$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
   local out="Environment=HOME=$SERVICE_HOME
-Environment=PATH=$kimaki_bin_dir:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$path_value
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
   if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then
     out="$out

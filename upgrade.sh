@@ -952,12 +952,17 @@ _update_kimaki_systemd() {
   local KIMAKI_BIN
   KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
   local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-  local KIMAKI_BIN_DIR
+  local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
+  NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
+  PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
   CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$KIMAKI_BIN_DIR")
+  if [ -n "$NODE_BIN_DIR" ]; then
+    CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$NODE_BIN_DIR")
+  fi
 
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=$KIMAKI_BIN_DIR:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
 
   local MERGED_ENV
