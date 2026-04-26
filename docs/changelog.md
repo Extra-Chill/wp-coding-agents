@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.2] - 2026-04-26
+
+### Fixed
+- restore opencode plugins (dm-context-filter, dm-agent-sync) after npm update (#71)
+- make dm-context-filter stripSection fence-aware so fenced bash comments stop being treated as headings (#72)
+- install security-policy plugins on every setup/upgrade, not just fresh (#67)
+- resolve Data Machine memory paths in Studio (#69)
+- refresh kimaki service PATHs (#70)
+
+### Added
+- effective-prompt regression test harness with pluggable args/filters/triggers, wired into upgrade.sh (#72)
+
 ## [0.6.1] - 2026-04-25
 
 ### Fixed
