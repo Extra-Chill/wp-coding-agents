@@ -412,15 +412,39 @@ _sync_kimaki_config() {
     fi
   fi
 
-  # Copy plugins to KIMAKI_PLUGINS_DIR (the path opencode.json actually loads from).
+  # Copy plugins to two targets:
+  #   1. KIMAKI_CONFIG_DIR/plugins/ — the persistent source of truth that
+  #      survives `npm update -g kimaki`. post-upgrade.sh restores from here
+  #      on every kimaki restart.
+  #   2. KIMAKI_PLUGINS_DIR (= $(npm root -g)/kimaki/plugins on local,
+  #      /opt/kimaki-config/plugins on VPS) — the path opencode.json actually
+  #      loads from. On VPS this is the same as #1; on local it lives inside
+  #      the npm package and gets wiped on every kimaki update.
+  #
+  # Writing to both keeps post-upgrade.sh's restore loop working on local
+  # installs without changing the VPS layout (where the two paths coincide).
   if [ -d "$SCRIPT_DIR/kimaki/plugins" ]; then
     if [ "$DRY_RUN" = false ]; then
+      mkdir -p "$KIMAKI_CONFIG_DIR/plugins" 2>/dev/null || true
       mkdir -p "$KIMAKI_PLUGINS_DIR" 2>/dev/null || true
     fi
     for plugin_file in "$SCRIPT_DIR"/kimaki/plugins/*.ts; do
       [ -f "$plugin_file" ] || continue
       local name
       name=$(basename "$plugin_file")
+      # Persistent source of truth (survives npm update).
+      if [ "$DRY_RUN" = true ]; then
+        if ! cmp -s "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name" 2>/dev/null; then
+          echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/plugins/$name"
+        fi
+      else
+        if ! cmp -s "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name" 2>/dev/null; then
+          cp "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name"
+          log "  Updated $KIMAKI_CONFIG_DIR/plugins/$name (persistent source)"
+          UPDATED_ITEMS+=("kimaki-config/plugins/$name")
+        fi
+      fi
+      # Live target (where opencode.json points).
       if [ "$DRY_RUN" = true ]; then
         if ! cmp -s "$plugin_file" "$KIMAKI_PLUGINS_DIR/$name" 2>/dev/null; then
           echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_PLUGINS_DIR/$name"
