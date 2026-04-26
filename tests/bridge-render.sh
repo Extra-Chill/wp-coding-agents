@@ -35,7 +35,17 @@ mkdir -p "$SNAPSHOT_DIR"
 # ---------------------------------------------------------------------------
 # Mock env — fixed values so templates are deterministic. Kept identical to
 # the pre-refactor test so existing snapshots stay valid.
+#
+# CRITICAL: PATH is sanitized to a minimal, machine-independent set so that
+# `_resolve_node_bin_dir`'s `command -v node` probe and the kimaki-shim
+# fallback both miss. KIMAKI_BIN points at a path that does not exist on
+# any normal machine for the same reason. Without this, the kimaki snapshot
+# leaks the dev machine's actual node / kimaki shim paths into the rendered
+# Environment=PATH= line, and CI (which has neither) fails the diff.
+# Snapshot files under tests/__snapshots__/bridges/ are the contract; this
+# block is what makes the contract reproducible everywhere.
 # ---------------------------------------------------------------------------
+export PATH="/usr/bin:/bin"
 export SERVICE_USER="chubes"
 export SERVICE_HOME="/home/chubes"
 export SITE_PATH="/var/www/site"

@@ -7,7 +7,7 @@ Type=simple
 User=chubes
 WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
-Environment=PATH=/usr/bin:/Users/chubes/.kimaki/bin:/usr/local/bin:/bin
+Environment=PATH=/usr/bin:/usr/local/bin:/bin
 Environment=KIMAKI_DATA_DIR=/home/chubes/.kimaki
 ExecStartPre=/opt/kimaki-config/post-upgrade.sh
 ExecStart=/usr/bin/kimaki --data-dir /home/chubes/.kimaki --auto-restart --no-critique
