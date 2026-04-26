@@ -83,18 +83,21 @@ _install_kimaki_systemd() {
   run_cmd cp -r "$SCRIPT_DIR/kimaki" "$KIMAKI_CONFIG_DIR"
   run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
 
-  local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
-  if [ -n "$KIMAKI_BOT_TOKEN" ]; then
-    ENV_BLOCK="$ENV_BLOCK
-Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
-  fi
-
   if [ "$DRY_RUN" = true ]; then
     KIMAKI_BIN="/usr/bin/kimaki"
   else
     KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
+  fi
+
+  local KIMAKI_BIN_DIR
+  KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
+
+  local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
+Environment=PATH=$KIMAKI_BIN_DIR:/usr/local/bin:/usr/bin:/bin
+Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
+  if [ -n "$KIMAKI_BOT_TOKEN" ]; then
+    ENV_BLOCK="$ENV_BLOCK
+Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
   fi
 
   write_file "/etc/systemd/system/kimaki.service" \
