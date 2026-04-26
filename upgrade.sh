@@ -378,7 +378,7 @@ check_opencode_json_drift() {
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
 
-  # Kimaki plugins dir — match what _sync_kimaki_config resolved.
+  # Kimaki plugins dir — match what bridges/kimaki.sh::bridge_sync_config resolved.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
