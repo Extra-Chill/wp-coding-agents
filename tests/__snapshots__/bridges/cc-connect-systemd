@@ -1,0 +1,16 @@
+[Unit]
+Description=cc-connect Chat Bridge (wp-coding-agents)
+After=network.target
+
+[Service]
+Type=simple
+User=chubes
+WorkingDirectory=/var/www/site
+Environment=HOME=/home/chubes
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/cc-connect
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

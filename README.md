@@ -256,10 +256,10 @@ Local installs run as your current user — no root, no service user, no chown.
 
 The default chat bridge for OpenCode. On VPS, wp-coding-agents installs post-upgrade hooks that:
 
-- **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
+- **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`bridges/kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
 - **Filter redundant context** — A plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
 
-To customize the kill list, edit `kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
+To customize the kill list, edit `bridges/kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
 
 On local installs, Kimaki installs globally via npm but without a systemd service. Run it manually:
 

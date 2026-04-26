@@ -22,9 +22,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine skills chat-bridge summary; do
+for lib in common detect wordpress infrastructure data-machine skills summary; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
+
+# Bridge dispatcher — auto-discovers bridges/*.sh. Adding a new bridge is
+# "drop a file in bridges/" — no edit here.
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/bridges/_dispatch.sh"
 
 # Discover available runtimes from runtimes/ directory
 AVAILABLE_RUNTIMES=()

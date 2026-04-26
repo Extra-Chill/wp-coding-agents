@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenCode Server (wp-coding-agents)
+After=network.target
+
+[Service]
+Type=simple
+User=chubes
+WorkingDirectory=/var/www/site
+Environment=HOME=/home/chubes
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/chubes/.config/opencode-serve.env
+ExecStart=/usr/bin/opencode serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

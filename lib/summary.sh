@@ -122,14 +122,19 @@ _print_local_next_steps() {
   fi
 
   # macOS launchd with creds set: uniform Start/Stop/Logs block.
-  if [ "$env" = "local-launchd" ] && bridge_is_ready "$CHAT_BRIDGE"; then
-    _print_launchd_run_block "$CHAT_BRIDGE"
+  if [ "$env" = "local-launchd" ] && bridge_is_ready; then
+    _print_launchd_run_block
     return
   fi
 
-  # macOS launchd without creds: bridge-specific setup prose.
+  # macOS launchd without creds: bridge-specific setup prose. Bridges that
+  # are always-ready (cc-connect) never reach this branch.
   if [ "$env" = "local-launchd" ]; then
-    _print_launchd_setup_block "$CHAT_BRIDGE"
+    if bridge_has_hook launchd_setup_block; then
+      bridge_launchd_setup_block
+      _print_labelled_lines "    Logs:   " bridge_logs_cmd
+      echo ""
+    fi
     return
   fi
 
@@ -138,7 +143,7 @@ _print_local_next_steps() {
   local cmd
   while IFS= read -r cmd; do
     echo "    $cmd"
-  done < <(bridge_start_hint "$CHAT_BRIDGE" local-manual)
+  done < <(bridge_start_hint local-manual)
   echo ""
 }
 
@@ -151,21 +156,20 @@ _print_vps_next_steps() {
   fi
 
   # Credentials configured.
-  if bridge_is_ready "$CHAT_BRIDGE"; then
-    local cmd units
-    # Bridge-specific preamble — matches longstanding prose.
-    case "$CHAT_BRIDGE" in
-      kimaki)   echo "  Bot token configured via KIMAKI_BOT_TOKEN." ;;
-      telegram) echo "  Telegram credentials configured. Start the agent:" ;;
-    esac
-    units=$(bridge_systemd_units "$CHAT_BRIDGE" | wc -w | tr -d ' ')
+  if bridge_is_ready; then
+    local cmd units unit
+    # Optional bridge-specific preamble (e.g. "Bot token configured...").
+    if bridge_has_hook vps_start_preamble; then
+      bridge_vps_start_preamble
+    fi
+    units=$(bridge_systemd_units | wc -w | tr -d ' ')
     if [ "$units" -gt 1 ]; then
       # Multi-service bridge: list each service start on its own line.
-      for unit in $(bridge_systemd_units "$CHAT_BRIDGE"); do
+      for unit in $(bridge_systemd_units); do
         echo "    systemctl start ${unit%.service}"
       done
     else
-      cmd=$(bridge_start_hint "$CHAT_BRIDGE" vps)
+      cmd=$(bridge_start_hint vps)
       echo "  Start the agent:  $cmd"
     fi
     echo ""
@@ -173,7 +177,9 @@ _print_vps_next_steps() {
   fi
 
   # Credentials missing: bridge-specific VPS onboarding.
-  _print_vps_setup_block "$CHAT_BRIDGE"
+  if bridge_has_hook vps_setup_block; then
+    bridge_vps_setup_block
+  fi
   echo ""
 }
 
@@ -191,78 +197,18 @@ _print_vps_next_steps() {
 #     Logs:   <cmd>
 #             <cmd>
 _print_launchd_run_block() {
-  local bridge="$1" display units_label
-  display=$(bridge_display_title "$bridge")
-  if [ "$(bridge_launchd_labels "$bridge" | wc -w | tr -d ' ')" -gt 1 ]; then
+  local display units_label
+  display=$(bridge_display_title)
+  if [ "$(bridge_launchd_labels | wc -w | tr -d ' ')" -gt 1 ]; then
     units_label="launchd services"
   else
     units_label="launchd service"
   fi
   echo "  $display ($units_label):"
-  _print_labelled_lines "    Start:  " bridge_start_hint "$bridge" local-launchd
-  _print_labelled_lines "    Stop:   " bridge_stop_hint  "$bridge" local-launchd
-  _print_labelled_lines "    Logs:   " bridge_logs_cmd   "$bridge"
+  _print_labelled_lines "    Start:  " bridge_start_hint local-launchd
+  _print_labelled_lines "    Stop:   " bridge_stop_hint  local-launchd
+  _print_labelled_lines "    Logs:   " bridge_logs_cmd
   echo ""
-}
-
-# Bridge-specific onboarding prose for macOS launchd when credentials are
-# missing. cc-connect is always "ready" (no token) so it never reaches here.
-_print_launchd_setup_block() {
-  local bridge="$1" uid
-  uid=$(id -u)
-  case "$bridge" in
-    kimaki)
-      echo "  Kimaki setup:"
-      echo "    1. Run onboarding:  cd $SITE_PATH && kimaki"
-      echo "    2. Enable service:  launchctl bootstrap gui/${uid} ~/Library/LaunchAgents/com.wp.kimaki.plist"
-      ;;
-    telegram)
-      echo "  Telegram setup:"
-      echo "    1. Add tokens to $SERVICE_HOME/.config/opencode-telegram-bot/.env"
-      echo "    2. Enable services:"
-      for label in $(bridge_launchd_labels telegram); do
-        echo "       launchctl bootstrap gui/${uid} ~/Library/LaunchAgents/${label}.plist"
-      done
-      ;;
-  esac
-  _print_labelled_lines "    Logs:   " bridge_logs_cmd "$bridge"
-  echo ""
-}
-
-# Bridge-specific onboarding prose for VPS when credentials are missing.
-_print_vps_setup_block() {
-  local bridge="$1"
-  case "$bridge" in
-    kimaki)
-      echo "  1. Set up Discord bot token:"
-      echo "     Option A: Run kimaki interactively first (sets up database)"
-      if [ "$RUN_AS_ROOT" = false ]; then
-        echo "       su - $SERVICE_USER -c 'cd $SITE_PATH && kimaki'"
-      else
-        echo "       cd $SITE_PATH && kimaki"
-      fi
-      echo "     Option B: Set KIMAKI_BOT_TOKEN in the systemd service"
-      echo "       systemctl edit kimaki"
-      echo "       [Service]"
-      echo "       Environment=KIMAKI_BOT_TOKEN=your-token-here"
-      echo ""
-      echo "  2. Start the agent:  systemctl start kimaki"
-      ;;
-    telegram)
-      echo "  1. Get your Telegram credentials:"
-      echo "     - Bot token: message @BotFather → /newbot"
-      echo "     - Your user ID: message @userinfobot"
-      echo ""
-      echo "  2. Add credentials to the bot config:"
-      echo "     Edit $SERVICE_HOME/.config/opencode-telegram-bot/.env"
-      echo "     Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID"
-      echo ""
-      echo "  3. Start the agent:"
-      for unit in $(bridge_systemd_units telegram); do
-        echo "     systemctl start ${unit%.service}"
-      done
-      ;;
-  esac
 }
 
 # Run a command producing 1+ lines; print the first line prefixed with

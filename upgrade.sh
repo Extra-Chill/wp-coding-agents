@@ -25,7 +25,7 @@
 #        telegram   → opencode-serve.service + opencode-telegram.service
 #      Each unit's existing Environment= lines are preserved (host custom
 #      values, secrets) while structural lines are refreshed from the same
-#      template as lib/chat-bridge.sh.
+#      template the install path uses (bridges/<name>.sh::bridge_render_*).
 #   6. Re-apply opencode-claude-auth PascalCase patch (opencode runtime only)
 #   7. Summary — prints the right restart + verify commands per bridge × env.
 #
@@ -63,11 +63,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
-# wordpress is needed for wp_cmd helper used by compose; chat-bridges for
-# systemd/launchd template generators shared with setup-time install).
-for lib in common detect wordpress skills chat-bridges; do
+# wordpress is needed for wp_cmd helper used by compose).
+for lib in common detect wordpress skills; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
+
+# Bridge dispatcher — auto-discovers bridges/*.sh. Each bridge owns its own
+# render templates, sync, systemd/launchd update, and summary blocks.
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/bridges/_dispatch.sh"
 
 # Discover available runtimes
 AVAILABLE_RUNTIMES=()
@@ -237,13 +241,22 @@ source "$RUNTIME_FILE"
 detect_environment
 
 # Detect chat bridge from installed services / installed binaries via the
-# lib/chat-bridges.sh registry. See bridge_detect_local / bridge_detect_vps
-# for the full probe order (launchd plists + command -v on local; systemd
-# unit files on VPS). Priority: kimaki > cc-connect > telegram.
+# bridges/_dispatch.sh registry walk. See bridge_detect_local /
+# bridge_detect_vps for the full probe order (launchd plists + command -v
+# on local; systemd unit files on VPS). Priority order is set by
+# BRIDGE_DETECTION_ORDER in _dispatch.sh: kimaki > cc-connect > telegram.
 if [ "$LOCAL_MODE" = true ]; then
   CHAT_BRIDGE=$(bridge_detect_local)
 else
   CHAT_BRIDGE=$(bridge_detect_vps)
+fi
+
+# Load the active bridge's hooks (render, sync, update, summary) into this
+# shell so the rest of upgrade.sh can call bridge_sync_config /
+# bridge_update_systemd / bridge_render_systemd directly. No-op when
+# detection found nothing — phase functions guard on $CHAT_BRIDGE.
+if [ -n "$CHAT_BRIDGE" ] && bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1; then
+  bridge_load "$CHAT_BRIDGE"
 fi
 
 log "Runtime:     $RUNTIME"
@@ -298,261 +311,19 @@ _run_filter_active() {
 sync_chat_bridge_config() {
   _run_filter_active kimaki || return 0
 
-  case "$CHAT_BRIDGE" in
-    kimaki)     _sync_kimaki_config ;;
-    cc-connect) _sync_cc_connect_config ;;
-    telegram)   _sync_telegram_config ;;
-    *) log "Phase 2: Skipping (no chat bridge detected)" ;;
-  esac
+  if [ -z "$CHAT_BRIDGE" ]; then
+    log "Phase 2: Skipping (no chat bridge detected)"
+    return
+  fi
+
+  if ! bridge_has_hook sync_config; then
+    warn "Phase 2: $CHAT_BRIDGE does not implement bridge_sync_config — skipping"
+    return
+  fi
+
+  bridge_sync_config
 }
 
-_sync_cc_connect_config() {
-  log "Phase 2: cc-connect detected — no per-install artifacts to sync."
-  if command -v cc-connect &>/dev/null; then
-    local cc_version
-    cc_version=$(cc-connect --version 2>/dev/null | head -1 || echo "unknown")
-    log "  cc-connect version: $cc_version"
-  else
-    warn "  cc-connect binary not on PATH"
-  fi
-  log "  To update upstream:  npm update -g cc-connect"
-  log "  User config (never touched):  \$CC_DATA_DIR/config.toml (defaults to \$HOME/.cc-connect/config.toml)"
-}
-
-_sync_telegram_config() {
-  log "Phase 2: telegram detected — no per-install artifacts to sync."
-  if command -v opencode-telegram &>/dev/null; then
-    local tg_version
-    tg_version=$(opencode-telegram --version 2>/dev/null | head -1 || echo "unknown")
-    log "  opencode-telegram version: $tg_version"
-  else
-    warn "  opencode-telegram binary not on PATH"
-  fi
-  if command -v opencode &>/dev/null; then
-    local oc_version
-    oc_version=$(opencode --version 2>/dev/null | head -1 || echo "unknown")
-    log "  opencode version: $oc_version"
-  else
-    warn "  opencode binary not on PATH"
-  fi
-  log "  To update upstream:  npm update -g @grinev/opencode-telegram-bot"
-  log "  User env files (never touched):"
-  log "    \$HOME/.config/opencode-serve.env"
-  log "    \$HOME/.config/opencode-telegram-bot/.env"
-}
-
-_sync_kimaki_config() {
-
-  # Resolve paths per environment.
-  #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
-  #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
-  #          post-upgrade.sh + skills-kill-list.txt.
-  #   Local: opencode.json points at $(npm root -g)/kimaki/plugins (mirrors what
-  #          setup.sh / runtimes/opencode.sh writes). post-upgrade.sh + kill list
-  #          have no launchd ExecStartPre hook on macOS, so we stash them at
-  #          $KIMAKI_DATA_DIR/kimaki-config/ and execute post-upgrade.sh inline
-  #          to enforce the kill list against the npm-installed kimaki skills.
-  local KIMAKI_CONFIG_DIR
-  local KIMAKI_PLUGINS_DIR
-  local BACKUP_DIR
-  if [ "$LOCAL_MODE" = true ]; then
-    KIMAKI_CONFIG_DIR="${KIMAKI_DATA_DIR}/kimaki-config"
-    local NPM_ROOT
-    NPM_ROOT="$(npm root -g 2>/dev/null)"
-    if [ -z "$NPM_ROOT" ]; then
-      warn "  npm root -g not available — cannot resolve local plugins dir"
-      return 0
-    fi
-    KIMAKI_PLUGINS_DIR="${NPM_ROOT}/kimaki/plugins"
-    BACKUP_DIR="${KIMAKI_DATA_DIR}/backups/kimaki-config.$TIMESTAMP"
-    log "Phase 2: Syncing kimaki config (local mode)..."
-    log "  Config dir:  $KIMAKI_CONFIG_DIR"
-    log "  Plugins dir: $KIMAKI_PLUGINS_DIR (npm-managed)"
-  else
-    KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-    KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
-    BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
-    log "Phase 2: Syncing /opt/kimaki-config..."
-  fi
-
-  # Local: the kimaki npm package must be installed for plugins to land
-  # somewhere opencode actually loads from. Refuse to bootstrap here — the
-  # user must install kimaki first.
-  if [ "$LOCAL_MODE" = true ] && [ ! -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
-    warn "  Kimaki npm package not found at $(dirname "$KIMAKI_PLUGINS_DIR") — install with 'npm install -g kimaki'"
-    return 0
-  fi
-
-  # VPS: if /opt/kimaki-config is missing, this install predates v0.4.0 (when
-  # setup.sh started creating it). We're in the kimaki dispatch branch, so
-  # kimaki IS the detected bridge and kimaki.service IS running — the
-  # config dir just never got bootstrapped. Create it now from the repo.
-  # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh,
-  # kill list); there is no user state to preserve.
-  if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would bootstrap $KIMAKI_CONFIG_DIR from $SCRIPT_DIR/kimaki/"
-    else
-      log "  $KIMAKI_CONFIG_DIR missing — bootstrapping from repo (install predates v0.4.0)"
-      mkdir -p "$KIMAKI_CONFIG_DIR/plugins"
-      UPDATED_ITEMS+=("bootstrapped $KIMAKI_CONFIG_DIR (install predates v0.4.0)")
-      # Fall through — the plugin/post-upgrade/kill-list copy logic below
-      # handles the actual file placement idempotently.
-    fi
-  fi
-
-  # Backup current state (only if there's something to back up).
-  if [ -d "$KIMAKI_CONFIG_DIR" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would backup $KIMAKI_CONFIG_DIR → $BACKUP_DIR"
-    else
-      mkdir -p "$(dirname "$BACKUP_DIR")"
-      cp -r "$KIMAKI_CONFIG_DIR" "$BACKUP_DIR"
-      log "  Backup created: $BACKUP_DIR"
-    fi
-  fi
-
-  # Copy plugins to two targets:
-  #   1. KIMAKI_CONFIG_DIR/plugins/ — the persistent source of truth that
-  #      survives `npm update -g kimaki`. post-upgrade.sh restores from here
-  #      on every kimaki restart.
-  #   2. KIMAKI_PLUGINS_DIR (= $(npm root -g)/kimaki/plugins on local,
-  #      /opt/kimaki-config/plugins on VPS) — the path opencode.json actually
-  #      loads from. On VPS this is the same as #1; on local it lives inside
-  #      the npm package and gets wiped on every kimaki update.
-  #
-  # Writing to both keeps post-upgrade.sh's restore loop working on local
-  # installs without changing the VPS layout (where the two paths coincide).
-  if [ -d "$SCRIPT_DIR/kimaki/plugins" ]; then
-    if [ "$DRY_RUN" = false ]; then
-      mkdir -p "$KIMAKI_CONFIG_DIR/plugins" 2>/dev/null || true
-      mkdir -p "$KIMAKI_PLUGINS_DIR" 2>/dev/null || true
-    fi
-    for plugin_file in "$SCRIPT_DIR"/kimaki/plugins/*.ts; do
-      [ -f "$plugin_file" ] || continue
-      local name
-      name=$(basename "$plugin_file")
-      # Persistent source of truth (survives npm update).
-      if [ "$DRY_RUN" = true ]; then
-        if ! cmp -s "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name" 2>/dev/null; then
-          echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/plugins/$name"
-        fi
-      else
-        if ! cmp -s "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name" 2>/dev/null; then
-          cp "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name"
-          log "  Updated $KIMAKI_CONFIG_DIR/plugins/$name (persistent source)"
-          UPDATED_ITEMS+=("kimaki-config/plugins/$name")
-        fi
-      fi
-      # Live target (where opencode.json points).
-      if [ "$DRY_RUN" = true ]; then
-        if ! cmp -s "$plugin_file" "$KIMAKI_PLUGINS_DIR/$name" 2>/dev/null; then
-          echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_PLUGINS_DIR/$name"
-        else
-          echo -e "${BLUE}[dry-run]${NC} $name: unchanged"
-        fi
-      else
-        if ! cmp -s "$plugin_file" "$KIMAKI_PLUGINS_DIR/$name" 2>/dev/null; then
-          cp "$plugin_file" "$KIMAKI_PLUGINS_DIR/$name"
-          log "  Updated $KIMAKI_PLUGINS_DIR/$name"
-          UPDATED_ITEMS+=("kimaki plugins/$name")
-        fi
-      fi
-    done
-  fi
-
-  # Stage post-upgrade.sh and skills-kill-list.txt in KIMAKI_CONFIG_DIR.
-  # On VPS this is read by ExecStartPre. On local we execute it inline below.
-  if [ "$DRY_RUN" = false ]; then
-    mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
-  fi
-
-  if [ -f "$SCRIPT_DIR/kimaki/post-upgrade.sh" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/kimaki/post-upgrade.sh" "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/post-upgrade.sh"
-      fi
-    else
-      if ! cmp -s "$SCRIPT_DIR/kimaki/post-upgrade.sh" "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>/dev/null; then
-        cp "$SCRIPT_DIR/kimaki/post-upgrade.sh" "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
-        chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
-        log "  Updated $KIMAKI_CONFIG_DIR/post-upgrade.sh"
-        UPDATED_ITEMS+=("kimaki-config/post-upgrade.sh")
-      fi
-    fi
-  fi
-
-  if [ -f "$SCRIPT_DIR/kimaki/skills-kill-list.txt" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-      fi
-    else
-      if ! cmp -s "$SCRIPT_DIR/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        cp "$SCRIPT_DIR/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        log "  Updated $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        UPDATED_ITEMS+=("kimaki-config/skills-kill-list.txt")
-      fi
-    fi
-  fi
-
-  # On local, execute post-upgrade.sh inline to enforce the kill list.
-  # On VPS, kimaki.service ExecStartPre runs it on next service restart.
-  if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would run: $KIMAKI_CONFIG_DIR/post-upgrade.sh"
-    else
-      log "  Running post-upgrade.sh to enforce skills kill list..."
-      if "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>&1 | sed 's/^/    /'; then
-        UPDATED_ITEMS+=("ran post-upgrade.sh (enforced skills kill list)")
-      else
-        warn "  post-upgrade.sh exited non-zero — review output above"
-      fi
-    fi
-  fi
-
-  # Run the effective-prompt regression test against the live kimaki install.
-  #
-  # This catches dm-context-filter regressions caused by kimaki upgrades that
-  # reshuffle the system prompt (new sections, new code-fence patterns, new
-  # banned phrases). Renders the prompt from the freshly-synced kimaki npm
-  # package, runs dm-context-filter over it, asserts no banned phrases leak.
-  #
-  # Snapshot drift is a soft warning (the agent context is fine, the test
-  # just needs `--update`). Leak failures are also surfaced as warnings,
-  # not hard errors — upgrade.sh must not block on a test failure when the
-  # underlying sync was successful. The signal is in UPDATED_ITEMS so the
-  # final summary surfaces it.
-  local TEST_SCRIPT="$SCRIPT_DIR/tests/effective-prompt/run.mjs"
-  if [ -f "$TEST_SCRIPT" ] && command -v node &>/dev/null; then
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would run: node $TEST_SCRIPT"
-    else
-      log "  Running effective-prompt regression test..."
-      local TEST_OUT
-      if TEST_OUT=$(node "$TEST_SCRIPT" 2>&1); then
-        # Pull the scenario count from the harness's "OK — N scenario(s)" line.
-        local SCENARIO_LINE
-        SCENARIO_LINE=$(echo "$TEST_OUT" | grep -E "^OK — [0-9]+ scenario" | head -1)
-        log "  effective-prompt: PASS — ${SCENARIO_LINE:-no scenarios reported}"
-        UPDATED_ITEMS+=("ran effective-prompt test (no filter leaks)")
-      else
-        warn "  effective-prompt test FAILED — dm-context-filter may be leaking banned phrases"
-        warn "    rerun with: node $TEST_SCRIPT --verbose"
-        warn "    if drift is intentional: node $TEST_SCRIPT --update"
-        # Surface the failure section of the test output (last ~12 lines).
-        echo "$TEST_OUT" | tail -12 | sed 's/^/    /' >&2
-        UPDATED_ITEMS+=("effective-prompt test FAILED — review filter or refresh snapshots")
-      fi
-    fi
-  fi
-
-  log "  Done."
-
-  # Export resolved paths so print_summary can reference them
-  RESOLVED_KIMAKI_CONFIG_DIR="$KIMAKI_CONFIG_DIR"
-  RESOLVED_KIMAKI_PLUGINS_DIR="$KIMAKI_PLUGINS_DIR"
-}
 
 # ============================================================================
 # Phase 2b: Detect + optionally repair opencode.json drift
@@ -607,7 +378,7 @@ check_opencode_json_drift() {
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
 
-  # Kimaki plugins dir — match what _sync_kimaki_config resolved.
+  # Kimaki plugins dir — match what bridges/kimaki.sh::bridge_sync_config resolved.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
@@ -774,9 +545,11 @@ regenerate_agents_md() {
 
 # ============================================================================
 # Phase 5: Smart systemd update (merges host-specific Environment= lines)
-#   Dispatches per chat bridge. Each bridge regenerates its unit file(s) from
-#   the same template as lib/chat-bridge.sh, preserves existing Environment=
-#   lines, writes + daemon-reloads, NEVER restarts.
+#   Dispatches to the active bridge's bridge_update_systemd hook (and
+#   bridge_update_launchd on macOS). Each bridge regenerates its unit file(s)
+#   from the same template the install path uses, preserves existing
+#   Environment= lines via _merge_systemd_env_lines (defined in
+#   bridges/_dispatch.sh), writes + daemon-reloads, NEVER restarts.
 # ============================================================================
 
 update_chat_bridge_systemd() {
@@ -787,12 +560,17 @@ update_chat_bridge_systemd() {
     return 0
   fi
 
-  case "$CHAT_BRIDGE" in
-    kimaki)     _update_kimaki_systemd ;;
-    cc-connect) _update_cc_connect_systemd ;;
-    telegram)   _update_telegram_systemd ;;
-    *) log "Phase 5: Skipping (no chat bridge detected)" ;;
-  esac
+  if [ -z "$CHAT_BRIDGE" ]; then
+    log "Phase 5: Skipping (no chat bridge detected)"
+    return 0
+  fi
+
+  if ! bridge_has_hook update_systemd; then
+    warn "Phase 5: $CHAT_BRIDGE does not implement bridge_update_systemd — skipping"
+    return 0
+  fi
+
+  bridge_update_systemd
 }
 
 update_chat_bridge_launchd() {
@@ -800,243 +578,11 @@ update_chat_bridge_launchd() {
     return 0
   fi
 
-  case "$CHAT_BRIDGE" in
-    kimaki) _update_kimaki_launchd ;;
-  esac
-}
-
-_plist_string_after_key() {
-  local plist="$1" key="$2"
-  awk -v key="$key" '
-    $0 ~ "<key>" key "</key>" { found = 1; next }
-    found && /<string>/ { print; exit }
-  ' "$plist" | sed 's/.*<string>\(.*\)<\/string>.*/\1/'
-}
-
-_update_kimaki_launchd() {
-  log "Phase 5a: Checking com.wp.kimaki launchd template..."
-
-  local plist="$HOME/Library/LaunchAgents/com.wp.kimaki.plist"
-  [ -f "$plist" ] || { warn "  $plist does not exist — skipping"; return 0; }
-
-  local KIMAKI_BIN
-  KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/opt/homebrew/bin/kimaki")
-
-  local previous_token="${KIMAKI_BOT_TOKEN:-}"
-  local token_was_set=false
-  [ -n "${KIMAKI_BOT_TOKEN:-}" ] && token_was_set=true
-  if [ -z "${KIMAKI_BOT_TOKEN:-}" ]; then
-    KIMAKI_BOT_TOKEN=$(_plist_string_after_key "$plist" "KIMAKI_BOT_TOKEN" || true)
-  fi
-
-  local new_plist
-  new_plist=$(bridge_render_launchd kimaki com.wp.kimaki)
-
-  if [ "$token_was_set" = true ]; then
-    KIMAKI_BOT_TOKEN="$previous_token"
-  else
-    unset KIMAKI_BOT_TOKEN
-  fi
-
-  if echo "$new_plist" | cmp -s - "$plist"; then
-    log "  com.wp.kimaki.plist: unchanged"
+  if [ -z "$CHAT_BRIDGE" ] || ! bridge_has_hook update_launchd; then
     return 0
   fi
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would update $plist"
-    echo -e "${BLUE}[dry-run]${NC} Diff:"
-    diff -u "$plist" <(echo "$new_plist") 2>/dev/null | head -30 | sed 's/^/    /' || true
-    return 0
-  fi
-
-  cp "$plist" "${plist}.backup.$TIMESTAMP"
-  echo "$new_plist" > "$plist"
-  log "  Updated $plist (backup: ${plist}.backup.$TIMESTAMP)"
-  log "  Diff:"
-  diff -u "${plist}.backup.$TIMESTAMP" "$plist" 2>/dev/null | head -30 | sed 's/^/    /' || true
-  log "  NOTE: com.wp.kimaki NOT restarted — run the restart command in the summary when ready"
-  UPDATED_ITEMS+=("com.wp.kimaki.plist (not restarted)")
-}
-
-# Helper: merge new Environment= lines from a template into the current unit,
-# preserving every existing Environment= line the host has customised (e.g.
-# BUN_INSTALL, custom PATH, secrets) and appending template keys that are
-# missing. Returns the merged block on stdout.
-_merge_systemd_env_lines() {
-  local current_env="$1"
-  local template_env="$2"
-  local merged="$current_env"
-  while IFS= read -r tmpl_line; do
-    [ -z "$tmpl_line" ] && continue
-    local key
-    key=$(echo "$tmpl_line" | sed -n 's/^Environment=\([^=]*\)=.*/\1/p')
-    [ -z "$key" ] && continue
-    if ! echo "$current_env" | grep -q "^Environment=${key}="; then
-      if [ -n "$merged" ]; then
-        merged="$merged
-$tmpl_line"
-      else
-        merged="$tmpl_line"
-      fi
-    fi
-  done <<< "$template_env"
-  echo "$merged"
-}
-
-_ensure_systemd_path_contains() {
-  local current_env="$1" required_dir="$2"
-  if ! echo "$current_env" | grep -q '^Environment=PATH='; then
-    echo "$current_env"
-    return 0
-  fi
-  if echo "$current_env" | grep '^Environment=PATH=' | grep -F -q "$required_dir"; then
-    echo "$current_env"
-    return 0
-  fi
-
-  awk -v dir="$required_dir" '
-    /^Environment=PATH=/ && ! done {
-      sub(/^Environment=PATH=/, "Environment=PATH=" dir ":")
-      done = 1
-    }
-    { print }
-  ' <<< "$current_env"
-}
-
-# Helper: diff + write + daemon-reload a single systemd unit.
-# Args: $1 unit path, $2 new unit content, $3 human label for summary line.
-_smart_update_systemd_unit() {
-  local unit_file="$1"
-  local new_unit="$2"
-  local label="${3:-$(basename "$unit_file")}"
-
-  if [ ! -f "$unit_file" ]; then
-    warn "  $unit_file does not exist — skipping"
-    return 0
-  fi
-
-  if echo "$new_unit" | cmp -s - "$unit_file"; then
-    log "  $(basename "$unit_file"): unchanged"
-    return 0
-  fi
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would update $unit_file"
-    echo -e "${BLUE}[dry-run]${NC} Diff:"
-    diff -u "$unit_file" <(echo "$new_unit") 2>/dev/null | head -30 | sed 's/^/    /' || true
-    echo -e "${BLUE}[dry-run]${NC} Would run: systemctl daemon-reload"
-    return 0
-  fi
-
-  cp "$unit_file" "${unit_file}.backup.$TIMESTAMP"
-  echo "$new_unit" > "$unit_file"
-  log "  Updated $unit_file (backup: ${unit_file}.backup.$TIMESTAMP)"
-  log "  Diff:"
-  diff -u "${unit_file}.backup.$TIMESTAMP" "$unit_file" 2>/dev/null | head -30 | sed 's/^/    /' || true
-  systemctl daemon-reload
-  log "  systemctl daemon-reload complete"
-  log "  NOTE: $label NOT restarted — run the restart command in the summary when ready"
-  UPDATED_ITEMS+=("$label (daemon-reloaded, not restarted)")
-}
-
-_update_kimaki_systemd() {
-  log "Phase 5: Checking kimaki.service template..."
-
-  local UNIT_FILE="/etc/systemd/system/kimaki.service"
-  [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
-
-  local CURRENT_ENV
-  CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
-
-  local KIMAKI_BIN
-  KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
-  local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-  local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
-  KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
-  NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
-  PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
-  CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$KIMAKI_BIN_DIR")
-  if [ -n "$NODE_BIN_DIR" ]; then
-    CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$NODE_BIN_DIR")
-  fi
-
-  local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=$PATH_VALUE
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
-
-  local MERGED_ENV
-  MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
-
-  local NEW_UNIT
-  NEW_UNIT=$(bridge_render_systemd kimaki kimaki.service "$MERGED_ENV")
-
-  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "kimaki.service"
-}
-
-_update_cc_connect_systemd() {
-  log "Phase 5: Checking cc-connect.service template..."
-
-  local UNIT_FILE="/etc/systemd/system/cc-connect.service"
-  [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
-
-  local CURRENT_ENV
-  CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
-
-  local CC_BIN
-  CC_BIN=$(which cc-connect 2>/dev/null || echo "/usr/bin/cc-connect")
-
-  # CC_CONNECT_TOKEN lives in the existing unit's env if setup originally
-  # set it; mandatory template omits it and _merge_systemd_env_lines
-  # preserves host-specific keys.
-  local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-
-  local MERGED_ENV
-  MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
-
-  local NEW_UNIT
-  NEW_UNIT=$(bridge_render_systemd cc-connect cc-connect.service "$MERGED_ENV")
-
-  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "cc-connect.service"
-}
-
-_update_telegram_systemd() {
-  log "Phase 5: Checking opencode-serve.service + opencode-telegram.service templates..."
-
-  local SERVE_UNIT="/etc/systemd/system/opencode-serve.service"
-  local TG_UNIT="/etc/systemd/system/opencode-telegram.service"
-
-  local OPENCODE_BIN TELEGRAM_BIN SERVE_ENV_FILE TELEGRAM_CONFIG_DIR
-  OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
-  TELEGRAM_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
-  SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
-  TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
-
-  local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-
-  # --- opencode-serve.service ---
-  if [ -f "$SERVE_UNIT" ]; then
-    local SERVE_CURRENT_ENV SERVE_MERGED_ENV SERVE_NEW
-    SERVE_CURRENT_ENV=$(grep '^Environment=' "$SERVE_UNIT" || true)
-    SERVE_MERGED_ENV=$(_merge_systemd_env_lines "$SERVE_CURRENT_ENV" "$TEMPLATE_ENV")
-    SERVE_NEW=$(bridge_render_systemd telegram opencode-serve.service "$SERVE_MERGED_ENV")
-    _smart_update_systemd_unit "$SERVE_UNIT" "$SERVE_NEW" "opencode-serve.service"
-  else
-    warn "  $SERVE_UNIT does not exist — skipping"
-  fi
-
-  # --- opencode-telegram.service ---
-  if [ -f "$TG_UNIT" ]; then
-    local TG_CURRENT_ENV TG_MERGED_ENV TG_NEW
-    TG_CURRENT_ENV=$(grep '^Environment=' "$TG_UNIT" || true)
-    TG_MERGED_ENV=$(_merge_systemd_env_lines "$TG_CURRENT_ENV" "$TEMPLATE_ENV")
-    TG_NEW=$(bridge_render_systemd telegram opencode-telegram.service "$TG_MERGED_ENV")
-    _smart_update_systemd_unit "$TG_UNIT" "$TG_NEW" "opencode-telegram.service"
-  else
-    warn "  $TG_UNIT does not exist — skipping"
-  fi
+  bridge_update_launchd
 }
 
 # ============================================================================
@@ -1108,13 +654,15 @@ print_summary() {
 
 # Resolve the runtime environment for restart/verify output.
 # Returns: local-launchd | local-manual | vps
+#
+# Reads bridge_launchd_labels from the active loaded bridge (no argument).
 _resolve_bridge_env() {
-  local bridge="$1" label
+  local label
   if [ "$LOCAL_MODE" != true ]; then
     echo "vps"
     return
   fi
-  for label in $(bridge_launchd_labels "$bridge"); do
+  for label in $(bridge_launchd_labels); do
     if [ -f "$HOME/Library/LaunchAgents/${label}.plist" ]; then
       echo "local-launchd"
       return
@@ -1128,13 +676,13 @@ _print_bridge_restart_hint() {
   [ -n "$CHAT_BRIDGE" ] || return 0
 
   local env display cmd
-  env=$(_resolve_bridge_env "$CHAT_BRIDGE")
-  display=$(bridge_display_name "$CHAT_BRIDGE")
+  env=$(_resolve_bridge_env)
+  display=$(bridge_display_name)
 
   warn "Restart $display when ready (active chat sessions will die):"
   while IFS= read -r cmd; do
     warn "  $cmd"
-  done < <(bridge_restart_cmd "$CHAT_BRIDGE" "$env")
+  done < <(bridge_restart_cmd "$env")
   echo ""
 }
 
@@ -1144,23 +692,22 @@ _print_verify_block() {
   if [ -z "$CHAT_BRIDGE" ]; then
     log "  (no chat bridge detected)"
   else
-    local env primary cmd
-    env=$(_resolve_bridge_env "$CHAT_BRIDGE")
-    primary=$(bridge_binaries "$CHAT_BRIDGE" | awk '{print $1}')
+    local env cmd
+    env=$(_resolve_bridge_env)
 
     while IFS= read -r cmd; do
       log "  $cmd   # chat bridge status"
-    done < <(bridge_verify_cmd "$CHAT_BRIDGE" "$env")
+    done < <(bridge_verify_cmd "$env")
 
-    case "$CHAT_BRIDGE" in
-      kimaki)
-        local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-        log "  ls $PLUGINS_DIR   # plugin versions"
-        ;;
-      *)
-        log "  $primary --version   # binary version"
-        ;;
-    esac
+    # Optional per-bridge addendum (e.g. kimaki's `ls plugins/` line). Falls
+    # back to `<binary> --version` for bridges that don't define the hook.
+    if bridge_has_hook verify_extra; then
+      log "  $(bridge_verify_extra)"
+    else
+      local primary
+      primary=$(bridge_binaries | awk '{print $1}')
+      log "  $primary --version   # binary version"
+    fi
   fi
 
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"

@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenCode Telegram Bot (wp-coding-agents)
+After=network.target opencode-serve.service
+Requires=opencode-serve.service
+
+[Service]
+Type=simple
+User=chubes
+WorkingDirectory=/var/www/site
+Environment=HOME=/home/chubes
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/home/chubes/.config/opencode-telegram-bot/.env
+ExecStart=/usr/bin/opencode-telegram start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

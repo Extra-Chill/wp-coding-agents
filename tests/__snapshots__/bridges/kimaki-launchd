@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wp.kimaki</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/kimaki</string>
+        <string>--data-dir</string>
+        <string>/home/chubes/.kimaki</string>
+        <string>--auto-restart</string>
+        <string>--no-critique</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/var/www/site</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/home/chubes/.kimaki/kimaki.log</string>
+    <key>StandardErrorPath</key>
+    <string>/home/chubes/.kimaki/kimaki.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>KIMAKI_DATA_DIR</key>
+        <string>/home/chubes/.kimaki</string>
+    </dict>
+</dict>
+</plist>

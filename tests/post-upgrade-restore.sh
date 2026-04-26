@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/post-upgrade-restore.sh — smoke test for kimaki/post-upgrade.sh
+# tests/post-upgrade-restore.sh — smoke test for bridges/kimaki/post-upgrade.sh
 #
 # Verifies the three passes (kill, restore skills, restore plugins) using
 # temp-dir env overrides so the test never touches the real npm install or
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-POST_UPGRADE="$SCRIPT_DIR/kimaki/post-upgrade.sh"
+POST_UPGRADE="$SCRIPT_DIR/bridges/kimaki/post-upgrade.sh"
 
 if [[ ! -x "$POST_UPGRADE" ]]; then
   echo "FAIL: $POST_UPGRADE is not executable"

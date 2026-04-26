@@ -51,6 +51,6 @@ Run `./upgrade.sh --help` for scope flags (`--kimaki-only`, `--skills-only`, `--
 |---|---|
 | What flags exist? | `./upgrade.sh --help` |
 | What did the upgrade actually do? | The script's summary block (printed at the end of every run) |
-| What's the right restart command for this bridge × env? | The summary block — rendered from `lib/chat-bridges.sh::bridge_restart_cmd` |
+| What's the right restart command for this bridge × env? | The summary block — rendered from `bridges/<name>.sh::bridge_restart_cmd` |
 | What's the right verify command? | The summary block |
-| What chat bridges are supported? | `lib/chat-bridges.sh::bridge_names` (currently kimaki, cc-connect, telegram) |
+| What chat bridges are supported? | `bridges/_dispatch.sh::bridge_names` (auto-discovered from `bridges/*.sh` — currently kimaki, cc-connect, telegram) |

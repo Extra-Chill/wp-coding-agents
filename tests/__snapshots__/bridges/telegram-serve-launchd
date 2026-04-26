@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wp.opencode-serve</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/opencode</string>
+        <string>serve</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/var/www/site</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/home/chubes/.config/opencode-telegram-bot/opencode-serve.log</string>
+    <key>StandardErrorPath</key>
+    <string>/home/chubes/.config/opencode-telegram-bot/opencode-serve.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/home/chubes</string>
+    </dict>
+</dict>
+</plist>

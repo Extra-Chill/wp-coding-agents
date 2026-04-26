@@ -1,6 +1,6 @@
 #!/bin/bash
 # tests/path-helpers.sh — unit tests for _resolve_node_bin_dir and
-# _compose_path_value in lib/chat-bridges.sh.
+# _compose_path_value in bridges/_dispatch.sh.
 #
 # These helpers compose the PATH baked into kimaki's launchd plist /
 # systemd unit. Bug repro for nvm-managed installs: when KIMAKI_BIN points
@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # shellcheck disable=SC1091
-source lib/chat-bridges.sh
+source bridges/_dispatch.sh
 
 PASS=0
 FAIL=0
