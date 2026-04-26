@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.0] - 2026-04-26
+
+### Changed
+- collapse chat bridges into auto-discovered bridges/*.sh files
+
 ## [0.6.4] - 2026-04-26
 
 ### Changed
