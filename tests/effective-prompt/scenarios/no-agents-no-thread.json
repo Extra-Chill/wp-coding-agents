@@ -1,0 +1,8 @@
+{
+  "description": "minimal context: no agents listed, no thread, no channel topic — exercises template's empty-fallback branches",
+  "args": {
+    "sessionId": "ses_MINIMAL",
+    "channelId": "1493345787894038649",
+    "username": "chubes"
+  }
+}

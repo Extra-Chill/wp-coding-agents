@@ -1,0 +1,15 @@
+{
+  "description": "default opencode session: single project, two agents, full Discord context",
+  "args": {
+    "sessionId": "ses_EFFECTIVE_PROMPT_TEST",
+    "channelId": "1493345787894038649",
+    "guildId": "1493321868415996064",
+    "threadId": "1497759414470311967",
+    "channelTopic": "intelligence-chubes4 personal agent",
+    "agents": [
+      { "name": "build", "description": "default coding agent" },
+      { "name": "plan",  "description": "planning agent"      }
+    ],
+    "username": "chubes"
+  }
+}

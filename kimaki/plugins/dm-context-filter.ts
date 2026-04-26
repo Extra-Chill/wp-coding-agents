@@ -130,19 +130,57 @@ const fleetContextFilter: Plugin = async () => {
  *
  * Supports both ## and ### headings. For ##, stops at the next ## or #.
  * For ###, stops at the next ###, ##, or #.
+ *
+ * Fence-aware: lines that look like headings but live inside fenced code
+ * blocks (``` … ```) are NOT treated as section terminators. Bash code
+ * examples in the kimaki system prompt routinely contain `# Comment`
+ * lines, which a naive regex would mistake for a level-1 heading and
+ * stop the section early — leaving the rest of the section unstripped.
+ * The previous regex-only implementation hit this bug on every section
+ * containing a ```bash block with `#`-prefixed comments (notably
+ * "## waiting for a session to finish", which left a `--worktree`
+ * reference in the filtered prompt).
  */
 function stripSection(block: string, heading: string): string {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const lines = block.split("\n");
   const level = (heading.match(/^#+/) || ["##"])[0].length;
 
-  // Build a pattern that stops at the next heading of the same or higher level.
-  // For ## (level 2): stop at \n## or \n#[space] (i.e., any heading ≤ level 2)
-  // For ### (level 3): stop at \n### or \n## or \n#[space]
-  const stopPattern = `\\n#{1,${level}} `;
-  const pattern = new RegExp(
-    `${escaped}[\\s\\S]*?(?=${stopPattern}|$)`
-  );
-  return block.replace(pattern, "");
+  // Find the heading line. Match exact (whole-line) so a heading like
+  // "## scheduled sends and task management" doesn't accidentally match
+  // "## scheduled sends and task management with a suffix".
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === heading) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return block;
+
+  // Walk forward looking for the next heading of the same or higher level
+  // (i.e. fewer-or-equal `#` characters), tracking fenced-code-block state
+  // so `# bash comments` inside ```bash``` are ignored.
+  let inFence = false;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = line.match(/^(#{1,6})\s+\S/);
+    if (m && m[1].length <= level) {
+      end = i;
+      break;
+    }
+  }
+
+  // Splice out [start, end). Preserve a trailing newline so the next
+  // section's leading "\n" doesn't collapse into the previous one.
+  const before = lines.slice(0, start);
+  const after = lines.slice(end);
+  return [...before, ...after].join("\n");
 }
 
 /**
