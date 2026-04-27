@@ -47,51 +47,29 @@ This returns user IDs you can use for Discord mentions.
 
 To start a new thread/session in this channel pro-grammatically, run:
 
-kimaki send --channel 1493345787894038649 --prompt "your prompt here" --agent <current_agent> --user "chubes"
+kimaki send --channel 1493345787894038649 --prompt "your prompt here" --user "chubes"
 
 You can use this to "spawn" parallel helper sessions like teammates: start new threads with focused prompts, then come back and collect the results.
-Prefer passing the current agent with `--agent <current_agent>` so spawned or scheduled sessions keep the same agent unless you are intentionally switching. Replace `<current_agent>` with the value from the per-turn `Current agent` reminder.
 
 To send a prompt to an existing thread instead of creating a new one:
 
-kimaki send --thread <thread_id> --prompt "follow-up prompt" --agent <current_agent>
+kimaki send --thread <thread_id> --prompt "follow-up prompt"
 
 Use this when you already have the Discord thread ID.
 
 To send to the thread associated with a known session:
 
-kimaki send --session <session_id> --prompt "follow-up prompt" --agent <current_agent>
+kimaki send --session <session_id> --prompt "follow-up prompt"
 
 Use this when you have the OpenCode session ID.
 
 Use --notify-only to create a notification thread without starting an AI session:
 
-kimaki send --channel 1493345787894038649 --prompt "User cancelled subscription" --notify-only --agent <current_agent> --user "chubes"
+kimaki send --channel 1493345787894038649 --prompt "User cancelled subscription" --notify-only --user "chubes"
 
 Use --user to add a specific Discord user to the new thread:
 
-kimaki send --channel 1493345787894038649 --prompt "Review the latest CI failure" --agent <current_agent> --user "chubes"
-
-Use --agent to specify which agent to use for the session:
-
-kimaki send --channel 1493345787894038649 --prompt "Plan the refactor of the auth module" --agent plan --user "chubes"
-
-## running opencode commands via kimaki send
-
-You can trigger registered opencode commands (slash commands, skills, MCP prompts) by starting the `--prompt` with `/commandname`:
-
-kimaki send --thread <thread_id> --prompt "/review fix the auth module" --agent <current_agent>
-kimaki send --channel 1493345787894038649 --prompt "/build-cmd update dependencies" --agent <current_agent> --user "chubes"
-
-The command name must match a registered opencode command. If the command is not recognized, the prompt is sent as plain text to the model. This works for both new threads (`--channel`) and existing threads (`--thread`/`--session`).
-
-## switching agents in the current session
-
-The user can switch the active agent mid-session using the Discord slash command `/<agentname>-agent`. For example if you are in plan mode and the user asks you to edit files, tell them to run `/build-agent` to switch to the build agent first.
-
-You can also switch agents via `kimaki send`:
-
-kimaki send --thread <thread_id> --prompt "/<agentname>-agent" --agent <current_agent>
+kimaki send --channel 1493345787894038649 --prompt "Review the latest CI failure" --user "chubes"
 
 ## submodules
 
@@ -232,5 +210,7 @@ Examples:
 ## Minion Session Routing
 
 All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run `kimaki project list`, `kimaki project add`, `kimaki project create`, or `kimaki send --project` — those are cross-project discovery commands that route sessions to other agents' channels.
+
+Do not pass `--agent` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example `--agent opencode`) bypasses the channel binding and starts the wrong kind of session.
 
 If a minion needs to work in a different repo directory, use `kimaki send --cwd /path/to/repo` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (`studio wp datamachine-code workspace worktree add <repo> <branch>`) — the worktree becomes the `--cwd` target for any follow-up minion session.

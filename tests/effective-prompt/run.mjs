@@ -74,6 +74,7 @@ const VERBOSE = args.includes("--verbose")
 const DEFAULT_TRIGGERS = [
   { name: "worktree", pattern: "(?i)worktree" },
   { name: "--cwd",    pattern: "--cwd"        },
+  { name: "--agent",  pattern: "--agent"      },
 ]
 
 const DEFAULT_ALLOW_LEAK_SECTIONS = [

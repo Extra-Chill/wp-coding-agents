@@ -29,6 +29,10 @@
 //    examples that survive section stripping. These let the agent discover
 //    other Discord channels and route minion sessions away from the current
 //    thread. See Extra-Chill/data-machine-code#49.
+// 12. Agent override inlines — `--agent <current_agent>` examples from the
+//    generic Kimaki prompt. On DM-managed sites the Discord channel owns the
+//    personal-agent binding; passing the runtime agent (for example `opencode`)
+//    bypasses that binding and starts the wrong kind of minion session.
 //
 // What it injects into the system prompt:
 // - `## Minion Session Routing` — positive instruction telling the agent that
@@ -71,6 +75,8 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "## cross-project commands");
         result = stripSection(result, "## reading other sessions");
         result = stripSection(result, "## waiting for a session to finish");
+        result = stripSection(result, "## running opencode commands via kimaki send");
+        result = stripSection(result, "## switching agents in the current session");
         result = stripSection(result, "## showing diffs");
         result = stripSection(result, "## about critique");
         result = stripSection(result, "### always show diff at end of session");
@@ -78,6 +84,7 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "### reviewing diffs with AI");
         result = stripWorktreeInlines(result);
         result = stripProjectDiscoveryInlines(result);
+        result = stripAgentOverrideInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
         // Append positive routing instruction so the agent never tries to
@@ -300,6 +307,38 @@ function stripProjectDiscoveryInlines(block: string): string {
 }
 
 /**
+ * Remove generic Kimaki agent override examples from surviving sections.
+ *
+ * On Data Machine-managed sites the Discord channel selects the personal
+ * agent. Passing `--agent <current_agent>` teaches the runtime agent to turn
+ * the synthetic reminder value (often `opencode`) into a real session routing
+ * override, bypassing the channel-bound Franklin agent.
+ */
+function stripAgentOverrideInlines(block: string): string {
+  let result = block;
+
+  // Delete the generic instruction that recommends passing the current runtime
+  // agent to spawned sessions.
+  result = result.replace(
+    /\n+Prefer passing the current agent with `--agent <current_agent>`[^\n]*\n/g,
+    "\n"
+  );
+
+  // Remove the generic "pick an agent" example from the surviving start-new-
+  // sessions section; normal minions should rely on the channel binding.
+  result = result.replace(
+    /\n+Use --agent to specify which agent to use for the session:[\s\S]*?\nkimaki send --channel [^\n]* --agent [^\n]*\n/g,
+    "\n"
+  );
+
+  // Surviving `kimaki send` examples should rely on channel routing. This
+  // keeps examples usable while removing the footgun.
+  result = result.replace(/ --agent <current_agent>/g, "");
+
+  return result;
+}
+
+/**
  * Append a positive minion-session routing instruction.
  *
  * Stripping alone is not enough: the agent can still learn channel IDs from
@@ -316,6 +355,8 @@ function appendMinionRoutingInstruction(block: string): string {
 ## Minion Session Routing
 
 All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run \`kimaki project list\`, \`kimaki project add\`, \`kimaki project create\`, or \`kimaki send --project\` — those are cross-project discovery commands that route sessions to other agents' channels.
+
+Do not pass \`--agent\` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example \`--agent opencode\`) bypasses the channel binding and starts the wrong kind of session.
 
 If a minion needs to work in a different repo directory, use \`kimaki send --cwd /path/to/repo\` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (\`studio wp datamachine-code workspace worktree add <repo> <branch>\`) — the worktree becomes the \`--cwd\` target for any follow-up minion session.
 `;

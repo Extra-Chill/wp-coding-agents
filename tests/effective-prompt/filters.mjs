@@ -73,12 +73,22 @@ function stripProjectDiscoveryInlines(block) {
   return result
 }
 
+function stripAgentOverrideInlines(block) {
+  let result = block
+  result = result.replace(/\n+Prefer passing the current agent with `--agent <current_agent>`[^\n]*\n/g, "\n")
+  result = result.replace(/\n+Use --agent to specify which agent to use for the session:[\s\S]*?\nkimaki send --channel [^\n]* --agent [^\n]*\n/g, "\n")
+  result = result.replace(/ --agent <current_agent>/g, "")
+  return result
+}
+
 function appendMinionRoutingInstruction(block) {
   const instruction = `
 
 ## Minion Session Routing
 
 All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run \`kimaki project list\`, \`kimaki project add\`, \`kimaki project create\`, or \`kimaki send --project\` — those are cross-project discovery commands that route sessions to other agents' channels.
+
+Do not pass \`--agent\` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example \`--agent opencode\`) bypasses the channel binding and starts the wrong kind of session.
 
 If a minion needs to work in a different repo directory, use \`kimaki send --cwd /path/to/repo\` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (\`studio wp datamachine-code workspace worktree add <repo> <branch>\`) — the worktree becomes the \`--cwd\` target for any follow-up minion session.
 `
@@ -96,6 +106,8 @@ function currentFilter(block) {
   r = stripSection(r, "## cross-project commands")
   r = stripSection(r, "## reading other sessions")
   r = stripSection(r, "## waiting for a session to finish")
+  r = stripSection(r, "## running opencode commands via kimaki send")
+  r = stripSection(r, "## switching agents in the current session")
   r = stripSection(r, "## showing diffs")
   r = stripSection(r, "## about critique")
   r = stripSection(r, "### always show diff at end of session")
@@ -103,6 +115,7 @@ function currentFilter(block) {
   r = stripSection(r, "### reviewing diffs with AI")
   r = stripWorktreeInlines(r)
   r = stripProjectDiscoveryInlines(r)
+  r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendMinionRoutingInstruction(r)
   return r
@@ -134,6 +147,8 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "## cross-project commands")
   r = stripSectionBroken(r, "## reading other sessions")
   r = stripSectionBroken(r, "## waiting for a session to finish")
+  r = stripSectionBroken(r, "## running opencode commands via kimaki send")
+  r = stripSectionBroken(r, "## switching agents in the current session")
   r = stripSectionBroken(r, "## showing diffs")
   r = stripSectionBroken(r, "## about critique")
   r = stripSectionBroken(r, "### always show diff at end of session")
@@ -141,6 +156,7 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "### reviewing diffs with AI")
   r = stripWorktreeInlines(r)
   r = stripProjectDiscoveryInlines(r)
+  r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendMinionRoutingInstruction(r)
   return r
