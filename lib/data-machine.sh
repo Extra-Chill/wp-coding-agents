@@ -59,7 +59,7 @@ create_dm_agent() {
         --name="$AGENT_NAME" \
         --owner=1
 
-      log "Agent '$AGENT_SLUG' created. SOUL.md and MEMORY.md seeded by Data Machine with sensible defaults — customize via 'wp datamachine agent write' or by editing the files directly."
+      log "Agent '$AGENT_SLUG' created. SOUL.md and MEMORY.md seeded by Data Machine with sensible defaults — customize via 'wp datamachine memory write' or by editing the files directly."
     else
       log "Agent '$AGENT_SLUG' already exists — skipping creation"
     fi

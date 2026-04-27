@@ -19,7 +19,7 @@ interface DmAgent {
   agent_slug: string;
   agent_name: string;
   owner_id: number;
-  status: string;
+  status?: string;
   agent_config?: {
     default_model?: string;
     tool_policy?: Record<string, boolean>;
@@ -65,12 +65,13 @@ const dmAgentSync: Plugin = async ({ $ }) => {
         if (!config.agent) config.agent = {};
 
         for (const agent of agents) {
-          if (agent.status !== "active") continue;
+          const status = agent.status || "active";
+          if (status !== "active") continue;
 
           // Get agent file paths.
           let paths: DmPaths;
           try {
-            paths = await $`wp datamachine agent paths --agent=${agent.agent_slug} --format=json --allow-root 2>/dev/null`.quiet().json();
+            paths = await $`wp datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root 2>/dev/null`.quiet().json();
           } catch {
             continue;
           }
