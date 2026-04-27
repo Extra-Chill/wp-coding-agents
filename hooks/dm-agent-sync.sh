@@ -84,7 +84,12 @@ if not match:
     sys.exit(0)
 data = json.loads(match.group())
 for a in data:
-    if a.get('status') == 'active':
+    # Treat empty/missing status as active. Data Machine removed the status
+    # field as 'dead weight' (Extra-Chill/data-machine 1826756c); 'agents list'
+    # now returns status='' for every row. Filtering strictly on 'active'
+    # excludes everything and silently empties CLAUDE.md.
+    status = a.get('status') or 'active'
+    if status == 'active':
         print(a['agent_slug'])
 " 2>/dev/null) || exit 0
 

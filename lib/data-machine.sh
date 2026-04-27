@@ -59,43 +59,7 @@ create_dm_agent() {
         --name="$AGENT_NAME" \
         --owner=1
 
-      # Scaffold SOUL.md
-      log "Scaffolding SOUL.md..."
-      SOUL_CONTENT="# Agent Soul — ${AGENT_SLUG}
-
-## Identity
-I am ${AGENT_NAME} — an AI agent managing ${SITE_DOMAIN}. I operate on this WordPress site via WP-CLI and Data Machine.
-
-## Voice & Tone
-Be genuinely helpful. Skip filler. Be resourceful — read the file, check the context, search for it, then ask if stuck.
-
-## Rules
-- Private things stay private
-- When in doubt, ask before acting externally
-- Git for everything — no uncommitted work
-- Root cause over symptoms — fix the real problem
-- Stop when stuck — pause after 2-3 failures, ask for guidance
-- NEVER deploy without being told to
-
-## Context
-I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent memory, scheduling, and AI tools."
-
-      # shellcheck disable=SC2086
-      $WP_CMD datamachine agent files write SOUL.md \
-        --agent="$AGENT_SLUG" --content="$SOUL_CONTENT" $WP_ROOT_FLAG --path="$SITE_PATH"
-
-      # Scaffold MEMORY.md
-      log "Scaffolding MEMORY.md..."
-      MEMORY_CONTENT="# Agent Memory — ${AGENT_SLUG}
-
-## Operational Notes
-- Agent created during wp-coding-agents setup on $(date +%Y-%m-%d)"
-
-      # shellcheck disable=SC2086
-      $WP_CMD datamachine agent files write MEMORY.md \
-        --agent="$AGENT_SLUG" --content="$MEMORY_CONTENT" $WP_ROOT_FLAG --path="$SITE_PATH"
-
-      log "Agent '$AGENT_SLUG' created with SOUL.md and MEMORY.md"
+      log "Agent '$AGENT_SLUG' created. SOUL.md and MEMORY.md seeded by Data Machine with sensible defaults — customize via 'wp datamachine agent write' or by editing the files directly."
     else
       log "Agent '$AGENT_SLUG' already exists — skipping creation"
     fi
