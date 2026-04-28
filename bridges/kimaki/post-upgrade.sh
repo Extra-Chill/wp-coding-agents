@@ -73,6 +73,7 @@ else
 fi
 
 KILL_LIST="$(dirname "$0")/skills-kill-list.txt"
+REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
 
 # ----------------------------------------------------------------------------
 # Pass 1: KILL — remove blacklisted bundled kimaki skills.
@@ -173,7 +174,20 @@ if [[ -d "$PLUGIN_SOURCE_DIR" ]]; then
     shopt -u nullglob
   fi
 else
-  echo "kimaki-config: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR, skipping plugin restore"
+  echo "kimaki-config: WARNING: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR; dm-context-filter.ts and dm-agent-sync.ts cannot be restored"
 fi
 
-echo "kimaki-config: done ($removed skills removed, $skills_restored skills restored, $plugins_restored plugins restored)"
+missing_required_plugins=0
+if [[ ! -d "$PLUGINS_DIR" ]]; then
+  echo "kimaki-config: WARNING: plugins dir not found at $PLUGINS_DIR; opencode.json plugin paths will be skipped by OpenCode"
+  missing_required_plugins=${#REQUIRED_PLUGINS[@]}
+else
+  for required_plugin in "${REQUIRED_PLUGINS[@]}"; do
+    if [[ ! -f "$PLUGINS_DIR/$required_plugin" ]]; then
+      echo "kimaki-config: WARNING: required OpenCode plugin missing at $PLUGINS_DIR/$required_plugin; opencode.json references will be silently skipped"
+      missing_required_plugins=$((missing_required_plugins + 1))
+    fi
+  done
+fi
+
+echo "kimaki-config: done ($removed skills removed, $skills_restored skills restored, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"

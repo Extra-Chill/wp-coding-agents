@@ -226,6 +226,25 @@ claude --version
 studio --version
 ```
 
+### Kimaki OpenCode Plugins
+
+When setup uses **OpenCode + Kimaki**, verify that the plugin paths written to `opencode.json` exist on disk. OpenCode silently skips missing plugin files, so this is the explicit failure signal for a disabled Data Machine context filter.
+
+**VPS:**
+```bash
+test -f /opt/kimaki-config/plugins/dm-context-filter.ts && test -f /opt/kimaki-config/plugins/dm-agent-sync.ts
+journalctl -u kimaki -n 100 --no-pager | grep 'kimaki-config: WARNING' || true
+```
+
+**Local:**
+```bash
+KIMAKI_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
+test -f "$KIMAKI_PLUGINS_DIR/dm-context-filter.ts" && test -f "$KIMAKI_PLUGINS_DIR/dm-agent-sync.ts"
+grep 'kimaki-config: WARNING' "$HOME/.kimaki/kimaki.log" || true
+```
+
+If either `test -f` command fails, restart/re-run setup or upgrade before trusting a new OpenCode session. If the log contains a warning about the persistent plugin source dir or required OpenCode plugins, `dm-context-filter.ts` is not guaranteed to be active after restart.
+
 ### Site Reachable (VPS)
 
 ```bash

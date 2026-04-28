@@ -114,6 +114,16 @@ assert_log_contains() {
   fi
 }
 
+assert_log_contains_file() {
+  local file="$1"
+  local needle="$2"
+  if ! grep -qF "$needle" "$file"; then
+    echo "FAIL: $file should contain: $needle"
+    cat "$file"
+    exit 1
+  fi
+}
+
 # Pass 1: kill pass removed the blacklisted skill.
 assert_missing "$LIVE_SKILLS/blacklisted-skill"
 assert_log_contains "removed skill blacklisted-skill"
@@ -217,5 +227,19 @@ if ! grep -q "restored plugin home-plugin.ts" "$TMP/run4.log"; then
   cat "$TMP/run4.log"
   exit 1
 fi
+
+# Missing persistent source + missing required live plugins must be loud. OpenCode
+# silently skips absent plugin paths, so post-upgrade is the operator-facing signal.
+MISSING_SRC="$TMP/missing-config/plugins"
+MISSING_LIVE_PLUGINS="$TMP/missing-live/plugins"
+KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
+KIMAKI_PLUGINS_DIR="$MISSING_LIVE_PLUGINS" \
+KIMAKI_SKILL_SOURCE_DIR="$SRC_SKILLS" \
+KIMAKI_PLUGIN_SOURCE_DIR="$MISSING_SRC" \
+  "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/missing.log" 2>&1
+
+assert_log_contains_file "$TMP/missing.log" "WARNING: persistent plugin source dir not found at $MISSING_SRC; dm-context-filter.ts and dm-agent-sync.ts cannot be restored"
+assert_log_contains_file "$TMP/missing.log" "WARNING: plugins dir not found at $MISSING_LIVE_PLUGINS; opencode.json plugin paths will be skipped by OpenCode"
+assert_log_contains_file "$TMP/missing.log" "2 required plugins missing"
 
 echo "PASS: tests/post-upgrade-restore.sh ($(grep -c '' "$TMP/run1.log" || true) lines run1, $(grep -c '' "$TMP/run3.log" || true) lines run3)"

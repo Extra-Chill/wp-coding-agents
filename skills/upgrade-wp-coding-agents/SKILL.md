@@ -38,6 +38,14 @@ The user says something like:
 
 4. **Tell the user to restart the chat bridge themselves.** Active chat sessions die on restart, so the user picks the moment.
 
+5. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block includes a `test -f .../dm-context-filter.ts && test -f .../dm-agent-sync.ts` command. Run it or ask the user to run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
+
+6. **Verify the filter behavior from the repo when available.** Run:
+   ```bash
+   node tests/effective-prompt/run.mjs
+   ```
+   Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still strips the Kimaki-only prompt sections the Data Machine agent should not see. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
+
 Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
 
 ## Never do
