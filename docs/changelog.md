@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.3] - 2026-04-28
+
+### Fixed
+- retry-with-backoff git clones, force HTTPS for setup deps
+- include user tool dirs in launchd PATH
+
 ## [0.7.2] - 2026-04-27
 
 ### Fixed
