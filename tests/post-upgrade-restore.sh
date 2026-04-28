@@ -15,6 +15,8 @@
 #      that already match.
 #   5. Plugin restore creates the live plugins dir if it does not exist
 #      (the post-`npm update` reality).
+#   6. KIMAKI_DATA_DIR is only a hint: if its kimaki-config source dirs do
+#      not exist, skills and plugins fall through to HOME/.kimaki/kimaki-config.
 #
 # Run from anywhere:
 #   bash tests/post-upgrade-restore.sh
@@ -162,6 +164,57 @@ fi
 if ! grep -q "2 plugins restored" "$TMP/run3.log"; then
   echo "FAIL: rehydration run should report 2 plugins restored"
   cat "$TMP/run3.log"
+  exit 1
+fi
+
+# Regression: KIMAKI_DATA_DIR may point at a real kimaki data dir that does not
+# contain kimaki-config. In that case the derived paths must not short-circuit
+# the source resolution chain; HOME/.kimaki/kimaki-config should still win.
+FALLBACK_HOME="$TMP/fallback-home"
+FALLBACK_DATA="$TMP/fallback-data"
+FALLBACK_LIVE_SKILLS="$TMP/fallback-live/skills"
+FALLBACK_LIVE_PLUGINS="$TMP/fallback-live/plugins"
+mkdir -p \
+  "$FALLBACK_DATA" \
+  "$FALLBACK_HOME/.kimaki/kimaki-config/skills/home-skill" \
+  "$FALLBACK_HOME/.kimaki/kimaki-config/plugins" \
+  "$FALLBACK_LIVE_SKILLS"
+cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/home-skill/SKILL.md" <<'EOF'
+---
+name: home-skill
+description: fallback fixture
+---
+body
+EOF
+cat > "$FALLBACK_HOME/.kimaki/kimaki-config/plugins/home-plugin.ts" <<'EOF'
+// home-plugin.ts
+export default async () => ({})
+EOF
+
+HOME="$FALLBACK_HOME" \
+KIMAKI_DATA_DIR="$FALLBACK_DATA" \
+KIMAKI_SKILLS_DIR="$FALLBACK_LIVE_SKILLS" \
+KIMAKI_PLUGINS_DIR="$FALLBACK_LIVE_PLUGINS" \
+  "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run4.log" 2>&1
+
+if [[ ! -f "$FALLBACK_LIVE_SKILLS/home-skill/SKILL.md" ]]; then
+  echo "FAIL: missing KIMAKI_DATA_DIR skills source should fall through to HOME source"
+  cat "$TMP/run4.log"
+  exit 1
+fi
+if [[ ! -f "$FALLBACK_LIVE_PLUGINS/home-plugin.ts" ]]; then
+  echo "FAIL: missing KIMAKI_DATA_DIR plugins source should fall through to HOME source"
+  cat "$TMP/run4.log"
+  exit 1
+fi
+if ! grep -q "restored skill home-skill" "$TMP/run4.log"; then
+  echo "FAIL: fallback run should restore the HOME-backed skill"
+  cat "$TMP/run4.log"
+  exit 1
+fi
+if ! grep -q "restored plugin home-plugin.ts" "$TMP/run4.log"; then
+  echo "FAIL: fallback run should restore the HOME-backed plugin"
+  cat "$TMP/run4.log"
   exit 1
 fi
 

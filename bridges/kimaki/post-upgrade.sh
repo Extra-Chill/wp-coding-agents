@@ -35,13 +35,13 @@
 #
 # Persistent skill source dir resolution priority:
 #   1. KIMAKI_SKILL_SOURCE_DIR env var (explicit override)
-#   2. $KIMAKI_DATA_DIR/kimaki-config/skills/ if KIMAKI_DATA_DIR set
+#   2. $KIMAKI_DATA_DIR/kimaki-config/skills/ if KIMAKI_DATA_DIR set and dir exists
 #   3. $HOME/.kimaki/kimaki-config/skills/ (local default)
 #   4. /opt/kimaki-config/skills/ (VPS default)
 #
 # Persistent plugin source dir resolution priority (mirrors skill source):
 #   1. KIMAKI_PLUGIN_SOURCE_DIR env var (explicit override)
-#   2. $KIMAKI_DATA_DIR/kimaki-config/plugins/ if KIMAKI_DATA_DIR set
+#   2. $KIMAKI_DATA_DIR/kimaki-config/plugins/ if KIMAKI_DATA_DIR set and dir exists
 #   3. $HOME/.kimaki/kimaki-config/plugins/ (local default)
 #   4. /opt/kimaki-config/plugins/ (VPS default)
 set -euo pipefail
@@ -105,7 +105,7 @@ fi
 
 if [[ -n "${KIMAKI_SKILL_SOURCE_DIR:-}" ]]; then
   SKILL_SOURCE_DIR="$KIMAKI_SKILL_SOURCE_DIR"
-elif [[ -n "${KIMAKI_DATA_DIR:-}" ]]; then
+elif [[ -n "${KIMAKI_DATA_DIR:-}" && -d "$KIMAKI_DATA_DIR/kimaki-config/skills" ]]; then
   SKILL_SOURCE_DIR="$KIMAKI_DATA_DIR/kimaki-config/skills"
 elif [[ -d "$HOME/.kimaki/kimaki-config/skills" ]]; then
   SKILL_SOURCE_DIR="$HOME/.kimaki/kimaki-config/skills"
@@ -144,7 +144,7 @@ fi
 
 if [[ -n "${KIMAKI_PLUGIN_SOURCE_DIR:-}" ]]; then
   PLUGIN_SOURCE_DIR="$KIMAKI_PLUGIN_SOURCE_DIR"
-elif [[ -n "${KIMAKI_DATA_DIR:-}" ]]; then
+elif [[ -n "${KIMAKI_DATA_DIR:-}" && -d "$KIMAKI_DATA_DIR/kimaki-config/plugins" ]]; then
   PLUGIN_SOURCE_DIR="$KIMAKI_DATA_DIR/kimaki-config/plugins"
 elif [[ -d "$HOME/.kimaki/kimaki-config/plugins" ]]; then
   PLUGIN_SOURCE_DIR="$HOME/.kimaki/kimaki-config/plugins"
