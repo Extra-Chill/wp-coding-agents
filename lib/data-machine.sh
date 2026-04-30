@@ -67,3 +67,21 @@ create_dm_agent() {
     log "Dry-run: would create agent '$AGENT_SLUG' with SOUL.md and MEMORY.md"
   fi
 }
+
+sync_homeboy_availability() {
+  if [ "$DRY_RUN" = true ]; then
+    if command -v homeboy >/dev/null 2>&1; then
+      echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
+    else
+      echo -e "${BLUE}[dry-run]${NC} $WP_CMD option delete datamachine_code_homeboy_available"
+    fi
+    return 0
+  fi
+
+  if command -v homeboy >/dev/null 2>&1; then
+    wp_cmd option update datamachine_code_homeboy_available 1 >/dev/null 2>&1 || \
+      warn "Could not record Homeboy availability for AGENTS.md compose"
+  else
+    wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1 || true
+  fi
+}

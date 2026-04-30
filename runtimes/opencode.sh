@@ -351,6 +351,7 @@ runtime_generate_instructions() {
   # handles WP-CLI prefix resolution, multisite detection, and plugin sections
   # (intelligence, etc.) automatically at runtime.
   if [ "$DRY_RUN" = false ]; then
+    sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
       log "AGENTS.md composed from SectionRegistry"
       return

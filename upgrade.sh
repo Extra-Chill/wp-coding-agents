@@ -544,6 +544,8 @@ regenerate_agents_md() {
     return 0
   fi
 
+  sync_homeboy_availability
+
   # Backup existing (compose writes in-place to the registered location)
   if [ -f "$AGENTS_MD" ]; then
     cp "$AGENTS_MD" "$BACKUP"
