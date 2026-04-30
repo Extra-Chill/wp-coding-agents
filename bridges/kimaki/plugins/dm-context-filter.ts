@@ -5,8 +5,10 @@
 //
 // What it removes from the system prompt:
 // 1. Scheduling — ~500 tokens of --send-at, cron, task management instructions.
-// 2. Tunnel / dev server — ~500 tokens about kimaki tunnel and tmux. Not needed
-//    on production WordPress VPS where the site is already live.
+// 2. Tunnel / dev server — ~500 tokens about kimaki tunnel and tmux. DM-managed
+//    WordPress installs already have a site runtime (Studio locally, a live
+//    site on VPS). Tunnels are task-specific for inbound public URLs like
+//    webhooks/OAuth callbacks, not the default way to interact with the site.
 // 3. Critique — ~900 tokens of diff-sharing instructions. We use GitHub PRs.
 // 4. Worktree creation — ~150 tokens. We use feature branches in workspace repos.
 // 5. Cross-project commands — ~200 tokens. Single-project fleet servers.
@@ -35,6 +37,10 @@
 //    bypasses that binding and starts the wrong kind of minion session.
 //
 // What it injects into the system prompt:
+// - `## WordPress Site Runtime` — positive instruction replacing Kimaki's
+//   generic tunnel/dev-server section with the local/VPS WordPress boundary:
+//   use the existing site runtime by default; tunnel only for inbound public
+//   URLs like webhooks/OAuth callbacks or explicit browser previews.
 // - `## Minion Session Routing` — positive instruction telling the agent that
 //   all minion sessions go in the current channel. Defense in depth on top of
 //   the stripping above: even if the agent discovers channel IDs some other
@@ -90,6 +96,7 @@ const fleetContextFilter: Plugin = async () => {
         // Append positive routing instruction so the agent never tries to
         // discover or send sessions to other channels, even if it learns
         // channel IDs from --help or training data.
+        result = appendWordPressSiteRuntimeInstruction(result);
         result = appendMinionRoutingInstruction(result);
         return result;
       });
@@ -336,6 +343,31 @@ function stripAgentOverrideInlines(block: string): string {
   result = result.replace(/ --agent <current_agent>/g, "");
 
   return result;
+}
+
+/**
+ * Append positive WordPress runtime guidance after stripping Kimaki's generic
+ * tunnel/dev-server section.
+ *
+ * Local and VPS installs intentionally use different plugin paths, but the
+ * runtime policy is the same: the WordPress site already exists. Local Studio
+ * agents should use Studio's site runtime and `studio wp`; VPS agents should
+ * use the live site and `wp`. A tunnel is still useful when the task needs an
+ * inbound public URL, but it is not the default path for interacting with the
+ * site.
+ */
+function appendWordPressSiteRuntimeInstruction(block: string): string {
+  const instruction = `
+
+## WordPress Site Runtime
+
+This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
+
+On local WordPress Studio installs, use Studio and \`studio wp\` against the existing site. On VPS installs, use the live WordPress site and \`wp\` in the configured site path.
+
+Use \`kimaki tunnel\` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
+`;
+  return block.replace(/\s*$/, "") + instruction;
 }
 
 /**

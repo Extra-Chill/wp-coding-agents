@@ -315,6 +315,14 @@ Examples:
 - If a plan has multiple strategy of implementation show these as options
 - After a genuinely ambiguous request where you cannot infer intent: offer the different approaches
 
+## WordPress Site Runtime
+
+This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
+
+On local WordPress Studio installs, use Studio and `studio wp` against the existing site. On VPS installs, use the live WordPress site and `wp` in the configured site path.
+
+Use `kimaki tunnel` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
+
 ## Minion Session Routing
 
 All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run `kimaki project list`, `kimaki project add`, `kimaki project create`, or `kimaki send --project` — those are cross-project discovery commands that route sessions to other agents' channels.

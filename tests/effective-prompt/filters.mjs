@@ -95,6 +95,20 @@ If a minion needs to work in a different repo directory, use \`kimaki send --cwd
   return block.replace(/\s*$/, "") + instruction
 }
 
+function appendWordPressSiteRuntimeInstruction(block) {
+  const instruction = `
+
+## WordPress Site Runtime
+
+This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
+
+On local WordPress Studio installs, use Studio and \`studio wp\` against the existing site. On VPS installs, use the live WordPress site and \`wp\` in the configured site path.
+
+Use \`kimaki tunnel\` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
+`
+  return block.replace(/\s*$/, "") + instruction
+}
+
 function currentFilter(block) {
   let r = block
   r = stripSection(r, "## permissions")
@@ -117,6 +131,7 @@ function currentFilter(block) {
   r = stripProjectDiscoveryInlines(r)
   r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
+  r = appendWordPressSiteRuntimeInstruction(r)
   r = appendMinionRoutingInstruction(r)
   return r
 }
@@ -158,6 +173,7 @@ function brokenFilter(block) {
   r = stripProjectDiscoveryInlines(r)
   r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
+  r = appendWordPressSiteRuntimeInstruction(r)
   r = appendMinionRoutingInstruction(r)
   return r
 }
