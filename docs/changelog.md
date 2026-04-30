@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.4] - 2026-04-30
+
+### Fixed
+- declare homeboy availability before compose
+- add WordPress runtime guidance
+
 ## [0.7.3] - 2026-04-28
 
 ### Fixed
