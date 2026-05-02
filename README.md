@@ -124,6 +124,7 @@ systemctl start kimaki  # or: systemctl start cc-connect
 | `--existing` | Add to existing WordPress (skip WP install) |
 | `--wp-path <path>` | Path to WordPress root (implies `--existing`) |
 | `--agent-slug <slug>` | Override Data Machine agent slug (default: derived from domain) |
+| `--with-homeboy` | Enable optional [Homeboy](https://github.com/Extra-Chill/homeboy) project setup for repo-aware developer workflows |
 | `--no-chat` | Skip chat bridge |
 | `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code and Studio Code), `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
@@ -146,6 +147,9 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code
 
 # Local: Studio Code + DM (auto-detected in Studio sites)
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime studio-code
+
+# Local: recommended developer power layer with Homeboy project setup
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy
 
 # Local: no chat bridge (terminal only)
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat
@@ -177,6 +181,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, or **[Studio Code](https://developer.wordpress.com/studio/)** | AI coding agent runtime | Selected via `--runtime` |
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | No — wp-coding-agents composes on top of DM |
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
+| **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
 | **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
 | **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
@@ -237,6 +242,51 @@ Data Machine is the substrate wp-coding-agents composes on top of — memory, sc
 - Managed workspace for git repos (`/var/lib/datamachine/workspace/`) with **per-branch worktrees** so multiple parallel agent sessions can edit different branches of the same repo without stepping on each other (`workspace worktree add <repo> <branch>` → operate on the `<repo>@<branch-slug>` handle)
 - GitHub integration (issues, PRs, repos)
 - Policy-controlled git operations (add, commit, push with allowlists; primary checkout is read-only by default)
+
+## Optional Homeboy Layer
+
+`--with-homeboy` adds Homeboy as an optional, recommended developer power layer. Homeboy is not bundled or vendorized by wp-coding-agents; setup verifies or installs the external Homeboy CLI, verifies the WordPress extension, then exposes its availability to Data Machine Code so composed agent instructions can include Homeboy workflows.
+
+The setup model is intentionally specific:
+
+```text
+WordPress site root
+  = Homeboy project
+
+DMC workspace primary checkouts
+  = Homeboy components attached to that project
+
+DMC worktrees (`repo@branch`)
+  = task-specific ephemeral worktrees skipped by default
+```
+
+The site root is a Homeboy project, not a component, so setup does not create `homeboy.json` in the WordPress root. Primary Data Machine Code workspace checkouts that already contain `homeboy.json` can be attached as project components. Per-branch `@` worktrees are skipped by default because they are temporary task checkouts derived from the primary component repos.
+
+When enabled, setup should leave you with:
+
+- A Homeboy project for the WordPress site, derived from the site ID, domain, and base path
+- Attached Homeboy components for eligible DMC workspace primary checkouts
+- WordPress Homeboy extension installed and verified
+- Data Machine Code's `datamachine_code_homeboy_available` option synced with CLI availability
+- `AGENTS.md` recomposed so the conditional Homeboy guidance appears for coding agents
+
+Verification commands:
+
+```bash
+homeboy --version
+homeboy extension list
+homeboy project show <project-id>
+homeboy project components list <project-id>
+wp option get datamachine_code_homeboy_available --path=/path/to/wordpress
+wp datamachine memory compose AGENTS.md --path=/path/to/wordpress
+```
+
+For WordPress Studio installs, use Studio's WP-CLI wrapper for the WordPress commands:
+
+```bash
+studio wp option get datamachine_code_homeboy_available
+studio wp datamachine memory compose AGENTS.md
+```
 
 ## Why Root? (VPS only)
 

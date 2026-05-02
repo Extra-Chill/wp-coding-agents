@@ -45,7 +45,19 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 > - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot). OpenCode only.
 > - **No chat bridge** — Run the agent manually via SSH or terminal when needed."
 
-### Question 4: Agent Name
+### Question 4: Homeboy Developer Layer
+
+> "Do you want the optional **Homeboy developer layer** enabled with `--with-homeboy`?
+>
+> - Recommended for developers who want repo-aware checks, project status, review loops, and WordPress extension verification.
+> - Homeboy is an external CLI; wp-coding-agents does not bundle or vendor it.
+> - Setup treats the WordPress site root as the Homeboy **project**, not a component.
+> - Data Machine Code primary workspace checkouts become attached Homeboy **components** when they already have `homeboy.json`.
+> - Data Machine Code `repo@branch` worktrees are skipped by default because they are task-specific."
+
+If they say yes, add `--with-homeboy` to the setup command. Do not imply this is required for wp-coding-agents; it is a recommended power layer for code-heavy installs.
+
+### Question 5: Agent Name
 
 > "What would you like to name your agent? This becomes the agent slug used by Data Machine for identity and memory files.
 >
@@ -53,7 +65,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 Maps to `--agent-slug <name>`. If the user is happy with the default, skip this flag.
 
-### Question 5: Server/Local Details
+### Question 6: Server/Local Details
 
 **For VPS installs:**
 
@@ -66,7 +78,7 @@ Maps to `--agent-slug <name>`. If the user is happy with the default, skip this 
 
 > "Where is WordPress installed on your machine? (e.g., `~/Studio/my-wordpress-website`, `/Applications/MAMP/htdocs/wordpress`)"
 
-### Question 6: For Existing WordPress
+### Question 7: For Existing WordPress
 
 If they chose existing WordPress (VPS or local):
 
@@ -90,6 +102,7 @@ Based on their answers, construct the appropriate command:
 | **Local + Claude Code + DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code` |
 | **Local + Studio Code + DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime studio-code` |
 | **Local + multiple runtimes** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code,studio-code` |
+| **Local + recommended Homeboy layer** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy` |
 | **Local + DM + Telegram** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat telegram` |
 | **Local + DM, no chat** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat` |
 | **Local (Studio) with WP_CMD** | `WP_CMD="studio wp" EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
@@ -102,6 +115,7 @@ Add `--skip-ssl` to skip Let's Encrypt certificate.
 Add `--root` to run the agent as root (default is dedicated service user).
 Add `--no-skills` to skip WordPress agent skills.
 Add `--agent-slug <slug>` to override the Data Machine agent slug.
+Add `--with-homeboy` when the user wants the optional Homeboy developer power layer. Homeboy remains external; setup should verify or install the CLI and WordPress extension, create/update a Homeboy project for the WordPress site root, attach eligible Data Machine Code primary workspace checkouts as components, skip `@` worktrees by default, sync `datamachine_code_homeboy_available`, and recompose `AGENTS.md`.
 
 **WordPress Studio note:** If the site runs under WordPress Studio, prefix the command with `WP_CMD="studio wp"` so setup.sh uses Studio's WP-CLI wrapper instead of bare `wp`. Studio is auto-detected when `studio` CLI and `STUDIO.md` are both present.
 
@@ -245,6 +259,46 @@ grep 'kimaki-config: WARNING' "$HOME/.kimaki/kimaki.log" || true
 
 If either `test -f` command fails, restart/re-run setup or upgrade before trusting a new OpenCode session. If the log contains a warning about the persistent plugin source dir or required OpenCode plugins, `dm-context-filter.ts` is not guaranteed to be active after restart.
 
+### Homeboy (`--with-homeboy`)
+
+If setup used `--with-homeboy`, verify the optional developer layer explicitly:
+
+```bash
+homeboy --version
+homeboy extension list
+homeboy project show <project-id>
+homeboy project components list <project-id>
+```
+
+Then verify Data Machine Code can see Homeboy and agent instructions were recomposed:
+
+**VPS or standard WP-CLI:**
+```bash
+wp option get datamachine_code_homeboy_available --path=/path/to/site
+wp datamachine memory compose AGENTS.md --path=/path/to/site
+```
+
+**WordPress Studio:**
+```bash
+studio wp option get datamachine_code_homeboy_available
+studio wp datamachine memory compose AGENTS.md
+```
+
+Expected model:
+
+```text
+WordPress site root
+  = Homeboy project
+
+DMC workspace primary checkouts
+  = Homeboy components attached to that project
+
+DMC worktrees (`repo@branch`)
+  = task-specific ephemeral worktrees skipped by default
+```
+
+Do not create `homeboy.json` in the WordPress site root. Do not attach `repo@branch` worktrees by default. Do not modify external component repos unless the user explicitly asks for a Homeboy adoption flow in that repo.
+
 ### Site Reachable (VPS)
 
 ```bash
@@ -325,6 +379,8 @@ Use when the user says things like:
 - "Add Claude Code / OpenCode to my existing WordPress site"
 - "Set up a local AI agent on my machine"
 - "Install wp-coding-agents with WordPress Studio"
+- "Set it up with Homeboy"
+- "Enable repo-aware Homeboy workflows"
 
 **Do NOT use** for ongoing WordPress management — that's the agent's job after installation.
 
@@ -341,3 +397,4 @@ Use when the user says things like:
 - **Telegram bot won't respond:** Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are set, check that both `opencode-serve` and `opencode-telegram` services are running
 - **Data Machine not working:** Verify plugin active, run `wp action-scheduler run --allow-root` (VPS) or `studio wp action-scheduler run` (local)
 - **Runtime not found:** Check available runtimes with `ls runtimes/`, or install one (`npm install -g opencode-ai` or `npm install -g @anthropic-ai/claude-code`)
+- **Homeboy not available in AGENTS.md:** Verify `homeboy --version`, confirm `homeboy extension list` includes the WordPress extension, update `datamachine_code_homeboy_available`, then re-run `wp datamachine memory compose AGENTS.md` or `studio wp datamachine memory compose AGENTS.md`

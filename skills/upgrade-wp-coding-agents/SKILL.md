@@ -10,6 +10,8 @@ compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Wo
 
 By default it also updates the setup-installed Data Machine plugins (`data-machine`, `data-machine-code`) to their latest version tags when those plugins are git checkouts. Use `--skip-plugins` to preserve the previous no-plugin-update behavior.
 
+If the install was created with the optional Homeboy layer, upgrade should preserve that model: the WordPress site root is the Homeboy **project**, primary Data Machine Code workspace checkouts are attached **components**, and `repo@branch` worktrees remain skipped by default. Homeboy is external to wp-coding-agents; do not vendor it or treat the site root as a component during upgrade guidance.
+
 ## When to use
 
 The user says something like:
@@ -46,6 +48,17 @@ The user says something like:
    ```
    Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still strips the Kimaki-only prompt sections the Data Machine agent should not see. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
 
+7. **Verify Homeboy when the install uses it.** Only do this when the user enabled Homeboy or `AGENTS.md` contains the Homeboy section. Run the project/component checks and pass failures through clearly:
+   ```bash
+   homeboy --version
+   homeboy extension list
+   homeboy project show <project-id>
+   homeboy project components list <project-id>
+   wp option get datamachine_code_homeboy_available --path=/path/to/site
+   wp datamachine memory compose AGENTS.md --path=/path/to/site
+   ```
+   For WordPress Studio installs, use `studio wp option get datamachine_code_homeboy_available` and `studio wp datamachine memory compose AGENTS.md`. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
+
 Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
 
 ## Never do
@@ -53,6 +66,8 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 - **Never restart the chat bridge automatically.** It kills active sessions including the one you're talking in.
 - **Never skip the dry-run** on a live install.
 - **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.kimaki/` auth state and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
+- **Never vendor Homeboy** into wp-coding-agents or scaffold `homeboy.json` in the WordPress site root. The site root is a Homeboy project; component metadata belongs in attached primary workspace repos.
+- **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific DMC worktrees and are skipped by default.
 - **Never hardcode workspace paths** (`/var/lib/...`, `/opt/...`, `/var/www/...`, `/root/...`) in commands you give the user. Use `git rev-parse --show-toplevel`, `$(npm root -g)`, `$KIMAKI_DATA_DIR`, and the script's auto-detection.
 
 ## Source of truth
