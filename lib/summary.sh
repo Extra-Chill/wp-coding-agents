@@ -37,6 +37,16 @@ print_summary() {
   echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
   echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
   echo ""
+  if [ "${HOMEBOY_MODE:-auto}" != "disabled" ] && [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
+    echo "Homeboy:"
+    echo "  Project:     $HOMEBOY_PROJECT_ID"
+    echo "  Site path:   $SITE_PATH"
+    if [ -n "${HOMEBOY_SERVER_ID_RESOLVED:-}" ]; then
+      echo "  Server:      $HOMEBOY_SERVER_ID_RESOLVED"
+    fi
+    echo "  Show:        homeboy project show $HOMEBOY_PROJECT_ID"
+    echo ""
+  fi
   echo "Agent:"
   if [ "$LOCAL_MODE" = true ]; then
     echo "  User:     $(whoami) (local)"

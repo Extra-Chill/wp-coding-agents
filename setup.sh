@@ -22,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine skills summary; do
+for lib in common detect wordpress infrastructure data-machine homeboy skills summary; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -58,6 +58,8 @@ INSTALL_SKILLS=true
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
 RUNTIME=""
+HOMEBOY_MODE="auto"
+HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
 
@@ -124,6 +126,18 @@ while [[ $# -gt 0 ]]; do
       INSTALL_SKILLS=false
       shift
       ;;
+    --with-homeboy)
+      HOMEBOY_MODE="enabled"
+      shift
+      ;;
+    --no-homeboy)
+      HOMEBOY_MODE="disabled"
+      shift
+      ;;
+    --homeboy-project-id)
+      HOMEBOY_PROJECT_ID="$2"
+      shift 2
+      ;;
     --runtime-only)
       RUNTIME_ONLY=true
       MODE="existing"
@@ -185,6 +199,10 @@ OPTIONS:
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip WordPress agent skills installation
+  --with-homeboy     Create/update a Homeboy project for this WordPress site
+  --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
+  --homeboy-project-id <id>
+                     Override Homeboy project ID (default: agent/site slug)
   --skills-only      Only run skills installation on existing site
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default)
@@ -201,6 +219,8 @@ ENVIRONMENT VARIABLES:
   DB_PASS            Database password (auto-generated if not set)
   AGENT_SLUG         Override agent slug (default: derived from domain)
   AGENT_NAME         Override agent display name (default: blogname)
+  HOMEBOY_PROJECT_ID Override Homeboy project ID (default: agent/site slug)
+  HOMEBOY_SERVER_ID  Homeboy server ID for VPS project registration
   OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
   OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
@@ -299,6 +319,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
   install_data_machine
   create_dm_agent
   install_extra_plugins
+  setup_homeboy_project
   setup_nginx
   setup_ssl
   setup_service_permissions
