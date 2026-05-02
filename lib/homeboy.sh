@@ -1,5 +1,8 @@
 #!/bin/bash
-# Homeboy project registration for the installed WordPress site.
+# Homeboy project registration plus optional WordPress extension readiness.
+
+HOMEBOY_EXTENSIONS_SOURCE_DEFAULT="https://github.com/Extra-Chill/homeboy-extensions.git"
+HOMEBOY_WORDPRESS_READY=false
 
 homeboy_slugify() {
   printf '%s' "$1" | sed 's|https\?://||; s|/.*$||; s|\..*$||' | \
@@ -79,6 +82,57 @@ ensure_homeboy_local_server() {
   fi
 }
 
+homeboy_wordpress_extension_ready() {
+  command -v homeboy >/dev/null 2>&1 || return 1
+
+  local list_json
+  list_json=$(homeboy extension list 2>/dev/null) || return 1
+
+  printf '%s' "$list_json" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+extensions = data.get("data", {}).get("extensions", [])
+for extension in extensions:
+    if extension.get("id") == "wordpress":
+        if extension.get("ready") is True and extension.get("compatible") is not False:
+            sys.exit(0)
+        sys.exit(1)
+sys.exit(1)
+' >/dev/null 2>&1
+}
+
+homeboy_wordpress_extension_linked() {
+  command -v homeboy >/dev/null 2>&1 || return 1
+
+  local show_json
+  show_json=$(homeboy extension show wordpress 2>/dev/null) || return 1
+
+  printf '%s' "$show_json" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("data", {}).get("extension", {}).get("linked") is True else 1)
+' >/dev/null 2>&1
+}
+
+homeboy_required() {
+  [ "${HOMEBOY_MODE:-auto}" = "enabled" ] || [ "${WITH_HOMEBOY:-false}" = true ]
+}
+
+homeboy_handle_failure() {
+  local message="$1"
+  if homeboy_required; then
+    error "$message"
+  fi
+  warn "$message"
+  return 0
+}
+
 setup_homeboy_project() {
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
     log "Skipping Homeboy project setup (--no-homeboy)"
@@ -86,7 +140,7 @@ setup_homeboy_project() {
   fi
 
   if ! command -v homeboy >/dev/null 2>&1; then
-    if [ "${HOMEBOY_MODE:-auto}" = "enabled" ]; then
+    if homeboy_required; then
       error "Homeboy project setup requested, but the 'homeboy' command was not found"
     fi
     log "Skipping Homeboy project setup (homeboy not installed)"
@@ -121,4 +175,98 @@ setup_homeboy_project() {
     fi
     log "Created Homeboy project '$project_id'"
   fi
+}
+
+configure_homeboy_wordpress_extension() {
+  HOMEBOY_WORDPRESS_READY=false
+
+  if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
+    sync_homeboy_availability
+    recompose_agents_md_for_homeboy
+    return 0
+  fi
+
+  if ! command -v homeboy >/dev/null 2>&1; then
+    homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping Homeboy WordPress extension setup."
+    sync_homeboy_availability
+    recompose_agents_md_for_homeboy
+    return 0
+  fi
+
+  log "Detected Homeboy: $(command -v homeboy)"
+
+  if ! homeboy_required; then
+    if homeboy_wordpress_extension_ready; then
+      HOMEBOY_WORDPRESS_READY=true
+      log "Homeboy WordPress extension is installed and ready."
+    else
+      warn "Homeboy is callable, but the WordPress extension is not ready. Run setup with --with-homeboy to install and verify it."
+    fi
+    sync_homeboy_availability
+    recompose_agents_md_for_homeboy
+    return 0
+  fi
+
+  local source="${HOMEBOY_EXTENSIONS_SOURCE:-$HOMEBOY_EXTENSIONS_SOURCE_DEFAULT}"
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} homeboy extension install $source --id wordpress"
+    echo -e "${BLUE}[dry-run]${NC} homeboy extension update wordpress  # if already installed and not linked"
+    echo -e "${BLUE}[dry-run]${NC} homeboy extension setup wordpress"
+    echo -e "${BLUE}[dry-run]${NC} homeboy extension list"
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
+    print_homeboy_verification_commands
+    return 0
+  fi
+
+  if homeboy extension show wordpress >/dev/null 2>&1; then
+    if homeboy_wordpress_extension_linked; then
+      log "Homeboy WordPress extension is linked locally — skipping git update."
+    else
+      log "Updating Homeboy WordPress extension..."
+      homeboy extension update wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension update failed."
+    fi
+  else
+    log "Installing Homeboy WordPress extension from $source..."
+    homeboy extension install "$source" --id wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension install failed from $source."
+  fi
+
+  log "Running Homeboy WordPress extension setup..."
+  homeboy extension setup wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension setup failed."
+
+  if homeboy_wordpress_extension_ready; then
+    HOMEBOY_WORDPRESS_READY=true
+    log "Homeboy WordPress extension is ready."
+  else
+    homeboy_handle_failure "Homeboy WordPress extension did not pass readiness verification."
+  fi
+
+  sync_homeboy_availability
+  recompose_agents_md_for_homeboy
+  print_homeboy_verification_commands
+}
+
+recompose_agents_md_for_homeboy() {
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
+    return 0
+  fi
+
+  if [ ! -f "$SITE_PATH/wp-config.php" ] && [ ! -f "$SITE_PATH/wp-load.php" ]; then
+    return 0
+  fi
+
+  if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+    log "AGENTS.md recomposed after Homeboy availability sync."
+  else
+    homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy availability sync."
+  fi
+}
+
+print_homeboy_verification_commands() {
+  log "Homeboy verification commands:"
+  echo "  homeboy extension list"
+  echo "  homeboy extension show wordpress"
+  echo "  homeboy project show <project-id>"
+  echo "  homeboy project components list <project-id>"
 }

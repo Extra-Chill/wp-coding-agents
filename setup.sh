@@ -57,6 +57,7 @@ MULTISITE_TYPE="subdirectory"
 INSTALL_SKILLS=true
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
+WITH_HOMEBOY=false
 RUNTIME=""
 HOMEBOY_MODE="auto"
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
@@ -128,6 +129,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-homeboy)
       HOMEBOY_MODE="enabled"
+      WITH_HOMEBOY=true
       shift
       ;;
     --no-homeboy)
@@ -199,7 +201,8 @@ OPTIONS:
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip WordPress agent skills installation
-  --with-homeboy     Create/update a Homeboy project for this WordPress site
+  --with-homeboy     Create/update a Homeboy project and install/verify the
+                     WordPress Homeboy extension
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
@@ -231,6 +234,8 @@ ENVIRONMENT VARIABLES:
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CMD             Override WP-CLI command (default: wp; e.g., "studio wp")
+  HOMEBOY_EXTENSIONS_SOURCE  Homeboy extensions git URL/path
+                     (default: https://github.com/Extra-Chill/homeboy-extensions.git)
 
 MIGRATION WORKFLOW:
   1. On old server: Export database and wp-content
@@ -329,6 +334,7 @@ runtime_install
 runtime_discover_dm_paths
 runtime_generate_config
 runtime_install_hooks
+configure_homeboy_wordpress_extension
 runtime_generate_instructions
 runtime_merge_mcp_servers
 install_skills

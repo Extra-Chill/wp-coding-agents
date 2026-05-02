@@ -3,6 +3,9 @@
   "changelog_target": "docs/changelog.md",
   "id": "wp-coding-agents",
   "remote_path": "",
+  "extensions": {
+    "wordpress": {}
+  },
   "version_targets": [
     {
       "file": "VERSION",

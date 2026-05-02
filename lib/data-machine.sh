@@ -69,14 +69,8 @@ create_dm_agent() {
 }
 
 sync_homeboy_availability() {
-  local homeboy_available=false
-
-  if command -v homeboy >/dev/null 2>&1; then
-    homeboy_available=true
-  fi
-
   if [ "$DRY_RUN" = true ]; then
-    if [ "$homeboy_available" = true ]; then
+    if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
       echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
     else
       echo -e "${BLUE}[dry-run]${NC} $WP_CMD option delete datamachine_code_homeboy_available"
@@ -85,7 +79,7 @@ sync_homeboy_availability() {
     return 0
   fi
 
-  if [ "$homeboy_available" = true ]; then
+  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
     wp_cmd option update datamachine_code_homeboy_available 1 >/dev/null 2>&1 || \
       warn "Could not record Homeboy availability for AGENTS.md compose"
     sync_homeboy_project_components

@@ -66,7 +66,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine skills; do
+for lib in common detect wordpress data-machine homeboy skills; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
