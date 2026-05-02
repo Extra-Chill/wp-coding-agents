@@ -43,34 +43,6 @@ kimaki user list --guild <guildId> --query "username"
 
 This returns user IDs you can use for Discord mentions.
 
-## starting new sessions from CLI
-
-To start a new thread/session in this channel pro-grammatically, run:
-
-kimaki send --channel 1493345787894038649 --prompt "your prompt here" --user "chubes"
-
-You can use this to "spawn" parallel helper sessions like teammates: start new threads with focused prompts, then come back and collect the results.
-
-To send a prompt to an existing thread instead of creating a new one:
-
-kimaki send --thread <thread_id> --prompt "follow-up prompt"
-
-Use this when you already have the Discord thread ID.
-
-To send to the thread associated with a known session:
-
-kimaki send --session <session_id> --prompt "follow-up prompt"
-
-Use this when you have the OpenCode session ID.
-
-Use --notify-only to create a notification thread without starting an AI session:
-
-kimaki send --channel 1493345787894038649 --prompt "User cancelled subscription" --notify-only --user "chubes"
-
-Use --user to add a specific Discord user to the new thread:
-
-kimaki send --channel 1493345787894038649 --prompt "Review the latest CI failure" --user "chubes"
-
 ## submodules
 
 When pulling submodules and they jump to a new commit, commit that submodule pointer update right away before doing other work. Otherwise critique diffs later will include the noisy submodule jump along with the real changes.
@@ -129,17 +101,26 @@ Discord supports: headings, bold, italic, strikethrough, code blocks, inline cod
 
 NEVER wrap URLs in inline code or code blocks - this breaks clickability in Discord. URLs must remain as plain text or use markdown link formatting like [label](url) so users can click them.
 
-### callouts for important content
+## Callouts in Kimaki Discord
 
-Prefer `<callout>` over `<aside>`, blockquotes, or plain bold text when you need a highlighted warning, action item, limitation, or gist box. `<callout>` is a Kimaki-specific rendering primitive, so it is more explicit and more likely to render the way you want.
+Use `<callout>` HTML blocks for important notices in Discord. Do **not** use GitHub callout syntax like `> [!WARNING]`, because Kimaki renders `<callout>` natively.
 
-You can wrap important markdown in:
+You MUST use `<callout>` when reporting:
+- failing tests
+- failed commands
+- incomplete work
+- warnings or caveats
+- action required from the user
+
+Example:
 
 ```md
 <callout accent="#f59e0b">
-## Warning
-- Tests still fail
-- I left TODO markers in the code
+## Tests not fully green
+
+- `bun test src/cli.test.ts` failed in `CLI Node.js Debugger`
+- Targeted tests for my change passed
+- I will keep debugging unless you ask me to stop
 </callout>
 ```
 
@@ -215,10 +196,12 @@ On local WordPress Studio installs, use Studio and `studio wp` against the exist
 
 Use `kimaki tunnel` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
 
-## Minion Session Routing
+## Data Machine Session Handoff
 
-All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run `kimaki project list`, `kimaki project add`, `kimaki project create`, or `kimaki send --project` — those are cross-project discovery commands that route sessions to other agents' channels.
+For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
 
-Do not pass `--agent` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example `--agent opencode`) bypasses the channel binding and starts the wrong kind of session.
+Typical flow:
 
-If a minion needs to work in a different repo directory, use `kimaki send --cwd /path/to/repo` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (`studio wp datamachine-code workspace worktree add <repo> <branch>`) — the worktree becomes the `--cwd` target for any follow-up minion session.
+1. Create the checkout with `studio wp datamachine-code workspace worktree add <repo> <branch>`.
+2. Start the helper session with `datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'`.
+3. Use the helper thread for the isolated task and bring the result back here.

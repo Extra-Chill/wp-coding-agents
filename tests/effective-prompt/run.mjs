@@ -78,10 +78,9 @@ const DEFAULT_TRIGGERS = [
 ]
 
 const DEFAULT_ALLOW_LEAK_SECTIONS = [
-  // The filter intentionally appends this section with both `worktree` and
-  // `--cwd` in it, pointing agents at DMC's workspace. Counting it as a
-  // leak would defeat the purpose.
-  "## Minion Session Routing",
+  // The filter intentionally appends this section with DMC workspace handoff
+  // language and the bridge helper's `--cwd` option.
+  "## Data Machine Session Handoff",
 ]
 
 const DEFAULT_SCENARIO = {

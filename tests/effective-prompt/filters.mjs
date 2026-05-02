@@ -81,16 +81,18 @@ function stripAgentOverrideInlines(block) {
   return result
 }
 
-function appendMinionRoutingInstruction(block) {
+function appendDataMachineSessionHandoffInstruction(block) {
   const instruction = `
 
-## Minion Session Routing
+## Data Machine Session Handoff
 
-All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run \`kimaki project list\`, \`kimaki project add\`, \`kimaki project create\`, or \`kimaki send --project\` — those are cross-project discovery commands that route sessions to other agents' channels.
+For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
 
-Do not pass \`--agent\` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example \`--agent opencode\`) bypasses the channel binding and starts the wrong kind of session.
+Typical flow:
 
-If a minion needs to work in a different repo directory, use \`kimaki send --cwd /path/to/repo\` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (\`studio wp datamachine-code workspace worktree add <repo> <branch>\`) — the worktree becomes the \`--cwd\` target for any follow-up minion session.
+1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
+2. Start the helper session with \`datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
+3. Use the helper thread for the isolated task and bring the result back here.
 `
   return block.replace(/\s*$/, "") + instruction
 }
@@ -115,6 +117,7 @@ function currentFilter(block) {
   r = stripSection(r, "## upgrading kimaki")
   r = stripSection(r, "## scheduled sends and task management")
   r = stripSection(r, "## running dev servers with tunnel access")
+  r = stripSection(r, "## starting new sessions from CLI")
   r = stripSection(r, "## creating worktrees")
   r = stripSection(r, "## worktree")
   r = stripSection(r, "## cross-project commands")
@@ -132,7 +135,7 @@ function currentFilter(block) {
   r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendWordPressSiteRuntimeInstruction(r)
-  r = appendMinionRoutingInstruction(r)
+  r = appendDataMachineSessionHandoffInstruction(r)
   return r
 }
 
@@ -157,6 +160,7 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "## upgrading kimaki")
   r = stripSectionBroken(r, "## scheduled sends and task management")
   r = stripSectionBroken(r, "## running dev servers with tunnel access")
+  r = stripSectionBroken(r, "## starting new sessions from CLI")
   r = stripSectionBroken(r, "## creating worktrees")
   r = stripSectionBroken(r, "## worktree")
   r = stripSectionBroken(r, "## cross-project commands")
@@ -174,7 +178,7 @@ function brokenFilter(block) {
   r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendWordPressSiteRuntimeInstruction(r)
-  r = appendMinionRoutingInstruction(r)
+  r = appendDataMachineSessionHandoffInstruction(r)
   return r
 }
 

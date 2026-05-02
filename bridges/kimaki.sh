@@ -8,11 +8,13 @@
 #
 # Install layout:
 #   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-kill-list.txt}
+#          + /usr/local/bin/datamachine-kimaki-session
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $(npm root -g)/kimaki/plugins for plugins (lives inside the npm
 #          package; wiped on `npm update -g kimaki`),
 #          $KIMAKI_DATA_DIR/kimaki-config/ for post-upgrade.sh + kill list
 #          (executed inline at upgrade time — no launchd ExecStartPre hook),
+#          + $HOME/.local/bin/datamachine-kimaki-session
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
 # ============================================================================
@@ -48,6 +50,35 @@ bridge_install() {
   else
     _kimaki_install_systemd
   fi
+
+  _kimaki_sync_handoff_helper
+}
+
+_kimaki_sync_handoff_helper() {
+  [ -f "$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki-session" ] || return 0
+
+  local HELPER_TARGET
+  if [ "$LOCAL_MODE" = true ]; then
+    HELPER_TARGET="$SERVICE_HOME/.local/bin/datamachine-kimaki-session"
+  else
+    HELPER_TARGET="/usr/local/bin/datamachine-kimaki-session"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki-session" "$HELPER_TARGET" 2>/dev/null; then
+      echo -e "${BLUE}[dry-run]${NC} Would update $HELPER_TARGET"
+    fi
+  else
+    mkdir -p "$(dirname "$HELPER_TARGET")"
+    if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki-session" "$HELPER_TARGET" 2>/dev/null; then
+      cp "$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki-session" "$HELPER_TARGET"
+      chmod +x "$HELPER_TARGET"
+      log "  Updated $HELPER_TARGET"
+      UPDATED_ITEMS+=("datamachine-kimaki-session helper")
+    fi
+  fi
+
+  RESOLVED_KIMAKI_HELPER="$HELPER_TARGET"
 }
 
 _kimaki_install_launchd() {
@@ -270,6 +301,12 @@ bridge_sync_config() {
       fi
     fi
   fi
+
+  # Install wp-coding-agents' Kimaki bridge helper. The helper is intentionally
+  # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe it.
+  # It adapts DMC workspace checkouts into Kimaki thread metadata while keeping
+  # DMC generic and Kimaki unpatched.
+  _kimaki_sync_handoff_helper
 
   # On local, execute post-upgrade.sh inline to enforce the kill list.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
@@ -588,5 +625,7 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local HELPER="${RESOLVED_KIMAKI_HELPER:-/usr/local/bin/datamachine-kimaki-session}"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
+  echo "test -x $HELPER   # DMC Kimaki session handoff helper installed"
 }

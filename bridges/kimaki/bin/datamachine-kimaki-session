@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: datamachine-kimaki-session --channel <id> --cwd <git-worktree> --prompt <text> [options]
+
+Start a Kimaki Discord session attached to an existing Data Machine Code
+workspace checkout. Data Machine Code owns repo/workspace creation; this helper
+only adapts the resulting checkout into Kimaki's thread metadata.
+
+Options:
+  --channel <id>       Discord channel ID for the current personal agent.
+  --cwd <path>         Existing git worktree/workspace checkout for the session.
+  --prompt <text>      Prompt to send to the new helper session.
+  --user <name>        Discord user display name to add to the thread.
+  --name <name>        Thread name. Defaults to a prompt preview.
+  --data-dir <path>    Kimaki data dir. Defaults to $KIMAKI_DATA_DIR or ~/.kimaki.
+  --dry-run            Validate inputs and print planned actions without sending.
+  --help               Show this help.
+EOF
+}
+
+channel=""
+cwd_path=""
+prompt=""
+user=""
+thread_name=""
+data_dir="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
+dry_run=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --channel)
+      channel="${2:-}"
+      shift 2
+      ;;
+    --cwd)
+      cwd_path="${2:-}"
+      shift 2
+      ;;
+    --prompt)
+      prompt="${2:-}"
+      shift 2
+      ;;
+    --user)
+      user="${2:-}"
+      shift 2
+      ;;
+    --name)
+      thread_name="${2:-}"
+      shift 2
+      ;;
+    --data-dir)
+      data_dir="${2:-}"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+require_value() {
+  local name="$1" value="$2"
+  if [[ -z "$value" ]]; then
+    echo "Missing required option: $name" >&2
+    usage >&2
+    exit 2
+  fi
+}
+
+require_value "--channel" "$channel"
+require_value "--cwd" "$cwd_path"
+require_value "--prompt" "$prompt"
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git is required" >&2
+  exit 2
+fi
+
+if [[ "$dry_run" != true ]] && ! command -v kimaki >/dev/null 2>&1; then
+  echo "kimaki is required" >&2
+  exit 2
+fi
+
+if [[ "$dry_run" != true ]] && ! command -v sqlite3 >/dev/null 2>&1; then
+  echo "sqlite3 is required" >&2
+  exit 2
+fi
+
+if [[ "$dry_run" != true && "$data_dir" != "$HOME/.kimaki" ]]; then
+  echo "Kimaki's send command uses the current user's ~/.kimaki data dir." >&2
+  echo "Run this helper as the Kimaki service user, or use the default data dir: $HOME/.kimaki" >&2
+  exit 2
+fi
+
+if [[ ! -d "$cwd_path" ]]; then
+  echo "Directory does not exist: $cwd_path" >&2
+  exit 2
+fi
+
+absolute_cwd="$(cd "$cwd_path" && pwd -P)"
+if ! git -C "$absolute_cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Directory is not inside a git checkout: $absolute_cwd" >&2
+  exit 2
+fi
+
+worktree_list="$(git -C "$absolute_cwd" worktree list --porcelain)"
+primary_path=""
+candidate_found=false
+current_worktree=""
+
+while IFS= read -r line; do
+  case "$line" in
+    worktree\ *)
+      current_worktree="${line#worktree }"
+      if [[ -z "$primary_path" ]]; then
+        primary_path="$current_worktree"
+      fi
+      resolved_current="$(cd "$current_worktree" 2>/dev/null && pwd -P || true)"
+      if [[ "$resolved_current" == "$absolute_cwd" ]]; then
+        candidate_found=true
+      fi
+      ;;
+  esac
+done <<< "$worktree_list"
+
+if [[ -z "$primary_path" ]]; then
+  echo "Could not resolve primary checkout for: $absolute_cwd" >&2
+  exit 2
+fi
+
+if [[ "$candidate_found" != true ]]; then
+  echo "Directory is not listed as a git worktree: $absolute_cwd" >&2
+  exit 2
+fi
+
+primary_path="$(cd "$primary_path" && pwd -P)"
+branch="$(git -C "$absolute_cwd" symbolic-ref --short HEAD 2>/dev/null || basename "$absolute_cwd")"
+
+if [[ -z "$thread_name" ]]; then
+  thread_name="$prompt"
+  if [[ ${#thread_name} -gt 80 ]]; then
+    thread_name="${thread_name:0:77}..."
+  fi
+fi
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "$value"
+}
+
+sql_quote() {
+  local value="$1"
+  value="${value//\'/\'\'}"
+  printf "'%s'" "$value"
+}
+
+if [[ "$dry_run" == true ]]; then
+  cat <<EOF
+{
+  "channel": "$(json_escape "$channel")",
+  "cwd": "$(json_escape "$absolute_cwd")",
+  "primary": "$(json_escape "$primary_path")",
+  "branch": "$(json_escape "$branch")",
+  "dataDir": "$(json_escape "$data_dir")",
+  "threadName": "$(json_escape "$thread_name")"
+}
+EOF
+  exit 0
+fi
+
+send_args=(send --channel "$channel" --prompt "$prompt" --notify-only --name "$thread_name")
+if [[ -n "$user" ]]; then
+  send_args+=(--user "$user")
+fi
+
+send_output="$(kimaki "${send_args[@]}" 2>&1)"
+thread_url="$(printf '%s\n' "$send_output" | grep -Eo 'https://discord\.com/channels/[0-9]+/[0-9]+' | tail -1 || true)"
+thread_id="${thread_url##*/}"
+
+if [[ -z "$thread_url" || "$thread_id" == "$thread_url" ]]; then
+  echo "$send_output" >&2
+  echo "Could not parse created thread URL from kimaki output" >&2
+  exit 1
+fi
+
+db_path="$data_dir/discord-sessions.db"
+if [[ ! -f "$db_path" ]]; then
+  echo "Kimaki database not found: $db_path" >&2
+  exit 1
+fi
+
+sqlite3 "$db_path" <<SQL
+INSERT INTO thread_sessions (thread_id, session_id, source)
+VALUES ($(sql_quote "$thread_id"), '', 'kimaki')
+ON CONFLICT(thread_id) DO UPDATE SET session_id = thread_sessions.session_id;
+
+INSERT INTO thread_worktrees (thread_id, worktree_name, worktree_directory, project_directory, status, error_message)
+VALUES ($(sql_quote "$thread_id"), $(sql_quote "$branch"), $(sql_quote "$absolute_cwd"), $(sql_quote "$primary_path"), 'ready', NULL)
+ON CONFLICT(thread_id) DO UPDATE SET
+  worktree_name = excluded.worktree_name,
+  worktree_directory = excluded.worktree_directory,
+  project_directory = excluded.project_directory,
+  status = 'ready',
+  error_message = NULL;
+SQL
+
+kimaki send --thread "$thread_id" --prompt "$prompt" >/dev/null
+printf '%s\n' "$thread_url"

@@ -736,7 +736,10 @@ _print_verify_block() {
     # Optional per-bridge addendum (e.g. kimaki's `ls plugins/` line). Falls
     # back to `<binary> --version` for bridges that don't define the hook.
     if bridge_has_hook verify_extra; then
-      log "  $(bridge_verify_extra)"
+      while IFS= read -r cmd; do
+        [ -n "$cmd" ] || continue
+        log "  $cmd"
+      done < <(bridge_verify_extra)
     else
       local primary
       primary=$(bridge_binaries | awk '{print $1}')

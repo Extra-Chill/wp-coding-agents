@@ -13,11 +13,10 @@
 // 4. Worktree creation — ~150 tokens. We use feature branches in workspace repos.
 // 5. Cross-project commands — ~200 tokens. Single-project fleet servers.
 // 6. Waiting for sessions — ~150 tokens. Rarely used, discoverable via --help.
-// 7. Worktree conflicts — inline --worktree/--cwd examples in "starting new
-//    sessions from CLI", the orphan "Worktrees are useful..." lead-in, and the
-//    per-turn "## worktree" section. Data Machine Code manages its own
-//    workspace and worktrees; keeping Kimaki's worktree language around causes
-//    the agent to try using Kimaki worktrees instead of DM Code's workspace.
+// 7. Session/workspace conflicts — Kimaki's generic session, project, agent,
+//    and worktree docs describe Kimaki as the workspace orchestrator. On a Data
+//    Machine install, Data Machine Code owns workspace creation and Kimaki is
+//    the Discord/session bridge.
 // 8. Permissions — ~80 tokens describing which Discord roles can message the
 //    bot. The agent has no capability to act on this; pure metadata leakage.
 // 9. Upgrading kimaki — ~80 tokens of /upgrade-and-restart playbook. The user
@@ -41,11 +40,9 @@
 //   generic tunnel/dev-server section with the local/VPS WordPress boundary:
 //   use the existing site runtime by default; tunnel only for inbound public
 //   URLs like webhooks/OAuth callbacks or explicit browser previews.
-// - `## Minion Session Routing` — positive instruction telling the agent that
-//   all minion sessions go in the current channel. Defense in depth on top of
-//   the stripping above: even if the agent discovers channel IDs some other
-//   way (training data, --help output, user mention), the instruction steers
-//   it back to ${channelId}. Use --cwd to target a different repo dir.
+// - `## Data Machine Session Handoff` — positive instruction that exposes the
+//   Data Machine flow: create/reuse a DMC workspace checkout, then launch a
+//   Kimaki-backed helper session with the wp-coding-agents bridge helper.
 //
 // NOTE: "## debugging kimaki issues" is intentionally kept — when Kimaki itself
 // throws errors, the agent needs the kimaki.log path to investigate.
@@ -76,6 +73,7 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "## upgrading kimaki");
         result = stripSection(result, "## scheduled sends and task management");
         result = stripSection(result, "## running dev servers with tunnel access");
+        result = stripSection(result, "## starting new sessions from CLI");
         result = stripSection(result, "## creating worktrees");
         result = stripSection(result, "## worktree");
         result = stripSection(result, "## cross-project commands");
@@ -93,11 +91,8 @@ const fleetContextFilter: Plugin = async () => {
         result = stripAgentOverrideInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
-        // Append positive routing instruction so the agent never tries to
-        // discover or send sessions to other channels, even if it learns
-        // channel IDs from --help or training data.
         result = appendWordPressSiteRuntimeInstruction(result);
-        result = appendMinionRoutingInstruction(result);
+        result = appendDataMachineSessionHandoffInstruction(result);
         return result;
       });
     },
@@ -371,26 +366,20 @@ Use \`kimaki tunnel\` only when the task specifically needs an inbound public UR
 }
 
 /**
- * Append a positive minion-session routing instruction.
- *
- * Stripping alone is not enough: the agent can still learn channel IDs from
- * `kimaki --help`, other agents' mentions, or training data. This instruction
- * is defense in depth — it tells the agent the *policy* (all minion sessions
- * go in this channel) so that even if a channel ID surfaces some other way,
- * the agent still routes correctly. Cross-repo work is handled by pointing
- * `--cwd` at a Data Machine Code workspace worktree, not by switching
- * channels.
+ * Append a positive Data Machine session handoff instruction.
  */
-function appendMinionRoutingInstruction(block: string): string {
+function appendDataMachineSessionHandoffInstruction(block: string): string {
   const instruction = `
 
-## Minion Session Routing
+## Data Machine Session Handoff
 
-All minion sessions for this agent go in THIS Discord channel — the one this session is running in. NEVER send sessions to other channels, even if you happen to know another channel ID. Do not run \`kimaki project list\`, \`kimaki project add\`, \`kimaki project create\`, or \`kimaki send --project\` — those are cross-project discovery commands that route sessions to other agents' channels.
+For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
 
-Do not pass \`--agent\` when spawning normal minion sessions. The channel selects the personal agent. Passing the runtime agent (for example \`--agent opencode\`) bypasses the channel binding and starts the wrong kind of session.
+Typical flow:
 
-If a minion needs to work in a different repo directory, use \`kimaki send --cwd /path/to/repo\` so the session stays in this channel but operates on a different checkout. For code changes in external repos, prefer Data Machine Code's workspace worktrees (\`studio wp datamachine-code workspace worktree add <repo> <branch>\`) — the worktree becomes the \`--cwd\` target for any follow-up minion session.
+1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
+2. Start the helper session with \`datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
+3. Use the helper thread for the isolated task and bring the result back here.
 `;
   // Ensure exactly one blank line between existing content and the appendix.
   return block.replace(/\s*$/, "") + instruction;
