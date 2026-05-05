@@ -114,7 +114,7 @@ runtime_generate_config() {
   KIMAKI_PLUGINS_DIR=""
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
-      KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
+      KIMAKI_PLUGINS_DIR="${KIMAKI_DATA_DIR:-$HOME/.kimaki}/kimaki-config/plugins"
       if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_PLUGINS_DIR" ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
         mkdir -p "$KIMAKI_PLUGINS_DIR"
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true

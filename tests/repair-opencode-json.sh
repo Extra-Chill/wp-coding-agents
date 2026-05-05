@@ -108,4 +108,35 @@ if "build" not in agent or "plan" not in agent:
     raise SystemExit(f"custom build/plan slots should be preserved: {agent}")
 PY
 
-echo "OK: repair-opencode-json removes managed agent shells"
+cat > "$TMP/local-plugin-path.json" <<'JSON'
+{
+  "plugin": [
+    "/Users/example/.nvm/versions/node/v24/lib/node_modules/kimaki/plugins/dm-context-filter.ts",
+    "/Users/example/.nvm/versions/node/v24/lib/node_modules/kimaki/plugins/dm-agent-sync.ts"
+  ]
+}
+JSON
+
+python3 "$REPAIR" \
+  --file "$TMP/local-plugin-path.json" \
+  --runtime opencode \
+  --chat-bridge kimaki \
+  --kimaki-plugins-dir /Users/example/.kimaki/kimaki-config/plugins \
+  --apply > "$TMP/local-plugin-path.out" || true
+
+python3 - "$TMP/local-plugin-path.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+expected = [
+    "/Users/example/.kimaki/kimaki-config/plugins/dm-context-filter.ts",
+    "/Users/example/.kimaki/kimaki-config/plugins/dm-agent-sync.ts",
+]
+if data.get("plugin") != expected:
+    raise SystemExit(f"unexpected plugin paths: {data.get('plugin')}")
+PY
+
+echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"
