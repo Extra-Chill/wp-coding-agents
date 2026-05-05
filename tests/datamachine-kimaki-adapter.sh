@@ -71,4 +71,13 @@ grep -q 'Native Kimaki worktrees are disabled' "$TMP/stderr"
 "$ADAPTER" session list --project /tmp/site
 assert_args session list --project /tmp/site
 
+unset DATAMACHINE_REAL_KIMAKI
+shim_dir="$TMP/shim-bin"
+real_dir="$TMP/real-bin"
+mkdir -p "$shim_dir" "$real_dir"
+cp "$ADAPTER" "$shim_dir/kimaki"
+cp "$REAL_KIMAKI" "$real_dir/kimaki"
+PATH="$shim_dir:$real_dir:$PATH" "$shim_dir/kimaki" send --prompt hi --agent opencode --cwd /tmp/site
+assert_args send --prompt hi --agent build
+
 echo "OK: datamachine-kimaki adapter normalizes Kimaki send flags"

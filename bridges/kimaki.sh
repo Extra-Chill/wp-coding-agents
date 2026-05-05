@@ -87,8 +87,39 @@ _kimaki_sync_bin_helpers() {
     fi
   done
 
+  _kimaki_sync_command_shim "$HELPER_DIR"
+
   RESOLVED_KIMAKI_HELPER="$HELPER_DIR/datamachine-kimaki-session"
   RESOLVED_DATAMACHINE_KIMAKI="$HELPER_DIR/datamachine-kimaki"
+  RESOLVED_KIMAKI_SHIM="$HELPER_DIR/kimaki"
+}
+
+_kimaki_sync_command_shim() {
+  local helper_dir="$1"
+  local adapter_source="$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki"
+  local shim_target="$helper_dir/kimaki"
+  [ -f "$adapter_source" ] || return 0
+
+  if [ -e "$shim_target" ] && ! grep -q 'wp-coding-agents datamachine-kimaki adapter' "$shim_target" 2>/dev/null; then
+    warn "  $shim_target exists and is not the Data Machine Kimaki adapter — leaving it untouched"
+    warn "  Install $helper_dir earlier on PATH or call datamachine-kimaki directly to normalize Kimaki send flags"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
+      echo -e "${BLUE}[dry-run]${NC} Would update $shim_target"
+    fi
+    return 0
+  fi
+
+  mkdir -p "$helper_dir"
+  if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
+    cp "$adapter_source" "$shim_target"
+    chmod +x "$shim_target"
+    log "  Updated $shim_target"
+    UPDATED_ITEMS+=("kimaki command shim")
+  fi
 }
 
 _kimaki_install_launchd() {
@@ -646,7 +677,9 @@ bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
   local HELPER="${RESOLVED_KIMAKI_HELPER:-/usr/local/bin/datamachine-kimaki-session}"
   local ADAPTER="${RESOLVED_DATAMACHINE_KIMAKI:-/usr/local/bin/datamachine-kimaki}"
+  local SHIM="${RESOLVED_KIMAKI_SHIM:-/usr/local/bin/kimaki}"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
   echo "test -x $HELPER   # DMC Kimaki session handoff helper installed"
   echo "test -x $ADAPTER   # DM Kimaki command adapter installed"
+  echo "test -x $SHIM   # kimaki command shim installed"
 }

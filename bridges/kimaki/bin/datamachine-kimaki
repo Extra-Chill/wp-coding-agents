@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# wp-coding-agents datamachine-kimaki adapter
 set -euo pipefail
 
 usage() {
@@ -16,8 +17,15 @@ Kimaki `send` footgun flags before delegating to the real Kimaki binary:
   send --worktree [name]   -> blocked before native Kimaki worktree handling
 
 Set DATAMACHINE_REAL_KIMAKI to the real Kimaki binary path. If unset, the
-adapter resolves `kimaki` from PATH when invoked as `datamachine-kimaki`.
+adapter resolves the next non-adapter `kimaki` from PATH.
 EOF
+}
+
+adapter_path() {
+  local dir base
+  dir="$(cd "$(dirname "$0")" && pwd -P)"
+  base="$(basename "$0")"
+  printf '%s/%s\n' "$dir" "$base"
 }
 
 resolve_real_kimaki() {
@@ -30,17 +38,21 @@ resolve_real_kimaki() {
     return 0
   fi
 
-  if [[ "$(basename "$0")" == "kimaki" ]]; then
-    echo "DATAMACHINE_REAL_KIMAKI is required when the adapter is installed as kimaki" >&2
-    exit 2
-  fi
+  local self candidate dir resolved_candidate
+  self="$(adapter_path)"
+  IFS=: read -r -a path_entries <<< "${PATH:-}"
+  for dir in "${path_entries[@]}"; do
+    [[ -n "$dir" ]] || continue
+    candidate="$dir/kimaki"
+    [[ -x "$candidate" ]] || continue
+    resolved_candidate="$(cd "$(dirname "$candidate")" && pwd -P)/$(basename "$candidate")"
+    [[ "$resolved_candidate" != "$self" ]] || continue
+    printf '%s\n' "$resolved_candidate"
+    return 0
+  done
 
-  if ! command -v kimaki >/dev/null 2>&1; then
-    echo "kimaki is required on PATH, or set DATAMACHINE_REAL_KIMAKI" >&2
-    exit 2
-  fi
-
-  command -v kimaki
+  echo "real kimaki is required on PATH after the adapter, or set DATAMACHINE_REAL_KIMAKI" >&2
+  exit 2
 }
 
 normalize_send_args() {
