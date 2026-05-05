@@ -10,8 +10,8 @@
 #   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
 #          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + kill list)
-#          Local: $(npm root -g)/kimaki/plugins for plugins,
-#                 $KIMAKI_DATA_DIR/kimaki-config/ for post-upgrade.sh + kill
+#          Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins,
+#                 post-upgrade.sh + kill
 #                 list, and runs post-upgrade.sh inline (no launchd
 #                 ExecStartPre hook).
 #        cc-connect: no per-install artifacts; reports binary version and
@@ -163,7 +163,7 @@ SUPPORTED CHAT BRIDGES:
 
 KIMAKI PLUGIN INSTALL TARGETS:
   VPS:   /opt/kimaki-config/plugins
-  Local: \$(npm root -g)/kimaki/plugins
+  Local: \$KIMAKI_DATA_DIR/kimaki-config/plugins
 
 NEVER TOUCHED:
   - CLAUDE.md runtime config
