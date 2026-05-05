@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# wp-coding-agents datamachine-kimaki adapter
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: datamachine-kimaki <kimaki-args...>
+
+Data Machine compatibility adapter for Kimaki.
+
+In Data Machine mode, Kimaki is the Discord transport while Data Machine owns
+agent identity, site root, and workspace lifecycle. This adapter normalizes the
+Kimaki `send` footgun flags before delegating to the real Kimaki binary:
+
+  send --agent <anything>  -> send --agent build
+  send --cwd <anything>    -> stripped
+  send --worktree [name]   -> blocked before native Kimaki worktree handling
+
+Set DATAMACHINE_REAL_KIMAKI to the real Kimaki binary path. If unset, the
+adapter resolves the next non-adapter `kimaki` from PATH.
+EOF
+}
+
+adapter_path() {
+  local dir base
+  dir="$(cd "$(dirname "$0")" && pwd -P)"
+  base="$(basename "$0")"
+  printf '%s/%s\n' "$dir" "$base"
+}
+
+resolve_real_kimaki() {
+  if [[ -n "${DATAMACHINE_REAL_KIMAKI:-}" ]]; then
+    if [[ ! -x "$DATAMACHINE_REAL_KIMAKI" ]]; then
+      echo "DATAMACHINE_REAL_KIMAKI is not executable: $DATAMACHINE_REAL_KIMAKI" >&2
+      exit 2
+    fi
+    printf '%s\n' "$DATAMACHINE_REAL_KIMAKI"
+    return 0
+  fi
+
+  local self candidate dir resolved_candidate
+  self="$(adapter_path)"
+  IFS=: read -r -a path_entries <<< "${PATH:-}"
+  for dir in "${path_entries[@]}"; do
+    [[ -n "$dir" ]] || continue
+    candidate="$dir/kimaki"
+    [[ -x "$candidate" ]] || continue
+    resolved_candidate="$(cd "$(dirname "$candidate")" && pwd -P)/$(basename "$candidate")"
+    [[ "$resolved_candidate" != "$self" ]] || continue
+    printf '%s\n' "$resolved_candidate"
+    return 0
+  done
+
+  echo "real kimaki is required on PATH after the adapter, or set DATAMACHINE_REAL_KIMAKI" >&2
+  exit 2
+}
+
+normalize_send_args() {
+  normalized_args=()
+  saw_worktree=false
+  local worktree_value=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agent)
+        normalized_args+=(--agent build)
+        shift
+        if [[ $# -gt 0 && "$1" != --* ]]; then
+          shift
+        fi
+        ;;
+      --agent=*)
+        normalized_args+=(--agent build)
+        shift
+        ;;
+      --cwd)
+        shift
+        if [[ $# -gt 0 && "$1" != --* ]]; then
+          shift
+        fi
+        ;;
+      --cwd=*)
+        shift
+        ;;
+      --worktree)
+        saw_worktree=true
+        shift
+        if [[ $# -gt 0 && "$1" != --* ]]; then
+          worktree_value="$1"
+          shift
+        fi
+        ;;
+      --worktree=*)
+        saw_worktree=true
+        worktree_value="${1#--worktree=}"
+        shift
+        ;;
+      *)
+        normalized_args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [[ "$saw_worktree" == true ]]; then
+    echo "Data Machine mode intercepted kimaki send --worktree${worktree_value:+ $worktree_value}." >&2
+    echo "Native Kimaki worktrees are disabled on wp-coding-agents installs; use Data Machine Code worktrees instead." >&2
+    exit 2
+  fi
+
+  return 0
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+real_kimaki="$(resolve_real_kimaki)"
+
+if [[ "${1:-}" != "send" ]]; then
+  exec "$real_kimaki" "$@"
+fi
+
+shift
+normalized_args=()
+normalize_send_args "$@"
+
+exec "$real_kimaki" send "${normalized_args[@]}"
