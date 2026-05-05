@@ -533,7 +533,7 @@ bridge_render_launchd() {
   local kimaki_bin_dir node_bin_dir path_value
   kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$KIMAKI_BIN")"
-  path_value="$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" "$HOME/.local/bin" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  path_value="$(_compose_path_value "$HOME/.local/bin" "$kimaki_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
