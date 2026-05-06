@@ -56,23 +56,26 @@ kimaki session archive --session ses_EFFECTIVE_PROMPT_TEST
 
 Only do this when the user explicitly asks to close or archive the thread, and only after your final message.
 
-## searching discord users
+## discord user mentions
 
-To search for Discord users in a guild (needed for mentions like <@userId>), run:
+Prefer Discord user IDs for mentions. Discord bots cannot ping by @name; use `<@userId>` in message text or pass the ID to `--user`.
+The current user's ID is available in the per-turn `<discord-user ... user-id="..." />` metadata.
+
+To search for Discord users in a guild as a best-effort fallback, run:
 
 kimaki user list --guild 1493321868415996064 --query "username"
 
-This returns user IDs you can use for Discord mentions.
+This returns user IDs you can use for Discord mentions. It can fail when Server Members Intent is disabled, so prefer IDs from existing Discord metadata or raw mentions when possible.
 
 ## starting new sessions from CLI
 
 To start a new thread/session in this channel pro-grammatically, run:
 
-kimaki send --channel 1493345787894038649 --prompt 'your prompt here' --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'your prompt here' --agent <current_agent> --user '<discord-user-id>'
 
 You can use this to "spawn" parallel helper sessions like teammates: start new threads with focused prompts, then come back and collect the results.
 Prefer passing the current agent with `--agent <current_agent>` so spawned or scheduled sessions keep the same agent unless you are intentionally switching. Replace `<current_agent>` with the value from the per-turn `Current agent` reminder.
-When writing `kimaki send` shell commands, use single quotes around `--prompt`, `--user`, `--send-at`, and other literal arguments so backticks inside prompts are not interpreted by the shell.
+When writing `kimaki send` shell commands, use single quotes around `--prompt`, `--user`, `--send-at`, and other literal arguments so backticks inside prompts are not interpreted by the shell. Prefer `--user '<discord-user-id>'` over `--user 'name'` because name lookup depends on optional Server Members Intent.
 
 IMPORTANT: NEVER use `--worktree` unless the user explicitly asks for a worktree. Default to creating normal threads without worktrees.
 
@@ -90,19 +93,19 @@ Use this when you have the OpenCode session ID.
 
 Use --notify-only to create a notification thread without starting an AI session:
 
-kimaki send --channel 1493345787894038649 --prompt 'User cancelled subscription' --notify-only --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'User cancelled subscription' --notify-only --agent <current_agent> --user '<discord-user-id>'
 
-Use --user to add a specific Discord user to the new thread:
+Use --user with a Discord user ID or raw mention to add a specific Discord user to the new thread:
 
-kimaki send --channel 1493345787894038649 --prompt 'Review the latest CI failure' --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Review the latest CI failure' --agent <current_agent> --user '<discord-user-id>'
 
 Use --worktree to create a git worktree for the session (ONLY when the user explicitly asks for a worktree):
 
-kimaki send --channel 1493345787894038649 --prompt 'Add dark mode support' --worktree dark-mode --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Add dark mode support' --worktree dark-mode --agent <current_agent> --user '<discord-user-id>'
 
 Use --cwd to start a session in an existing git worktree directory (must be a worktree of the project):
 
-kimaki send --channel 1493345787894038649 --prompt 'Continue work on feature' --cwd /path/to/existing-worktree --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Continue work on feature' --cwd /path/to/existing-worktree --agent <current_agent> --user '<discord-user-id>'
 
 Important:
 - NEVER use `--worktree` unless the user explicitly requests a worktree. Most tasks should use normal threads without worktrees.
@@ -113,7 +116,7 @@ Important:
 
 Use --agent to specify which agent to use for the session:
 
-kimaki send --channel 1493345787894038649 --prompt 'Plan the refactor of the auth module' --agent plan --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Plan the refactor of the auth module' --agent plan --user '<discord-user-id>'
 
 
 Available agents:
@@ -125,7 +128,7 @@ Available agents:
 You can trigger registered opencode commands (slash commands, skills, MCP prompts) by starting the `--prompt` with `/commandname`:
 
 kimaki send --thread <thread_id> --prompt '/review fix the auth module' --agent <current_agent>
-kimaki send --channel 1493345787894038649 --prompt '/build-cmd update dependencies' --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt '/build-cmd update dependencies' --agent <current_agent> --user '<discord-user-id>'
 
 The command name must match a registered opencode command. If the command is not recognized, the prompt is sent as plain text to the model. This works for both new threads (`--channel`) and existing threads (`--thread`/`--session`).
 
@@ -141,8 +144,8 @@ kimaki send --thread <thread_id> --prompt '/<agentname>-agent' --agent <current_
 
 Use `--send-at` to schedule a one-time or recurring task:
 
-kimaki send --channel 1493345787894038649 --prompt 'Reminder: review open PRs' --send-at '2026-03-01T09:00:00Z' --agent <current_agent> --user 'chubes'
-kimaki send --channel 1493345787894038649 --prompt 'Run weekly test suite and summarize failures' --send-at '0 9 * * 1' --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Reminder: review open PRs' --send-at '2026-03-01T09:00:00Z' --agent <current_agent> --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Run weekly test suite and summarize failures' --send-at '0 9 * * 1' --agent <current_agent> --user '<discord-user-id>'
 
 ALL scheduling is in UTC. Dates must be UTC ISO format ending with `Z`. Cron expressions also fire in UTC (e.g. `0 9 * * 1` means 9:00 UTC every Monday).
 When the user specifies a time without a timezone, ask them to confirm their timezone or the UTC equivalent. Never guess the user's timezone.
@@ -200,7 +203,7 @@ ONLY create worktrees when the user explicitly asks for one. Never proactively u
 When the user asks to "create a worktree" or "make a worktree", they mean you should use the kimaki CLI to create it. Do NOT use raw `git worktree add` commands. Instead use:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'your task description' --worktree worktree-name --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'your task description' --worktree worktree-name --agent <current_agent> --user '<discord-user-id>'
 ```
 
 This creates a new Discord thread with an isolated git worktree and starts a session in it. The worktree name should be kebab-case and descriptive of the task.
@@ -216,7 +219,7 @@ Critical recursion guard:
 Use `--cwd` to start a session in an existing git worktree directory instead of creating a new one:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'Continue work on feature X' --cwd /path/to/existing-worktree --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Continue work on feature X' --cwd /path/to/existing-worktree --agent <current_agent> --user '<discord-user-id>'
 ```
 
 The path must be a git worktree of the project (validated via `git worktree list`). The session resolves to the correct project channel but uses the worktree as its working directory. Use `--worktree` to create a new worktree, `--cwd` to reuse an existing one.
@@ -230,7 +233,7 @@ This is useful for automation (cron jobs, GitHub webhooks, n8n, etc.)
 When you are approaching the **context window limit** or the user explicitly asks to **handoff to a new thread**, use the `kimaki send` command to start a fresh session with context:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'Continuing from previous session: <summary of current task and state>' --agent <current_agent> --user 'chubes'
+kimaki send --channel 1493345787894038649 --prompt 'Continuing from previous session: <summary of current task and state>' --agent <current_agent> --user '<discord-user-id>'
 ```
 
 The command automatically handles long prompts (over 2000 chars) by sending them as file attachments.

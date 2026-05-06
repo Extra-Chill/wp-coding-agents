@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/post-upgrade-restore.sh — smoke test for bridges/kimaki/post-upgrade.sh
 #
-# Verifies the three passes (kill, restore skills, restore plugins) using
+# Verifies the three passes (kill, restore skills, verify plugins) using
 # temp-dir env overrides so the test never touches the real npm install or
 # user config.
 #
@@ -9,12 +9,12 @@
 #   1. Kill pass removes a blacklisted skill from the simulated skills dir.
 #   2. Skill restore pass copies a SKILL.md tree from the persistent source
 #      back into the (wiped) skills dir.
-#   3. Plugin restore pass copies *.ts files from the persistent source into
-#      the (wiped) plugins dir — the regression this script was added to fix.
-#   4. Plugin restore is idempotent — running again does not re-copy files
+#   3. Default plugin pass is a no-op because opencode loads the persistent
+#      source dir directly.
+#   4. Explicit KIMAKI_PLUGINS_DIR compatibility override still copies *.ts
+#      files from the persistent source into the target dir.
+#   5. Plugin restore is idempotent — running again does not re-copy files
 #      that already match.
-#   5. Plugin restore creates the live plugins dir if it does not exist
-#      (the post-`npm update` reality).
 #   6. KIMAKI_DATA_DIR is only a hint: if its kimaki-config source dirs do
 #      not exist, skills and plugins fall through to HOME/.kimaki/kimaki-config.
 #
@@ -36,7 +36,8 @@ fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Simulated "npm-installed kimaki" layout — the targets the restore loop writes to.
+# Simulated "npm-installed kimaki" layout — the targets the skill restore loop
+# and explicit plugin compatibility override write to.
 LIVE_SKILLS="$TMP/npm/kimaki/skills"
 LIVE_PLUGINS="$TMP/npm/kimaki/plugins"
 
@@ -45,7 +46,8 @@ SRC_SKILLS="$TMP/config/skills"
 SRC_PLUGINS="$TMP/config/plugins"
 
 mkdir -p "$LIVE_SKILLS" "$SRC_SKILLS" "$SRC_PLUGINS"
-# Note: deliberately NOT creating LIVE_PLUGINS — the script must mkdir it.
+# Note: deliberately NOT creating LIVE_PLUGINS — explicit override mode must
+# still mkdir it.
 
 # Seed a blacklisted skill that the kill pass should remove.
 mkdir -p "$LIVE_SKILLS/blacklisted-skill"
@@ -72,13 +74,14 @@ description: persisted but killed test fixture
 body
 EOF
 
-# Seed two plugins in the persistent source that should be restored.
-cat > "$SRC_PLUGINS/test-plugin-a.ts" <<'EOF'
-// test-plugin-a.ts
+# Seed two required plugins in the persistent source. Default mode verifies them
+# in place; explicit override mode restores them into the requested target.
+cat > "$SRC_PLUGINS/dm-context-filter.ts" <<'EOF'
+// dm-context-filter.ts
 export default async () => ({})
 EOF
-cat > "$SRC_PLUGINS/test-plugin-b.ts" <<'EOF'
-// test-plugin-b.ts
+cat > "$SRC_PLUGINS/dm-agent-sync.ts" <<'EOF'
+// dm-agent-sync.ts
 export default async () => ({})
 EOF
 
@@ -97,7 +100,6 @@ EOF
 # Run the script with explicit env overrides so it never touches the real
 # npm install or user config.
 KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
-KIMAKI_PLUGINS_DIR="$LIVE_PLUGINS" \
 KIMAKI_SKILL_SOURCE_DIR="$SRC_SKILLS" \
 KIMAKI_PLUGIN_SOURCE_DIR="$SRC_PLUGINS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run1.log" 2>&1
@@ -147,11 +149,22 @@ assert_log_contains "skipped killed skill persisted-blacklisted-skill"
 assert_present "$LIVE_SKILLS/restored-skill/SKILL.md"
 assert_log_contains "restored skill restored-skill"
 
-# Pass 3: plugin restore created the dir AND copied both plugins.
-assert_present "$LIVE_PLUGINS/test-plugin-a.ts"
-assert_present "$LIVE_PLUGINS/test-plugin-b.ts"
-assert_log_contains "restored plugin test-plugin-a.ts"
-assert_log_contains "restored plugin test-plugin-b.ts"
+# Pass 3: default plugin restore is a no-op because opencode loads the
+# persistent source directly.
+assert_missing "$LIVE_PLUGINS"
+assert_log_contains "plugin restore not needed; opencode loads persistent plugins at $SRC_PLUGINS"
+
+# Explicit compatibility override still restores plugins into the requested dir.
+KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
+KIMAKI_PLUGINS_DIR="$LIVE_PLUGINS" \
+KIMAKI_SKILL_SOURCE_DIR="$SRC_SKILLS" \
+KIMAKI_PLUGIN_SOURCE_DIR="$SRC_PLUGINS" \
+  "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run-override.log" 2>&1
+
+assert_present "$LIVE_PLUGINS/dm-context-filter.ts"
+assert_present "$LIVE_PLUGINS/dm-agent-sync.ts"
+assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-context-filter.ts"
+assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-agent-sync.ts"
 
 # Idempotency: second run with the same state should restore zero plugins.
 KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
@@ -171,8 +184,7 @@ if ! grep -q "0 plugins restored" "$TMP/run2.log"; then
   exit 1
 fi
 
-# Wipe the live plugins dir to simulate `npm update -g kimaki` and confirm
-# the next run rehydrates it from the persistent source — the actual fix.
+# Wipe the explicit target and confirm override mode can still rehydrate it.
 rm -rf "$LIVE_PLUGINS"
 
 KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
@@ -181,8 +193,8 @@ KIMAKI_SKILL_SOURCE_DIR="$SRC_SKILLS" \
 KIMAKI_PLUGIN_SOURCE_DIR="$SRC_PLUGINS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run3.log" 2>&1
 
-if [[ ! -f "$LIVE_PLUGINS/test-plugin-a.ts" ]]; then
-  echo "FAIL: plugins dir should be rehydrated after simulated npm update"
+if [[ ! -f "$LIVE_PLUGINS/dm-context-filter.ts" ]]; then
+  echo "FAIL: explicit plugins dir should be rehydrated after simulated npm update"
   cat "$TMP/run3.log"
   exit 1
 fi
@@ -219,7 +231,6 @@ EOF
 HOME="$FALLBACK_HOME" \
 KIMAKI_DATA_DIR="$FALLBACK_DATA" \
 KIMAKI_SKILLS_DIR="$FALLBACK_LIVE_SKILLS" \
-KIMAKI_PLUGINS_DIR="$FALLBACK_LIVE_PLUGINS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run4.log" 2>&1
 
 if [[ ! -f "$FALLBACK_LIVE_SKILLS/home-skill/SKILL.md" ]]; then
@@ -227,8 +238,8 @@ if [[ ! -f "$FALLBACK_LIVE_SKILLS/home-skill/SKILL.md" ]]; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if [[ ! -f "$FALLBACK_LIVE_PLUGINS/home-plugin.ts" ]]; then
-  echo "FAIL: missing KIMAKI_DATA_DIR plugins source should fall through to HOME source"
+if [[ -e "$FALLBACK_LIVE_PLUGINS" ]]; then
+  echo "FAIL: default plugin verification should not create a separate live plugins dir"
   cat "$TMP/run4.log"
   exit 1
 fi
@@ -237,8 +248,8 @@ if ! grep -q "restored skill home-skill" "$TMP/run4.log"; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if ! grep -q "restored plugin home-plugin.ts" "$TMP/run4.log"; then
-  echo "FAIL: fallback run should restore the HOME-backed plugin"
+if ! grep -q "plugin restore not needed; opencode loads persistent plugins at $FALLBACK_HOME/.kimaki/kimaki-config/plugins" "$TMP/run4.log"; then
+  echo "FAIL: fallback run should verify the HOME-backed plugin source in place"
   cat "$TMP/run4.log"
   exit 1
 fi
@@ -253,7 +264,7 @@ KIMAKI_SKILL_SOURCE_DIR="$SRC_SKILLS" \
 KIMAKI_PLUGIN_SOURCE_DIR="$MISSING_SRC" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/missing.log" 2>&1
 
-assert_log_contains_file "$TMP/missing.log" "WARNING: persistent plugin source dir not found at $MISSING_SRC; dm-context-filter.ts and dm-agent-sync.ts cannot be restored"
+assert_log_contains_file "$TMP/missing.log" "WARNING: persistent plugin source dir not found at $MISSING_SRC; dm-context-filter.ts and dm-agent-sync.ts cannot be loaded"
 assert_log_contains_file "$TMP/missing.log" "WARNING: plugins dir not found at $MISSING_LIVE_PLUGINS; opencode.json plugin paths will be skipped by OpenCode"
 assert_log_contains_file "$TMP/missing.log" "2 required plugins missing"
 

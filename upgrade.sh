@@ -301,6 +301,7 @@ _run_filter_active() {
   if [ "$KIMAKI_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ]; then
     case "$phase" in
       kimaki)    [ "$KIMAKI_ONLY" = true ]; return $? ;;
+      opencode-json) [ "$KIMAKI_ONLY" = true ]; return $? ;;
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;

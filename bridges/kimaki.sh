@@ -13,9 +13,9 @@
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
 #          kill list (executed inline at upgrade time — no launchd
-#          ExecStartPre hook). Plugins are mirrored into the npm package as a
-#          compatibility target, but opencode.json loads the durable data-dir
-#          copy because `npm update -g kimaki` wipes package-local files.
+#          ExecStartPre hook). opencode.json loads plugins directly from this
+#          durable data-dir copy because `npm update -g kimaki` wipes package-
+#          local files.
 #          + $HOME/.local/bin/datamachine-kimaki-session
 #          + $HOME/.local/bin/datamachine-kimaki
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
@@ -196,29 +196,19 @@ bridge_sync_config() {
   #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
   #          post-upgrade.sh + skills-kill-list.txt.
   #   Local: opencode.json points at $KIMAKI_DATA_DIR/kimaki-config/plugins, the
-  #          durable source that survives `npm update -g kimaki`. We still mirror
-  #          plugins into $(npm root -g)/kimaki/plugins for compatibility with old
-  #          configs, and run post-upgrade.sh inline because launchd has no
-  #          ExecStartPre hook.
+  #          durable source that survives `npm update -g kimaki`. Existing configs
+  #          that still reference package-local plugin paths are migrated by the
+  #          opencode.json repair helper.
   local KIMAKI_CONFIG_DIR
   local KIMAKI_PLUGINS_DIR
-  local KIMAKI_NPM_PLUGINS_DIR=""
   local BACKUP_DIR
   if [ "$LOCAL_MODE" = true ]; then
     KIMAKI_CONFIG_DIR="${KIMAKI_DATA_DIR}/kimaki-config"
-    local NPM_ROOT
-    NPM_ROOT="$(npm root -g 2>/dev/null || true)"
-    if [ -n "$NPM_ROOT" ]; then
-      KIMAKI_NPM_PLUGINS_DIR="${NPM_ROOT}/kimaki/plugins"
-    fi
     KIMAKI_PLUGINS_DIR="${KIMAKI_CONFIG_DIR}/plugins"
     BACKUP_DIR="${KIMAKI_DATA_DIR}/backups/kimaki-config.$TIMESTAMP"
     log "Phase 2: Syncing kimaki config (local mode)..."
     log "  Config dir:  $KIMAKI_CONFIG_DIR"
     log "  Plugins dir: $KIMAKI_PLUGINS_DIR (durable opencode target)"
-    if [ -n "$KIMAKI_NPM_PLUGINS_DIR" ]; then
-      log "  NPM mirror:  $KIMAKI_NPM_PLUGINS_DIR (compatibility)"
-    fi
   else
     KIMAKI_CONFIG_DIR="/opt/kimaki-config"
     KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
@@ -226,9 +216,9 @@ bridge_sync_config() {
     log "Phase 2: Syncing /opt/kimaki-config..."
   fi
 
-  # Local opencode loads from the durable kimaki-config dir. If the npm package
-  # is unavailable, skip only the compatibility mirror; do not skip installing
-  # the policy plugins themselves.
+  # Local opencode loads from the durable kimaki-config dir. Do not mirror these
+  # plugins into the npm package; `npm update -g kimaki` wipes that directory and
+  # the repair helper migrates older opencode.json files away from it.
 
   # VPS: if /opt/kimaki-config is missing, this install predates v0.4.0 (when
   # setup.sh started creating it). We're in the kimaki dispatch branch, so
@@ -259,9 +249,7 @@ bridge_sync_config() {
     fi
   fi
 
-  # Copy plugins to the durable target that opencode.json loads. On local,
-  # additionally mirror to the npm package for older configs that still point
-  # there; the mirror is best-effort because npm updates wipe it.
+  # Copy plugins to the durable target that opencode.json loads.
   if [ -d "$SCRIPT_DIR/bridges/kimaki/plugins" ]; then
     if [ "$DRY_RUN" = false ]; then
       mkdir -p "$KIMAKI_CONFIG_DIR/plugins" 2>/dev/null || true
@@ -281,24 +269,6 @@ bridge_sync_config() {
           cp "$plugin_file" "$KIMAKI_CONFIG_DIR/plugins/$name"
           log "  Updated $KIMAKI_CONFIG_DIR/plugins/$name (persistent source)"
           UPDATED_ITEMS+=("kimaki-config/plugins/$name")
-        fi
-      fi
-      # Compatibility mirror for older local opencode.json files. VPS uses the
-      # durable target directly, so there is no separate mirror there.
-      if [ "$LOCAL_MODE" = true ] && [ -n "$KIMAKI_NPM_PLUGINS_DIR" ]; then
-        if [ "$DRY_RUN" = true ]; then
-          if ! cmp -s "$plugin_file" "$KIMAKI_NPM_PLUGINS_DIR/$name" 2>/dev/null; then
-            echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_NPM_PLUGINS_DIR/$name"
-          else
-            echo -e "${BLUE}[dry-run]${NC} $name npm mirror: unchanged"
-          fi
-        else
-          mkdir -p "$KIMAKI_NPM_PLUGINS_DIR" 2>/dev/null || true
-          if ! cmp -s "$plugin_file" "$KIMAKI_NPM_PLUGINS_DIR/$name" 2>/dev/null; then
-            cp "$plugin_file" "$KIMAKI_NPM_PLUGINS_DIR/$name"
-            log "  Updated $KIMAKI_NPM_PLUGINS_DIR/$name (compatibility mirror)"
-            UPDATED_ITEMS+=("kimaki npm mirror/$name")
-          fi
         fi
       fi
     done

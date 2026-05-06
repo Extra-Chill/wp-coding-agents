@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# post-upgrade.sh — Enforce kimaki skill + plugin state on every restart.
+# post-upgrade.sh — Enforce kimaki skill state and validate plugin state.
 #
-# Three symmetric passes run against the npm-installed kimaki package:
+# Three passes run against the npm-installed kimaki package and persistent
+# kimaki-config directory:
 #   1. KILL    — remove unwanted bundled kimaki skills listed in
 #                skills-kill-list.txt (target: $(npm root -g)/kimaki/skills/).
 #   2. RESTORE skills  — re-copy wp-coding-agents skills from the persistent
 #                source dir (kimaki-config/skills/) into kimaki/skills/.
-#   3. RESTORE plugins — re-copy wp-coding-agents opencode plugins from the
-#                persistent source dir (kimaki-config/plugins/) into
-#                kimaki/plugins/. opencode.json references the plugin .ts
-#                files at $(npm root -g)/kimaki/plugins/<file>.ts; without
-#                this restore pass dm-context-filter.ts and dm-agent-sync.ts
-#                silently disappear after every `npm update -g kimaki` and
-#                Discord agents lose their context-filter / agent-sync
-#                policies until the next manual upgrade.sh run.
+#   3. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
+#                exist at the persistent kimaki-config/plugins path loaded by
+#                opencode.json. Local installs no longer restore plugins into
+#                $(npm root -g)/kimaki/plugins because package-local files are
+#                wiped by `npm update -g kimaki`.
 #
-# `npm update -g kimaki` wipes both kimaki/skills/ AND kimaki/plugins/, so
-# the persistent kimaki-config/ dir is the source of truth and this script
-# rehydrates the npm install on every kimaki restart.
+# `npm update -g kimaki` still wipes kimaki/skills/, so skills are rehydrated
+# from persistent kimaki-config/ on every restart. Plugins are loaded directly
+# from persistent kimaki-config/plugins and only need validation here.
 #
 # Invoked two ways:
 #   VPS:   ExecStartPre in kimaki.service (runs on every service start).
@@ -28,10 +26,9 @@
 #   2. $(npm root -g)/kimaki/skills (works on macOS + Linux when npm is on PATH)
 #   3. /usr/lib/node_modules/kimaki/skills (Linux VPS fallback when npm absent)
 #
-# Plugins dir resolution priority (mirrors skills resolution):
+# Plugin target dir resolution priority:
 #   1. KIMAKI_PLUGINS_DIR env var (explicit override)
-#   2. $(npm root -g)/kimaki/plugins
-#   3. /usr/lib/node_modules/kimaki/plugins (Linux VPS fallback when npm absent)
+#   2. Persistent plugin source dir below (default for local and VPS)
 #
 # Persistent skill source dir resolution priority:
 #   1. KIMAKI_SKILL_SOURCE_DIR env var (explicit override)
@@ -62,14 +59,6 @@ elif [[ -n "$NPM_ROOT" ]]; then
   SKILLS_DIR="$NPM_ROOT/kimaki/skills"
 else
   SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
-fi
-
-if [[ -n "${KIMAKI_PLUGINS_DIR:-}" ]]; then
-  PLUGINS_DIR="$KIMAKI_PLUGINS_DIR"
-elif [[ -n "$NPM_ROOT" ]]; then
-  PLUGINS_DIR="$NPM_ROOT/kimaki/plugins"
-else
-  PLUGINS_DIR="/usr/lib/node_modules/kimaki/plugins"
 fi
 
 KILL_LIST="$(dirname "$0")/skills-kill-list.txt"
@@ -151,13 +140,11 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# Pass 3: RESTORE plugins — re-copy wp-coding-agents opencode plugins from
-# the persistent source dir into the npm-managed plugins dir.
-#
-# opencode.json references each plugin by absolute path at
-# $(npm root -g)/kimaki/plugins/<file>.ts. The kimaki npm package does NOT
-# ship a plugins/ dir, so this directory only ever exists because we put it
-# there. `npm update -g kimaki` wipes it clean every time.
+# Pass 3: VERIFY plugins — opencode.json now loads wp-coding-agents plugins
+# directly from persistent kimaki-config/plugins. When the target and source are
+# the same directory (the default), there is nothing to restore. An explicit
+# KIMAKI_PLUGINS_DIR override still receives a best-effort copy for operator
+# controlled compatibility scenarios.
 # ----------------------------------------------------------------------------
 
 if [[ -n "${KIMAKI_PLUGIN_SOURCE_DIR:-}" ]]; then
@@ -171,27 +158,36 @@ else
 fi
 
 plugins_restored=0
+if [[ -n "${KIMAKI_PLUGINS_DIR:-}" ]]; then
+  PLUGINS_DIR="$KIMAKI_PLUGINS_DIR"
+else
+  PLUGINS_DIR="$PLUGIN_SOURCE_DIR"
+fi
+
 if [[ -d "$PLUGIN_SOURCE_DIR" ]]; then
-  # Ensure the npm-managed plugins dir exists before copying.
-  mkdir -p "$PLUGINS_DIR" 2>/dev/null || true
-  if [[ ! -d "$PLUGINS_DIR" ]]; then
-    echo "kimaki-config: could not create plugins dir at $PLUGINS_DIR, skipping plugin restore"
+  if [[ "$PLUGINS_DIR" == "$PLUGIN_SOURCE_DIR" ]]; then
+    echo "kimaki-config: plugin restore not needed; opencode loads persistent plugins at $PLUGIN_SOURCE_DIR"
   else
-    shopt -s nullglob
-    for plugin_file in "$PLUGIN_SOURCE_DIR"/*.ts; do
-      plugin_name="$(basename "$plugin_file")"
-      target="$PLUGINS_DIR/$plugin_name"
-      # Idempotent: only copy if missing or different. cmp returns 0 on match.
-      if ! cmp -s "$plugin_file" "$target" 2>/dev/null; then
-        cp "$plugin_file" "$target"
-        echo "kimaki-config: restored plugin $plugin_name"
-        plugins_restored=$((plugins_restored + 1))
-      fi
-    done
-    shopt -u nullglob
+    mkdir -p "$PLUGINS_DIR" 2>/dev/null || true
+    if [[ ! -d "$PLUGINS_DIR" ]]; then
+      echo "kimaki-config: could not create plugins dir at $PLUGINS_DIR, skipping plugin restore"
+    else
+      shopt -s nullglob
+      for plugin_file in "$PLUGIN_SOURCE_DIR"/*.ts; do
+        plugin_name="$(basename "$plugin_file")"
+        target="$PLUGINS_DIR/$plugin_name"
+        # Idempotent: only copy if missing or different. cmp returns 0 on match.
+        if ! cmp -s "$plugin_file" "$target" 2>/dev/null; then
+          cp "$plugin_file" "$target"
+          echo "kimaki-config: restored plugin $plugin_name"
+          plugins_restored=$((plugins_restored + 1))
+        fi
+      done
+      shopt -u nullglob
+    fi
   fi
 else
-  echo "kimaki-config: WARNING: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR; dm-context-filter.ts and dm-agent-sync.ts cannot be restored"
+  echo "kimaki-config: WARNING: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR; dm-context-filter.ts and dm-agent-sync.ts cannot be loaded"
 fi
 
 missing_required_plugins=0

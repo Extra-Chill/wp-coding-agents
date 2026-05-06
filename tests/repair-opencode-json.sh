@@ -122,7 +122,7 @@ python3 "$REPAIR" \
   --runtime opencode \
   --chat-bridge kimaki \
   --kimaki-plugins-dir /Users/example/.kimaki/kimaki-config/plugins \
-  --apply > "$TMP/local-plugin-path.out" || true
+  --additive > "$TMP/local-plugin-path.out"
 
 python3 - "$TMP/local-plugin-path.json" <<'PY'
 import json
@@ -138,5 +138,7 @@ expected = [
 if data.get("plugin") != expected:
     raise SystemExit(f"unexpected plugin paths: {data.get('plugin')}")
 PY
+grep -q '"status": "additive_repaired"' "$TMP/local-plugin-path.out"
+grep -q '"rewritten"' "$TMP/local-plugin-path.out"
 
 echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"
