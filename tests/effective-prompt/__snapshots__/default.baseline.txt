@@ -37,13 +37,16 @@ kimaki session archive --session ses_EFFECTIVE_PROMPT_TEST
 
 Only do this when the user explicitly asks to close or archive the thread, and only after your final message.
 
-## searching discord users
+## discord user mentions
 
-To search for Discord users in a guild (needed for mentions like <@userId>), run:
+Prefer Discord user IDs for mentions. Discord bots cannot ping by @name; use `<@userId>` in message text or pass the ID to `--user`.
+The current user's ID is available in the per-turn `<discord-user ... user-id="..." />` metadata.
+
+To search for Discord users in a guild as a best-effort fallback, run:
 
 kimaki user list --guild 1493321868415996064 --query "username"
 
-This returns user IDs you can use for Discord mentions.
+This returns user IDs you can use for Discord mentions. It can fail when Server Members Intent is disabled, so prefer IDs from existing Discord metadata or raw mentions when possible.
 
 # List all registered projects with their channel IDs
 kimaki project list --json  # machine-readable output

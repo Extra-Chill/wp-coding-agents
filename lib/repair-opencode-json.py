@@ -63,7 +63,10 @@ import json
 import os
 import shutil
 import sys
-from typing import List
+from typing import List, Tuple
+
+
+MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
 
 
 def expected_plugins(
@@ -111,6 +114,38 @@ def diff_plugins(current: List[str], expected: List[str]) -> dict:
         "missing": [p for p in expected if p not in current_set],
         "unexpected": [p for p in current if p not in expected_set],
     }
+
+
+def normalize_managed_kimaki_plugin_paths(
+    current: List[str], kimaki_plugins_dir: str
+) -> Tuple[List[str], List[dict]]:
+    """Rewrite managed Kimaki plugin paths to the durable configured dir.
+
+    Older local installs pointed opencode.json at npm package-local plugin files
+    under ``$(npm root -g)/kimaki/plugins``. Those files disappear on
+    ``npm update -g kimaki``. Treat any managed plugin basename outside the
+    configured persistent dir as a stale wp-coding-agents-owned entry and rewrite
+    it in place, preserving user-added plugins.
+    """
+    normalized: List[str] = []
+    rewrites: List[dict] = []
+    seen = set()
+    plugins_dir = kimaki_plugins_dir.rstrip("/")
+
+    for plugin in current:
+        basename = os.path.basename(plugin)
+        replacement = plugin
+        if basename in MANAGED_KIMAKI_PLUGIN_NAMES:
+            expected = f"{plugins_dir}/{basename}"
+            if os.path.dirname(plugin).rstrip("/") != plugins_dir:
+                replacement = expected
+                rewrites.append({"from": plugin, "to": replacement})
+
+        if replacement not in seen:
+            normalized.append(replacement)
+            seen.add(replacement)
+
+    return normalized, rewrites
 
 
 def repair(
@@ -336,6 +371,13 @@ def main() -> int:
     )
 
     current: List[str] = list(data.get("plugin", []))
+    normalized_current = current
+    plugin_rewrites: List[dict] = []
+    if args.runtime == "opencode" and args.chat_bridge == "kimaki":
+        normalized_current, plugin_rewrites = normalize_managed_kimaki_plugin_paths(
+            current,
+            args.kimaki_plugins_dir,
+        )
 
     # Claude Code / Studio Code: no plugin array concept here. Report ok
     # if current is empty or absent; otherwise let user know we skipped.
@@ -354,8 +396,8 @@ def main() -> int:
             )
             return 0
 
-    diff = diff_plugins(current, expected)
-    has_plugin_drift = bool(diff["missing"] or diff["unexpected"])
+    diff = diff_plugins(normalized_current, expected)
+    has_plugin_drift = bool(diff["missing"] or diff["unexpected"] or plugin_rewrites)
     has_prompt_drift = prompt_result["status"] == "needed"
     has_agent_cleanup_drift = agent_cleanup_result["status"] == "needed"
     has_any_drift = has_plugin_drift or has_prompt_drift or has_agent_cleanup_drift
@@ -383,6 +425,8 @@ def main() -> int:
             "prompt_migration": prompt_result["status"],
             "agent_cleanup": agent_cleanup_result["status"],
         }
+        if plugin_rewrites:
+            result["rewritten"] = plugin_rewrites
         if has_plugin_drift:
             result["missing"] = diff["missing"]
             result["unexpected"] = diff["unexpected"]
@@ -408,7 +452,9 @@ def main() -> int:
     if has_plugin_drift and not plugin_skipped:
         # --apply:    replace with exactly `expected` (removes unexpected).
         # --additive: merge missing entries, preserving user additions.
-        data["plugin"] = repair(data, expected, preserve_extras=args.additive)
+        repaired_data = dict(data)
+        repaired_data["plugin"] = normalized_current
+        data["plugin"] = repair(repaired_data, expected, preserve_extras=args.additive)
 
     prompt_migration_status = "ok"
     if has_prompt_drift:
@@ -438,6 +484,8 @@ def main() -> int:
             "prompt_migration": prompt_migration_status,
             "agent_cleanup": "removed" if removed_agent_blocks else "ok",
         }
+        if plugin_rewrites:
+            result["rewritten"] = plugin_rewrites
         if removed_agent_blocks:
             result["agent_cleanup_removed"] = removed_agent_blocks
         if still_unexpected:
@@ -455,6 +503,8 @@ def main() -> int:
         "prompt_migration": prompt_migration_status,
         "agent_cleanup": "removed" if removed_agent_blocks else "ok",
     }
+    if plugin_rewrites:
+        result["rewritten"] = plugin_rewrites
     if removed_agent_blocks:
         result["agent_cleanup_removed"] = removed_agent_blocks
     print(json.dumps(result))
