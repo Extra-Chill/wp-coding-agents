@@ -132,7 +132,7 @@ bunx critique review --web --agent opencode --session ses_EFFECTIVE_PROMPT_TEST 
 The command prints a preview URL when done — share that URL with the user.
 
 # Start the dev server in a named background session
-bunx tuistory launch "kimaki tunnel -p 3000 -- pnpm dev" -s myapp-dev
+bunx tuistory launch "kimaki tunnel -- pnpm dev" -s myapp-dev
 
 # Wait until the dev server prints something useful, then inspect it
 bunx tuistory -s myapp-dev wait "/ready|local|tunnel/i" --timeout 30000
@@ -141,7 +141,7 @@ bunx tuistory read -s myapp-dev
 
 ### passing the public URL to your app
 
-If you launch the server command through `kimaki tunnel -- ...`, the local port is auto-detected from the child process logs in many common dev-server setups, so `--port` is often unnecessary.
+If you launch the server command through `kimaki tunnel -- ...`, the local port is auto-detected from the child process logs in many common dev-server setups. Use `--port` only when the dev server does not print a detectable localhost URL or port line.
 
 ```bash
 # Your app can read process.env.TRAFORO_URL directly
@@ -168,13 +168,13 @@ bunx tuistory read -s myapp-dev
 
 ```bash
 # Next.js project
-bunx tuistory launch "kimaki tunnel -p 3000 -- pnpm dev" -s projectname-nextjs-dev-3000
+bunx tuistory launch "kimaki tunnel -- pnpm dev" -s projectname-nextjs-dev
 
-# Vite project on port 5173
-bunx tuistory launch "kimaki tunnel -p 5173 -- pnpm dev" -s vite-dev-5173
+# Vite project
+bunx tuistory launch "kimaki tunnel -- pnpm dev" -s vite-dev
 
 # Custom tunnel ID (only for intentionally public-safe services)
-bunx tuistory launch "kimaki tunnel -p 3000 -t holocron -- pnpm dev" -s holocron-dev
+bunx tuistory launch "kimaki tunnel -t holocron -- pnpm dev" -s holocron-dev
 ```
 
 ### stopping the dev server
