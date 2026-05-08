@@ -1,35 +1,40 @@
 #!/bin/bash
-# Skills: agent skill installation from git repos and the wp-coding-agents repo itself
+# Skills: agent skill installation from the wp-coding-agents repo itself.
+# Site-specific WordPress, Data Machine, and Homeboy guidance belongs in the
+# composed AGENTS.md, which is fresher than static external skill snapshots.
 
-# Install agent skills from a git repo.
-# Clones the repo, copies directories containing SKILL.md to the target.
-install_skills_from_repo() {
-  local repo_url="$1"
-  local label="${2:-skills}"
+WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $repo_url (extract skill dirs to $SKILLS_DIR)"
-    return
-  fi
+is_wp_coding_agents_skill() {
+  local candidate="$1"
+  local skill
 
-  local tmp_dir
-  tmp_dir=$(mktemp -d)
-  rmdir "$tmp_dir" 2>/dev/null || true  # git_clone_with_retry needs a non-existent target on retry.
-  if git_clone_with_retry "$repo_url" "$tmp_dir" --depth 1; then
-    for skill_dir in "$tmp_dir"/*/; do
-      local skill_name
-      skill_name=$(basename "$skill_dir")
-      if [ -f "$skill_dir/SKILL.md" ]; then
-        rm -rf "$SKILLS_DIR/$skill_name"
-        cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
-        log "  Installed skill: $skill_name"
-      fi
-    done
-    rm -rf "$tmp_dir"
-    log "$label installed (latest version)"
-  else
-    warn "Could not clone $label from $repo_url"
-    rm -rf "$tmp_dir"
+  for skill in "${WP_CODING_AGENTS_SKILLS[@]}"; do
+    [ "$candidate" = "$skill" ] && return 0
+  done
+
+  return 1
+}
+
+remove_unmanaged_skills() {
+  local target_dir="$1"
+  local label="$2"
+
+  [ -d "$target_dir" ] || return
+
+  local removed=0
+  local skill_dir skill_name
+  for skill_dir in "$target_dir"/*/; do
+    [ -d "$skill_dir" ] || continue
+    skill_name=$(basename "$skill_dir")
+    if [ -f "$skill_dir/SKILL.md" ] && ! is_wp_coding_agents_skill "$skill_name"; then
+      rm -rf "$skill_dir"
+      removed=$((removed + 1))
+    fi
+  done
+
+  if [ "$removed" -gt 0 ]; then
+    log "Removed unmanaged skills from $label: $target_dir/ ($removed)"
   fi
 }
 
@@ -42,18 +47,24 @@ install_skills_from_local_repo() {
   [ -d "$src_dir" ] || return
 
   if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would remove unmanaged skills from $SKILLS_DIR/"
     for skill_dir in "$src_dir"/*/; do
+      local skill_name
+      skill_name=$(basename "$skill_dir")
       [ -f "$skill_dir/SKILL.md" ] || continue
-      echo -e "${BLUE}[dry-run]${NC} Would install in-repo skill: $(basename "$skill_dir") → $SKILLS_DIR/"
+      is_wp_coding_agents_skill "$skill_name" || continue
+      echo -e "${BLUE}[dry-run]${NC} Would install in-repo skill: $skill_name → $SKILLS_DIR/"
     done
     return
   fi
+
+  remove_unmanaged_skills "$SKILLS_DIR" "runtime skills dir"
 
   local copied=0
   for skill_dir in "$src_dir"/*/; do
     local skill_name
     skill_name=$(basename "$skill_dir")
-    if [ -f "$skill_dir/SKILL.md" ]; then
+    if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
       rm -rf "$SKILLS_DIR/$skill_name"
       cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
       log "  Installed skill: $skill_name"
@@ -65,8 +76,8 @@ install_skills_from_local_repo() {
   fi
 }
 
-# Mirror every SKILL.md-containing subdir from $SKILLS_DIR into the
-# persistent kimaki-config/skills/ dir. This is the durable source of
+# Mirror wp-coding-agents-owned skills into the persistent
+# kimaki-config/skills/ dir. This is the durable source of
 # truth that survives `npm update -g kimaki` wipes — kimaki/post-upgrade.sh
 # reads from this path on every kimaki restart to restore the mirror copy
 # at $(npm root -g)/kimaki/skills/.
@@ -93,12 +104,14 @@ install_skills_to_persistent_source() {
     return
   }
 
+  remove_unmanaged_skills "$persistent_dir" "persistent source"
+
   local copied=0
-  for skill_dir in "$SKILLS_DIR"/*/; do
+  for skill_dir in "$SCRIPT_DIR/skills"/*/; do
     [ -d "$skill_dir" ] || continue
     local skill_name
     skill_name=$(basename "$skill_dir")
-    if [ -f "$skill_dir/SKILL.md" ]; then
+    if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
       rm -rf "$persistent_dir/$skill_name"
       cp -r "$skill_dir" "$persistent_dir/$skill_name"
       copied=$((copied + 1))
@@ -176,8 +189,6 @@ install_skills() {
     run_cmd mkdir -p "$SKILLS_DIR"
 
     install_skills_from_local_repo
-    install_skills_from_repo "https://github.com/WordPress/agent-skills.git" "WordPress agent skills"
-    install_skills_from_repo "https://github.com/Extra-Chill/data-machine-skills.git" "Data Machine skills"
   done
 
   # Reset SKILLS_DIR back to the primary for downstream consumers
@@ -194,9 +205,9 @@ install_skills() {
     elif command -v kimaki &> /dev/null; then
       KIMAKI_SKILLS_DIR="$(npm root -g 2>/dev/null)/kimaki/skills"
       if [ -d "$KIMAKI_SKILLS_DIR" ]; then
-        for skill_dir in "$SKILLS_DIR"/*/; do
+        for skill_dir in "$SCRIPT_DIR/skills"/*/; do
           skill_name=$(basename "$skill_dir")
-          if [ -f "$skill_dir/SKILL.md" ]; then
+          if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
             cp -r "$skill_dir" "$KIMAKI_SKILLS_DIR/$skill_name"
           fi
         done

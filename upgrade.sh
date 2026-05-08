@@ -501,7 +501,7 @@ check_opencode_json_drift() {
 }
 
 # ============================================================================
-# Phase 4: Sync agent skills (WordPress + Data Machine)
+# Phase 4: Sync wp-coding-agents skills
 # ============================================================================
 
 sync_skills() {
@@ -512,8 +512,6 @@ sync_skills() {
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
     echo -e "${BLUE}[dry-run]${NC} Would install in-repo skills from $SCRIPT_DIR/skills → $SKILLS_DIR"
-    echo -e "${BLUE}[dry-run]${NC} Would clone WordPress/agent-skills → $SKILLS_DIR"
-    echo -e "${BLUE}[dry-run]${NC} Would clone Extra-Chill/data-machine-skills → $SKILLS_DIR"
     if [ "$CHAT_BRIDGE" = "kimaki" ]; then
       echo -e "${BLUE}[dry-run]${NC} Would copy skills to kimaki skills dir"
     fi

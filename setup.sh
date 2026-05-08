@@ -200,7 +200,7 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
-  --no-skills        Skip WordPress agent skills installation
+  --no-skills        Skip wp-coding-agents skill installation
   --with-homeboy     Create/update a Homeboy project and install/verify the
                      WordPress Homeboy extension
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
