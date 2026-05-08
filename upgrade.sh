@@ -18,7 +18,7 @@
 #          reminds user to `npm update -g cc-connect`.
 #        telegram: no per-install artifacts; reports binary versions and
 #          reminds user to `npm update -g @grinev/opencode-telegram-bot`.
-#   4. Sync agent skills (WordPress + Data Machine)
+#   4. Sync wp-coding-agents skills
 #   5. Regenerate AGENTS.md via Data Machine compose
 #   6. Smart systemd update (VPS only; dispatches per bridge)
 #        kimaki     → kimaki.service
@@ -35,7 +35,7 @@
 #   ./upgrade.sh --dry-run       # preview without changes
 #   ./upgrade.sh --kimaki-only   # only sync kimaki config + plugins
 #   ./upgrade.sh --plugins-only  # only update Data Machine plugins
-#   ./upgrade.sh --skills-only   # only sync skills
+#   ./upgrade.sh --skills-only   # only sync wp-coding-agents skills
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
@@ -141,7 +141,7 @@ USAGE:
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
-  ./upgrade.sh --skills-only    Only sync agent skills
+  ./upgrade.sh --skills-only    Only sync wp-coding-agents skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
   ./upgrade.sh --repair-opencode-json
@@ -501,19 +501,17 @@ check_opencode_json_drift() {
 }
 
 # ============================================================================
-# Phase 4: Sync agent skills (WordPress + Data Machine)
+# Phase 4: Sync wp-coding-agents skills
 # ============================================================================
 
 sync_skills() {
   _run_filter_active skills || return 0
 
-  log "Phase 4: Syncing agent skills..."
+  log "Phase 4: Syncing wp-coding-agents skills..."
 
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
     echo -e "${BLUE}[dry-run]${NC} Would install in-repo skills from $SCRIPT_DIR/skills → $SKILLS_DIR"
-    echo -e "${BLUE}[dry-run]${NC} Would clone WordPress/agent-skills → $SKILLS_DIR"
-    echo -e "${BLUE}[dry-run]${NC} Would clone Extra-Chill/data-machine-skills → $SKILLS_DIR"
     if [ "$CHAT_BRIDGE" = "kimaki" ]; then
       echo -e "${BLUE}[dry-run]${NC} Would copy skills to kimaki skills dir"
     fi
@@ -521,7 +519,7 @@ sync_skills() {
   fi
 
   install_skills
-  UPDATED_ITEMS+=("agent skills")
+  UPDATED_ITEMS+=("wp-coding-agents skills")
 }
 
 # ============================================================================

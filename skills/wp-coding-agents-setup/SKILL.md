@@ -113,7 +113,7 @@ Based on their answers, construct the appropriate command:
 Add `--skip-deps` if nginx, PHP, MySQL, Node are already installed.
 Add `--skip-ssl` to skip Let's Encrypt certificate.
 Add `--root` to run the agent as root (default is dedicated service user).
-Add `--no-skills` to skip WordPress agent skills.
+Add `--no-skills` to skip wp-coding-agents skills.
 Add `--agent-slug <slug>` to override the Data Machine agent slug.
 Add `--with-homeboy` when the user wants the optional Homeboy developer power layer. Homeboy remains external; setup should verify or install the CLI and WordPress extension, create/update a Homeboy project for the WordPress site root, attach eligible Data Machine Code primary workspace checkouts as components, skip `@` worktrees by default, sync `datamachine_code_homeboy_available`, and recompose `AGENTS.md`.
 

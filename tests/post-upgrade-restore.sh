@@ -7,8 +7,8 @@
 #
 # What we cover:
 #   1. Kill pass removes a blacklisted skill from the simulated skills dir.
-#   2. Skill restore pass copies a SKILL.md tree from the persistent source
-#      back into the (wiped) skills dir.
+#   2. Skill restore pass copies wp-coding-agents SKILL.md trees from the
+#      persistent source back into the (wiped) skills dir.
 #   3. Default plugin pass is a no-op because opencode loads the persistent
 #      source dir directly.
 #   4. Explicit KIMAKI_PLUGINS_DIR compatibility override still copies *.ts
@@ -55,12 +55,21 @@ echo "stub" > "$LIVE_SKILLS/blacklisted-skill/SKILL.md"
 mkdir -p "$LIVE_SKILLS/persisted-blacklisted-skill"
 echo "stub" > "$LIVE_SKILLS/persisted-blacklisted-skill/SKILL.md"
 
-# Seed a skill in the persistent source that should be restored.
-mkdir -p "$SRC_SKILLS/restored-skill"
-cat > "$SRC_SKILLS/restored-skill/SKILL.md" <<'EOF'
+# Seed a wp-coding-agents skill in the persistent source that should be restored.
+mkdir -p "$SRC_SKILLS/upgrade-wp-coding-agents"
+cat > "$SRC_SKILLS/upgrade-wp-coding-agents/SKILL.md" <<'EOF'
 ---
-name: restored-skill
+name: upgrade-wp-coding-agents
 description: test fixture
+---
+body
+EOF
+
+mkdir -p "$SRC_SKILLS/unmanaged-skill"
+cat > "$SRC_SKILLS/unmanaged-skill/SKILL.md" <<'EOF'
+---
+name: unmanaged-skill
+description: unmanaged fixture
 ---
 body
 EOF
@@ -145,9 +154,11 @@ assert_missing "$LIVE_SKILLS/persisted-blacklisted-skill"
 assert_log_contains "removed skill persisted-blacklisted-skill"
 assert_log_contains "skipped killed skill persisted-blacklisted-skill"
 
-# Pass 2: skill restore copied the SKILL.md tree.
-assert_present "$LIVE_SKILLS/restored-skill/SKILL.md"
-assert_log_contains "restored skill restored-skill"
+# Pass 2: skill restore copied the allowed SKILL.md tree and skipped unmanaged skills.
+assert_present "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
+assert_log_contains "restored skill upgrade-wp-coding-agents"
+assert_missing "$LIVE_SKILLS/unmanaged-skill/SKILL.md"
+assert_log_contains "skipped unmanaged skill unmanaged-skill"
 
 # Pass 3: default plugin restore is a no-op because opencode loads the
 # persistent source directly.
@@ -213,12 +224,12 @@ FALLBACK_LIVE_SKILLS="$TMP/fallback-live/skills"
 FALLBACK_LIVE_PLUGINS="$TMP/fallback-live/plugins"
 mkdir -p \
   "$FALLBACK_DATA" \
-  "$FALLBACK_HOME/.kimaki/kimaki-config/skills/home-skill" \
+  "$FALLBACK_HOME/.kimaki/kimaki-config/skills/wp-coding-agents-setup" \
   "$FALLBACK_HOME/.kimaki/kimaki-config/plugins" \
   "$FALLBACK_LIVE_SKILLS"
-cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/home-skill/SKILL.md" <<'EOF'
+cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/wp-coding-agents-setup/SKILL.md" <<'EOF'
 ---
-name: home-skill
+name: wp-coding-agents-setup
 description: fallback fixture
 ---
 body
@@ -233,7 +244,7 @@ KIMAKI_DATA_DIR="$FALLBACK_DATA" \
 KIMAKI_SKILLS_DIR="$FALLBACK_LIVE_SKILLS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run4.log" 2>&1
 
-if [[ ! -f "$FALLBACK_LIVE_SKILLS/home-skill/SKILL.md" ]]; then
+if [[ ! -f "$FALLBACK_LIVE_SKILLS/wp-coding-agents-setup/SKILL.md" ]]; then
   echo "FAIL: missing KIMAKI_DATA_DIR skills source should fall through to HOME source"
   cat "$TMP/run4.log"
   exit 1
@@ -243,7 +254,7 @@ if [[ -e "$FALLBACK_LIVE_PLUGINS" ]]; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if ! grep -q "restored skill home-skill" "$TMP/run4.log"; then
+if ! grep -q "restored skill wp-coding-agents-setup" "$TMP/run4.log"; then
   echo "FAIL: fallback run should restore the HOME-backed skill"
   cat "$TMP/run4.log"
   exit 1

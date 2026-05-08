@@ -12,7 +12,8 @@
 #   Without Discord:  ./setup.sh --no-chat
 #
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
-# files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md, skills,
+# files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md,
+# wp-coding-agents skills,
 # workspace primitive, MCP surface. It is not optional. Uninstall the plugin
 # later if you don't want it.
 #
@@ -200,13 +201,13 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
-  --no-skills        Skip WordPress agent skills installation
+  --no-skills        Skip wp-coding-agents skill installation
   --with-homeboy     Create/update a Homeboy project and install/verify the
                      WordPress Homeboy extension
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
-  --skills-only      Only run skills installation on existing site
+  --skills-only      Only run wp-coding-agents skill installation on existing site
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default)
   --non-root         Run agent as dedicated service user (opencode)

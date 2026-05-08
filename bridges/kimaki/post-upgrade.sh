@@ -63,6 +63,18 @@ fi
 
 KILL_LIST="$(dirname "$0")/skills-kill-list.txt"
 REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
+WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
+
+is_wp_coding_agents_skill() {
+  local candidate="$1"
+  local skill
+
+  for skill in "${WP_CODING_AGENTS_SKILLS[@]}"; do
+    [[ "$candidate" == "$skill" ]] && return 0
+  done
+
+  return 1
+}
 
 is_killed_skill() {
   local candidate="$1"
@@ -125,6 +137,10 @@ elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
     skill_name="$(basename "$skill_dir")"
     if is_killed_skill "$skill_name"; then
       echo "kimaki-config: skipped killed skill $skill_name"
+      continue
+    fi
+    if ! is_wp_coding_agents_skill "$skill_name"; then
+      echo "kimaki-config: skipped unmanaged skill $skill_name"
       continue
     fi
     if [[ -f "$skill_dir/SKILL.md" ]]; then

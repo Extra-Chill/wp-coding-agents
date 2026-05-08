@@ -129,7 +129,7 @@ systemctl start kimaki  # or: systemctl start cc-connect
 | `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code and Studio Code), `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
 | `--subdomain` | Subdomain multisite (use with `--multisite`, requires wildcard DNS) |
-| `--no-skills` | Skip WordPress agent skills |
+| `--no-skills` | Skip wp-coding-agents skills |
 | `--skip-deps` | Skip apt packages |
 | `--skip-ssl` | Skip SSL/HTTPS |
 | `--root` | Run agent as root (default on VPS) |
@@ -184,7 +184,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
 | **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
-| **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
+| **wp-coding-agents skills** | Setup and upgrade runbooks shipped with this repo. The composed `AGENTS.md` provides the site-specific WordPress, Data Machine, and Homeboy operating context, so setup does not install redundant external skills. | `--no-skills` |
 
 ## VPS vs. Local
 
