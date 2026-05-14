@@ -60,6 +60,9 @@ kimaki project list --json  # machine-readable output
 # Send to a specific channel
 
 # Or use --project to resolve from directory
+
+# Or use --cwd for an existing checkout/worktree path
+kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout'
 ```
 
 Use cases:
@@ -70,6 +73,9 @@ Use cases:
 
 # Send to an existing thread and wait
 kimaki send --thread <thread_id> --prompt 'Run the tests' --wait
+
+# Wait for a session that was already started elsewhere
+kimaki session wait <session_id>
 ```
 
 The command exits with the session markdown on stdout once the model finishes responding.
@@ -96,6 +102,8 @@ bunx critique main...new-branch --web "Describe branch changes"
 
 # Share a single commit
 bunx critique --commit HEAD --web "Describe latest commit"
+
+If the user asks to see a diff and you already committed the changes, prefer showing a separate diff URL for each commit instead of one unified diff. Run one `bunx critique --commit <hash> --web` per commit so each change is clearly scoped. Run all the critique calls in parallel tool calls.
 
 If there are other unrelated changes in the working directory, filter to only show the files you edited:
 

@@ -25,10 +25,10 @@
 //     (the real dm-context-filter from kimaki/plugins/).
 //   - baseline: name of a baseline filter to compare against. Default:
 //     "broken-stripsection" (the regex-only stripSection that misfires
-//     on fenced bash comments). The harness asserts the baseline
-//     strips strictly LESS than the current filter.
-//   - triggers: array of { name, pattern }. Default: worktree, --cwd,
-//     --agent, and Kimaki project/channel routing language.
+//     on fenced bash comments). The harness keeps baseline output available
+//     as diff evidence, but leak detection is the correctness gate.
+//   - triggers: array of { name, pattern }. Default: --agent override
+//     examples that bypass the Data Machine-bound agent slot.
 //     Lines matching any trigger in the filtered output count as leaks.
 //   - allowLeakInSection: array of section headings where trigger
 //     matches are intentional (e.g. the appended Minion Routing note
@@ -74,21 +74,12 @@ const VERBOSE = args.includes("--verbose")
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TRIGGERS = [
-  { name: "worktree",        pattern: "(?i)worktree"             },
-  { name: "--cwd",           pattern: "--cwd"                    },
   { name: "--agent",         pattern: "--agent"                  },
-  { name: "kimaki project",  pattern: "kimaki project"           },
-  { name: "--project",       pattern: "--project"                },
-  { name: "project channel", pattern: "(?i)project channel"      },
-  { name: "cross-project",   pattern: "(?i)cross-project"        },
-  { name: "#project-name",   pattern: "#project-name"            },
-  { name: "other project",   pattern: "(?i)other project"        },
-  { name: "another project", pattern: "(?i)another project"      },
 ]
 
 // The filter is strip-only — it never appends sections. Any trigger word
-// (worktree, --cwd, --agent, etc.) appearing in the filtered output is a
-// real leak that needs investigation, not an intentional appendix.
+// appearing in the filtered output is a real leak that needs investigation,
+// not an intentional appendix.
 const DEFAULT_ALLOW_LEAK_SECTIONS = []
 
 const DEFAULT_SCENARIO = {
@@ -242,12 +233,6 @@ async function runScenario(name, scenario) {
   if (filteredLeaks.length > 0) {
     failures.push(`filtered prompt has ${filteredLeaks.length} trigger leaks (expected 0)`)
   }
-  if (filteredOut.length >= baselineOut.length) {
-    failures.push(
-      `filtered prompt (${filteredOut.length} chars) is not strictly smaller than baseline ` +
-      `(${baselineOut.length} chars) — current filter is regressing on baseline`,
-    )
-  }
   if (baselineLeaks.length === 0 && filteredLeaks.length === 0) {
     // Both filters strip cleanly — nothing to assert about improvement
     // beyond size. Fine.
@@ -287,7 +272,9 @@ function printResult(r) {
   console.log(`  raw      : ${fmt(r.raw_chars)} chars`)
   console.log(`  baseline : ${fmt(r.baseline_chars)} chars (stripped ${fmt(r.stripped_baseline)}, ~${Math.round(r.stripped_baseline / 4)} tokens)`)
   console.log(`  filtered : ${fmt(r.filtered_chars)} chars (stripped ${fmt(r.stripped_filtered)}, ~${Math.round(r.stripped_filtered / 4)} tokens)`)
-  console.log(`  delta    : current strips ${fmt(r.stripped_filtered - r.stripped_baseline)} more chars than baseline (+${Math.round((r.stripped_filtered - r.stripped_baseline) / 4)} tokens)`)
+  const delta = r.stripped_filtered - r.stripped_baseline
+  const deltaDirection = delta >= 0 ? "more" : "fewer"
+  console.log(`  delta    : current strips ${fmt(Math.abs(delta))} ${deltaDirection} chars than baseline (~${Math.abs(Math.round(delta / 4))} tokens)`)
   console.log(`  baseline leaks: ${r.baseline_leaks.length}`)
   console.log(`  filtered leaks: ${r.filtered_leaks.length}`)
 

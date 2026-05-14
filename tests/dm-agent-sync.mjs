@@ -3,6 +3,9 @@
 import assert from "node:assert/strict"
 import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
 
+const sitePath = "/tmp/datamachine-site"
+process.env.DATAMACHINE_SITE_PATH = sitePath
+
 function output(stdout = "", exitCode = 0, stderr = "") {
   return {
     exitCode,
@@ -53,8 +56,8 @@ const agentsJson = JSON.stringify([
 
 const commonResponses = [
   [/^command -v wp$/, output("/usr/local/bin/wp")],
-  [/^wp datamachine memory compose/, output("composed")],
-  [/^wp datamachine agents list/, output(`${agentsJson}\nTotal: 2 agent(s).`)],
+  [/^wp --path=\/tmp\/datamachine-site datamachine memory compose/, output("composed")],
+  [/^wp --path=\/tmp\/datamachine-site datamachine agents list/, output(`${agentsJson}\nTotal: 2 agent(s).`)],
   [/--agent=franklin /, output(JSON.stringify({ agent_slug: "franklin", relative_files: ["SITE.md", "SOUL.md"] }))],
   [/--agent=julia /, output(JSON.stringify({ agent_slug: "julia", relative_files: ["SITE.md", "MEMORY.md"] }))],
 ]
@@ -68,10 +71,10 @@ const commonResponses = [
     },
   }
   const warnings = await runConfig(config, commonResponses)
-  assert.match(config.agent.build.prompt, /\{file:\.\/AGENTS\.md\}/)
-  assert.match(config.agent.plan.prompt, /\{file:\.\/SOUL\.md\}/)
+  assert.match(config.agent.build.prompt, /\{file:\/tmp\/datamachine-site\/AGENTS\.md\}/)
+  assert.match(config.agent.plan.prompt, /\{file:\/tmp\/datamachine-site\/SOUL\.md\}/)
   assert.equal(config.agent.build.model, "anthropic/claude-opus-4-7")
-  assert.match(config.agent.franklin.prompt, /\{file:\.\/SITE\.md\}/)
+  assert.match(config.agent.franklin.prompt, /\{file:\/tmp\/datamachine-site\/SITE\.md\}/)
   assert.match(config.agent.julia.description, /Data Machine agent: Julia/)
   assert.ok(warnings.some((line) => line.includes("registered 2 Data Machine agent(s)")))
 }
@@ -85,8 +88,8 @@ const commonResponses = [
   }
   await runConfig(config, commonResponses)
   assert.deepEqual(config.agent.build.tools, { bash: true })
-  assert.match(config.agent.build.prompt, /\{file:\.\/SOUL\.md\}/)
-  assert.match(config.agent.plan.prompt, /\{file:\.\/SOUL\.md\}/)
+  assert.match(config.agent.build.prompt, /\{file:\/tmp\/datamachine-site\/SOUL\.md\}/)
+  assert.match(config.agent.plan.prompt, /\{file:\/tmp\/datamachine-site\/SOUL\.md\}/)
 }
 
 {
@@ -97,15 +100,15 @@ const commonResponses = [
   }
   await runConfig(config, commonResponses)
   assert.equal(config.agent.build.prompt, "custom prompt")
-  assert.match(config.agent.plan.prompt, /\{file:\.\/SOUL\.md\}/)
+  assert.match(config.agent.plan.prompt, /\{file:\/tmp\/datamachine-site\/SOUL\.md\}/)
 }
 
 {
   const config = {}
   const warnings = await runConfig(config, [
     [/^command -v wp$/, output("/usr/local/bin/wp")],
-    [/^wp datamachine memory compose/, output("composed")],
-    [/^wp datamachine agents list/, output("", 1, "db down")],
+    [/^wp --path=\/tmp\/datamachine-site datamachine memory compose/, output("composed")],
+    [/^wp --path=\/tmp\/datamachine-site datamachine agents list/, output("", 1, "db down")],
   ])
   assert.ok(warnings.some((line) => line.includes("agents list failed")))
   assert.equal(config.agent, undefined)

@@ -26,6 +26,8 @@
         <string>/home/chubes/.local/bin:/opt/homebrew/bin:/home/chubes/.opencode/bin:/home/chubes/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>KIMAKI_DATA_DIR</key>
         <string>/home/chubes/.kimaki</string>
+        <key>DATAMACHINE_SITE_PATH</key>
+        <string>/var/www/site</string>
     </dict>
 </dict>
 </plist>

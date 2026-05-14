@@ -43,6 +43,7 @@ interface DmPaths {
 const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async (config) => {
+      const sitePath = getSitePath();
       const wpAvailable = await $`command -v wp`.quiet().nothrow();
       if (wpAvailable.exitCode !== 0) {
         return;
@@ -55,13 +56,17 @@ const dmAgentSync: Plugin = async ({ $ }) => {
       // edits, or other external processes would leave AGENTS.md stale.
       // Running compose here guarantees the file matches live state at the
       // moment OpenCode loads the session prompt.
-      const composeResult = await $`wp datamachine memory compose --allow-root`.quiet().nothrow();
+      const composeResult = sitePath
+        ? await $`wp --path=${sitePath} datamachine memory compose --allow-root`.quiet().nothrow()
+        : await $`wp datamachine memory compose --allow-root`.quiet().nothrow();
       if (composeResult.exitCode !== 0) {
         console.warn(`[dm-agent-sync] memory compose failed (exit ${composeResult.exitCode}): ${await shellOutputText(composeResult)}`);
       }
 
       // Query all agents from Data Machine.
-      const agentsResult = await $`wp datamachine agents list --format=json --allow-root`.quiet().nothrow();
+      const agentsResult = sitePath
+        ? await $`wp --path=${sitePath} datamachine agents list --format=json --allow-root`.quiet().nothrow()
+        : await $`wp datamachine agents list --format=json --allow-root`.quiet().nothrow();
       if (agentsResult.exitCode !== 0) {
         console.warn(`[dm-agent-sync] agents list failed (exit ${agentsResult.exitCode}): ${await shellOutputText(agentsResult)}`);
         return;
@@ -89,7 +94,9 @@ const dmAgentSync: Plugin = async ({ $ }) => {
           continue;
         }
 
-        const pathsResult = await $`wp datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root`.quiet().nothrow();
+        const pathsResult = sitePath
+          ? await $`wp --path=${sitePath} datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root`.quiet().nothrow()
+          : await $`wp datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root`.quiet().nothrow();
         if (pathsResult.exitCode !== 0) {
           console.warn(`[dm-agent-sync] memory paths failed for ${agent.agent_slug} (exit ${pathsResult.exitCode}): ${await shellOutputText(pathsResult)}`);
           continue;
@@ -108,9 +115,10 @@ const dmAgentSync: Plugin = async ({ $ }) => {
           continue;
         }
 
+        const promptRoot = sitePath || ".";
         const prompt = [
-          "{file:./AGENTS.md}",
-          ...paths.relative_files.map((f: string) => `{file:./${f}}`),
+          `{file:${promptRoot}/AGENTS.md}`,
+          ...paths.relative_files.map((f: string) => `{file:${promptRoot}/${f}}`),
         ].join("\n");
 
         const agentModel =
@@ -160,6 +168,10 @@ const dmAgentSync: Plugin = async ({ $ }) => {
     },
   };
 };
+
+function getSitePath(): string {
+  return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || "";
+}
 
 /**
  * Populate build/plan defaults without clobbering user-authored fields.

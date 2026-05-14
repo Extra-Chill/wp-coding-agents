@@ -9,6 +9,7 @@ WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
 Environment=PATH=/usr/bin:/usr/local/bin:/bin
 Environment=KIMAKI_DATA_DIR=/home/chubes/.kimaki
+Environment=DATAMACHINE_SITE_PATH=/var/www/site
 # Reap stray opencode-serve children left behind by the previous kimaki
 # process before starting a fresh one. Each kimaki session spawns its own
 # opencode-serve worker; if kimaki exits uncleanly (crash, OOM, manual
