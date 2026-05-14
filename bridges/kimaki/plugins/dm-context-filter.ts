@@ -10,13 +10,9 @@
 //    site on VPS). Tunnels are task-specific for inbound public URLs like
 //    webhooks/OAuth callbacks, not the default way to interact with the site.
 // 3. Critique — ~900 tokens of diff-sharing instructions. We use GitHub PRs.
-// 4. Worktree creation — ~150 tokens. We use feature branches in workspace repos.
-// 5. Cross-project commands — ~200 tokens. Single-project fleet servers.
-// 6. Waiting for sessions — ~150 tokens. Rarely used, discoverable via --help.
-// 7. Session/workspace conflicts — Kimaki's generic session, project, agent,
-//    and worktree docs describe Kimaki as the workspace orchestrator. On a Data
-//    Machine install, Data Machine Code owns workspace creation and Kimaki is
-//    the Discord/session bridge.
+// 4. Waiting for sessions — ~150 tokens. Rarely used, discoverable via --help.
+// 5. Session/workspace conflicts — generic Kimaki agent override examples can
+//    bypass the Data Machine-bound default agent slot.
 // 8. Permissions — ~80 tokens describing which Discord roles can message the
 //    bot. The agent has no capability to act on this; pure metadata leakage.
 // 9. Upgrading kimaki — ~80 tokens of /upgrade-and-restart playbook. The user
@@ -25,13 +21,7 @@
 //    --project` / `session search --channel <id>`. These are cross-project
 //    discovery vectors; on a single-project fleet server the agent only ever
 //    needs to list sessions in the current project (no flags required).
-// 11. Project discovery/guidance inlines — scattered prose and examples for
-//    `kimaki project list|add|create`, `kimaki send --project`, bare
-//    `kimaki send --channel <channel_id>`, `#project-name` resolution, and
-//    "project channel" routing. These let the agent discover other Discord
-//    channels and route minion sessions away from the current thread. See
-//    Extra-Chill/data-machine-code#49.
-// 12. Agent override inlines — `--agent <current_agent>` examples from the
+// 11. Agent override inlines — `--agent <current_agent>` examples from the
 //    generic Kimaki prompt. On DM-managed sites the Discord channel owns the
 //    personal-agent binding; passing the runtime agent (for example `opencode`)
 //    bypasses that binding and starts the wrong kind of minion session.
@@ -50,10 +40,6 @@
 // 8. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
 //    injects a condensed TOC. Conflicts with Data Machine's own memory files.
 // 9. "Update MEMORY.md" time-gap reminder — Redundant with external memory system.
-// 10. Worktree system-reminder — Kimaki injects a <system-reminder> telling the
-//     agent to operate inside its worktree and not touch the main repo. This
-//     overrides Data Machine Code's workspace, which is the real working dir.
-//
 // Total savings: ~2,400+ tokens per session.
 //
 // How to use:
@@ -75,10 +61,7 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "## upgrading kimaki");
         result = stripSection(result, "## scheduled sends and task management");
         result = stripSection(result, "## running dev servers with tunnel access");
-        result = stripSection(result, "## starting new sessions from CLI");
-        result = stripSection(result, "## creating worktrees");
         result = stripSection(result, "## worktree");
-        result = stripSection(result, "## cross-project commands");
         result = stripSection(result, "## reading other sessions");
         result = stripSection(result, "## waiting for a session to finish");
         result = stripSection(result, "## running opencode commands via kimaki send");
@@ -88,8 +71,6 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "### always show diff at end of session");
         result = stripSection(result, "### fetching user comments from critique diffs");
         result = stripSection(result, "### reviewing diffs with AI");
-        result = stripWorktreeInlines(result);
-        result = stripProjectDiscoveryInlines(result);
         result = stripAgentOverrideInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
@@ -97,8 +78,7 @@ const fleetContextFilter: Plugin = async () => {
       });
     },
 
-    // Filter out Kimaki's MEMORY.md injection, time-gap MEMORY.md reminders,
-    // and worktree system-reminders.
+    // Filter out Kimaki's MEMORY.md injection and time-gap MEMORY.md reminders.
     "chat.message": async (_input, output) => {
       // Walk backwards so splice indices stay valid.
       for (let i = output.parts.length - 1; i >= 0; i--) {
@@ -123,12 +103,6 @@ const fleetContextFilter: Plugin = async () => {
           continue;
         }
 
-        // Remove Kimaki's worktree system-reminder. Data Machine Code manages
-        // the real working directory; Kimaki's reminder conflicts with it.
-        if (text.includes("running inside a git worktree")) {
-          output.parts.splice(i, 1);
-          continue;
-        }
       }
     },
   };
@@ -188,159 +162,6 @@ function stripSection(block: string, heading: string): string {
 }
 
 /**
- * Remove inline worktree/--worktree/--cwd content that lives inside sections
- * we otherwise want to keep (like "## starting new sessions from CLI") or
- * as standalone paragraphs between sections.
- *
- * These exist because Kimaki assumes worktrees are a first-class feature, but
- * Data Machine Code owns the workspace and worktrees on DM-managed sites.
- * Leaving the language in causes the agent to try `kimaki send --worktree`
- * or treat a Kimaki worktree as its working directory instead of using the
- * DM Code workspace.
- *
- * @param {string} block System prompt block.
- * @return {string} System prompt block without worktree inline guidance.
- */
-function stripWorktreeInlines(block: string): string {
-  let result = block;
-
-  // Standalone lead-in paragraph that sits above the (stripped) "## creating
-  // worktrees" section. After the section is stripped, this line is orphaned.
-  result = result.replace(
-    /\n+Worktrees are useful for handing off parallel tasks[^\n]*\n/g,
-    "\n"
-  );
-
-  // Inline "IMPORTANT: NEVER use --worktree" warning inside
-  // "## starting new sessions from CLI".
-  result = result.replace(
-    /\n+IMPORTANT: NEVER use `--worktree`[^\n]*\n/g,
-    "\n"
-  );
-
-  // "Use --worktree to create a git worktree for the session..." example block.
-  // Covers the intro line, the code example, and trailing blank line.
-  result = result.replace(
-    /\n+Use --worktree to create a git worktree[\s\S]*?--worktree [^\n]*\n/g,
-    "\n"
-  );
-
-  // "Use --cwd to start a session in an existing git worktree..." example block.
-  result = result.replace(
-    /\n+Use --cwd to start a session in an existing git worktree[\s\S]*?--cwd [^\n]*\n/g,
-    "\n"
-  );
-
-  // "Important:" bullet list about --worktree that follows the examples above.
-  // Only strip if the list is clearly about worktrees (first bullet mentions it).
-  result = result.replace(
-    /\n+Important:\n(?:- [^\n]*\n)*?- NEVER use `--worktree`[^\n]*\n(?:- [^\n]*\n)*/g,
-    "\n"
-  );
-
-  return result;
-}
-
-/**
- * Remove project / channel discovery guidance that survives section stripping.
- *
- * The system prompt bakes the current channel ID into most `kimaki send`
- * examples via `${channelId}`, which is the safe/correct form for this
- * session. But several other forms leak the *capability* to target other
- * channels or projects:
- *
- *   - `kimaki project list|add|create` — enumerates every registered project
- *     with its Discord channel ID.
- *   - `kimaki send --project <dir>` — resolves a channel from a project dir.
- *   - `kimaki send --channel <channel_id>` with a literal `<channel_id>`
- *     placeholder (as opposed to the baked-in current-channel ID) — teaches
- *     the agent it can pick a channel freely.
- *   - `#project-name` / "project channel" prose — teaches the agent to treat
- *     repo/project channels as valid routing targets.
- *
- * On DM-managed sites the current Discord thread is the only correct target
- * for minion sessions. Cross-repo work uses DM Code's workspace worktrees,
- * not cross-channel kimaki sends. See Extra-Chill/data-machine-code#49.
- *
- * We keep `${channelId}` examples untouched — those are the intended,
- * session-scoped forms.
- *
- * @param {string} block System prompt block.
- * @return {string} System prompt block without project discovery guidance.
- */
-function stripProjectDiscoveryInlines(block: string): string {
-  let result = block;
-
-  // If upstream renames the cross-project section, strip its distinctive prose
-  // before deleting leftover command lines below.
-  result = result.replace(
-    /\n+When the user references another project by name,[\s\S]*?root project directories\.\n/g,
-    "\n"
-  );
-
-  result = result.replace(
-    /\n+When the user uses `#project-name` syntax,[\s\S]*?before acting,[^\n]*\n/g,
-    "\n"
-  );
-
-  result = result.replace(
-    /\n+To send a task to another project:[\s\S]*?(?=\n\S|$)/g,
-    "\n"
-  );
-
-  result = result.replace(
-    /\n+When sending prompts to other projects,[^\n]*\n/g,
-    "\n"
-  );
-
-  // Standalone `kimaki project ...` commands on their own lines (inside any
-  // surviving section or orphaned between sections). Covers list|add|create.
-  result = result.replace(
-    /\n+kimaki project (?:list|add|create)[^\n]*\n/g,
-    "\n"
-  );
-
-  // `kimaki send --project /path/...` bash examples, as full lines.
-  result = result.replace(
-    /\n+kimaki send --project [^\n]*\n/g,
-    "\n"
-  );
-
-  // `kimaki send --channel <channel_id> ...` examples that use the literal
-  // placeholder `<channel_id>` rather than the baked-in session channel.
-  // The `${channelId}` form is template-substituted before this plugin runs,
-  // so by the time we see the prompt the current channel is already a
-  // concrete numeric ID — it will not match `<channel_id>` and stays intact.
-  result = result.replace(
-    /\n+kimaki send --channel <channel_id>[^\n]*\n/g,
-    "\n"
-  );
-
-  // Matching `kimaki session search "..." --channel <channel_id>` examples.
-  result = result.replace(
-    /\n+kimaki session search [^\n]*--channel <channel_id>[^\n]*\n/g,
-    "\n"
-  );
-
-  // Any remaining `--project /path/...` flag usage in inline prose or code
-  // blocks. Conservative: only strip whole lines where the flag is the
-  // dominant content (starts with command + --project).
-  result = result.replace(
-    /\n+kimaki (?:session|task) [^\n]*--project [^\n]*\n/g,
-    "\n"
-  );
-
-  // Remove any whole-line project-routing prose that may survive if Kimaki
-  // changes surrounding headings or examples.
-  result = result.replace(
-    /\n+[^\n]*(?:project channel|cross-project|#project-name|other project|another project)[^\n]*\n/gi,
-    "\n"
-  );
-
-  return result;
-}
-
-/**
  * Remove generic Kimaki agent override examples from surviving sections.
  *
  * On Data Machine-managed sites the Discord channel selects the personal
@@ -368,8 +189,8 @@ function stripAgentOverrideInlines(block: string): string {
     "\n"
   );
 
-  // Surviving `kimaki send` examples should rely on channel routing. This
-  // keeps examples usable while removing the footgun.
+  // Surviving `kimaki send` examples should rely on channel routing and the
+  // Data Machine-bound default agent slot.
   result = result.replace(/ --agent <current_agent>/g, "");
 
   return result;

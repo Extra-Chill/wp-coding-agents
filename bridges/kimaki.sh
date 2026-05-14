@@ -174,7 +174,8 @@ _kimaki_install_systemd() {
 
   local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$PATH_VALUE
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
+Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
   if [ -n "$KIMAKI_BOT_TOKEN" ]; then
     ENV_BLOCK="$ENV_BLOCK
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
@@ -398,7 +399,8 @@ bridge_update_systemd() {
 
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$PATH_VALUE
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
+Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
 
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
@@ -528,7 +530,9 @@ bridge_render_launchd() {
         <key>PATH</key>
         <string>$path_value</string>
         <key>KIMAKI_DATA_DIR</key>
-        <string>$KIMAKI_DATA_DIR</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
+        <string>$KIMAKI_DATA_DIR</string>
+        <key>DATAMACHINE_SITE_PATH</key>
+        <string>$SITE_PATH</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
         <string>$KIMAKI_BOT_TOKEN</string>"; fi)
     </dict>

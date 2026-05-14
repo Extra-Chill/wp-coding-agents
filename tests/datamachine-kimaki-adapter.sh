@@ -32,18 +32,6 @@ if actual != expected:
 PY
 }
 
-assert_fails_without_call() {
-  rm -f "$CALL_LOG"
-  if "$ADAPTER" "$@" >"$TMP/stdout" 2>"$TMP/stderr"; then
-    echo "expected adapter failure for: $*" >&2
-    exit 1
-  fi
-  if [[ -f "$CALL_LOG" ]]; then
-    echo "real kimaki should not have been called for: $*" >&2
-    exit 1
-  fi
-}
-
 "$ADAPTER" send --prompt hi --agent opencode
 assert_args send --prompt hi --agent build
 
@@ -54,19 +42,19 @@ assert_args send --prompt hi --agent build
 assert_args send --prompt hi --agent build
 
 "$ADAPTER" send --prompt hi --cwd /tmp/elsewhere
-assert_args send --prompt hi
+assert_args send --prompt hi --cwd /tmp/elsewhere
 
 "$ADAPTER" send --prompt hi --cwd=/tmp/elsewhere --agent opencode
-assert_args send --prompt hi --agent build
+assert_args send --prompt hi --cwd=/tmp/elsewhere --agent build
 
 "$ADAPTER" send --prompt hi --agent --model anthropic/test
 assert_args send --prompt hi --agent build --model anthropic/test
 
 "$ADAPTER" send --prompt hi --cwd --model anthropic/test
-assert_args send --prompt hi --model anthropic/test
+assert_args send --prompt hi --cwd --model anthropic/test
 
-assert_fails_without_call send --prompt hi --worktree feature-x
-grep -q 'Native Kimaki worktrees are disabled' "$TMP/stderr"
+"$ADAPTER" send --prompt hi --worktree feature-x
+assert_args send --prompt hi --worktree feature-x
 
 "$ADAPTER" session list --project /tmp/site
 assert_args session list --project /tmp/site
@@ -78,6 +66,6 @@ mkdir -p "$shim_dir" "$real_dir"
 cp "$ADAPTER" "$shim_dir/kimaki"
 cp "$REAL_KIMAKI" "$real_dir/kimaki"
 PATH="$shim_dir:$real_dir:$PATH" "$shim_dir/kimaki" send --prompt hi --agent opencode --cwd /tmp/site
-assert_args send --prompt hi --agent build
+assert_args send --prompt hi --agent build --cwd /tmp/site
 
-echo "OK: datamachine-kimaki adapter normalizes Kimaki send flags"
+echo "OK: datamachine-kimaki adapter normalizes agent send flags"

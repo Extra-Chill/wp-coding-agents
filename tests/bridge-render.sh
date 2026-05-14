@@ -88,7 +88,8 @@ kimaki_env_block() {
   path_value=$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
   local out="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$path_value
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR"
+Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
   if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then
     out="$out
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
