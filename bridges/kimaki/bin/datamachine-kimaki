@@ -10,7 +10,7 @@ Data Machine compatibility adapter for Kimaki.
 
 In Data Machine mode, Kimaki is the Discord transport while Data Machine owns
 agent identity and site-root memory. This adapter normalizes the Kimaki `send`
-agent footgun before delegating to the real Kimaki binary:
+agent slot before delegating to the real Kimaki binary:
 
   send --agent <anything>  -> send --agent build
 

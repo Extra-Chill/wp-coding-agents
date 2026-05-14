@@ -189,8 +189,8 @@ function stripAgentOverrideInlines(block: string): string {
     "\n"
   );
 
-  // Surviving `kimaki send` examples should rely on channel routing. This
-  // keeps examples usable while removing the footgun.
+  // Surviving `kimaki send` examples should rely on channel routing and the
+  // Data Machine-bound default agent slot.
   result = result.replace(/ --agent <current_agent>/g, "");
 
   return result;
