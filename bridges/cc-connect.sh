@@ -41,6 +41,43 @@ bridge_install() {
   else
     _cc_connect_install_systemd
   fi
+
+  _cc_connect_register_cli_channel
+}
+
+# _cc_connect_register_cli_channel
+#
+# Register cc-connect with the Data Machine Code CLI transport runtime.
+#
+# `recipient` semantics: cc-connect routes outgoing `send` commands through
+# its currently-active project/session as configured in $CC_DATA_DIR/config.toml
+# (which can bind multiple platforms — Feishu, DingTalk, Slack, Telegram,
+# Discord, etc.). cc-connect's documented `send` subcommand (v1.3.x) takes
+# a message body and optional --image/--file flags; it does NOT accept an
+# explicit `--channel` / `--recipient` flag — the destination is determined
+# by the binding in config.toml. We therefore pass `recipient` to the
+# `--project` flag, which is a defensible assumption: a project name is the
+# closest analogue to a routable address in cc-connect's model. Operators
+# who only run a single project can ignore the value entirely.
+#
+# Follow-up: validate against cc-connect upstream
+# (https://github.com/chenhg5/cc-connect). If `--project` is not supported,
+# downgrade the argv to `["send","{message}"]` and document that recipient
+# is informational only.
+_cc_connect_register_cli_channel() {
+  local cmd
+  if [ -n "${CC_BIN:-}" ]; then
+    cmd="$CC_BIN"
+  else
+    cmd="$(command -v cc-connect 2>/dev/null || echo cc-connect)"
+  fi
+
+  cli_channel_register \
+    "cc-connect" \
+    "$cmd" \
+    '["send","--project","{recipient}","{message}"]' \
+    "true" \
+    "600"
 }
 
 _cc_connect_write_config() {
@@ -131,6 +168,12 @@ bridge_sync_config() {
   fi
   log "  To update upstream:  npm update -g cc-connect"
   log "  User config (never touched):  \$CC_DATA_DIR/config.toml (defaults to \$HOME/.cc-connect/config.toml)"
+
+  # Resolve CC_BIN so the channel registration uses the actual path on this host.
+  if [ -z "${CC_BIN:-}" ]; then
+    CC_BIN=$(command -v cc-connect 2>/dev/null || echo "cc-connect")
+  fi
+  _cc_connect_register_cli_channel
 }
 
 # ============================================================================
