@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.0.0] - 2026-05-16
+
+### Added
+- Outbound chat-bridge dispatch via `agents/dispatch-message` (#130). Each
+  chat bridge (`kimaki`, `cc-connect`, `telegram`) now writes a marker-
+  delimited block to `wp-content/mu-plugins/wp-coding-agents-channels.php`
+  during install and on every upgrade, registering a channel → command +
+  argv template entry consumed by Data Machine Code's generic CLI transport
+  runtime (Extra-Chill/data-machine-code#412, shipped in DMC v0.44.0). With
+  this in place a Data Machine flow can call `agents/dispatch-message` with
+  `channel='kimaki'` (or `cc-connect`, or `telegram`) and the runtime shells
+  the configured command — no HTTP webhook, no nginx hop, no sidecar process.
+- `lib/cli-channel.sh`: idempotent mu-plugin registrar with per-bridge block
+  markers, atomic rewrite, optional dry-run, and shell-safe substitution of
+  `{recipient}`, `{message}`, `{conversation_id}`, `{channel}`.
+- README section "Outbound Dispatch" documents the integration model, what
+  `recipient` means per bridge, and the manual migration runbook for retiring
+  any legacy ad-hoc agent-ping webhooks.
+
+### Changed
+- `bridges/kimaki.sh`, `bridges/cc-connect.sh`, `bridges/telegram.sh` each
+  call their respective `_<name>_register_cli_channel` at install time and
+  on `bridge_sync_config` (upgrade-time), so the resolved command path and
+  any captured credentials stay fresh across npm-global moves and rotations.
+- `setup.sh` and `upgrade.sh` load the new `lib/cli-channel.sh` module.
+- Kimaki bridge: normalize `kimaki send` flag set for Data Machine compat (#121),
+  allow native worktree routing through dm-context-filter (#128), make the
+  context filter strip-only (#119), prefer the command shim in launchd
+  sessions (#122), point opencode plugin paths at persistent config (#124),
+  use durable local plugin paths (#123), stop installing redundant external
+  skills (#127), and clarify agent slot normalization in dm-context-filter
+  docs (#3f40caf).
+
 ## [0.9.0] - 2026-05-04
 
 ### Removed
