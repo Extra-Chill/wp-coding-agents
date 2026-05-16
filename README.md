@@ -345,6 +345,82 @@ Optional:
 
 Credentials are stored in `~/.config/opencode-telegram-bot/.env` (chmod 600). You can set them as environment variables during setup or edit the file after install.
 
+## Outbound Dispatch (`agents/dispatch-message`)
+
+Each chat bridge installed by wp-coding-agents registers itself as a **CLI channel** with the Data Machine Code generic CLI transport runtime (Extra-Chill/data-machine-code#412). That runtime backs the `agents/dispatch-message` ability, so Data Machine flows can push messages out to whatever platform your bridge speaks — without bespoke webhooks, without HTTP detours, without per-bridge plumbing in DMC itself.
+
+### How it wires up
+
+On install (and every `upgrade.sh` run), each bridge writes its channel config into a mu-plugin file at:
+
+```
+$WP_PATH/wp-content/mu-plugins/wp-coding-agents-channels.php
+```
+
+The file is owned end-to-end by bridge installers: it is created on first registration, each bridge contributes a marker-delimited block (`// BEGIN bridge:<name>` … `// END bridge:<name>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via the `datamachine_code_cli_channels` filter:
+
+```php
+$channels['kimaki'] = [
+    'command' => '/usr/local/bin/datamachine-kimaki',
+    'args'    => [ 'send', '--channel', '{recipient}', '--prompt', '{message}' ],
+    'detach'  => true,
+    'timeout' => 600,
+];
+```
+
+At dispatch time the runtime substitutes `{recipient}` and `{message}` and shells the configured command. No HTTP hop, no nginx detour, no Python.
+
+### Channel names + recipient semantics
+
+| Bridge          | Channel name | `recipient` is…                              | `message` is…                |
+|-----------------|--------------|----------------------------------------------|------------------------------|
+| `bridges/kimaki.sh`     | `kimaki`     | Discord channel ID (numeric string)          | Prompt body delivered to the agent in that channel |
+| `bridges/cc-connect.sh` | `cc-connect` | cc-connect project name (from `config.toml`) | Message body sent via `cc-connect send` |
+| `bridges/telegram.sh`   | `telegram`   | Telegram chat ID (numeric, user or group)    | Message body posted via Telegram's `sendMessage` Bot API |
+
+A flow step calling the ability looks like:
+
+```
+agents/dispatch-message
+  channel:   'kimaki'
+  recipient: '1476075959806590989'
+  message:   'Time for your check-in.'
+```
+
+### Bridge-specific notes
+
+- **kimaki** registers the local `datamachine-kimaki` adapter shim wp-coding-agents installs alongside the kimaki binary. The shim normalises Kimaki send flags across versions. If it isn't on disk yet (very early installs), the bridge falls back to the resolved global `kimaki` binary.
+- **cc-connect** assumes `cc-connect send` accepts `--project <name> <message>`. cc-connect routes outgoing messages through its currently-bound platform per project (Feishu/DingTalk/Slack/Telegram/Discord/etc.), so `recipient` is the cc-connect project, not a raw chat ID. **Assumption to validate against upstream:** if `--project` is unsupported, the argv collapses to `["send","{message}"]` and `recipient` becomes informational only. Tracked alongside Extra-Chill/wp-coding-agents#129.
+- **telegram** is the odd one out. `opencode-telegram-bot` is inbound-only (polls Telegram, forwards to a local opencode server); it has no outbound `send` subcommand. To preserve the channel/recipient model, the bridge registers `curl` against Telegram's `sendMessage` Bot API with `TELEGRAM_BOT_TOKEN` baked in. `recipient` is a Telegram chat ID. The token is captured at install/upgrade time from the existing bot `.env` if not in the current shell — rotating the token requires re-running `upgrade.sh` so the channel config picks up the new value.
+
+### Migrating from the legacy `agent-ping` webhook
+
+Earlier wp-coding-agents installs on Extra Chill's VPS shipped an out-of-band Python webhook at `/opt/agent-ping-webhook/` that POSTed to a local HTTP listener and shelled `kimaki send`. Once the CLI-channel runtime (Extra-Chill/data-machine-code#412) and these bridge registrations are deployed, that stack is dead weight — the same dispatch goes through `agents/dispatch-message` with no HTTP hop.
+
+Retirement is a one-time manual cleanup. There is no helper script: this stack only exists on one host, and shipping permanent automation for a one-shot deletion would be technical debt for an experimental feature. On a host that has the legacy stack:
+
+1. **Reconfigure the dispatch flow first.** Edit the data-machine flow that was POSTing to `https://<site>/agent-ping/` to instead invoke `agents/dispatch-message` with `channel='kimaki'` and `recipient='<discord-channel-id>'`. Run it manually (`wp datamachine flow run <id>`) and confirm the message lands.
+2. **Disable and remove the systemd unit.**
+   ```bash
+   sudo systemctl disable --now agent-ping-webhook.service
+   sudo rm /etc/systemd/system/agent-ping-webhook.service
+   sudo systemctl daemon-reload
+   ```
+3. **Remove the webhook directory.**
+   ```bash
+   sudo rm -rf /opt/agent-ping-webhook/
+   ```
+4. **Drop the `location /agent-ping/` block from your nginx site config** (e.g. `/etc/nginx/sites-available/<site>`), then:
+   ```bash
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+5. **Free the local port (8422 in the EC setup) and remove the token file.**
+   ```bash
+   sudo rm -f /home/opencode/.secrets/agent-ping-token.txt
+   ```
+
+After this, the only outbound message path is `agents/dispatch-message` → DMC CLI runtime → bridge CLI. If you weren't running the legacy webhook to begin with (every install of wp-coding-agents from v0.5.x onward), skip the migration entirely — the bridge registrations land on a clean disk.
+
 ## Requirements
 
 **VPS:**
