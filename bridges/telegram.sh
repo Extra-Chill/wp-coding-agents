@@ -103,6 +103,50 @@ LOG_LEVEL=info"
   else
     _telegram_install_systemd
   fi
+
+  _telegram_register_cli_channel
+}
+
+# _telegram_register_cli_channel
+#
+# Register telegram with the Data Machine Code CLI transport runtime.
+#
+# Mismatch caveat: opencode-telegram-bot is a long-running INBOUND bot — it
+# polls Telegram for incoming messages and forwards them to a local opencode
+# server. It has no `send` CLI subcommand for pushing outbound messages on
+# behalf of agents/dispatch-message. To preserve the channel/recipient
+# routing model anyway, this bridge registers `curl` against Telegram's
+# sendMessage Bot API, parameterised with the same TELEGRAM_BOT_TOKEN the bot
+# already uses. `recipient` is the Telegram chat ID (numeric, e.g. a user ID
+# from @userinfobot or a group chat ID). `message` is the message body.
+#
+# Documented assumptions:
+#   - TELEGRAM_BOT_TOKEN is set in the environment at register time (it is,
+#     because bridge_install requires it). The token is baked into the
+#     `command` URL fragment for simplicity; rotation requires re-running
+#     setup / upgrade.
+#   - `curl` is available on the host. Every supported VPS distro ships it
+#     by default; if absent on a custom box the dispatch will fail loudly,
+#     which is acceptable for a not-yet-shipped runtime.
+#   - We do NOT shell out to opencode-telegram-bot for outbound — that bot's
+#     job is the inbound side, and conflating the two via a single CLI would
+#     require upstream changes we don't control.
+_telegram_register_cli_channel() {
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    warn "  TELEGRAM_BOT_TOKEN not set — skipping CLI-channel registration for telegram"
+    warn "  Re-run setup/upgrade with TELEGRAM_BOT_TOKEN exported once configured"
+    return 0
+  fi
+
+  local curl_bin
+  curl_bin=$(command -v curl 2>/dev/null || echo "/usr/bin/curl")
+
+  cli_channel_register \
+    "telegram" \
+    "$curl_bin" \
+    "[\"-sS\",\"-X\",\"POST\",\"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage\",\"--data-urlencode\",\"chat_id={recipient}\",\"--data-urlencode\",\"text={message}\"]" \
+    "true" \
+    "60"
 }
 
 _telegram_install_launchd() {
@@ -180,6 +224,17 @@ bridge_sync_config() {
   log "  User env files (never touched):"
   log "    \$HOME/.config/opencode-serve.env"
   log "    \$HOME/.config/opencode-telegram-bot/.env"
+
+  # Re-read TELEGRAM_BOT_TOKEN from the bot .env if not in current env; the
+  # upgrade path typically runs without secrets in env, but the .env file is
+  # the durable source.
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    local tg_env="$SERVICE_HOME/.config/opencode-telegram-bot/.env"
+    if [ -r "$tg_env" ]; then
+      TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$tg_env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r')
+    fi
+  fi
+  _telegram_register_cli_channel
 }
 
 # ============================================================================

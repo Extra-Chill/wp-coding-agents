@@ -55,6 +55,37 @@ bridge_install() {
   fi
 
   _kimaki_sync_bin_helpers
+  _kimaki_register_cli_channel
+}
+
+# _kimaki_register_cli_channel
+#
+# Register kimaki with the Data Machine Code CLI transport runtime so that
+# `agents/dispatch-message` (substrate: Automattic/agents-api) can deliver
+# messages to Discord channels by shelling kimaki. `recipient` is the Discord
+# channel ID (numeric string) the message is delivered to. `message` is the
+# message body.
+#
+# We register the local-mode adapter shim (`datamachine-kimaki`) installed by
+# _kimaki_sync_bin_helpers; it normalises Kimaki send flags across versions.
+# Falls back to the resolved global `kimaki` binary if the adapter isn't on
+# disk yet (early VPS installs predating the adapter shim).
+_kimaki_register_cli_channel() {
+  local cmd
+  if [ -n "${RESOLVED_DATAMACHINE_KIMAKI:-}" ] && [ -x "$RESOLVED_DATAMACHINE_KIMAKI" ]; then
+    cmd="$RESOLVED_DATAMACHINE_KIMAKI"
+  elif [ -n "${KIMAKI_BIN:-}" ]; then
+    cmd="$KIMAKI_BIN"
+  else
+    cmd="$(command -v kimaki 2>/dev/null || echo kimaki)"
+  fi
+
+  cli_channel_register \
+    "kimaki" \
+    "$cmd" \
+    '["send","--channel","{recipient}","--prompt","{message}"]' \
+    "true" \
+    "600"
 }
 
 _kimaki_sync_bin_helpers() {
@@ -364,6 +395,10 @@ bridge_sync_config() {
       fi
     fi
   fi
+
+  # Refresh the CLI-channel registration so DMC's dispatch runtime picks up
+  # the latest adapter path (npm-global moves between hosts).
+  _kimaki_register_cli_channel
 
   log "  Done."
 
