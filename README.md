@@ -421,6 +421,59 @@ Retirement is a one-time manual cleanup. There is no helper script: this stack o
 
 After this, the only outbound message path is `agents/dispatch-message` → DMC CLI runtime → bridge CLI. If you weren't running the legacy webhook to begin with (every install of wp-coding-agents from v0.5.x onward), skip the migration entirely — the bridge registrations land on a clean disk.
 
+## Worktree Session Attribution (Runtime Signatures)
+
+When a coding-agent session asks Data Machine Code to create a worktree, DMC captures **origin-session metadata** so the worktree carries a breadcrumb back to the session that spawned it (Discord thread URL, opencode session ID, run ID, etc.). DMC reads that metadata from environment variables the runtime sets on the worktree-creating process.
+
+The env-var names are vendor-specific (`KIMAKI_SESSION_ID`, `OPENCODE_SESSION_ID`, `OPENCODE_RUN_ID`, …) so DMC cannot enumerate them without knowing about kimaki and opencode — a layer-purity violation per the platform's coding rules. The fix (Extra-Chill/data-machine-code#416) moves the env-var → field map out of DMC into a filter:
+
+```php
+apply_filters( 'datamachine_code_worktree_runtime_signatures', [] );
+```
+
+wp-coding-agents is the integration layer that knows about kimaki and opencode — it installs both, writes the systemd units that pass those env vars into the spawned processes, and is the only honest place those brand names live. So **wp-coding-agents owns the registration.**
+
+### How it wires up
+
+On install (and every `upgrade.sh` run), each runtime/bridge writes its signature into a mu-plugin file at:
+
+```
+$WP_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php
+```
+
+The file is owned end-to-end by wp-coding-agents installers: created on first registration, each runtime contributes a marker-delimited block (`// BEGIN runtime:<id>` … `// END runtime:<id>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via the filter:
+
+```php
+$signatures['kimaki'] = [
+    'session_id' => 'KIMAKI_SESSION_ID',
+    'thread_id'  => 'KIMAKI_THREAD_ID',
+    'thread_url' => 'KIMAKI_THREAD_URL',
+];
+
+$signatures['opencode'] = [
+    'session_id' => 'OPENCODE_SESSION_ID',
+    'run_id'     => 'OPENCODE_RUN_ID',
+];
+```
+
+DMC reads the map, walks each runtime's subkeys, and sniffs the named env vars at worktree-create time. The subkey set is open — DMC does not validate against a closed schema. Conventional subkeys are `session_id`, `thread_id`, `thread_url`, `run_id`; integrations may add more.
+
+### Registered signatures
+
+| Runtime ID  | Subkey       | Env var                | What it identifies                                  |
+|-------------|--------------|------------------------|-----------------------------------------------------|
+| `kimaki`    | `session_id` | `KIMAKI_SESSION_ID`    | Kimaki session (1:1 with a Discord thread)          |
+| `kimaki`    | `thread_id`  | `KIMAKI_THREAD_ID`     | Discord thread the session lives in                 |
+| `kimaki`    | `thread_url` | `KIMAKI_THREAD_URL`    | Deep link to that Discord thread                    |
+| `opencode`  | `session_id` | `OPENCODE_SESSION_ID`  | opencode session inside the kimaki/opencode runtime |
+| `opencode`  | `run_id`     | `OPENCODE_RUN_ID`      | Specific opencode run within that session           |
+
+Adding a new runtime is a one-liner: register a new block in the relevant `runtimes/<name>.sh` or `bridges/<name>.sh` via `runtime_signature_register <runtime_id> <signature_json>` (see `lib/runtime-signature.sh`).
+
+### Layer purity
+
+**The brand names live here on purpose.** wp-coding-agents is the integration plugin and the only place in the stack that should know about specific coding-agent runtimes. If you ever see DMC ship code that names `kimaki`, `opencode`, `KIMAKI_*`, or `OPENCODE_*` directly, **that is a layer-purity violation and should be filed against DMC, not patched here.** DMC must stay runtime-agnostic; vendor naming is wp-coding-agents' job.
+
 ## Requirements
 
 **VPS:**
