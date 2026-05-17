@@ -1,0 +1,8 @@
+# Diff-intermediate files written by tests/effective-prompt/run.mjs when
+# a snapshot mismatch occurs. They mirror the canonical .baseline.txt /
+# .filtered.txt / .raw.txt and are only useful for local inspection.
+#
+# The harness already cleans these up on a successful run; this file
+# keeps them out of git when a run fails and they are left in place
+# for debugging. See issue #134.
+*.actual

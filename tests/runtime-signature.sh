@@ -83,12 +83,32 @@ assert_php_lint() {
   fi
 }
 
+assert_mode_0644() {
+  local file="$1" name="$2"
+  local got
+  got=$(stat -c %a "$file")
+  if [ "$got" = "644" ]; then
+    echo "  ok   $name"
+  else
+    echo "  FAIL $name"
+    echo "    got:  $got"
+    echo "    want: 644"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
 # --- 1. Fresh scaffold + register kimaki -----------------------------------
-echo "==> register kimaki (fresh scaffold)"
-runtime_signature_register "kimaki" \
-  '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+# Use a hostile umask (matches root cron/systemd default 0077) to prove the
+# helper forces 0644 regardless of caller umask — see issue #133.
+echo "==> register kimaki (fresh scaffold, umask 077)"
+(
+  umask 077
+  runtime_signature_register "kimaki" \
+    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+)
 assert_file_exists "$MU_FILE" "mu-plugin created"
 assert_php_lint "$MU_FILE" "scaffold parses with php -l"
+assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after fresh write under umask 077"
 
 if grep -q "BEGIN runtime:kimaki" "$MU_FILE"; then
   echo "  ok   kimaki block present"
@@ -106,10 +126,14 @@ HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
 
 # --- 3. Add opencode without disturbing kimaki -----------------------------
-echo "==> register opencode (sibling block)"
+# Simulate a legacy 0600 file from a pre-#133 install. The next register call
+# must self-heal it back to 0644 via the mktemp+mv path.
+echo "==> simulate legacy 0600 file and verify self-heal on next register"
+chmod 0600 "$MU_FILE"
 runtime_signature_register "opencode" \
   '{"session_id":"OPENCODE_SESSION_ID","run_id":"OPENCODE_RUN_ID"}'
 assert_php_lint "$MU_FILE" "two-runtime file parses with php -l"
+assert_mode_0644 "$MU_FILE" "mu-plugin mode self-healed to 0644 after sibling register"
 
 if grep -q "BEGIN runtime:kimaki" "$MU_FILE" && grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
   echo "  ok   both runtime blocks present"
@@ -151,6 +175,7 @@ else
   FAILED=$((FAILED + 1))
 fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
+assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after unregister"
 
 # --- 6. Filter-shape end-to-end (php execution) ----------------------------
 echo "==> apply_filters returns the expected shape"
