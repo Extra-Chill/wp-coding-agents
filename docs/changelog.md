@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 2026-05-17
+
+### Added
+- register kimaki + opencode worktree runtime signatures
+
 ## [1.0.0] - 2026-05-16
 
 ### Added
