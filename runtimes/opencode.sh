@@ -11,6 +11,33 @@ runtime_install() {
   fi
 
   _remove_legacy_opencode_wrapper
+  _opencode_register_runtime_signature
+}
+
+# _opencode_register_runtime_signature
+#
+# Publish opencode's worktree session-attribution env-var contract for the
+# Data Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
+# opencode sets OPENCODE_SESSION_ID and OPENCODE_RUN_ID on processes it
+# spawns; DMC reads those at worktree-create time to record which opencode
+# session/run originated the worktree.
+#
+# Registered from runtime_install (setup-time) and from the legacy-wrapper-
+# removal phase in upgrade.sh, which is the upgrade-time entry point that
+# already sources runtimes/opencode.sh. Re-running is harmless: the writer
+# is idempotent and only mutates the mu-plugin file when the env-var map
+# actually differs.
+_opencode_register_runtime_signature() {
+  if ! declare -F runtime_signature_register >/dev/null; then
+    # The helper lives in lib/runtime-signature.sh, sourced by setup.sh and
+    # upgrade.sh. When this function is invoked outside those entry points
+    # (e.g. by a test that sources just runtimes/opencode.sh in isolation),
+    # silently skip — registration is not the runtime's primary job.
+    return 0
+  fi
+  runtime_signature_register \
+    "opencode" \
+    '{"session_id":"OPENCODE_SESSION_ID","run_id":"OPENCODE_RUN_ID"}'
 }
 
 # Remove any legacy wp-coding-agents-opencode-wrapper-v2 bash shim that prior

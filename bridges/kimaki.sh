@@ -56,6 +56,7 @@ bridge_install() {
 
   _kimaki_sync_bin_helpers
   _kimaki_register_cli_channel
+  _kimaki_register_runtime_signature
 }
 
 # _kimaki_register_cli_channel
@@ -86,6 +87,26 @@ _kimaki_register_cli_channel() {
     '["send","--channel","{recipient}","--prompt","{message}"]' \
     "true" \
     "600"
+}
+
+# _kimaki_register_runtime_signature
+#
+# Publish kimaki's worktree session-attribution env-var contract for the Data
+# Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
+# kimaki sets KIMAKI_SESSION_ID, KIMAKI_THREAD_ID, and KIMAKI_THREAD_URL on
+# the opencode-serve children it spawns (see Kimaki source). DMC reads those
+# env vars at worktree-create time to record which kimaki session originated
+# the worktree, what Discord thread the session lives in, and the deep link
+# to that thread.
+#
+# The registration is data, not config: the runtime ID 'kimaki' is what
+# wp-coding-agents *calls* the runtime here, and the env-var names are what
+# the kimaki binary actually sets. DMC stays naive — it doesn't know kimaki
+# exists; it just sniffs whatever env vars the filter map tells it to.
+_kimaki_register_runtime_signature() {
+  runtime_signature_register \
+    "kimaki" \
+    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
 }
 
 _kimaki_sync_bin_helpers() {
@@ -399,6 +420,11 @@ bridge_sync_config() {
   # Refresh the CLI-channel registration so DMC's dispatch runtime picks up
   # the latest adapter path (npm-global moves between hosts).
   _kimaki_register_cli_channel
+
+  # Refresh the worktree runtime-signature registration. Idempotent — only
+  # touches disk when the env-var map drifts (e.g. a new subkey is added in
+  # a future kimaki release).
+  _kimaki_register_runtime_signature
 
   log "  Done."
 

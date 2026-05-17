@@ -66,7 +66,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine homeboy skills cli-channel; do
+for lib in common detect wordpress data-machine homeboy skills cli-channel runtime-signature; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -663,6 +663,14 @@ remove_legacy_opencode_wrapper_phase() {
   fi
 
   _remove_legacy_opencode_wrapper
+
+  # Refresh the worktree runtime-signature registration so existing installs
+  # pick up the opencode entry on upgrade (and any future signature drift).
+  # Idempotent — only mutates the mu-plugin file when the env-var map
+  # actually differs from what is already on disk.
+  if declare -F _opencode_register_runtime_signature >/dev/null; then
+    _opencode_register_runtime_signature
+  fi
 }
 
 # ============================================================================
