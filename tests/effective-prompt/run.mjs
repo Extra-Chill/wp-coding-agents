@@ -42,7 +42,7 @@
 //
 // Exit code: 0 on success, 1 on any assertion failure.
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs"
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, unlinkSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -323,6 +323,17 @@ let failed = 0
 for (const r of results) {
   printResult(r)
   if (!r.skipped && r.failures.length > 0) failed++
+}
+
+// Clean up .actual diff intermediates on a fully successful run so they do
+// not litter the working tree (issue #134). On any failure, leave them in
+// place so the reviewer can diff against the canonical snapshot.
+if (failed === 0) {
+  for (const f of readdirSync(SNAPSHOT_DIR)) {
+    if (f.endsWith(".actual")) {
+      try { unlinkSync(join(SNAPSHOT_DIR, f)) } catch {}
+    }
+  }
 }
 
 console.log(`\n${"=".repeat(72)}`)
