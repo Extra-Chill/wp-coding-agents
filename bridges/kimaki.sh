@@ -2,17 +2,17 @@
 # bridges/kimaki.sh — Kimaki Discord bridge.
 #
 # Owns install (local launchd / VPS systemd / Linux-local manual), upgrade-time
-# config sync (plugins, post-upgrade.sh, skills kill-list, regression test),
+# config sync (plugins, post-upgrade.sh, skill filters, regression test),
 # systemd + launchd template rendering, summary blocks, and the per-bridge
-# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-kill-list.txt).
+# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-disable-list.txt).
 #
 # Install layout:
-#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-kill-list.txt}
+#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-disable-list.txt}
 #          + /usr/local/bin/datamachine-kimaki-session
 #          + /usr/local/bin/datamachine-kimaki
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
-#          kill list (executed inline at upgrade time — no launchd
+#          skill filters (executed inline at upgrade time — no launchd
 #          ExecStartPre hook). opencode.json loads plugins directly from this
 #          durable data-dir copy because `npm update -g kimaki` wipes package-
 #          local files.
@@ -247,7 +247,7 @@ bridge_sync_config() {
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
   #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
-  #          post-upgrade.sh + skills-kill-list.txt.
+  #          post-upgrade.sh + skills-disable-list.txt.
   #   Local: opencode.json points at $KIMAKI_DATA_DIR/kimaki-config/plugins, the
   #          durable source that survives `npm update -g kimaki`. Existing configs
   #          that still reference package-local plugin paths are migrated by the
@@ -278,7 +278,7 @@ bridge_sync_config() {
   # kimaki IS the detected bridge and kimaki.service IS running — the
   # config dir just never got bootstrapped. Create it now from the repo.
   # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh,
-  # kill list); there is no user state to preserve.
+  # skill filters); there is no user state to preserve.
   if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would bootstrap $KIMAKI_CONFIG_DIR from $SCRIPT_DIR/bridges/kimaki/"
@@ -286,7 +286,7 @@ bridge_sync_config() {
       log "  $KIMAKI_CONFIG_DIR missing — bootstrapping from repo (install predates v0.4.0)"
       mkdir -p "$KIMAKI_CONFIG_DIR/plugins"
       UPDATED_ITEMS+=("bootstrapped $KIMAKI_CONFIG_DIR (install predates v0.4.0)")
-      # Fall through — the plugin/post-upgrade/kill-list copy logic below
+      # Fall through — the plugin/post-upgrade/skill-filter copy logic below
       # handles the actual file placement idempotently.
     fi
   fi
@@ -327,7 +327,7 @@ bridge_sync_config() {
     done
   fi
 
-  # Stage post-upgrade.sh and skills-kill-list.txt in KIMAKI_CONFIG_DIR.
+  # Stage post-upgrade.sh and skills-disable-list.txt in KIMAKI_CONFIG_DIR.
   # On VPS this is read by ExecStartPre. On local we execute it inline below.
   if [ "$DRY_RUN" = false ]; then
     mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
@@ -348,16 +348,16 @@ bridge_sync_config() {
     fi
   fi
 
-  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" ]; then
+  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" ]; then
     if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
+        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
       fi
     else
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        cp "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        log "  Updated $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        UPDATED_ITEMS+=("kimaki-config/skills-kill-list.txt")
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
+        cp "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        log "  Updated $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        UPDATED_ITEMS+=("kimaki-config/skills-disable-list.txt")
       fi
     fi
   fi
@@ -366,15 +366,15 @@ bridge_sync_config() {
   # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe them.
   _kimaki_sync_bin_helpers
 
-  # On local, execute post-upgrade.sh inline to enforce the kill list.
+  # On local, execute post-upgrade.sh inline to restore wp-coding-agents skills.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
   if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would run: $KIMAKI_CONFIG_DIR/post-upgrade.sh"
     else
-      log "  Running post-upgrade.sh to enforce skills kill list..."
+      log "  Running post-upgrade.sh to restore wp-coding-agents skills..."
       if "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>&1 | sed 's/^/    /'; then
-        UPDATED_ITEMS+=("ran post-upgrade.sh (enforced skills kill list)")
+        UPDATED_ITEMS+=("ran post-upgrade.sh (restored wp-coding-agents skills)")
       else
         warn "  post-upgrade.sh exited non-zero — review output above"
       fi
@@ -525,6 +525,8 @@ bridge_update_launchd() {
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
   [ "$unit" = "kimaki.service" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
+  local skill_filter_args
+  skill_filter_args="$(_kimaki_skill_filter_args_shell)"
   cat <<EOF
 [Unit]
 Description=Kimaki Discord Bot (wp-coding-agents)
@@ -547,7 +549,7 @@ $env_block
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
 ExecStartPre=-/usr/bin/pkill -TERM -u $SERVICE_USER -f "opencode-ai/bin/.*serve"
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
+ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$skill_filter_args
 Restart=always
 RestartSec=10
 
@@ -563,6 +565,8 @@ bridge_render_launchd() {
   kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$KIMAKI_BIN")"
   path_value="$(_compose_path_value "$HOME/.local/bin" "$kimaki_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  local skill_filter_plist_args
+  skill_filter_plist_args="$(_kimaki_skill_filter_args_plist)"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -577,6 +581,7 @@ bridge_render_launchd() {
         <string>$KIMAKI_DATA_DIR</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
+$skill_filter_plist_args
     </array>
     <key>WorkingDirectory</key>
     <string>$SITE_PATH</string>
@@ -600,6 +605,48 @@ bridge_render_launchd() {
 </dict>
 </plist>
 EOF
+}
+
+_kimaki_skill_filter_source() {
+  if [ -n "${KIMAKI_SKILL_FILTERS_FILE:-}" ]; then
+    printf '%s\n' "$KIMAKI_SKILL_FILTERS_FILE"
+  elif [ -n "${KIMAKI_CONFIG_DIR:-}" ] && [ -f "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" ]; then
+    printf '%s\n' "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+  elif [ -n "${KIMAKI_DATA_DIR:-}" ] && [ -f "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt" ]; then
+    printf '%s\n' "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt"
+  else
+    printf '%s\n' "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt"
+  fi
+}
+
+_kimaki_each_disabled_skill() {
+  local filters_file skill
+  filters_file="$(_kimaki_skill_filter_source)"
+  [ -f "$filters_file" ] || return 0
+
+  while IFS= read -r skill || [ -n "$skill" ]; do
+    [ -n "$skill" ] || continue
+    case "$skill" in \#*) continue ;; esac
+    printf '%s\n' "$skill"
+  done < "$filters_file"
+}
+
+_kimaki_skill_filter_args_shell() {
+  local out="" skill
+  while IFS= read -r skill; do
+    out="$out --disable-skill $skill"
+  done < <(_kimaki_each_disabled_skill)
+  printf '%s' "$out"
+}
+
+_kimaki_skill_filter_args_plist() {
+  local out="" skill
+  while IFS= read -r skill; do
+    out="$out        <string>--disable-skill</string>
+        <string>$skill</string>
+"
+  done < <(_kimaki_each_disabled_skill)
+  printf '%s' "$out"
 }
 
 # ============================================================================
