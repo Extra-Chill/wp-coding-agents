@@ -357,3 +357,4 @@ Examples:
 - After completing edits: offer "Commit changes?"
 - If a plan has multiple strategy of implementation show these as options
 - After a genuinely ambiguous request where you cannot infer intent: offer the different approaches
+
