@@ -18,9 +18,9 @@ runtime_install() {
 #
 # Publish opencode's worktree session-attribution env-var contract for the
 # Data Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
-# opencode sets OPENCODE_SESSION_ID and OPENCODE_RUN_ID on processes it
-# spawns; DMC reads those at worktree-create time to record which opencode
-# session/run originated the worktree.
+# OpenCode sets OPENCODE_RUN_ID on worker/tool processes. Source review and a
+# live Kimaki/OpenCode 0.13 smoke did not find OPENCODE_SESSION_ID, so only the
+# real exported run identifier is registered here.
 #
 # Registered from runtime_install (setup-time) and from the legacy-wrapper-
 # removal phase in upgrade.sh, which is the upgrade-time entry point that
@@ -37,7 +37,7 @@ _opencode_register_runtime_signature() {
   fi
   runtime_signature_register \
     "opencode" \
-    '{"session_id":"OPENCODE_SESSION_ID","run_id":"OPENCODE_RUN_ID"}'
+    '{"run_id":"OPENCODE_RUN_ID"}'
 }
 
 # Remove any legacy wp-coding-agents-opencode-wrapper-v2 bash shim that prior

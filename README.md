@@ -424,9 +424,9 @@ After this, the only outbound message path is `agents/dispatch-message` → DMC 
 
 ## Worktree Session Attribution (Runtime Signatures)
 
-When a coding-agent session asks Data Machine Code to create a worktree, DMC captures **origin-session metadata** so the worktree carries a breadcrumb back to the session that spawned it (Discord thread URL, opencode session ID, run ID, etc.). DMC reads that metadata from environment variables the runtime sets on the worktree-creating process.
+When a coding-agent session asks Data Machine Code to create a worktree, DMC captures **origin-session metadata** so the worktree carries a breadcrumb back to the runtime that spawned it. DMC reads that metadata from environment variables the runtime sets on the worktree-creating process.
 
-The env-var names are vendor-specific (`KIMAKI_SESSION_ID`, `OPENCODE_SESSION_ID`, `OPENCODE_RUN_ID`, …) so DMC cannot enumerate them without knowing about kimaki and opencode — a layer-purity violation per the platform's coding rules. The fix (Extra-Chill/data-machine-code#416) moves the env-var → field map out of DMC into a filter:
+The env-var names are vendor-specific (`OPENCODE_RUN_ID`, etc.) so DMC cannot enumerate them without knowing about opencode or any other runtime — a layer-purity violation per the platform's coding rules. The fix (Extra-Chill/data-machine-code#416) moves the env-var → field map out of DMC into a filter:
 
 ```php
 apply_filters( 'datamachine_code_worktree_runtime_signatures', [] );
@@ -445,29 +445,20 @@ $WP_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php
 The file is owned end-to-end by wp-coding-agents installers: created on first registration, each runtime contributes a marker-delimited block (`// BEGIN runtime:<id>` … `// END runtime:<id>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via the filter:
 
 ```php
-$signatures['kimaki'] = [
-    'session_id' => 'KIMAKI_SESSION_ID',
-    'thread_id'  => 'KIMAKI_THREAD_ID',
-    'thread_url' => 'KIMAKI_THREAD_URL',
-];
-
 $signatures['opencode'] = [
-    'session_id' => 'OPENCODE_SESSION_ID',
-    'run_id'     => 'OPENCODE_RUN_ID',
+    'run_id' => 'OPENCODE_RUN_ID',
 ];
 ```
 
 DMC reads the map, walks each runtime's subkeys, and sniffs the named env vars at worktree-create time. The subkey set is open — DMC does not validate against a closed schema. Conventional subkeys are `session_id`, `thread_id`, `thread_url`, `run_id`; integrations may add more.
 
+Kimaki 0.13 does not currently export stable session/thread attribution env vars such as `KIMAKI_SESSION_ID`, `KIMAKI_THREAD_ID`, or `KIMAKI_THREAD_URL` to OpenCode/tool subprocesses. OpenCode source and a live Kimaki/OpenCode runtime smoke show `OPENCODE_RUN_ID`, but not `OPENCODE_SESSION_ID`. Rich Discord thread attribution is tracked upstream in https://github.com/remorses/kimaki/issues/137; until Kimaki ships a documented contract, wp-coding-agents registers only the env vars that actually exist.
+
 ### Registered signatures
 
 | Runtime ID  | Subkey       | Env var                | What it identifies                                  |
 |-------------|--------------|------------------------|-----------------------------------------------------|
-| `kimaki`    | `session_id` | `KIMAKI_SESSION_ID`    | Kimaki session (1:1 with a Discord thread)          |
-| `kimaki`    | `thread_id`  | `KIMAKI_THREAD_ID`     | Discord thread the session lives in                 |
-| `kimaki`    | `thread_url` | `KIMAKI_THREAD_URL`    | Deep link to that Discord thread                    |
-| `opencode`  | `session_id` | `OPENCODE_SESSION_ID`  | opencode session inside the kimaki/opencode runtime |
-| `opencode`  | `run_id`     | `OPENCODE_RUN_ID`      | Specific opencode run within that session           |
+| `opencode`  | `run_id`     | `OPENCODE_RUN_ID`      | Specific OpenCode run in the current process tree   |
 
 Adding a new runtime is a one-liner: register a new block in the relevant `runtimes/<name>.sh` or `bridges/<name>.sh` via `runtime_signature_register <runtime_id> <signature_json>` (see `lib/runtime-signature.sh`).
 
