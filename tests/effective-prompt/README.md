@@ -2,8 +2,7 @@
 
 Pluggable harness that renders the kimaki opencode system prompt, runs the
 `dm-context-filter` plugin over it, snapshots the result, and asserts that
-no banned `--agent` override examples leak into the filtered prompt that an
-opencode session actually sees.
+filtered prompt content does not reintroduce sections Data Machine owns.
 
 ## Why
 
@@ -49,8 +48,8 @@ Each scenario is a JSON file in `scenarios/`. Override any of:
 - **`baseline`** — name from `filters.mjs`. Default
   `"broken-stripsection"` (kept as diff evidence for reviewers).
 - **`triggers`** — array of `{ name, pattern }`. Pattern is a JS regex
-  string; prefix with `(?i)` for case-insensitive. Default: `--agent`, which
-  catches generic Kimaki agent override examples.
+  string; prefix with `(?i)` for case-insensitive. Defaults to an empty list;
+  focused regressions should opt in from scenario JSON.
 - **`allowLeakInSection`** — array of section headings (e.g. `"## Minion
   Session Routing"`) where trigger matches are intentional and must not
   count as leaks.
@@ -63,7 +62,7 @@ file in `scenarios/` overriding any of the keys above.
 For every scenario, after running both the current filter and the
 baseline filter:
 
-1. **No leaks in current**: `filtered_leaks.length === 0`.
+1. **No leaks in current**: `filtered_leaks.length === 0` for configured triggers.
 2. **No regression in leak count**: current must not leak more than
    baseline.
 3. **Snapshot match**: the rendered raw / baseline / filtered prompts

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Kimaki bridge now registers native `kimaki` for CLI-channel dispatch and
+  relies on Kimaki 0.13's unavailable-agent fallback to the default/build
+  agent instead of shipping a Data Machine command adapter.
+- `dm-context-filter` keeps generic Kimaki `--agent <current_agent>` guidance
+  when it survives the existing section-level filters; the old inline stripping
+  only existed to compensate for pre-0.13 missing-agent behavior.
+
+### Removed
+- Removed the `datamachine-kimaki` send-argument adapter and upgrade-time
+  command shim installation. Upgrade now deletes prior wp-coding-agents-owned
+  adapter files when their marker proves they came from this package.
+
 ## [1.1.0] - 2026-05-17
 
 ### Added
@@ -30,7 +45,7 @@
   on `bridge_sync_config` (upgrade-time), so the resolved command path and
   any captured credentials stay fresh across npm-global moves and rotations.
 - `setup.sh` and `upgrade.sh` load the new `lib/cli-channel.sh` module.
-- Kimaki bridge: normalize `kimaki send` flag set for Data Machine compat
+- Kimaki bridge: adapt `kimaki send` flag handling for Data Machine compat
   (#121), allow native worktree routing through dm-context-filter (#128),
   make the context filter strip-only (#119), prefer the command shim in
   launchd sessions (#122), point opencode plugin paths at persistent

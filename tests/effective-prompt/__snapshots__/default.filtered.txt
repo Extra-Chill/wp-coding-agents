@@ -25,6 +25,22 @@ To upload files to the Discord thread (images, screenshots, long files that woul
 
 kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST <file1> [file2] ...
 
+## generating audio from text
+
+When the user asks you to generate audio of some text so they can listen instead of reading, use `kimaki tts` to create a speech file and `kimaki upload-to-discord` to send it to the thread. Only use this when the user explicitly asks for audio.
+
+```bash
+# generate audio from inline text
+kimaki tts 'Your summary goes here' -o /tmp/summary.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/summary.mp3
+
+# generate audio from a file (pipe via stdin)
+cat docs/explanation.md | kimaki tts -o /tmp/explanation.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/explanation.mp3
+```
+
+see --help for options like voice, speed, etc.
+
 ## requesting files from the user
 
 To ask the user to upload files from their device, use the `kimaki_file_upload` tool. This shows a native file picker dialog in Discord. The files are downloaded to the project's `uploads/` directory and the tool returns the local file paths.
@@ -52,9 +68,10 @@ This returns user IDs you can use for Discord mentions. It can fail when Server 
 
 To start a new thread/session in this channel pro-grammatically, run:
 
-kimaki send --channel 1493345787894038649 --prompt 'your prompt here' --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'your prompt here' --agent <current_agent> --user '<discord-user-id>'
 
 You can use this to "spawn" parallel helper sessions like teammates: start new threads with focused prompts, then come back and collect the results.
+Prefer passing the current agent with `--agent <current_agent>` so spawned or scheduled sessions keep the same agent unless you are intentionally switching. Replace `<current_agent>` with the value from the per-turn `Current agent` reminder.
 When writing `kimaki send` shell commands, use single quotes around `--prompt`, `--user`, `--send-at`, and other literal arguments so backticks inside prompts are not interpreted by the shell. Prefer `--user '<discord-user-id>'` over `--user 'name'` because name lookup depends on optional Server Members Intent.
 
 Before sending, choose the right destination:
@@ -65,31 +82,31 @@ Before sending, choose the right destination:
 
 To send a prompt to an existing thread instead of creating a new one:
 
-kimaki send --thread <thread_id> --prompt 'follow-up prompt'
+kimaki send --thread <thread_id> --prompt 'follow-up prompt' --agent <current_agent>
 
 Use this when you already have the Discord thread ID.
 
 To send to the thread associated with a known session:
 
-kimaki send --session <session_id> --prompt 'follow-up prompt'
+kimaki send --session <session_id> --prompt 'follow-up prompt' --agent <current_agent>
 
 Use this when you have the OpenCode session ID.
 
 Use --notify-only to create a notification thread without starting an AI session:
 
-kimaki send --channel 1493345787894038649 --prompt 'User cancelled subscription' --notify-only --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'User cancelled subscription' --notify-only --agent <current_agent> --user '<discord-user-id>'
 
 Use --user with a Discord user ID or raw mention to add a specific Discord user to the new thread:
 
-kimaki send --channel 1493345787894038649 --prompt 'Review the latest CI failure' --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Review the latest CI failure' --agent <current_agent> --user '<discord-user-id>'
 
 Use --worktree to create a git worktree for the session (ONLY when the user explicitly asks for a worktree):
 
-kimaki send --channel 1493345787894038649 --prompt 'Add dark mode support' --worktree dark-mode --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Add dark mode support' --worktree dark-mode --agent <current_agent> --user '<discord-user-id>'
 
 Use --cwd to start a session in an existing project subfolder or git worktree directory:
 
-kimaki send --channel 1493345787894038649 --prompt 'Run the restricted task' --cwd /path/to/project/restricted-task --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Run the restricted task' --cwd /path/to/project/restricted-task --agent <current_agent> --user '<discord-user-id>'
 
 Important:
 - NEVER use `--worktree` unless the user explicitly requests a worktree. Most tasks should use normal threads without worktrees.
@@ -97,6 +114,10 @@ Important:
 - The prompt passed to `--worktree` is the task for the new thread running inside that worktree.
 - Do NOT tell that prompt to "create a new worktree" again, or it can create recursive worktree threads.
 - Ask the new session to operate on its current checkout only (e.g. "validate current worktree", "run checks in this repo").
+
+Use --agent to specify which agent to use for the session:
+
+kimaki send --channel 1493345787894038649 --prompt 'Plan the refactor of the auth module' --agent plan --user '<discord-user-id>'
 
 Available agents:
 - `build`: default coding agent
@@ -109,7 +130,7 @@ ONLY create worktrees when the user explicitly asks for one. Never proactively u
 When the user asks to "create a worktree" or "make a worktree", they mean you should use the kimaki CLI to create it. Do NOT use raw `git worktree add` commands. Instead use:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'your task description' --worktree worktree-name --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'your task description' --worktree worktree-name --agent <current_agent> --user '<discord-user-id>'
 ```
 
 This creates a new Discord thread with an isolated git worktree and starts a session in it. The worktree name should be kebab-case and descriptive of the task.
@@ -125,7 +146,7 @@ Critical recursion guard:
 Use `--cwd` to start a session in an existing project subfolder or git worktree directory instead of the project root:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'Run restricted task X' --cwd /path/to/project/restricted-task --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Run restricted task X' --cwd /path/to/project/restricted-task --agent <current_agent> --user '<discord-user-id>'
 ```
 
 The path must be inside the project or be a git worktree of the project (validated via `git worktree list`). The session resolves to the correct project channel but uses that path as its working directory, so subfolder `opencode.json` config can apply. Passing the project root itself is allowed and behaves like the default. Use `--worktree` to create a new worktree, `--cwd` to reuse an existing directory.
@@ -139,7 +160,7 @@ This is useful for automation (cron jobs, GitHub webhooks, n8n, etc.)
 When you are approaching the **context window limit** or the user explicitly asks to **handoff to a new thread**, use the `kimaki send` command to start a fresh session with context:
 
 ```bash
-kimaki send --channel 1493345787894038649 --prompt 'Continuing from previous session: <summary of current task and state>' --user '<discord-user-id>'
+kimaki send --channel 1493345787894038649 --prompt 'Continuing from previous session: <summary of current task and state>' --agent <current_agent> --user '<discord-user-id>'
 ```
 
 The command automatically handles long prompts (over 2000 chars) by sending them as file attachments.
@@ -172,13 +193,13 @@ To send a task to another project:
 
 ```bash
 # Send to a specific channel
-kimaki send --channel <channel_id> --prompt 'Plan how to update the API client to v2'
+kimaki send --channel <channel_id> --prompt 'Plan how to update the API client to v2' --agent <current_agent>
 
 # Or use --project to resolve from directory
-kimaki send --project /path/to/other-repo --prompt 'Plan how to bump version to 1.2.0'
+kimaki send --project /path/to/other-repo --prompt 'Plan how to bump version to 1.2.0' --agent <current_agent>
 
 # Or use --cwd for an existing checkout/worktree path
-kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout'
+kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout' --agent <current_agent>
 ```
 
 When the user explicitly asks to send prompts to other projects, target the project/channel/path they named instead of the current channel. Ask the agent to plan first, never build upfront. The prompt should start with "Plan how to ..." so the user can review before greenlighting implementation.
