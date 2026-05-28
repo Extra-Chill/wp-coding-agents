@@ -51,7 +51,11 @@ FAILED=0
 assert_mode_0644() {
   local file="$1" name="$2"
   local got
-  got=$(stat -c %a "$file")
+  if stat -c %a "$file" >/dev/null 2>&1; then
+    got=$(stat -c %a "$file")
+  else
+    got=$(stat -f %Lp "$file")
+  fi
   if [ "$got" = "644" ]; then
     echo "  ok   $name"
   else

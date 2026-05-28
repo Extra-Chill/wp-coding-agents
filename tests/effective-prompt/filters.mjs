@@ -84,12 +84,12 @@ function appendDataMachineSessionHandoffInstruction(block) {
 
 ## Data Machine Session Handoff
 
-For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
+For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through native Kimaki cwd routing. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session and records the checkout metadata.
 
 Typical flow:
 
 1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
-2. Start the helper session with \`datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
+2. Start the helper session with \`kimaki send --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
 3. Use the helper thread for the isolated task and bring the result back here.
 `
   return block.replace(/\s*$/, "") + instruction
