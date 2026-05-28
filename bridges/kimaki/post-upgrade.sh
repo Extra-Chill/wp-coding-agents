@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# post-upgrade.sh — Enforce kimaki skill state and validate plugin state.
+# post-upgrade.sh — Restore wp-coding-agents skills and validate plugin state.
 #
-# Three passes run against the npm-installed kimaki package and persistent
+# Two passes run against the npm-installed kimaki package and persistent
 # kimaki-config directory:
-#   1. KILL    — remove unwanted bundled kimaki skills listed in
-#                skills-kill-list.txt (target: $(npm root -g)/kimaki/skills/).
-#   2. RESTORE skills  — re-copy wp-coding-agents skills from the persistent
+#   1. RESTORE skills  — re-copy wp-coding-agents skills from the persistent
 #                source dir (kimaki-config/skills/) into kimaki/skills/.
-#   3. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
+#   2. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
 #                exist at the persistent kimaki-config/plugins path loaded by
 #                opencode.json. Local installs no longer restore plugins into
 #                $(npm root -g)/kimaki/plugins because package-local files are
@@ -61,7 +59,6 @@ else
   SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
 fi
 
-KILL_LIST="$(dirname "$0")/skills-kill-list.txt"
 REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
 WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
 
@@ -76,43 +73,8 @@ is_wp_coding_agents_skill() {
   return 1
 }
 
-is_killed_skill() {
-  local candidate="$1"
-
-  [[ -f "$KILL_LIST" ]] || return 1
-
-  while IFS= read -r skill || [[ -n "$skill" ]]; do
-    [[ -z "$skill" || "$skill" == \#* ]] && continue
-    [[ "$candidate" == "$skill" ]] && return 0
-  done < "$KILL_LIST"
-
-  return 1
-}
-
 # ----------------------------------------------------------------------------
-# Pass 1: KILL — remove blacklisted bundled kimaki skills.
-# ----------------------------------------------------------------------------
-
-removed=0
-if [[ ! -d "$SKILLS_DIR" ]]; then
-  echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping kill pass"
-elif [[ ! -f "$KILL_LIST" ]]; then
-  echo "kimaki-config: kill list not found at $KILL_LIST, skipping kill pass"
-else
-  while IFS= read -r skill || [[ -n "$skill" ]]; do
-    # Skip comments and blank lines
-    [[ -z "$skill" || "$skill" == \#* ]] && continue
-    target="$SKILLS_DIR/$skill"
-    if [[ -d "$target" ]]; then
-      rm -rf "$target"
-      echo "kimaki-config: removed skill $skill"
-      removed=$((removed + 1))
-    fi
-  done < "$KILL_LIST"
-fi
-
-# ----------------------------------------------------------------------------
-# Pass 2: RESTORE skills — re-copy wp-coding-agents skills from the
+# Pass 1: RESTORE skills — re-copy wp-coding-agents skills from the
 # persistent source dir into the npm-managed skills dir. Idempotent: `rm -rf`
 # before each `cp -r` so a stale copy always gets replaced by the current
 # source.
@@ -135,10 +97,6 @@ elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
   for skill_dir in "$SKILL_SOURCE_DIR"/*/; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
-    if is_killed_skill "$skill_name"; then
-      echo "kimaki-config: skipped killed skill $skill_name"
-      continue
-    fi
     if ! is_wp_coding_agents_skill "$skill_name"; then
       echo "kimaki-config: skipped unmanaged skill $skill_name"
       continue
@@ -156,7 +114,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# Pass 3: VERIFY plugins — opencode.json now loads wp-coding-agents plugins
+# Pass 2: VERIFY plugins — opencode.json now loads wp-coding-agents plugins
 # directly from persistent kimaki-config/plugins. When the target and source are
 # the same directory (the default), there is nothing to restore. An explicit
 # KIMAKI_PLUGINS_DIR override still receives a best-effort copy for operator
@@ -219,4 +177,4 @@ else
   done
 fi
 
-echo "kimaki-config: done ($removed skills removed, $skills_restored skills restored, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"
+echo "kimaki-config: done ($skills_restored skills restored, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"
