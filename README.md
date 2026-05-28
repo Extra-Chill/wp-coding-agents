@@ -26,7 +26,7 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
    └── Data Machine ── self-scheduling + AI tools
 ```
 
-On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. Every registered file is injected into each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
+On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. The runtime loads the selected agent's registered files for each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
 
 ## Runtime Auto-Discovery
 
@@ -34,9 +34,9 @@ Drop a file in `runtimes/`, it's available. The script scans `runtimes/*.sh` for
 
 ```
 hooks/
-└── dm-agent-sync.sh   # SessionStart hook: sync DM agents into CLAUDE.md
+└── dm-agent-sync.sh   # SessionStart hook: refresh CLAUDE.md memory includes
 runtimes/
-├── opencode.sh        # OpenCode: opencode.json + AGENTS.md + {file:} includes
+├── opencode.sh        # OpenCode: opencode.json instructions + AGENTS.md
 ├── claude-code.sh     # Claude Code: CLAUDE.md + @ includes + .mcp.json
 └── studio-code.sh     # Studio Code: CLAUDE.md + @ includes + Studio tools
 ```
@@ -222,9 +222,9 @@ Data Machine manages memory files across three layers, each scoped to a differen
 |------|---------|
 | **USER.md** | Information about the human the agent works with. Injected in chat and editor contexts only. |
 
-On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. The selected agent's discovered files are injected into each session via the runtime's config — top-level `opencode.json` `instructions` for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
-**Runtime sync (Claude Code / Studio Code):** A SessionStart hook queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. New agents created after setup are automatically discovered — no manual config regeneration needed. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
+**Runtime sync:** Claude Code and Studio Code use a SessionStart hook that queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. OpenCode uses top-level `instructions` plus a Kimaki plugin that only recomposes Data Machine memory files before OpenCode reads them; it does not write `agent.build.prompt`, `agent.plan.prompt`, or register every Data Machine agent into OpenCode config. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
 
 ## Abilities
 

@@ -134,10 +134,12 @@ runtime_generate_config() {
   # Resolve Kimaki plugin dir + copy plugin files FIRST, unconditionally.
   # Setup.sh must be idempotent: whether this site has a fresh install or an
   # existing opencode.json, the kimaki plugins dir on disk must end up with
-  # the current dm-context-filter.ts + dm-agent-sync.ts. Previously this only
-  # ran on fresh installs because the whole function early-returned on an
-  # existing file, which left upgraded installs missing the security policy
-  # filter they're meant to run with. See wp-coding-agents#67.
+  # the current dm-context-filter.ts + dm-agent-sync.ts. dm-agent-sync only
+  # recomposes Data Machine memory; it must not write config.agent.* prompts.
+  # Previously this only ran on fresh installs because the whole function
+  # early-returned on an existing file, which left upgraded installs missing
+  # the security policy filter they're meant to run with. See
+  # wp-coding-agents#67.
   KIMAKI_PLUGINS_DIR=""
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
@@ -175,7 +177,8 @@ runtime_generate_config() {
   fi
 
   # OpenCode plugins. wp-coding-agents only manages plugins it owns end to
-  # end: dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges. The
+  # end: dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges. The sync
+  # plugin refreshes composed memory files without mutating config.agent slots.
   # opencode-claude-auth plugin is intentionally NOT installed on any bridge:
   # Kimaki ships a built-in AnthropicAuthPlugin and non-kimaki bridges use
   # opencode's native auth flow (`opencode auth login anthropic`). See
