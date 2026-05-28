@@ -8,7 +8,6 @@
 #
 # Install layout:
 #   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-kill-list.txt}
-#          + /usr/local/bin/datamachine-kimaki-session
 #          + /usr/local/bin/datamachine-kimaki
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
@@ -16,7 +15,6 @@
 #          ExecStartPre hook). opencode.json loads plugins directly from this
 #          durable data-dir copy because `npm update -g kimaki` wipes package-
 #          local files.
-#          + $HOME/.local/bin/datamachine-kimaki-session
 #          + $HOME/.local/bin/datamachine-kimaki
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
@@ -140,11 +138,27 @@ _kimaki_sync_bin_helpers() {
     fi
   done
 
+  _kimaki_remove_legacy_session_helper "$HELPER_DIR"
   _kimaki_sync_command_shim "$HELPER_DIR"
 
-  RESOLVED_KIMAKI_HELPER="$HELPER_DIR/datamachine-kimaki-session"
   RESOLVED_DATAMACHINE_KIMAKI="$HELPER_DIR/datamachine-kimaki"
   RESOLVED_KIMAKI_SHIM="$HELPER_DIR/kimaki"
+}
+
+_kimaki_remove_legacy_session_helper() {
+  local helper_dir="$1"
+  local legacy_helper="$helper_dir/datamachine-kimaki-session"
+
+  [ -e "$legacy_helper" ] || return 0
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would remove legacy $legacy_helper"
+    return 0
+  fi
+
+  rm -f "$legacy_helper"
+  log "  Removed legacy $legacy_helper"
+  UPDATED_ITEMS+=("legacy datamachine-kimaki-session helper removal")
 }
 
 _kimaki_sync_command_shim() {
@@ -706,11 +720,10 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  local HELPER="${RESOLVED_KIMAKI_HELPER:-/usr/local/bin/datamachine-kimaki-session}"
   local ADAPTER="${RESOLVED_DATAMACHINE_KIMAKI:-/usr/local/bin/datamachine-kimaki}"
   local SHIM="${RESOLVED_KIMAKI_SHIM:-/usr/local/bin/kimaki}"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
-  echo "test -x $HELPER   # DMC Kimaki session handoff helper installed"
   echo "test -x $ADAPTER   # DM Kimaki command adapter installed"
   echo "test -x $SHIM   # kimaki command shim installed"
+  echo "$ADAPTER send --help | grep -q -- --cwd   # native kimaki send --cwd routing available through adapter"
 }

@@ -308,6 +308,7 @@ The default chat bridge for OpenCode. On VPS, wp-coding-agents installs post-upg
 
 - **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`bridges/kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
 - **Filter redundant context** — A plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
+- **Use native cwd handoff** — Kimaki `send --cwd <path>` routes helper sessions into existing Data Machine Code worktrees or project subfolders. wp-coding-agents does not write Kimaki's internal session database.
 
 To customize the kill list, edit `bridges/kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
 
@@ -389,7 +390,7 @@ agents/dispatch-message
 
 ### Bridge-specific notes
 
-- **kimaki** registers the local `datamachine-kimaki` adapter shim wp-coding-agents installs alongside the kimaki binary. The shim normalises Kimaki send flags across versions. If it isn't on disk yet (very early installs), the bridge falls back to the resolved global `kimaki` binary.
+- **kimaki** registers the local `datamachine-kimaki` adapter shim wp-coding-agents installs alongside the kimaki binary. The shim normalises Kimaki send flags across versions and passes native `kimaki send --cwd <path>` routing through unchanged. If it isn't on disk yet (very early installs), the bridge falls back to the resolved global `kimaki` binary.
 - **cc-connect** assumes `cc-connect send` accepts `--project <name> <message>`. cc-connect routes outgoing messages through its currently-bound platform per project (Feishu/DingTalk/Slack/Telegram/Discord/etc.), so `recipient` is the cc-connect project, not a raw chat ID. **Assumption to validate against upstream:** if `--project` is unsupported, the argv collapses to `["send","{message}"]` and `recipient` becomes informational only. Tracked alongside Extra-Chill/wp-coding-agents#129.
 - **telegram** is the odd one out. `opencode-telegram-bot` is inbound-only (polls Telegram, forwards to a local opencode server); it has no outbound `send` subcommand. To preserve the channel/recipient model, the bridge registers `curl` against Telegram's `sendMessage` Bot API with `TELEGRAM_BOT_TOKEN` baked in. `recipient` is a Telegram chat ID. The token is captured at install/upgrade time from the existing bot `.env` if not in the current shell — rotating the token requires re-running `upgrade.sh` so the channel config picks up the new value.
 

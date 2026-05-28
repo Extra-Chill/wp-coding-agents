@@ -47,3 +47,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/datamachine-kimaki-adapter.sh
         run: ./tests/datamachine-kimaki-adapter.sh
+
+  kimaki-native-cwd-routing:
+    name: Kimaki native cwd routing regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/kimaki-native-cwd-routing.sh
+        run: ./tests/kimaki-native-cwd-routing.sh
+      - name: Run tests/kimaki-no-sqlite-session-writes.sh
+        run: ./tests/kimaki-no-sqlite-session-writes.sh
