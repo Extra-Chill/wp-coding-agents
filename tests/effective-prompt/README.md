@@ -1,9 +1,9 @@
 # effective-prompt
 
 Pluggable harness that renders the kimaki opencode system prompt, runs the
-`dm-context-filter` plugin over it, snapshots the result, and asserts that
-no banned `--agent` override examples leak into the filtered prompt that an
-opencode session actually sees.
+`dm-context-filter` plugin over it, snapshots the result, and asserts any
+scenario-specific banned trigger phrases do not leak into the filtered prompt
+that an opencode session actually sees.
 
 ## Why
 
@@ -49,8 +49,7 @@ Each scenario is a JSON file in `scenarios/`. Override any of:
 - **`baseline`** — name from `filters.mjs`. Default
   `"broken-stripsection"` (kept as diff evidence for reviewers).
 - **`triggers`** — array of `{ name, pattern }`. Pattern is a JS regex
-  string; prefix with `(?i)` for case-insensitive. Default: `--agent`, which
-  catches generic Kimaki agent override examples.
+  string; prefix with `(?i)` for case-insensitive. Default: empty.
 - **`allowLeakInSection`** — array of section headings (e.g. `"## Minion
   Session Routing"`) where trigger matches are intentional and must not
   count as leaks.

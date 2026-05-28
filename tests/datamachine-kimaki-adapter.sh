@@ -33,22 +33,22 @@ PY
 }
 
 "$ADAPTER" send --prompt hi --agent opencode
-assert_args send --prompt hi --agent build
+assert_args send --prompt hi --agent opencode
 
 "$ADAPTER" send --prompt hi --agent plan
-assert_args send --prompt hi --agent build
+assert_args send --prompt hi --agent plan
 
 "$ADAPTER" send --prompt hi --agent=general
-assert_args send --prompt hi --agent build
+assert_args send --prompt hi --agent=general
 
 "$ADAPTER" send --prompt hi --cwd /tmp/elsewhere
 assert_args send --prompt hi --cwd /tmp/elsewhere
 
 "$ADAPTER" send --prompt hi --cwd=/tmp/elsewhere --agent opencode
-assert_args send --prompt hi --cwd=/tmp/elsewhere --agent build
+assert_args send --prompt hi --cwd=/tmp/elsewhere --agent opencode
 
 "$ADAPTER" send --prompt hi --agent --model anthropic/test
-assert_args send --prompt hi --agent build --model anthropic/test
+assert_args send --prompt hi --agent --model anthropic/test
 
 "$ADAPTER" send --prompt hi --cwd --model anthropic/test
 assert_args send --prompt hi --cwd --model anthropic/test
@@ -66,6 +66,6 @@ mkdir -p "$shim_dir" "$real_dir"
 cp "$ADAPTER" "$shim_dir/kimaki"
 cp "$REAL_KIMAKI" "$real_dir/kimaki"
 PATH="$shim_dir:$real_dir:$PATH" "$shim_dir/kimaki" send --prompt hi --agent opencode --cwd /tmp/site
-assert_args send --prompt hi --agent build --cwd /tmp/site
+assert_args send --prompt hi --agent opencode --cwd /tmp/site
 
-echo "OK: datamachine-kimaki adapter normalizes agent send flags"
+echo "OK: datamachine-kimaki adapter delegates arguments unchanged"

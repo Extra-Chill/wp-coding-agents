@@ -54,6 +54,10 @@ bridge_install() {
     _kimaki_install_systemd
   fi
 
+  if [ -z "${KIMAKI_BIN:-}" ]; then
+    KIMAKI_BIN=$(command -v kimaki 2>/dev/null || echo kimaki)
+  fi
+
   _kimaki_sync_bin_helpers
   _kimaki_register_cli_channel
   _kimaki_register_runtime_signature
@@ -67,15 +71,12 @@ bridge_install() {
 # channel ID (numeric string) the message is delivered to. `message` is the
 # message body.
 #
-# We register the local-mode adapter shim (`datamachine-kimaki`) installed by
-# _kimaki_sync_bin_helpers; it normalises Kimaki send flags across versions.
-# Falls back to the resolved global `kimaki` binary if the adapter isn't on
-# disk yet (early VPS installs predating the adapter shim).
+# Register the real Kimaki binary. Kimaki 0.13+ handles missing agent
+# preferences by falling back to its default agent, so the CLI channel does not
+# need Data Machine-specific agent flag normalization.
 _kimaki_register_cli_channel() {
   local cmd
-  if [ -n "${RESOLVED_DATAMACHINE_KIMAKI:-}" ] && [ -x "$RESOLVED_DATAMACHINE_KIMAKI" ]; then
-    cmd="$RESOLVED_DATAMACHINE_KIMAKI"
-  elif [ -n "${KIMAKI_BIN:-}" ]; then
+  if [ -n "${KIMAKI_BIN:-}" ]; then
     cmd="$KIMAKI_BIN"
   else
     cmd="$(command -v kimaki 2>/dev/null || echo kimaki)"
@@ -155,7 +156,7 @@ _kimaki_sync_command_shim() {
 
   if [ -e "$shim_target" ] && ! grep -q 'wp-coding-agents datamachine-kimaki adapter' "$shim_target" 2>/dev/null; then
     warn "  $shim_target exists and is not the Data Machine Kimaki adapter — leaving it untouched"
-    warn "  Install $helper_dir earlier on PATH or call datamachine-kimaki directly to normalize Kimaki send flags"
+    warn "  Install $helper_dir earlier on PATH or call datamachine-kimaki directly"
     return 0
   fi
 

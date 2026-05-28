@@ -25,6 +25,22 @@ To upload files to the Discord thread (images, screenshots, long files that woul
 
 kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST <file1> [file2] ...
 
+## generating audio from text
+
+When the user asks you to generate audio of some text so they can listen instead of reading, use `kimaki tts` to create a speech file and `kimaki upload-to-discord` to send it to the thread. Only use this when the user explicitly asks for audio.
+
+```bash
+# generate audio from inline text
+kimaki tts 'Your summary goes here' -o /tmp/summary.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/summary.mp3
+
+# generate audio from a file (pipe via stdin)
+cat docs/explanation.md | kimaki tts -o /tmp/explanation.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/explanation.mp3
+```
+
+see --help for options like voice, speed, etc.
+
 ## requesting files from the user
 
 To ask the user to upload files from their device, use the `kimaki_file_upload` tool. This shows a native file picker dialog in Discord. The files are downloaded to the project's `uploads/` directory and the tool returns the local file paths.
@@ -48,6 +64,23 @@ kimaki user list --guild 1493321868415996064 --query "username"
 
 This returns user IDs you can use for Discord mentions. It can fail when Server Members Intent is disabled, so prefer IDs from existing Discord metadata or raw mentions when possible.
 
+## running opencode commands via kimaki send
+
+You can trigger registered opencode commands (slash commands, skills, MCP prompts) by starting the `--prompt` with `/commandname`:
+
+kimaki send --thread <thread_id> --prompt '/review fix the auth module' --agent <current_agent>
+kimaki send --channel 1493345787894038649 --prompt '/build-cmd update dependencies' --agent <current_agent> --user '<discord-user-id>'
+
+The command name must match a registered opencode command. If the command is not recognized, the prompt is sent as plain text to the model. This works for both new threads (`--channel`) and existing threads (`--thread`/`--session`).
+
+## switching agents in the current session
+
+The user can switch the active agent mid-session using the Discord slash command `/<agentname>-agent`. For example if you are in plan mode and the user asks you to edit files, tell them to run `/build-agent` to switch to the build agent first.
+
+You can also switch agents via `kimaki send`:
+
+kimaki send --thread <thread_id> --prompt '/<agentname>-agent' --agent <current_agent>
+
 # List all registered projects with their channel IDs
 kimaki project list --json  # machine-readable output
 
@@ -62,7 +95,7 @@ kimaki project list --json  # machine-readable output
 # Or use --project to resolve from directory
 
 # Or use --cwd for an existing checkout/worktree path
-kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout'
+kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout' --agent <current_agent>
 ```
 
 Use cases:
@@ -72,7 +105,7 @@ Use cases:
 # Start a session and wait for it to finish
 
 # Send to an existing thread and wait
-kimaki send --thread <thread_id> --prompt 'Run the tests' --wait
+kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <current_agent>
 
 # Wait for a session that was already started elsewhere
 kimaki session wait <session_id>

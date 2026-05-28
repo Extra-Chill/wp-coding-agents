@@ -27,9 +27,8 @@
 //     "broken-stripsection" (the regex-only stripSection that misfires
 //     on fenced bash comments). The harness keeps baseline output available
 //     as diff evidence, but leak detection is the correctness gate.
-//   - triggers: array of { name, pattern }. Default: --agent override
-//     examples that bypass the Data Machine-bound agent slot.
-//     Lines matching any trigger in the filtered output count as leaks.
+//   - triggers: array of { name, pattern }. Default: empty. Lines matching
+//     any trigger in the filtered output count as leaks.
 //   - allowLeakInSection: array of section headings where trigger
 //     matches are intentional (e.g. the appended Minion Routing note
 //     intentionally references --cwd to point agents at it).
@@ -73,9 +72,7 @@ const VERBOSE = args.includes("--verbose")
 // scenarios/ once the suite is seeded.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TRIGGERS = [
-  { name: "--agent",         pattern: "--agent"                  },
-]
+const DEFAULT_TRIGGERS = []
 
 // The filter is strip-only — it never appends sections. Any trigger word
 // appearing in the filtered output is a real leak that needs investigation,

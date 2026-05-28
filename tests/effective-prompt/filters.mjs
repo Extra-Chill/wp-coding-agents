@@ -71,14 +71,6 @@ function stripProjectDiscoveryInlines(block) {
   return result
 }
 
-function stripAgentOverrideInlines(block) {
-  let result = block
-  result = result.replace(/\n+Prefer passing the current agent with `--agent <current_agent>`[^\n]*\n/g, "\n")
-  result = result.replace(/\n+Use --agent to specify which agent to use for the session:[\s\S]*?\nkimaki send --channel [^\n]* --agent [^\n]*\n/g, "\n")
-  result = result.replace(/ --agent <current_agent>/g, "")
-  return result
-}
-
 function appendDataMachineSessionHandoffInstruction(block) {
   const instruction = `
 
@@ -149,8 +141,6 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "## cross-project commands")
   r = stripSectionBroken(r, "## reading other sessions")
   r = stripSectionBroken(r, "## waiting for a session to finish")
-  r = stripSectionBroken(r, "## running opencode commands via kimaki send")
-  r = stripSectionBroken(r, "## switching agents in the current session")
   r = stripSectionBroken(r, "## showing diffs")
   r = stripSectionBroken(r, "## about critique")
   r = stripSectionBroken(r, "### always show diff at end of session")
@@ -158,7 +148,6 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "### reviewing diffs with AI")
   r = stripWorktreeInlines(r)
   r = stripProjectDiscoveryInlines(r)
-  r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendWordPressSiteRuntimeInstruction(r)
   r = appendDataMachineSessionHandoffInstruction(r)

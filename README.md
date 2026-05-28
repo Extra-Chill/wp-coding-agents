@@ -361,7 +361,7 @@ The file is owned end-to-end by bridge installers: it is created on first regist
 
 ```php
 $channels['kimaki'] = [
-    'command' => '/usr/local/bin/datamachine-kimaki',
+    'command' => '/usr/bin/kimaki',
     'args'    => [ 'send', '--channel', '{recipient}', '--prompt', '{message}' ],
     'detach'  => true,
     'timeout' => 600,
@@ -389,7 +389,7 @@ agents/dispatch-message
 
 ### Bridge-specific notes
 
-- **kimaki** registers the local `datamachine-kimaki` adapter shim wp-coding-agents installs alongside the kimaki binary. The shim normalises Kimaki send flags across versions. If it isn't on disk yet (very early installs), the bridge falls back to the resolved global `kimaki` binary.
+- **kimaki** registers the resolved real `kimaki` binary. The `datamachine-kimaki` helper remains as a thin compatibility delegate for installs that call it directly, but CLI-channel dispatch no longer rewrites `--agent` flags.
 - **cc-connect** assumes `cc-connect send` accepts `--project <name> <message>`. cc-connect routes outgoing messages through its currently-bound platform per project (Feishu/DingTalk/Slack/Telegram/Discord/etc.), so `recipient` is the cc-connect project, not a raw chat ID. **Assumption to validate against upstream:** if `--project` is unsupported, the argv collapses to `["send","{message}"]` and `recipient` becomes informational only. Tracked alongside Extra-Chill/wp-coding-agents#129.
 - **telegram** is the odd one out. `opencode-telegram-bot` is inbound-only (polls Telegram, forwards to a local opencode server); it has no outbound `send` subcommand. To preserve the channel/recipient model, the bridge registers `curl` against Telegram's `sendMessage` Bot API with `TELEGRAM_BOT_TOKEN` baked in. `recipient` is a Telegram chat ID. The token is captured at install/upgrade time from the existing bot `.env` if not in the current shell — rotating the token requires re-running `upgrade.sh` so the channel config picks up the new value.
 
