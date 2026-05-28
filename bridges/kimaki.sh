@@ -8,14 +8,12 @@
 #
 # Install layout:
 #   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-disable-list.txt}
-#          + /usr/local/bin/datamachine-kimaki
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
 #          skill filters (executed inline at upgrade time — no launchd
 #          ExecStartPre hook). opencode.json loads plugins directly from this
 #          durable data-dir copy because `npm update -g kimaki` wipes package-
 #          local files.
-#          + $HOME/.local/bin/datamachine-kimaki
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
 # ============================================================================
@@ -65,18 +63,15 @@ bridge_install() {
 # channel ID (numeric string) the message is delivered to. `message` is the
 # message body.
 #
-# We register the local-mode adapter shim (`datamachine-kimaki`) installed by
-# _kimaki_sync_bin_helpers; it normalises Kimaki send flags across versions.
-# Falls back to the resolved global `kimaki` binary if the adapter isn't on
-# disk yet (early VPS installs predating the adapter shim).
+# Register the native Kimaki binary. Kimaki 0.13 validates requested agents and
+# falls back to the default/build agent when a requested agent is unavailable,
+# so wp-coding-agents must not rewrite `--agent` itself.
 _kimaki_register_cli_channel() {
   local cmd
-  if [ -n "${RESOLVED_DATAMACHINE_KIMAKI:-}" ] && [ -x "$RESOLVED_DATAMACHINE_KIMAKI" ]; then
-    cmd="$RESOLVED_DATAMACHINE_KIMAKI"
-  elif [ -n "${KIMAKI_BIN:-}" ]; then
+  if [ -n "${KIMAKI_BIN:-}" ] && [ -x "$KIMAKI_BIN" ] && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN"; then
     cmd="$KIMAKI_BIN"
   else
-    cmd="$(command -v kimaki 2>/dev/null || echo kimaki)"
+    cmd="$(_kimaki_find_native_binary)"
   fi
 
   cli_channel_register \
@@ -85,6 +80,27 @@ _kimaki_register_cli_channel() {
     '["send","--channel","{recipient}","--prompt","{message}"]' \
     "true" \
     "600"
+}
+
+_kimaki_is_legacy_adapter_file() {
+  local file="$1"
+  [ -e "$file" ] && grep -q 'wp-coding-agents datamachine-kimaki adapter' "$file" 2>/dev/null
+}
+
+_kimaki_find_native_binary() {
+  local dir candidate
+  IFS=: read -r -a path_entries <<< "${PATH:-}"
+  for dir in "${path_entries[@]}"; do
+    [ -n "$dir" ] || continue
+    candidate="$dir/kimaki"
+    [ -x "$candidate" ] || continue
+    if _kimaki_is_legacy_adapter_file "$candidate"; then
+      continue
+    fi
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  printf '%s\n' "kimaki"
 }
 
 # _kimaki_register_runtime_signature
@@ -108,8 +124,6 @@ _kimaki_register_runtime_signature() {
 }
 
 _kimaki_sync_bin_helpers() {
-  [ -d "$SCRIPT_DIR/bridges/kimaki/bin" ] || return 0
-
   local HELPER_DIR
   if [ "$LOCAL_MODE" = true ]; then
     HELPER_DIR="$SERVICE_HOME/.local/bin"
@@ -117,33 +131,8 @@ _kimaki_sync_bin_helpers() {
     HELPER_DIR="/usr/local/bin"
   fi
 
-  local helper_file name helper_target
-  for helper_file in "$SCRIPT_DIR"/bridges/kimaki/bin/*; do
-    [ -f "$helper_file" ] || continue
-    name=$(basename "$helper_file")
-    helper_target="$HELPER_DIR/$name"
-
-    if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$helper_file" "$helper_target" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $helper_target"
-      fi
-    else
-      mkdir -p "$HELPER_DIR"
-      if ! cmp -s "$helper_file" "$helper_target" 2>/dev/null; then
-        cp "$helper_file" "$helper_target"
-        chmod +x "$helper_target"
-        log "  Updated $helper_target"
-        UPDATED_ITEMS+=("$name helper")
-      fi
-    fi
-  done
-
   _kimaki_remove_legacy_session_helper "$HELPER_DIR"
-
-  _kimaki_sync_command_shim "$HELPER_DIR"
-
-  RESOLVED_DATAMACHINE_KIMAKI="$HELPER_DIR/datamachine-kimaki"
-  RESOLVED_KIMAKI_SHIM="$HELPER_DIR/kimaki"
+  _kimaki_remove_legacy_command_shims "$HELPER_DIR"
 }
 
 _kimaki_remove_legacy_session_helper() {
@@ -162,31 +151,34 @@ _kimaki_remove_legacy_session_helper() {
   UPDATED_ITEMS+=("removed datamachine-kimaki-session helper")
 }
 
-_kimaki_sync_command_shim() {
+_kimaki_remove_legacy_command_shims() {
   local helper_dir="$1"
-  local adapter_source="$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki"
+  local adapter_target="$helper_dir/datamachine-kimaki"
   local shim_target="$helper_dir/kimaki"
-  [ -f "$adapter_source" ] || return 0
-
-  if [ -e "$shim_target" ] && ! grep -q 'wp-coding-agents datamachine-kimaki adapter' "$shim_target" 2>/dev/null; then
-    warn "  $shim_target exists and is not the Data Machine Kimaki adapter — leaving it untouched"
-    warn "  Install $helper_dir earlier on PATH or call datamachine-kimaki directly to normalize Kimaki send flags"
-    return 0
-  fi
 
   if [ "$DRY_RUN" = true ]; then
-    if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
-      echo -e "${BLUE}[dry-run]${NC} Would update $shim_target"
+    if _kimaki_is_legacy_adapter_file "$adapter_target"; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove legacy $adapter_target"
+    fi
+    if _kimaki_is_legacy_adapter_file "$shim_target"; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove legacy $shim_target"
     fi
     return 0
   fi
 
-  mkdir -p "$helper_dir"
-  if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
-    cp "$adapter_source" "$shim_target"
-    chmod +x "$shim_target"
-    log "  Updated $shim_target"
-    UPDATED_ITEMS+=("kimaki command shim")
+  if _kimaki_is_legacy_adapter_file "$adapter_target"; then
+    rm -f "$adapter_target"
+    log "  Removed legacy $adapter_target"
+    UPDATED_ITEMS+=("removed legacy datamachine-kimaki adapter")
+  fi
+  if _kimaki_is_legacy_adapter_file "$shim_target"; then
+    rm -f "$shim_target"
+    log "  Removed legacy $shim_target"
+    UPDATED_ITEMS+=("removed legacy kimaki command shim")
+  fi
+
+  if [ "${KIMAKI_BIN:-}" = "$shim_target" ]; then
+    KIMAKI_BIN="$(_kimaki_find_native_binary)"
   fi
 }
 
@@ -432,8 +424,8 @@ bridge_sync_config() {
     fi
   fi
 
-  # Refresh the CLI-channel registration so DMC's dispatch runtime picks up
-  # the latest adapter path (npm-global moves between hosts).
+  # Refresh the CLI-channel registration so DMC's dispatch runtime uses native
+  # kimaki instead of the removed adapter path.
   _kimaki_register_cli_channel
 
   # Refresh the worktree runtime-signature registration. Idempotent — only
@@ -768,9 +760,6 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  local ADAPTER="${RESOLVED_DATAMACHINE_KIMAKI:-/usr/local/bin/datamachine-kimaki}"
-  local SHIM="${RESOLVED_KIMAKI_SHIM:-/usr/local/bin/kimaki}"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
-  echo "test -x $ADAPTER   # DM Kimaki command adapter installed"
-  echo "test -x $SHIM   # kimaki command shim installed"
+  echo "command -v kimaki >/dev/null   # native Kimaki binary available"
 }

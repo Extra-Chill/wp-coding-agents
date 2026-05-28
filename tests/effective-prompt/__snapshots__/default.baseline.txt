@@ -78,7 +78,7 @@ kimaki project list --json  # machine-readable output
 # Or use --project to resolve from directory
 
 # Or use --cwd for an existing checkout/worktree path
-kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout'
+kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout' --agent <current_agent>
 ```
 
 Use cases:
@@ -88,7 +88,7 @@ Use cases:
 # Start a session and wait for it to finish
 
 # Send to an existing thread and wait
-kimaki send --thread <thread_id> --prompt 'Run the tests' --wait
+kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <current_agent>
 
 # Wait for a session that was already started elsewhere
 kimaki session wait <session_id>

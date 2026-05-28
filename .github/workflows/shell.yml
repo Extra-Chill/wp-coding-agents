@@ -40,10 +40,10 @@ jobs:
       - name: Run tests/opencode-wrapper-removal.sh
         run: ./tests/opencode-wrapper-removal.sh
 
-  datamachine-kimaki-adapter:
-    name: Data Machine Kimaki adapter regression
+  kimaki-agent-fallback:
+    name: Kimaki native agent fallback regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/datamachine-kimaki-adapter.sh
-        run: ./tests/datamachine-kimaki-adapter.sh
+      - name: Run tests/kimaki-agent-fallback.sh
+        run: ./tests/kimaki-agent-fallback.sh
