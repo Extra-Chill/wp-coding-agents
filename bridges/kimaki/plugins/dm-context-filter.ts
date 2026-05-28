@@ -1,30 +1,32 @@
 // dm-context-filter.ts — OpenCode plugin for WordPress agent VPSes with Data Machine.
 //
-// Strips Kimaki built-in features from the agent context when Data Machine
-// manages memory, scheduling, and other concerns.
+// Strips Kimaki built-in features from the agent context only where they
+// conflict with Data Machine-owned policy.
 //
 // What it removes from the system prompt:
-// 1. Scheduling — ~500 tokens of --send-at, cron, task management instructions.
-// 2. Tunnel / dev server — ~500 tokens about kimaki tunnel and tmux. DM-managed
+// 1. Scheduling — Kimaki task scheduling competes with Data Machine flows,
+//    jobs, and pending-action approvals.
+// 2. Tunnel / dev server — Kimaki defaults every dev server through a public
+//    tunnel. Data Machine-managed
 //    WordPress installs already have a site runtime (Studio locally, a live
 //    site on VPS). Tunnels are task-specific for inbound public URLs like
 //    webhooks/OAuth callbacks, not the default way to interact with the site.
-// 3. Critique — ~900 tokens of diff-sharing instructions. We use GitHub PRs.
-// 4. Waiting for sessions — ~150 tokens. Rarely used, discoverable via --help.
-// 5. Session/workspace conflicts — generic Kimaki agent override examples can
+// 3. Session/workspace conflicts — generic Kimaki agent override examples can
 //    bypass the Data Machine-bound default agent slot.
-// 8. Permissions — ~80 tokens describing which Discord roles can message the
-//    bot. The agent has no capability to act on this; pure metadata leakage.
-// 9. Upgrading kimaki — ~80 tokens of /upgrade-and-restart playbook. The user
-//    runs the slash command themselves when they want to upgrade.
-// 10. Reading other sessions — ~250 tokens documenting `kimaki session list
+// 4. Reading other sessions — documents `kimaki session list
 //    --project` / `session search --channel <id>`. These are cross-project
 //    discovery vectors; on a single-project fleet server the agent only ever
 //    needs to list sessions in the current project (no flags required).
-// 11. Agent override inlines — `--agent <current_agent>` examples from the
+// 5. Agent override inlines — `--agent <current_agent>` examples from the
 //    generic Kimaki prompt. On DM-managed sites the Discord channel owns the
 //    personal-agent binding; passing the runtime agent (for example `opencode`)
 //    bypasses that binding and starts the wrong kind of minion session.
+//
+// What it intentionally does not strip anymore:
+// - Critique instructions. Managed Kimaki services start with `--no-critique`,
+//   so Kimaki omits those instructions upstream.
+// - Generic permissions / upgrade / wait-session help. They no longer conflict
+//   with Data Machine memory or site policy.
 //
 // This plugin is strip-only. Positive guidance about how to use Kimaki's
 // session bridge or the WordPress site runtime belongs in Data Machine's
@@ -37,10 +39,9 @@
 // throws errors, the agent needs the kimaki.log path to investigate.
 //
 // What it removes from chat message injection:
-// 8. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
+// 1. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
 //    injects a condensed TOC. Conflicts with Data Machine's own memory files.
-// 9. "Update MEMORY.md" time-gap reminder — Redundant with external memory system.
-// Total savings: ~2,400+ tokens per session.
+// 2. "Update MEMORY.md" time-gap reminder — Redundant with external memory system.
 //
 // How to use:
 //   Add to opencode.json:  "plugin": ["/opt/kimaki-config/plugins/dm-context-filter.ts"]
@@ -57,20 +58,11 @@ const fleetContextFilter: Plugin = async () => {
     "experimental.chat.system.transform": async (_input, output) => {
       output.system = output.system.map((block) => {
         let result = block;
-        result = stripSection(result, "## permissions");
-        result = stripSection(result, "## upgrading kimaki");
         result = stripSection(result, "## scheduled sends and task management");
         result = stripSection(result, "## running dev servers with tunnel access");
-        result = stripSection(result, "## worktree");
         result = stripSection(result, "## reading other sessions");
-        result = stripSection(result, "## waiting for a session to finish");
         result = stripSection(result, "## running opencode commands via kimaki send");
         result = stripSection(result, "## switching agents in the current session");
-        result = stripSection(result, "## showing diffs");
-        result = stripSection(result, "## about critique");
-        result = stripSection(result, "### always show diff at end of session");
-        result = stripSection(result, "### fetching user comments from critique diffs");
-        result = stripSection(result, "### reviewing diffs with AI");
         result = stripAgentOverrideInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");

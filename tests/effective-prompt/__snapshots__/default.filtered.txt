@@ -15,6 +15,25 @@ Your current Discord guild ID is: 1493321868415996064
 
 Per-turn Discord metadata like the current user and current agent is delivered in synthetic user message parts.
 
+## permissions
+
+Only users with these Discord permissions can send messages to the bot:
+- Server Owner
+- Administrator permission
+- Manage Server permission
+- "Kimaki" role (case-insensitive)
+
+Other Discord bots are ignored by default. To allow another bot to trigger sessions (for multi-agent orchestration), assign it the "Kimaki" role.
+
+## upgrading kimaki
+
+Use built-in upgrade commands when the user explicitly asks to update kimaki:
+- Discord slash command: "/upgrade-and-restart" upgrades to the latest version and restarts the bot
+- CLI command: `kimaki upgrade` upgrades and restarts the bot (or starts a fresh process if needed)
+- CLI command: `kimaki upgrade --skip-restart` upgrades without restarting
+
+Do not restart the bot unless the user explicitly asks for it.
+
 ## debugging kimaki issues
 
 If there are internal kimaki issues (sessions not responding, bot errors, unexpected behavior), read the log file at `/Users/chubes/.kimaki/kimaki.log`. This file contains detailed logs of all bot activity including session creation, event handling, errors, and API calls. The log file is reset every time the bot restarts, so it only contains logs from the current run.
@@ -24,6 +43,22 @@ If there are internal kimaki issues (sessions not responding, bot errors, unexpe
 To upload files to the Discord thread (images, screenshots, long files that would clutter the chat), run:
 
 kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST <file1> [file2] ...
+
+## generating audio from text
+
+When the user asks you to generate audio of some text so they can listen instead of reading, use `kimaki tts` to create a speech file and `kimaki upload-to-discord` to send it to the thread. Only use this when the user explicitly asks for audio.
+
+```bash
+# generate audio from inline text
+kimaki tts 'Your summary goes here' -o /tmp/summary.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/summary.mp3
+
+# generate audio from a file (pipe via stdin)
+cat docs/explanation.md | kimaki tts -o /tmp/explanation.mp3
+kimaki upload-to-discord --session ses_EFFECTIVE_PROMPT_TEST /tmp/explanation.mp3
+```
+
+see --help for options like voice, speed, etc.
 
 ## requesting files from the user
 
@@ -188,48 +223,39 @@ Use cases:
 - **Coordinating changes** across related repos (e.g., SDK + docs)
 - **Delegating subtasks** to isolated sessions in other projects
 
+## waiting for a session to finish
+
+Use `--wait` to block until a session completes and print its full conversation to stdout. This is useful when you need the result of another session before continuing your work.
+
+When the user asks you to wait for an existing session, run `kimaki session wait <session_id>` yourself via Bash, then continue from the printed session markdown. Do not tell the user to run the command.
+
+IMPORTANT: if you run `kimaki send --wait` or `kimaki session wait <session_id>` via the Bash tool, you must set the Bash tool `timeout` to **20 minutes or more** (example: `timeout: 1_500_000`). Otherwise the tool will terminate early (default is 2 minutes) and you won't see long sessions.
+
+If your Bash tool timeout triggers anyway, fall back to reading the session output from disk:
+
+`kimaki session read <sessionId> > ./tmp/session.md 2>/dev/null`
+
+```bash
+# Start a session and wait for it to finish
+kimaki send --channel <channel_id> --prompt 'Fix the auth bug' --wait
+
+# Send to an existing thread and wait
+kimaki send --thread <thread_id> --prompt 'Run the tests' --wait
+
+# Wait for a session that was already started elsewhere
+kimaki session wait <session_id>
+```
+
+The command exits with the session markdown on stdout once the model finishes responding.
+
+Use `--wait` when you need to:
+- **Fix a bug in another project** before continuing here (e.g. fix a dependency, then resume)
+- **Run a task in a separate worktree** and use the result in your current session
+- **Chain sessions sequentially** where the next depends on the previous output
+
 ## submodules
 
 When pulling submodules and they jump to a new commit, commit that submodule pointer update right away before doing other work. Otherwise critique diffs later will include the noisy submodule jump along with the real changes.
-
-# Share working tree changes
-bunx critique --web "Describe pending changes"
-
-# Share staged changes
-bunx critique --staged --web "Describe staged changes"
-
-# Share changes since base branch (use when you're on a feature branch)
-bunx critique main --web "Describe branch changes"
-
-# Share new-branch changes compared to main
-bunx critique main...new-branch --web "Describe branch changes"
-
-# Share a single commit
-bunx critique --commit HEAD --web "Describe latest commit"
-
-If the user asks to see a diff and you already committed the changes, prefer showing a separate diff URL for each commit instead of one unified diff. Run one `bunx critique --commit <hash> --web` per commit so each change is clearly scoped. Run all the critique calls in parallel tool calls.
-
-If there are other unrelated changes in the working directory, filter to only show the files you edited:
-
-# Share only specific files
-bunx critique --web "Fix database connection retry" --filter "path/to/file1.ts" --filter "path/to/file2.ts"
-
-Do this in case you committed the changes yourself (only if the user asks so, never commit otherwise).
-
-To compare two branches:
-
-bunx critique main feature-branch --web "Compare branches"
-
-The command outputs a URL - share that URL with the user so they can see the diff.
-
-### about critique
-
-critique is an open source tool (MIT license) at https://github.com/remorses/critique.
-Each diff URL is unique and unguessable, only the person who created it can share it.
-No code is stored permanently, diffs are ephemeral. The tool and website are fully open source.
-If the user asks about critique or expresses concern about their code being uploaded,
-reassure them: their data is safe, URLs are unique and not indexed, and they can disable
-this feature by restarting kimaki with the `--no-critique` flag.
 
 ## markdown formatting
 

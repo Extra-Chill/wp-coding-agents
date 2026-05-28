@@ -3,15 +3,20 @@
 Pluggable harness that renders the kimaki opencode system prompt, runs the
 `dm-context-filter` plugin over it, snapshots the result, and asserts that
 no banned `--agent` override examples leak into the filtered prompt that an
-opencode session actually sees.
+opencode session actually sees. The harness also exercises the plugin's
+`chat.message` filter so Kimaki `MEMORY.md` injection stays suppressed.
 
 ## Why
 
-`dm-context-filter.ts` is a security-and-context plugin. It strips ~5,000
-tokens of kimaki-shipped instructions that conflict with Data Machine's
-memory and channel-bound agent model. When the filter has a bug,
-the leaked content is invisible until you go reading the system prompt by
+`dm-context-filter.ts` is a security-and-context plugin. It strips only the
+kimaki-shipped instructions that conflict with Data Machine's memory,
+scheduling, site-runtime, and channel-bound agent model. When the filter has a
+bug, the leaked content is invisible until you go reading the system prompt by
 hand. This harness catches those leaks at test time.
+
+wp-coding-agents starts managed Kimaki services with `--no-critique`, so the
+harness disables critique in Kimaki's store before rendering snapshots. Set
+`KIMAKI_EFFECTIVE_PROMPT_CRITIQUE=1` to inspect the upstream critique prompt.
 
 ## Run it
 
@@ -69,6 +74,9 @@ baseline filter:
 3. **Snapshot match**: the rendered raw / baseline / filtered prompts
    match the committed snapshots. Run with `--update` after an
    intentional change.
+4. **Memory injection filter**: synthetic Kimaki `MEMORY.md` context and
+   stale-memory reminders are removed while unrelated synthetic/user text is
+   preserved.
 
 ## Files
 

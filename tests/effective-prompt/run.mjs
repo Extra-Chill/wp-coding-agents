@@ -13,7 +13,9 @@
 //      language fails the next test run.
 //   2. It loads the LIVE plugin source from kimaki/plugins/, so a filter
 //      change in this repo immediately reflows the snapshots.
-//   3. It writes named .txt snapshots to __snapshots__/, so reviewers
+//   3. It renders Kimaki as wp-coding-agents starts it: critique disabled via
+//      `--no-critique`, unless KIMAKI_EFFECTIVE_PROMPT_CRITIQUE=1 is set.
+//   4. It writes named .txt snapshots to __snapshots__/, so reviewers
 //      can `git diff` to see exactly what changed in the rendered prompt
 //      between commits — same workflow as jest snapshots, no jest dep.
 //
@@ -54,6 +56,10 @@ const __dirname = dirname(__filename)
 const SNAPSHOT_DIR = join(__dirname, "__snapshots__")
 const SCENARIO_DIR = join(__dirname, "scenarios")
 const KIMAKI_DIST_DIR = process.env.KIMAKI_DIST_DIR || join(execSync("npm root -g", { encoding: "utf8" }).trim(), "kimaki", "dist")
+const { store } = await import(pathToFileURL(join(KIMAKI_DIST_DIR, "store.js")).href)
+if (process.env.KIMAKI_EFFECTIVE_PROMPT_CRITIQUE !== "1") {
+  store.setState({ critiqueEnabled: false })
+}
 const { getOpencodeSystemMessage } = await import(pathToFileURL(join(KIMAKI_DIST_DIR, "system-message.js")).href)
 
 if (!existsSync(SNAPSHOT_DIR)) mkdirSync(SNAPSHOT_DIR, { recursive: true })
@@ -257,6 +263,42 @@ async function runScenario(name, scenario) {
   }
 }
 
+async function runMessageFilterChecks() {
+  const pluginModule = await import(pathToFileURL(join(__dirname, "..", "..", "bridges", "kimaki", "plugins", "dm-context-filter.ts")).href)
+  const plugin = await pluginModule.default({})
+  const filter = plugin["chat.message"]
+  if (typeof filter !== "function") {
+    throw new Error("dm-context-filter plugin is missing chat.message")
+  }
+
+  const output = {
+    parts: [
+      { type: "text", synthetic: true, text: "Project memory from MEMORY.md\n- old kimaki memory" },
+      { type: "text", synthetic: true, text: "Please update MEMORY.md before starting the new task." },
+      { type: "text", synthetic: true, text: "Current agent: build" },
+      { type: "text", text: "User-visible text" },
+    ],
+  }
+  await filter({}, output)
+
+  const texts = output.parts.map((part) => part.text || "")
+  const failures = []
+  if (texts.some((text) => text.includes("Project memory from MEMORY.md"))) {
+    failures.push("MEMORY.md synthetic injection leaked")
+  }
+  if (texts.some((text) => text.includes("update MEMORY.md before starting the new task"))) {
+    failures.push("MEMORY.md reminder leaked")
+  }
+  if (!texts.includes("Current agent: build")) {
+    failures.push("unrelated synthetic text was removed")
+  }
+  if (!texts.includes("User-visible text")) {
+    failures.push("non-synthetic user text was removed")
+  }
+
+  return { name: "chat.message memory filter", failures }
+}
+
 // ---------------------------------------------------------------------------
 // Reporting.
 // ---------------------------------------------------------------------------
@@ -318,11 +360,23 @@ const results = []
 for (const [name, scenario] of scenarios) {
   results.push(await runScenario(name, scenario))
 }
+const messageFilterResult = await runMessageFilterChecks()
 
 let failed = 0
 for (const r of results) {
   printResult(r)
   if (!r.skipped && r.failures.length > 0) failed++
+}
+
+console.log(`\n${"=".repeat(72)}`)
+console.log(`check: ${messageFilterResult.name}`)
+console.log(`${"=".repeat(72)}`)
+if (messageFilterResult.failures.length > 0) {
+  console.log(`\n  FAIL:`)
+  for (const f of messageFilterResult.failures) console.log(`    - ${f}`)
+  failed++
+} else {
+  console.log(`\n  PASS`)
 }
 
 // Clean up .actual diff intermediates on a fully successful run so they do
@@ -338,7 +392,7 @@ if (failed === 0) {
 
 console.log(`\n${"=".repeat(72)}`)
 if (failed === 0) {
-  console.log(`OK — ${results.filter((r) => !r.skipped).length} scenario(s) passed`)
+  console.log(`OK — ${results.filter((r) => !r.skipped).length} scenario(s) and 1 message-filter check passed`)
   console.log(`Snapshots: ${SNAPSHOT_DIR}`)
   console.log(`To see the side-by-side baseline-vs-filtered diff for any scenario:`)
   console.log(`  git --no-pager diff --no-index tests/effective-prompt/__snapshots__/<scenario>.baseline.txt tests/effective-prompt/__snapshots__/<scenario>.filtered.txt`)
