@@ -87,8 +87,9 @@ def expected_plugins(
         # "drift" comparisons on those runtimes are no-ops.
         return plugins
 
-    # DM context filter + agent sync: only when the bridge is Kimaki, since
-    # these plugins rewrite Kimaki-specific prompts. wp-coding-agents does
+    # DM context filter + memory sync: only when the bridge is Kimaki. These
+    # plugins filter Kimaki-specific prompt sections and refresh composed Data
+    # Machine memory; they do not write OpenCode agent prompts. wp-coding-agents does
     # not manage opencode-claude-auth on any bridge — Kimaki ships its own
     # AnthropicAuthPlugin, and non-kimaki bridges use opencode's native auth
     # flow. See wp-coding-agents#117.
