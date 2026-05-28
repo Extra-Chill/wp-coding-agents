@@ -354,8 +354,9 @@ _cli_channel_block_matches() {
 # <new_block> removes the bridge's block entirely (used by unregister).
 _cli_channel_rewrite() {
   local file="$1" name="$2" new_block="$3"
-  awk -v name="$name" -v new_block="$new_block" '
+  CLI_CHANNEL_NEW_BLOCK="$new_block" awk -v name="$name" '
     BEGIN {
+      new_block = ENVIRON["CLI_CHANNEL_NEW_BLOCK"]
       begin_marker = "    // BEGIN bridge:" name
       end_marker   = "    // END bridge:" name
       inserted = 0

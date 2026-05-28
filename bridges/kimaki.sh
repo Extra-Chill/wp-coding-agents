@@ -91,22 +91,14 @@ _kimaki_register_cli_channel() {
 
 # _kimaki_register_runtime_signature
 #
-# Publish kimaki's worktree session-attribution env-var contract for the Data
-# Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
-# kimaki sets KIMAKI_SESSION_ID, KIMAKI_THREAD_ID, and KIMAKI_THREAD_URL on
-# the opencode-serve children it spawns (see Kimaki source). DMC reads those
-# env vars at worktree-create time to record which kimaki session originated
-# the worktree, what Discord thread the session lives in, and the deep link
-# to that thread.
+# Remove kimaki's stale worktree session-attribution env-var contract.
 #
-# The registration is data, not config: the runtime ID 'kimaki' is what
-# wp-coding-agents *calls* the runtime here, and the env-var names are what
-# the kimaki binary actually sets. DMC stays naive — it doesn't know kimaki
-# exists; it just sniffs whatever env vars the filter map tells it to.
+# Kimaki 0.13 does not expose KIMAKI_SESSION_ID, KIMAKI_THREAD_ID, or
+# KIMAKI_THREAD_URL to OpenCode/tool processes. Keep the install/upgrade path
+# idempotently deleting the old block so DMC only sniffs env vars that actually
+# exist. Upstream support request: https://github.com/remorses/kimaki/issues/137
 _kimaki_register_runtime_signature() {
-  runtime_signature_register \
-    "kimaki" \
-    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+  runtime_signature_unregister "kimaki"
 }
 
 _kimaki_sync_bin_helpers() {

@@ -48,10 +48,19 @@ fi
 MU_FILE="$TMP/wp-content/mu-plugins/wp-coding-agents-channels.php"
 FAILED=0
 
+file_mode() {
+  local file="$1"
+  if stat -c %a "$file" >/dev/null 2>&1; then
+    stat -c %a "$file"
+  else
+    stat -f %Lp "$file"
+  fi
+}
+
 assert_mode_0644() {
   local file="$1" name="$2"
   local got
-  got=$(stat -c %a "$file")
+  got=$(file_mode "$file")
   if [ "$got" = "644" ]; then
     echo "  ok   $name"
   else

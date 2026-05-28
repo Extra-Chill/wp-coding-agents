@@ -5,8 +5,8 @@
 # Data Machine Code's worktree-attribution code captures "origin session"
 # metadata when an agent spawns a worktree. Historically DMC hardcoded the
 # env-var → field map for each coding-agent runtime it knew about
-# (KIMAKI_SESSION_ID → kimaki_session_id, OPENCODE_RUN_ID → opencode_run_id,
-# etc.). Per the platform's layer-purity rule, those vendor names do not
+# (OPENCODE_RUN_ID → opencode_run_id, etc.). Per the platform's layer-purity rule,
+# those vendor names do not
 # belong in DMC — DMC is runtime-agnostic substrate.
 #
 # Extra-Chill/data-machine-code#416 generalises the DMC surface to read the
@@ -15,14 +15,13 @@
 #   apply_filters( 'datamachine_code_worktree_runtime_signatures', [] )
 #
 # Each entry is keyed by an opaque runtime ID (a string the integration layer
-# chooses, e.g. 'kimaki', 'opencode') and maps subkeys (session_id, thread_id,
+# chooses, e.g. 'opencode') and maps subkeys (session_id, thread_id,
 # thread_url, run_id, …) to the env var DMC should sniff for that subkey.
 #
 # wp-coding-agents is the integration layer that knows about kimaki and
-# opencode — it installs both, writes systemd units that pass KIMAKI_* /
-# OPENCODE_* into the spawned processes, and is the only honest place those
-# brand names live. This module owns publishing that knowledge into the
-# DMC filter via a mu-plugin file.
+# opencode — it installs both and is the only honest place those brand names
+# live. This module owns publishing the env-var contracts those runtimes
+# actually expose into the DMC filter via a mu-plugin file.
 #
 # Resolved file: $SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php
 #
@@ -49,7 +48,9 @@
 # The file uses the same marker-delimited block pattern as
 # lib/cli-channel.sh so each runtime's block can be inserted, replaced, or
 # removed idempotently without re-parsing PHP, and so two runtimes (kimaki
-# and opencode) can each manage their own block independently.
+# and opencode) can each manage their own block independently. Runtimes may
+# also unregister stale blocks when an upstream env-var contract disappears or
+# turns out not to exist.
 #
 # Public surface:
 #   runtime_signature_mu_plugin_path                       — echo file path
@@ -58,7 +59,7 @@
 #   runtime_signature_unregister <runtime_id>
 #
 # `signature_json` is a JSON object mapping subkey → env-var name, e.g.:
-#   '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+#   '{"run_id":"OPENCODE_RUN_ID"}'
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -200,8 +201,8 @@ _runtime_signature_php_escape() {
 
 # _runtime_signature_json_to_php_map <json_object_literal>
 #
-# Convert a JSON object like {"session_id":"KIMAKI_SESSION_ID",...} into a
-# PHP associative array literal [ 'session_id' => 'KIMAKI_SESSION_ID', ... ].
+# Convert a JSON object like {"run_id":"OPENCODE_RUN_ID",...} into a PHP
+# associative array literal [ 'run_id' => 'OPENCODE_RUN_ID', ... ].
 # Uses python3 (every host that runs wp-coding-agents already depends on
 # python3 — see lib/repair-opencode-json.py and runtimes/opencode.sh).
 # Keys are emitted in the order they appear in the JSON for stable diffs.
@@ -348,8 +349,9 @@ _runtime_signature_block_matches() {
 # <new_block> removes the runtime's block entirely (used by unregister).
 _runtime_signature_rewrite() {
   local file="$1" runtime_id="$2" new_block="$3"
-  awk -v rid="$runtime_id" -v new_block="$new_block" '
+  RUNTIME_SIGNATURE_NEW_BLOCK="$new_block" awk -v rid="$runtime_id" '
     BEGIN {
+      new_block = ENVIRON["RUNTIME_SIGNATURE_NEW_BLOCK"]
       begin_marker = "    // BEGIN runtime:" rid
       end_marker   = "    // END runtime:" rid
       inserted = 0
