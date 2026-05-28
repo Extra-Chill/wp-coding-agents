@@ -2,15 +2,22 @@
 
 Pluggable harness that renders the kimaki opencode system prompt, runs the
 `dm-context-filter` plugin over it, snapshots the result, and asserts that
-filtered prompt content does not reintroduce sections Data Machine owns.
+Data Machine-owned Kimaki policy sections do not leak into the filtered prompt
+that an opencode session actually sees.
 
 ## Why
 
-`dm-context-filter.ts` is a security-and-context plugin. It strips ~5,000
-tokens of kimaki-shipped instructions that conflict with Data Machine's
-memory and channel-bound agent model. When the filter has a bug,
+`dm-context-filter.ts` is a security-and-context plugin. It strips
+kimaki-shipped instructions that conflict with Data Machine's memory,
+scheduling, and managed WordPress runtime policy. When the filter has a bug,
 the leaked content is invisible until you go reading the system prompt by
 hand. This harness catches those leaks at test time.
+
+The harness models wp-coding-agents' managed Kimaki startup flags. In
+particular, services run with `--no-critique`, so critique instructions should
+be absent before `dm-context-filter` runs. Kimaki 0.13 also falls back to the
+build agent when a requested agent does not exist, so generic `--agent
+<current_agent>` guidance is no longer treated as a filter leak.
 
 ## Run it
 
@@ -47,9 +54,13 @@ Each scenario is a JSON file in `scenarios/`. Override any of:
 - **`filter`** — name from `filters.mjs`. Default `"current"`.
 - **`baseline`** — name from `filters.mjs`. Default
   `"broken-stripsection"` (kept as diff evidence for reviewers).
+- **`critiqueEnabled`** — boolean passed into Kimaki's prompt store before
+  rendering. Defaults to `false` to match the managed `--no-critique` service
+  configuration.
 - **`triggers`** — array of `{ name, pattern }`. Pattern is a JS regex
-  string; prefix with `(?i)` for case-insensitive. Defaults to an empty list;
-  focused regressions should opt in from scenario JSON.
+  string; prefix with `(?i)` for case-insensitive. Defaults catch the headings
+  that Data Machine still intentionally filters: permissions, Kimaki upgrades,
+  Kimaki scheduling, dev-server tunnels, and cross-session history.
 - **`allowLeakInSection`** — array of section headings (e.g. `"## Minion
   Session Routing"`) where trigger matches are intentional and must not
   count as leaks.

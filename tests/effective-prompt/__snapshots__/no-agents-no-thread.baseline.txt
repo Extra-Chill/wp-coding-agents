@@ -102,57 +102,6 @@ Use `--wait` when you need to:
 
 When pulling submodules and they jump to a new commit, commit that submodule pointer update right away before doing other work. Otherwise critique diffs later will include the noisy submodule jump along with the real changes.
 
-# Share working tree changes
-bunx critique --web "Describe pending changes"
-
-# Share staged changes
-bunx critique --staged --web "Describe staged changes"
-
-# Share changes since base branch (use when you're on a feature branch)
-bunx critique main --web "Describe branch changes"
-
-# Share new-branch changes compared to main
-bunx critique main...new-branch --web "Describe branch changes"
-
-# Share a single commit
-bunx critique --commit HEAD --web "Describe latest commit"
-
-If the user asks to see a diff and you already committed the changes, prefer showing a separate diff URL for each commit instead of one unified diff. Run one `bunx critique --commit <hash> --web` per commit so each change is clearly scoped. Run all the critique calls in parallel tool calls.
-
-If there are other unrelated changes in the working directory, filter to only show the files you edited:
-
-# Share only specific files
-bunx critique --web "Fix database connection retry" --filter "path/to/file1.ts" --filter "path/to/file2.ts"
-
-Do this in case you committed the changes yourself (only if the user asks so, never commit otherwise).
-
-To compare two branches:
-
-bunx critique main feature-branch --web "Compare branches"
-
-The command outputs a URL - share that URL with the user so they can see the diff.
-
-# Review working tree changes
-bunx critique review --web --agent opencode --session ses_MINIMAL
-
-# Review staged changes
-bunx critique review --staged --web --agent opencode --session ses_MINIMAL
-
-# Review a specific commit
-bunx critique review --commit HEAD --web --agent opencode --session ses_MINIMAL
-
-# Review branch changes compared to main
-bunx critique review main...HEAD --web --agent opencode --session ses_MINIMAL
-
-# Review with multiple session contexts (current + the session that made the changes)
-bunx critique review --commit abc1234 --web --agent opencode --session ses_MINIMAL --session ses_other_session_id
-
-# Review only specific files
-bunx critique review --web --agent opencode --session ses_MINIMAL --filter "src/**/*.ts"
-```
-
-The command prints a preview URL when done — share that URL with the user.
-
 # Start the dev server in a named background session
 bunx tuistory launch "kimaki tunnel -- pnpm dev" -s myapp-dev
 

@@ -117,6 +117,23 @@ Use --agent to specify which agent to use for the session:
 
 kimaki send --channel 1493345787894038649 --prompt 'Plan the refactor of the auth module' --agent plan --user '<discord-user-id>'
 
+## running opencode commands via kimaki send
+
+You can trigger registered opencode commands (slash commands, skills, MCP prompts) by starting the `--prompt` with `/commandname`:
+
+kimaki send --thread <thread_id> --prompt '/review fix the auth module' --agent <current_agent>
+kimaki send --channel 1493345787894038649 --prompt '/build-cmd update dependencies' --agent <current_agent> --user '<discord-user-id>'
+
+The command name must match a registered opencode command. If the command is not recognized, the prompt is sent as plain text to the model. This works for both new threads (`--channel`) and existing threads (`--thread`/`--session`).
+
+## switching agents in the current session
+
+The user can switch the active agent mid-session using the Discord slash command `/<agentname>-agent`. For example if you are in plan mode and the user asks you to edit files, tell them to run `/build-agent` to switch to the build agent first.
+
+You can also switch agents via `kimaki send`:
+
+kimaki send --thread <thread_id> --prompt '/<agentname>-agent' --agent <current_agent>
+
 ## creating worktrees
 
 ONLY create worktrees when the user explicitly asks for one. Never proactively use `--worktree` for normal tasks.
@@ -203,48 +220,39 @@ Use cases:
 - **Coordinating changes** across related repos (e.g., SDK + docs)
 - **Delegating subtasks** to isolated sessions in other projects
 
+## waiting for a session to finish
+
+Use `--wait` to block until a session completes and print its full conversation to stdout. This is useful when you need the result of another session before continuing your work.
+
+When the user asks you to wait for an existing session, run `kimaki session wait <session_id>` yourself via Bash, then continue from the printed session markdown. Do not tell the user to run the command.
+
+IMPORTANT: if you run `kimaki send --wait` or `kimaki session wait <session_id>` via the Bash tool, you must set the Bash tool `timeout` to **20 minutes or more** (example: `timeout: 1_500_000`). Otherwise the tool will terminate early (default is 2 minutes) and you won't see long sessions.
+
+If your Bash tool timeout triggers anyway, fall back to reading the session output from disk:
+
+`kimaki session read <sessionId> > ./tmp/session.md 2>/dev/null`
+
+```bash
+# Start a session and wait for it to finish
+kimaki send --channel <channel_id> --prompt 'Fix the auth bug' --wait --agent <current_agent>
+
+# Send to an existing thread and wait
+kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <current_agent>
+
+# Wait for a session that was already started elsewhere
+kimaki session wait <session_id>
+```
+
+The command exits with the session markdown on stdout once the model finishes responding.
+
+Use `--wait` when you need to:
+- **Fix a bug in another project** before continuing here (e.g. fix a dependency, then resume)
+- **Run a task in a separate worktree** and use the result in your current session
+- **Chain sessions sequentially** where the next depends on the previous output
+
 ## submodules
 
 When pulling submodules and they jump to a new commit, commit that submodule pointer update right away before doing other work. Otherwise critique diffs later will include the noisy submodule jump along with the real changes.
-
-# Share working tree changes
-bunx critique --web "Describe pending changes"
-
-# Share staged changes
-bunx critique --staged --web "Describe staged changes"
-
-# Share changes since base branch (use when you're on a feature branch)
-bunx critique main --web "Describe branch changes"
-
-# Share new-branch changes compared to main
-bunx critique main...new-branch --web "Describe branch changes"
-
-# Share a single commit
-bunx critique --commit HEAD --web "Describe latest commit"
-
-If the user asks to see a diff and you already committed the changes, prefer showing a separate diff URL for each commit instead of one unified diff. Run one `bunx critique --commit <hash> --web` per commit so each change is clearly scoped. Run all the critique calls in parallel tool calls.
-
-If there are other unrelated changes in the working directory, filter to only show the files you edited:
-
-# Share only specific files
-bunx critique --web "Fix database connection retry" --filter "path/to/file1.ts" --filter "path/to/file2.ts"
-
-Do this in case you committed the changes yourself (only if the user asks so, never commit otherwise).
-
-To compare two branches:
-
-bunx critique main feature-branch --web "Compare branches"
-
-The command outputs a URL - share that URL with the user so they can see the diff.
-
-### about critique
-
-critique is an open source tool (MIT license) at https://github.com/remorses/critique.
-Each diff URL is unique and unguessable, only the person who created it can share it.
-No code is stored permanently, diffs are ephemeral. The tool and website are fully open source.
-If the user asks about critique or expresses concern about their code being uploaded,
-reassure them: their data is safe, URLs are unique and not indexed, and they can disable
-this feature by restarting kimaki with the `--no-critique` flag.
 
 ## markdown formatting
 
@@ -349,4 +357,3 @@ Examples:
 - After completing edits: offer "Commit changes?"
 - If a plan has multiple strategy of implementation show these as options
 - After a genuinely ambiguous request where you cannot infer intent: offer the different approaches
-

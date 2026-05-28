@@ -27,9 +27,9 @@
 //     "broken-stripsection" (the regex-only stripSection that misfires
 //     on fenced bash comments). The harness keeps baseline output available
 //     as diff evidence, but leak detection is the correctness gate.
-//   - triggers: array of { name, pattern }. Default: --agent override
-//     examples that bypass the Data Machine-bound agent slot.
-//     Lines matching any configured trigger in the filtered output count as leaks.
+//   - triggers: array of { name, pattern }. Defaults to Data Machine-owned
+//     Kimaki policy sections that must not survive the filter.
+//     Lines matching any trigger in the filtered output count as leaks.
 //   - allowLeakInSection: array of section headings where trigger
 //     matches are intentional (e.g. the appended Minion Routing note
 //     intentionally references --cwd to point agents at it).
@@ -55,6 +55,7 @@ const SNAPSHOT_DIR = join(__dirname, "__snapshots__")
 const SCENARIO_DIR = join(__dirname, "scenarios")
 const KIMAKI_DIST_DIR = process.env.KIMAKI_DIST_DIR || join(execSync("npm root -g", { encoding: "utf8" }).trim(), "kimaki", "dist")
 const { getOpencodeSystemMessage } = await import(pathToFileURL(join(KIMAKI_DIST_DIR, "system-message.js")).href)
+const { store } = await import(pathToFileURL(join(KIMAKI_DIST_DIR, "store.js")).href)
 
 if (!existsSync(SNAPSHOT_DIR)) mkdirSync(SNAPSHOT_DIR, { recursive: true })
 
@@ -73,7 +74,13 @@ const VERBOSE = args.includes("--verbose")
 // scenarios/ once the suite is seeded.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TRIGGERS = []
+const DEFAULT_TRIGGERS = [
+  { name: "permissions",     pattern: "^## permissions$"                         },
+  { name: "upgrade",         pattern: "^## upgrading kimaki$"                    },
+  { name: "scheduler",       pattern: "^## scheduled sends and task management$" },
+  { name: "site-runtime",    pattern: "^## running dev servers with tunnel access$" },
+  { name: "session-history", pattern: "^## reading other sessions$"              },
+]
 
 // The filter is strip-only — it never appends sections. Any trigger word
 // appearing in the filtered output is a real leak that needs investigation,
@@ -94,6 +101,9 @@ const DEFAULT_SCENARIO = {
     ],
     username: "chubes",
   },
+  // wp-coding-agents managed Kimaki services run with --no-critique, so the
+  // effective prompt harness should exercise that managed startup contract.
+  critiqueEnabled: false,
   filter: "current",
   baseline: "broken-stripsection",
   triggers: DEFAULT_TRIGGERS,
@@ -191,7 +201,16 @@ async function runScenario(name, scenario) {
   const baselineFn = filters[scenario.baseline]
   if (!baselineFn) throw new Error(`scenario ${name}: unknown baseline "${scenario.baseline}"`)
 
-  const raw = getOpencodeSystemMessage(scenario.args)
+  const previousCritiqueEnabled = store.getState().critiqueEnabled
+  let raw
+  try {
+    if (typeof scenario.critiqueEnabled === "boolean") {
+      store.setState({ critiqueEnabled: scenario.critiqueEnabled })
+    }
+    raw = getOpencodeSystemMessage(scenario.args)
+  } finally {
+    store.setState({ critiqueEnabled: previousCritiqueEnabled })
+  }
   const baselineOut = await baselineFn(raw)
   const filteredOut = await filterFn(raw)
 

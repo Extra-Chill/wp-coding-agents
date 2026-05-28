@@ -348,14 +348,12 @@ _runtime_signature_block_matches() {
 # <new_block> removes the runtime's block entirely (used by unregister).
 _runtime_signature_rewrite() {
   local file="$1" runtime_id="$2" new_block="$3"
-  local block_file=""
-  if [ -n "$new_block" ]; then
-    block_file=$(mktemp)
-    printf '%s\n' "$new_block" > "$block_file"
-  fi
-
-  awk -v rid="$runtime_id" -v block_file="$block_file" '
-    function print_new_block(  line) {
+  local block_file status
+  block_file=$(mktemp)
+  printf '%s\n' "$new_block" > "$block_file"
+  status=0
+  awk -v rid="$runtime_id" -v block_file="$block_file" -v has_block="$([ -n "$new_block" ] && printf 1 || printf 0)" '
+    function print_block(  line) {
       while ((getline line < block_file) > 0) {
         print line
       }
@@ -370,8 +368,8 @@ _runtime_signature_rewrite() {
     {
       if ($0 == begin_marker) {
         skipping = 1
-        if (block_file != "") {
-          print_new_block()
+        if (has_block == "1") {
+          print_block()
           inserted = 1
         }
         next
@@ -383,15 +381,14 @@ _runtime_signature_rewrite() {
         next
       }
       if (!inserted && $0 == "    // END runtimes") {
-        if (block_file != "") {
-          print_new_block()
+        if (has_block == "1") {
+          print_block()
           inserted = 1
         }
       }
       print
     }
-  ' "$file"
-  local status=$?
-  [ -z "$block_file" ] || rm -f "$block_file"
+  ' "$file" || status=$?
+  rm -f "$block_file"
   return "$status"
 }

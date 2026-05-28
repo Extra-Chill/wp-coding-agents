@@ -123,10 +123,18 @@ fi
 
 # --- 2. Idempotency --------------------------------------------------------
 echo "==> re-register kimaki with same signature (idempotent)"
-HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
+if command -v md5sum >/dev/null 2>&1; then
+  HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
+else
+  HASH_BEFORE=$(md5 -q "$MU_FILE")
+fi
 runtime_signature_register "kimaki" \
   '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
-HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
+if command -v md5sum >/dev/null 2>&1; then
+  HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
+else
+  HASH_AFTER=$(md5 -q "$MU_FILE")
+fi
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
 
 # --- 3. Add opencode without disturbing kimaki -----------------------------
