@@ -23,6 +23,22 @@ To upload files to the Discord thread (images, screenshots, long files that woul
 
 kimaki upload-to-discord --session ses_MINIMAL <file1> [file2] ...
 
+## generating audio from text
+
+When the user asks you to generate audio of some text so they can listen instead of reading, use `kimaki tts` to create a speech file and `kimaki upload-to-discord` to send it to the thread. Only use this when the user explicitly asks for audio.
+
+```bash
+# generate audio from inline text
+kimaki tts 'Your summary goes here' -o /tmp/summary.mp3
+kimaki upload-to-discord --session ses_MINIMAL /tmp/summary.mp3
+
+# generate audio from a file (pipe via stdin)
+cat docs/explanation.md | kimaki tts -o /tmp/explanation.mp3
+kimaki upload-to-discord --session ses_MINIMAL /tmp/explanation.mp3
+```
+
+see --help for options like voice, speed, etc.
+
 ## requesting files from the user
 
 To ask the user to upload files from their device, use the `kimaki_file_upload` tool. This shows a native file picker dialog in Discord. The files are downloaded to the project's `uploads/` directory and the tool returns the local file paths.
@@ -60,7 +76,7 @@ kimaki project list --json  # machine-readable output
 # Or use --project to resolve from directory
 
 # Or use --cwd for an existing checkout/worktree path
-kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout'
+kimaki send --cwd /path/to/other-repo-worktree --prompt 'Plan how to update this checkout' --agent <current_agent>
 ```
 
 Use cases:
@@ -70,7 +86,7 @@ Use cases:
 # Start a session and wait for it to finish
 
 # Send to an existing thread and wait
-kimaki send --thread <thread_id> --prompt 'Run the tests' --wait
+kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <current_agent>
 
 # Wait for a session that was already started elsewhere
 kimaki session wait <session_id>
@@ -85,57 +101,6 @@ Use `--wait` when you need to:
 ## submodules
 
 When pulling submodules and they jump to a new commit, commit that submodule pointer update right away before doing other work. Otherwise critique diffs later will include the noisy submodule jump along with the real changes.
-
-# Share working tree changes
-bunx critique --web "Describe pending changes"
-
-# Share staged changes
-bunx critique --staged --web "Describe staged changes"
-
-# Share changes since base branch (use when you're on a feature branch)
-bunx critique main --web "Describe branch changes"
-
-# Share new-branch changes compared to main
-bunx critique main...new-branch --web "Describe branch changes"
-
-# Share a single commit
-bunx critique --commit HEAD --web "Describe latest commit"
-
-If the user asks to see a diff and you already committed the changes, prefer showing a separate diff URL for each commit instead of one unified diff. Run one `bunx critique --commit <hash> --web` per commit so each change is clearly scoped. Run all the critique calls in parallel tool calls.
-
-If there are other unrelated changes in the working directory, filter to only show the files you edited:
-
-# Share only specific files
-bunx critique --web "Fix database connection retry" --filter "path/to/file1.ts" --filter "path/to/file2.ts"
-
-Do this in case you committed the changes yourself (only if the user asks so, never commit otherwise).
-
-To compare two branches:
-
-bunx critique main feature-branch --web "Compare branches"
-
-The command outputs a URL - share that URL with the user so they can see the diff.
-
-# Review working tree changes
-bunx critique review --web --agent opencode --session ses_MINIMAL
-
-# Review staged changes
-bunx critique review --staged --web --agent opencode --session ses_MINIMAL
-
-# Review a specific commit
-bunx critique review --commit HEAD --web --agent opencode --session ses_MINIMAL
-
-# Review branch changes compared to main
-bunx critique review main...HEAD --web --agent opencode --session ses_MINIMAL
-
-# Review with multiple session contexts (current + the session that made the changes)
-bunx critique review --commit abc1234 --web --agent opencode --session ses_MINIMAL --session ses_other_session_id
-
-# Review only specific files
-bunx critique review --web --agent opencode --session ses_MINIMAL --filter "src/**/*.ts"
-```
-
-The command prints a preview URL when done — share that URL with the user.
 
 # Start the dev server in a named background session
 bunx tuistory launch "kimaki tunnel -- pnpm dev" -s myapp-dev

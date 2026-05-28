@@ -354,7 +354,17 @@ _cli_channel_block_matches() {
 # <new_block> removes the bridge's block entirely (used by unregister).
 _cli_channel_rewrite() {
   local file="$1" name="$2" new_block="$3"
-  awk -v name="$name" -v new_block="$new_block" '
+  local block_file status
+  block_file=$(mktemp)
+  printf '%s\n' "$new_block" > "$block_file"
+  status=0
+  awk -v name="$name" -v block_file="$block_file" -v has_block="$([ -n "$new_block" ] && printf 1 || printf 0)" '
+    function print_block(  line) {
+      while ((getline line < block_file) > 0) {
+        print line
+      }
+      close(block_file)
+    }
     BEGIN {
       begin_marker = "    // BEGIN bridge:" name
       end_marker   = "    // END bridge:" name
@@ -364,8 +374,8 @@ _cli_channel_rewrite() {
     {
       if ($0 == begin_marker) {
         skipping = 1
-        if (new_block != "") {
-          print new_block
+        if (has_block == "1") {
+          print_block()
           inserted = 1
         }
         next
@@ -377,12 +387,14 @@ _cli_channel_rewrite() {
         next
       }
       if (!inserted && $0 == "    // END bridges") {
-        if (new_block != "") {
-          print new_block
+        if (has_block == "1") {
+          print_block()
           inserted = 1
         }
       }
       print
     }
-  ' "$file"
+  ' "$file" || status=$?
+  rm -f "$block_file"
+  return "$status"
 }
