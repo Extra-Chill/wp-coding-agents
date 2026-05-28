@@ -5,7 +5,7 @@
 # Data Machine Code's worktree-attribution code captures "origin session"
 # metadata when an agent spawns a worktree. Historically DMC hardcoded the
 # env-var → field map for each coding-agent runtime it knew about
-# (KIMAKI_SESSION_ID → kimaki_session_id, OPENCODE_RUN_ID → opencode_run_id,
+# (OPENCODE_RUN_ID → opencode_run_id,
 # etc.). Per the platform's layer-purity rule, those vendor names do not
 # belong in DMC — DMC is runtime-agnostic substrate.
 #
@@ -58,7 +58,7 @@
 #   runtime_signature_unregister <runtime_id>
 #
 # `signature_json` is a JSON object mapping subkey → env-var name, e.g.:
-#   '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+#   '{"run_id":"OPENCODE_RUN_ID"}'
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -200,8 +200,8 @@ _runtime_signature_php_escape() {
 
 # _runtime_signature_json_to_php_map <json_object_literal>
 #
-# Convert a JSON object like {"session_id":"KIMAKI_SESSION_ID",...} into a
-# PHP associative array literal [ 'session_id' => 'KIMAKI_SESSION_ID', ... ].
+# Convert a JSON object like {"run_id":"OPENCODE_RUN_ID"} into a
+# PHP associative array literal [ 'run_id' => 'OPENCODE_RUN_ID' ].
 # Uses python3 (every host that runs wp-coding-agents already depends on
 # python3 — see lib/repair-opencode-json.py and runtimes/opencode.sh).
 # Keys are emitted in the order they appear in the JSON for stable diffs.
@@ -348,35 +348,42 @@ _runtime_signature_block_matches() {
 # <new_block> removes the runtime's block entirely (used by unregister).
 _runtime_signature_rewrite() {
   local file="$1" runtime_id="$2" new_block="$3"
-  awk -v rid="$runtime_id" -v new_block="$new_block" '
-    BEGIN {
-      begin_marker = "    // BEGIN runtime:" rid
-      end_marker   = "    // END runtime:" rid
-      inserted = 0
-      skipping = 0
-    }
-    {
-      if ($0 == begin_marker) {
-        skipping = 1
-        if (new_block != "") {
-          print new_block
-          inserted = 1
-        }
-        next
-      }
-      if (skipping) {
-        if ($0 == end_marker) {
-          skipping = 0
-        }
-        next
-      }
-      if (!inserted && $0 == "    // END runtimes") {
-        if (new_block != "") {
-          print new_block
-          inserted = 1
-        }
-      }
-      print
-    }
-  ' "$file"
+  RUNTIME_SIGNATURE_NEW_BLOCK="$new_block" python3 - "$file" "$runtime_id" <<'PY'
+import os, sys
+
+file_path, runtime_id = sys.argv[1], sys.argv[2]
+new_block = os.environ.get("RUNTIME_SIGNATURE_NEW_BLOCK", "")
+begin_marker = f"    // BEGIN runtime:{runtime_id}"
+end_marker = f"    // END runtime:{runtime_id}"
+
+with open(file_path, "r", encoding="utf-8") as fh:
+    lines = fh.read().splitlines()
+
+inserted = False
+skipping = False
+out = []
+
+for line in lines:
+    if line == begin_marker:
+        skipping = True
+        if new_block:
+            out.extend(new_block.splitlines())
+            inserted = True
+        continue
+
+    if skipping:
+        if line == end_marker:
+            skipping = False
+        continue
+
+    if not inserted and line == "    // END runtimes":
+        if new_block:
+            out.extend(new_block.splitlines())
+            inserted = True
+
+    out.append(line)
+
+sys.stdout.write("\n".join(out))
+sys.stdout.write("\n")
+PY
 }

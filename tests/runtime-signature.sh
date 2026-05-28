@@ -83,10 +83,26 @@ assert_php_lint() {
   fi
 }
 
+file_hash() {
+  if command -v md5sum >/dev/null 2>&1; then
+    md5sum "$1" | cut -d' ' -f1
+  else
+    md5 -q "$1"
+  fi
+}
+
+file_mode() {
+  if stat -c %a "$1" >/dev/null 2>&1; then
+    stat -c %a "$1"
+  else
+    stat -f %Lp "$1"
+  fi
+}
+
 assert_mode_0644() {
   local file="$1" name="$2"
   local got
-  got=$(stat -c %a "$file")
+  got=$(file_mode "$file")
   if [ "$got" = "644" ]; then
     echo "  ok   $name"
   else
@@ -97,41 +113,41 @@ assert_mode_0644() {
   fi
 }
 
-# --- 1. Fresh scaffold + register kimaki -----------------------------------
+# --- 1. Fresh scaffold + register opencode ---------------------------------
 # Use a hostile umask (matches root cron/systemd default 0077) to prove the
 # helper forces 0644 regardless of caller umask — see issue #133.
-echo "==> register kimaki (fresh scaffold, umask 077)"
+echo "==> register opencode (fresh scaffold, umask 077)"
 (
   umask 077
-  runtime_signature_register "kimaki" \
-    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+  runtime_signature_register "opencode" \
+    '{"run_id":"OPENCODE_RUN_ID"}'
 )
 assert_file_exists "$MU_FILE" "mu-plugin created"
 assert_php_lint "$MU_FILE" "scaffold parses with php -l"
 assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after fresh write under umask 077"
 
-if grep -q "BEGIN runtime:kimaki" "$MU_FILE"; then
-  echo "  ok   kimaki block present"
+if grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
+  echo "  ok   opencode block present"
 else
-  echo "  FAIL kimaki block missing"
+  echo "  FAIL opencode block missing"
   FAILED=$((FAILED + 1))
 fi
 
 # --- 2. Idempotency --------------------------------------------------------
-echo "==> re-register kimaki with same signature (idempotent)"
-HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
-runtime_signature_register "kimaki" \
-  '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
-HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
+echo "==> re-register opencode with same signature (idempotent)"
+HASH_BEFORE=$(file_hash "$MU_FILE")
+runtime_signature_register "opencode" \
+  '{"run_id":"OPENCODE_RUN_ID"}'
+HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
 
-# --- 3. Add opencode without disturbing kimaki -----------------------------
+# --- 3. Add legacy kimaki without disturbing opencode -----------------------
 # Simulate a legacy 0600 file from a pre-#133 install. The next register call
 # must self-heal it back to 0644 via the mktemp+mv path.
 echo "==> simulate legacy 0600 file and verify self-heal on next register"
 chmod 0600 "$MU_FILE"
-runtime_signature_register "opencode" \
-  '{"session_id":"OPENCODE_SESSION_ID","run_id":"OPENCODE_RUN_ID"}'
+runtime_signature_register "kimaki" \
+  '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
 assert_php_lint "$MU_FILE" "two-runtime file parses with php -l"
 assert_mode_0644 "$MU_FILE" "mu-plugin mode self-healed to 0644 after sibling register"
 
@@ -142,36 +158,36 @@ else
   FAILED=$((FAILED + 1))
 fi
 
-# --- 4. Mutation: replace kimaki block, opencode untouched -----------------
-echo "==> re-register kimaki with mutated signature"
-runtime_signature_register "kimaki" \
-  '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL","run_id":"KIMAKI_RUN_ID"}'
-if grep -q "KIMAKI_RUN_ID" "$MU_FILE"; then
-  echo "  ok   kimaki block updated"
+# --- 4. Mutation: replace opencode block, kimaki untouched -----------------
+echo "==> re-register opencode with mutated signature"
+runtime_signature_register "opencode" \
+  '{"run_id":"OPENCODE_RUN_ID","process_role":"OPENCODE_PROCESS_ROLE"}'
+if grep -q "OPENCODE_PROCESS_ROLE" "$MU_FILE"; then
+  echo "  ok   opencode block updated"
 else
-  echo "  FAIL kimaki block did not pick up new subkey"
+  echo "  FAIL opencode block did not pick up new subkey"
   FAILED=$((FAILED + 1))
 fi
-if grep -q "OPENCODE_SESSION_ID" "$MU_FILE"; then
-  echo "  ok   opencode block preserved across kimaki mutation"
+if grep -q "KIMAKI_SESSION_ID" "$MU_FILE"; then
+  echo "  ok   kimaki block preserved across opencode mutation"
 else
-  echo "  FAIL opencode block clobbered by kimaki re-register"
+  echo "  FAIL kimaki block clobbered by opencode re-register"
   FAILED=$((FAILED + 1))
 fi
 
-# --- 5. Unregister opencode ------------------------------------------------
-echo "==> unregister opencode"
-runtime_signature_unregister "opencode"
-if grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
-  echo "  FAIL opencode block still present after unregister"
+# --- 5. Unregister stale kimaki --------------------------------------------
+echo "==> unregister kimaki"
+runtime_signature_unregister "kimaki"
+if grep -q "BEGIN runtime:kimaki" "$MU_FILE"; then
+  echo "  FAIL kimaki block still present after unregister"
   FAILED=$((FAILED + 1))
 else
-  echo "  ok   opencode block removed"
+  echo "  ok   kimaki block removed"
 fi
-if grep -q "BEGIN runtime:kimaki" "$MU_FILE"; then
-  echo "  ok   kimaki block preserved across opencode unregister"
+if grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
+  echo "  ok   opencode block preserved across kimaki unregister"
 else
-  echo "  FAIL kimaki block clobbered by opencode unregister"
+  echo "  FAIL opencode block clobbered by kimaki unregister"
   FAILED=$((FAILED + 1))
 fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
@@ -198,8 +214,8 @@ require '$MU_FILE';
 echo json_encode( \$result );
 PHP
 RESULT=$(php "$SHIM")
-EXPECTED='{"kimaki":{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL","run_id":"KIMAKI_RUN_ID"}}'
-assert_eq "$RESULT" "$EXPECTED" "filter returns surviving kimaki signature"
+EXPECTED='{"opencode":{"run_id":"OPENCODE_RUN_ID","process_role":"OPENCODE_PROCESS_ROLE"}}'
+assert_eq "$RESULT" "$EXPECTED" "filter returns surviving opencode signature"
 
 # --- Done ------------------------------------------------------------------
 echo
