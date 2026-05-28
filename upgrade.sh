@@ -379,7 +379,7 @@ check_opencode_json_drift() {
 
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
-  # (dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges), and
+  # (dm-context-filter.ts and compose-only dm-agent-sync.ts on Kimaki bridges), and
   # legacy agent.build.prompt / agent.plan.prompt get migrated to a
   # top-level `instructions` array (fixes Anthropic Claude Max OAuth,
   # wp-coding-agents#60).

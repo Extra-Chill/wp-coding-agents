@@ -176,6 +176,8 @@ runtime_generate_config() {
 
   # OpenCode plugins. wp-coding-agents only manages plugins it owns end to
   # end: dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges. The
+  # sync plugin is intentionally compose-only; Data Machine/channel routing
+  # owns identity, not OpenCode agent slots.
   # opencode-claude-auth plugin is intentionally NOT installed on any bridge:
   # Kimaki ships a built-in AnthropicAuthPlugin and non-kimaki bridges use
   # opencode's native auth flow (`opencode auth login anthropic`). See
