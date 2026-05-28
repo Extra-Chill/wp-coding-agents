@@ -308,6 +308,7 @@ The default chat bridge for OpenCode. On VPS and macOS launchd installs, wp-codi
 
 - **Disable unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The disable list (`bridges/kimaki/skills-disable-list.txt`) is rendered as `--disable-skill` startup flags, so package-managed skill directories are left intact.
 - **Filter redundant context** — A plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
+- **Use native cwd routing for DMC worktrees** — When Data Machine Code creates or reuses an existing checkout, launch the Discord helper thread with `kimaki send --cwd <workspace-path> ...`. Kimaki records the thread/worktree metadata itself; wp-coding-agents does not write Kimaki's SQLite database.
 
 To customize the managed skill filters, edit `bridges/kimaki/skills-disable-list.txt` before running setup, or edit `/opt/kimaki-config/skills-disable-list.txt` on a VPS or `$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt` on a local install after setup.
 
