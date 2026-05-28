@@ -71,25 +71,17 @@ function stripProjectDiscoveryInlines(block) {
   return result
 }
 
-function stripAgentOverrideInlines(block) {
-  let result = block
-  result = result.replace(/\n+Prefer passing the current agent with `--agent <current_agent>`[^\n]*\n/g, "\n")
-  result = result.replace(/\n+Use --agent to specify which agent to use for the session:[\s\S]*?\nkimaki send --channel [^\n]* --agent [^\n]*\n/g, "\n")
-  result = result.replace(/ --agent <current_agent>/g, "")
-  return result
-}
-
 function appendDataMachineSessionHandoffInstruction(block) {
   const instruction = `
 
 ## Data Machine Session Handoff
 
-For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
+For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through native Kimaki cwd routing. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session and records the checkout metadata.
 
 Typical flow:
 
 1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
-2. Start the helper session with \`datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
+2. Start the helper session with \`kimaki send --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
 3. Use the helper thread for the isolated task and bring the result back here.
 `
   return block.replace(/\s*$/, "") + instruction
@@ -158,7 +150,6 @@ function brokenFilter(block) {
   r = stripSectionBroken(r, "### reviewing diffs with AI")
   r = stripWorktreeInlines(r)
   r = stripProjectDiscoveryInlines(r)
-  r = stripAgentOverrideInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
   r = appendWordPressSiteRuntimeInstruction(r)
   r = appendDataMachineSessionHandoffInstruction(r)

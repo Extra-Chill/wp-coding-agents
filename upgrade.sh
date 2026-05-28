@@ -9,10 +9,9 @@
 #   2. Update setup-installed Data Machine plugins to latest tagged releases.
 #   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
-#          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + kill list)
+#          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + skill filters)
 #          Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins,
-#                 post-upgrade.sh + kill
-#                 list, and runs post-upgrade.sh inline (no launchd
+#                 post-upgrade.sh + skill filters, and runs post-upgrade.sh inline (no launchd
 #                 ExecStartPre hook).
 #        cc-connect: no per-install artifacts; reports binary version and
 #          reminds user to `npm update -g cc-connect`.
@@ -328,7 +327,7 @@ update_data_machine_plugins() {
 
 # ============================================================================
 # Phase 3: Sync chat-bridge config
-#   kimaki    → plugins + post-upgrade.sh + skills-kill-list (see below).
+#   kimaki    → plugins + post-upgrade.sh + skills-disable-list (see below).
 #   cc-connect → no per-install artifacts beyond the npm package; config.toml
 #                is user-owned. Report version and remind user to
 #                `npm update -g cc-connect` for upstream updates.

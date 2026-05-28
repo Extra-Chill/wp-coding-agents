@@ -26,7 +26,7 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
    └── Data Machine ── self-scheduling + AI tools
 ```
 
-On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. Every registered file is injected into each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
+On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. The runtime loads the selected agent's registered files for each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
 
 ## Runtime Auto-Discovery
 
@@ -34,9 +34,9 @@ Drop a file in `runtimes/`, it's available. The script scans `runtimes/*.sh` for
 
 ```
 hooks/
-└── dm-agent-sync.sh   # SessionStart hook: sync DM agents into CLAUDE.md
+└── dm-agent-sync.sh   # SessionStart hook: refresh CLAUDE.md memory includes
 runtimes/
-├── opencode.sh        # OpenCode: opencode.json + AGENTS.md + {file:} includes
+├── opencode.sh        # OpenCode: opencode.json instructions + AGENTS.md
 ├── claude-code.sh     # Claude Code: CLAUDE.md + @ includes + .mcp.json
 └── studio-code.sh     # Studio Code: CLAUDE.md + @ includes + Studio tools
 ```
@@ -222,9 +222,9 @@ Data Machine manages memory files across three layers, each scoped to a differen
 |------|---------|
 | **USER.md** | Information about the human the agent works with. Injected in chat and editor contexts only. |
 
-On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. The selected agent's discovered files are injected into each session via the runtime's config — top-level `opencode.json` `instructions` for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
-**Runtime sync (Claude Code / Studio Code):** A SessionStart hook queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. New agents created after setup are automatically discovered — no manual config regeneration needed. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
+**Runtime sync:** Claude Code and Studio Code use a SessionStart hook that queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. OpenCode uses top-level `instructions` plus a Kimaki plugin that only recomposes Data Machine memory files before OpenCode reads them; it does not write `agent.build.prompt`, `agent.plan.prompt`, or register every Data Machine agent into OpenCode config. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
 
 ## Abilities
 
@@ -304,12 +304,13 @@ Local installs run as your current user — no root, no service user, no chown.
 
 ### Kimaki (Discord)
 
-The default chat bridge for OpenCode. On VPS, wp-coding-agents installs post-upgrade hooks that:
+The default chat bridge for OpenCode. On VPS and macOS launchd installs, wp-coding-agents starts Kimaki with native 0.13 skill filters and installs post-upgrade hooks that:
 
-- **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`bridges/kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
+- **Disable unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The disable list (`bridges/kimaki/skills-disable-list.txt`) is rendered as `--disable-skill` startup flags, so package-managed skill directories are left intact.
 - **Filter redundant context** — A plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
+- **Use native cwd routing for DMC worktrees** — When Data Machine Code creates or reuses an existing checkout, launch the Discord helper thread with `kimaki send --cwd <workspace-path> ...`. Kimaki records the thread/worktree metadata itself; wp-coding-agents does not write Kimaki's SQLite database.
 
-To customize the kill list, edit `bridges/kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
+To customize the managed skill filters, edit `bridges/kimaki/skills-disable-list.txt` before running setup, or edit `/opt/kimaki-config/skills-disable-list.txt` on a VPS or `$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt` on a local install after setup.
 
 On local installs, Kimaki installs globally via npm but without a systemd service. Run it manually:
 
@@ -361,7 +362,7 @@ The file is owned end-to-end by bridge installers: it is created on first regist
 
 ```php
 $channels['kimaki'] = [
-    'command' => '/usr/local/bin/datamachine-kimaki',
+    'command' => '/usr/local/bin/kimaki',
     'args'    => [ 'send', '--channel', '{recipient}', '--prompt', '{message}' ],
     'detach'  => true,
     'timeout' => 600,
@@ -389,7 +390,7 @@ agents/dispatch-message
 
 ### Bridge-specific notes
 
-- **kimaki** registers the local `datamachine-kimaki` adapter shim wp-coding-agents installs alongside the kimaki binary. The shim normalises Kimaki send flags across versions. If it isn't on disk yet (very early installs), the bridge falls back to the resolved global `kimaki` binary.
+- **kimaki** registers the native `kimaki` binary. Kimaki 0.13 validates requested session agents and falls back to the default/build agent when the requested agent is unavailable, so wp-coding-agents does not rewrite `--agent` arguments.
 - **cc-connect** assumes `cc-connect send` accepts `--project <name> <message>`. cc-connect routes outgoing messages through its currently-bound platform per project (Feishu/DingTalk/Slack/Telegram/Discord/etc.), so `recipient` is the cc-connect project, not a raw chat ID. **Assumption to validate against upstream:** if `--project` is unsupported, the argv collapses to `["send","{message}"]` and `recipient` becomes informational only. Tracked alongside Extra-Chill/wp-coding-agents#129.
 - **telegram** is the odd one out. `opencode-telegram-bot` is inbound-only (polls Telegram, forwards to a local opencode server); it has no outbound `send` subcommand. To preserve the channel/recipient model, the bridge registers `curl` against Telegram's `sendMessage` Bot API with `TELEGRAM_BOT_TOKEN` baked in. `recipient` is a Telegram chat ID. The token is captured at install/upgrade time from the existing bot `.env` if not in the current shell — rotating the token requires re-running `upgrade.sh` so the channel config picks up the new value.
 
@@ -423,9 +424,9 @@ After this, the only outbound message path is `agents/dispatch-message` → DMC 
 
 ## Worktree Session Attribution (Runtime Signatures)
 
-When a coding-agent session asks Data Machine Code to create a worktree, DMC captures **origin-session metadata** so the worktree carries a breadcrumb back to the session that spawned it (Discord thread URL, opencode session ID, run ID, etc.). DMC reads that metadata from environment variables the runtime sets on the worktree-creating process.
+When a coding-agent session asks Data Machine Code to create a worktree, DMC captures **origin-session metadata** so the worktree carries a breadcrumb back to the runtime that spawned it. DMC reads that metadata from environment variables the runtime sets on the worktree-creating process.
 
-The env-var names are vendor-specific (`KIMAKI_SESSION_ID`, `OPENCODE_SESSION_ID`, `OPENCODE_RUN_ID`, …) so DMC cannot enumerate them without knowing about kimaki and opencode — a layer-purity violation per the platform's coding rules. The fix (Extra-Chill/data-machine-code#416) moves the env-var → field map out of DMC into a filter:
+The env-var names are vendor-specific (`OPENCODE_RUN_ID`, etc.) so DMC cannot enumerate them without knowing about opencode or any other runtime — a layer-purity violation per the platform's coding rules. The fix (Extra-Chill/data-machine-code#416) moves the env-var → field map out of DMC into a filter:
 
 ```php
 apply_filters( 'datamachine_code_worktree_runtime_signatures', [] );
@@ -444,29 +445,20 @@ $WP_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php
 The file is owned end-to-end by wp-coding-agents installers: created on first registration, each runtime contributes a marker-delimited block (`// BEGIN runtime:<id>` … `// END runtime:<id>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via the filter:
 
 ```php
-$signatures['kimaki'] = [
-    'session_id' => 'KIMAKI_SESSION_ID',
-    'thread_id'  => 'KIMAKI_THREAD_ID',
-    'thread_url' => 'KIMAKI_THREAD_URL',
-];
-
 $signatures['opencode'] = [
-    'session_id' => 'OPENCODE_SESSION_ID',
-    'run_id'     => 'OPENCODE_RUN_ID',
+    'run_id' => 'OPENCODE_RUN_ID',
 ];
 ```
 
 DMC reads the map, walks each runtime's subkeys, and sniffs the named env vars at worktree-create time. The subkey set is open — DMC does not validate against a closed schema. Conventional subkeys are `session_id`, `thread_id`, `thread_url`, `run_id`; integrations may add more.
 
+Kimaki 0.13 does not currently export stable session/thread attribution env vars such as `KIMAKI_SESSION_ID`, `KIMAKI_THREAD_ID`, or `KIMAKI_THREAD_URL` to OpenCode/tool subprocesses. OpenCode source and a live Kimaki/OpenCode runtime smoke show `OPENCODE_RUN_ID`, but not `OPENCODE_SESSION_ID`. Rich Discord thread attribution is tracked upstream in https://github.com/remorses/kimaki/issues/137; until Kimaki ships a documented contract, wp-coding-agents registers only the env vars that actually exist.
+
 ### Registered signatures
 
 | Runtime ID  | Subkey       | Env var                | What it identifies                                  |
 |-------------|--------------|------------------------|-----------------------------------------------------|
-| `kimaki`    | `session_id` | `KIMAKI_SESSION_ID`    | Kimaki session (1:1 with a Discord thread)          |
-| `kimaki`    | `thread_id`  | `KIMAKI_THREAD_ID`     | Discord thread the session lives in                 |
-| `kimaki`    | `thread_url` | `KIMAKI_THREAD_URL`    | Deep link to that Discord thread                    |
-| `opencode`  | `session_id` | `OPENCODE_SESSION_ID`  | opencode session inside the kimaki/opencode runtime |
-| `opencode`  | `run_id`     | `OPENCODE_RUN_ID`      | Specific opencode run within that session           |
+| `opencode`  | `run_id`     | `OPENCODE_RUN_ID`      | Specific OpenCode run in the current process tree   |
 
 Adding a new runtime is a one-liner: register a new block in the relevant `runtimes/<name>.sh` or `bridges/<name>.sh` via `runtime_signature_register <runtime_id> <signature_json>` (see `lib/runtime-signature.sh`).
 

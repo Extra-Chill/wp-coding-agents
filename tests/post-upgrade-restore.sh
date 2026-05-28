@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # tests/post-upgrade-restore.sh — smoke test for bridges/kimaki/post-upgrade.sh
 #
-# Verifies the three passes (kill, restore skills, verify plugins) using
+# Verifies the restore and verify passes using
 # temp-dir env overrides so the test never touches the real npm install or
 # user config.
 #
 # What we cover:
-#   1. Kill pass removes a blacklisted skill from the simulated skills dir.
+#   1. Bundled Kimaki skills are left untouched; filtering happens at startup.
 #   2. Skill restore pass copies wp-coding-agents SKILL.md trees from the
 #      persistent source back into the (wiped) skills dir.
 #   3. Default plugin pass is a no-op because opencode loads the persistent
@@ -49,11 +49,11 @@ mkdir -p "$LIVE_SKILLS" "$SRC_SKILLS" "$SRC_PLUGINS"
 # Note: deliberately NOT creating LIVE_PLUGINS — explicit override mode must
 # still mkdir it.
 
-# Seed a blacklisted skill that the kill pass should remove.
+# Seed bundled skills that post-upgrade must not remove. Managed Kimaki service
+# startup now filters these with --disable-skill instead of mutating package
+# directories.
 mkdir -p "$LIVE_SKILLS/blacklisted-skill"
 echo "stub" > "$LIVE_SKILLS/blacklisted-skill/SKILL.md"
-mkdir -p "$LIVE_SKILLS/persisted-blacklisted-skill"
-echo "stub" > "$LIVE_SKILLS/persisted-blacklisted-skill/SKILL.md"
 
 # Seed a wp-coding-agents skill in the persistent source that should be restored.
 mkdir -p "$SRC_SKILLS/upgrade-wp-coding-agents"
@@ -74,15 +74,6 @@ description: unmanaged fixture
 body
 EOF
 
-mkdir -p "$SRC_SKILLS/persisted-blacklisted-skill"
-cat > "$SRC_SKILLS/persisted-blacklisted-skill/SKILL.md" <<'EOF'
----
-name: persisted-blacklisted-skill
-description: persisted but killed test fixture
----
-body
-EOF
-
 # Seed two required plugins in the persistent source. Default mode verifies them
 # in place; explicit override mode restores them into the requested target.
 cat > "$SRC_PLUGINS/dm-context-filter.ts" <<'EOF'
@@ -94,17 +85,10 @@ cat > "$SRC_PLUGINS/dm-agent-sync.ts" <<'EOF'
 export default async () => ({})
 EOF
 
-# Build a temp skills-kill-list.txt next to a copied post-upgrade.sh so the
-# script's `dirname "$0"` lookup finds it.
 TEST_SCRIPT_DIR="$TMP/kimaki-config-dir"
 mkdir -p "$TEST_SCRIPT_DIR"
 cp "$POST_UPGRADE" "$TEST_SCRIPT_DIR/post-upgrade.sh"
 chmod +x "$TEST_SCRIPT_DIR/post-upgrade.sh"
-cat > "$TEST_SCRIPT_DIR/skills-kill-list.txt" <<'EOF'
-# test kill list
-blacklisted-skill
-persisted-blacklisted-skill
-EOF
 
 # Run the script with explicit env overrides so it never touches the real
 # npm install or user config.
@@ -147,12 +131,8 @@ assert_log_contains_file() {
   fi
 }
 
-# Pass 1: kill pass removed the blacklisted skill.
-assert_missing "$LIVE_SKILLS/blacklisted-skill"
-assert_log_contains "removed skill blacklisted-skill"
-assert_missing "$LIVE_SKILLS/persisted-blacklisted-skill"
-assert_log_contains "removed skill persisted-blacklisted-skill"
-assert_log_contains "skipped killed skill persisted-blacklisted-skill"
+# Pass 1: bundled Kimaki skills are not removed by post-upgrade.
+assert_present "$LIVE_SKILLS/blacklisted-skill/SKILL.md"
 
 # Pass 2: skill restore copied the allowed SKILL.md tree and skipped unmanaged skills.
 assert_present "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"

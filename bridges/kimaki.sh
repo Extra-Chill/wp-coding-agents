@@ -2,22 +2,18 @@
 # bridges/kimaki.sh — Kimaki Discord bridge.
 #
 # Owns install (local launchd / VPS systemd / Linux-local manual), upgrade-time
-# config sync (plugins, post-upgrade.sh, skills kill-list, regression test),
+# config sync (plugins, post-upgrade.sh, skill filters, regression test),
 # systemd + launchd template rendering, summary blocks, and the per-bridge
-# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-kill-list.txt).
+# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-disable-list.txt).
 #
 # Install layout:
-#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-kill-list.txt}
-#          + /usr/local/bin/datamachine-kimaki-session
-#          + /usr/local/bin/datamachine-kimaki
+#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-disable-list.txt}
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
-#          kill list (executed inline at upgrade time — no launchd
+#          skill filters (executed inline at upgrade time — no launchd
 #          ExecStartPre hook). opencode.json loads plugins directly from this
 #          durable data-dir copy because `npm update -g kimaki` wipes package-
 #          local files.
-#          + $HOME/.local/bin/datamachine-kimaki-session
-#          + $HOME/.local/bin/datamachine-kimaki
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
 # ============================================================================
@@ -67,18 +63,15 @@ bridge_install() {
 # channel ID (numeric string) the message is delivered to. `message` is the
 # message body.
 #
-# We register the local-mode adapter shim (`datamachine-kimaki`) installed by
-# _kimaki_sync_bin_helpers; it normalises Kimaki send flags across versions.
-# Falls back to the resolved global `kimaki` binary if the adapter isn't on
-# disk yet (early VPS installs predating the adapter shim).
+# Register the native Kimaki binary. Kimaki 0.13 validates requested agents and
+# falls back to the default/build agent when a requested agent is unavailable,
+# so wp-coding-agents must not rewrite `--agent` itself.
 _kimaki_register_cli_channel() {
   local cmd
-  if [ -n "${RESOLVED_DATAMACHINE_KIMAKI:-}" ] && [ -x "$RESOLVED_DATAMACHINE_KIMAKI" ]; then
-    cmd="$RESOLVED_DATAMACHINE_KIMAKI"
-  elif [ -n "${KIMAKI_BIN:-}" ]; then
+  if [ -n "${KIMAKI_BIN:-}" ] && [ -x "$KIMAKI_BIN" ] && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN"; then
     cmd="$KIMAKI_BIN"
   else
-    cmd="$(command -v kimaki 2>/dev/null || echo kimaki)"
+    cmd="$(_kimaki_find_native_binary)"
   fi
 
   cli_channel_register \
@@ -89,29 +82,43 @@ _kimaki_register_cli_channel() {
     "600"
 }
 
+_kimaki_is_legacy_adapter_file() {
+  local file="$1"
+  [ -e "$file" ] && grep -q 'wp-coding-agents datamachine-kimaki adapter' "$file" 2>/dev/null
+}
+
+_kimaki_find_native_binary() {
+  local dir candidate
+  IFS=: read -r -a path_entries <<< "${PATH:-}"
+  for dir in "${path_entries[@]}"; do
+    [ -n "$dir" ] || continue
+    candidate="$dir/kimaki"
+    [ -x "$candidate" ] || continue
+    if _kimaki_is_legacy_adapter_file "$candidate"; then
+      continue
+    fi
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  printf '%s\n' "kimaki"
+}
+
 # _kimaki_register_runtime_signature
 #
-# Publish kimaki's worktree session-attribution env-var contract for the Data
-# Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
-# kimaki sets KIMAKI_SESSION_ID, KIMAKI_THREAD_ID, and KIMAKI_THREAD_URL on
-# the opencode-serve children it spawns (see Kimaki source). DMC reads those
-# env vars at worktree-create time to record which kimaki session originated
-# the worktree, what Discord thread the session lives in, and the deep link
-# to that thread.
-#
-# The registration is data, not config: the runtime ID 'kimaki' is what
-# wp-coding-agents *calls* the runtime here, and the env-var names are what
-# the kimaki binary actually sets. DMC stays naive — it doesn't know kimaki
-# exists; it just sniffs whatever env vars the filter map tells it to.
+# Kimaki 0.13 does not currently export stable session/thread attribution env
+# vars to OpenCode/tool subprocesses. Keep this hook so upgrades remove stale
+# Kimaki runtime-signature blocks from previous wp-coding-agents releases.
+# Rich Discord thread attribution needs upstream Kimaki support first:
+# https://github.com/remorses/kimaki/issues/137
 _kimaki_register_runtime_signature() {
-  runtime_signature_register \
-    "kimaki" \
-    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+  if ! declare -F runtime_signature_unregister >/dev/null; then
+    return 0
+  fi
+
+  runtime_signature_unregister "kimaki"
 }
 
 _kimaki_sync_bin_helpers() {
-  [ -d "$SCRIPT_DIR/bridges/kimaki/bin" ] || return 0
-
   local HELPER_DIR
   if [ "$LOCAL_MODE" = true ]; then
     HELPER_DIR="$SERVICE_HOME/.local/bin"
@@ -119,59 +126,54 @@ _kimaki_sync_bin_helpers() {
     HELPER_DIR="/usr/local/bin"
   fi
 
-  local helper_file name helper_target
-  for helper_file in "$SCRIPT_DIR"/bridges/kimaki/bin/*; do
-    [ -f "$helper_file" ] || continue
-    name=$(basename "$helper_file")
-    helper_target="$HELPER_DIR/$name"
-
-    if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$helper_file" "$helper_target" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $helper_target"
-      fi
-    else
-      mkdir -p "$HELPER_DIR"
-      if ! cmp -s "$helper_file" "$helper_target" 2>/dev/null; then
-        cp "$helper_file" "$helper_target"
-        chmod +x "$helper_target"
-        log "  Updated $helper_target"
-        UPDATED_ITEMS+=("$name helper")
-      fi
-    fi
-  done
-
-  _kimaki_sync_command_shim "$HELPER_DIR"
-
-  RESOLVED_KIMAKI_HELPER="$HELPER_DIR/datamachine-kimaki-session"
-  RESOLVED_DATAMACHINE_KIMAKI="$HELPER_DIR/datamachine-kimaki"
-  RESOLVED_KIMAKI_SHIM="$HELPER_DIR/kimaki"
+  _kimaki_remove_legacy_session_helper "$HELPER_DIR"
+  _kimaki_remove_legacy_command_shims "$HELPER_DIR"
 }
 
-_kimaki_sync_command_shim() {
+_kimaki_remove_legacy_session_helper() {
   local helper_dir="$1"
-  local adapter_source="$SCRIPT_DIR/bridges/kimaki/bin/datamachine-kimaki"
-  local shim_target="$helper_dir/kimaki"
-  [ -f "$adapter_source" ] || return 0
+  local legacy_helper="$helper_dir/datamachine-kimaki-session"
 
-  if [ -e "$shim_target" ] && ! grep -q 'wp-coding-agents datamachine-kimaki adapter' "$shim_target" 2>/dev/null; then
-    warn "  $shim_target exists and is not the Data Machine Kimaki adapter — leaving it untouched"
-    warn "  Install $helper_dir earlier on PATH or call datamachine-kimaki directly to normalize Kimaki send flags"
+  [ -e "$legacy_helper" ] || return 0
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would remove legacy $legacy_helper"
     return 0
   fi
 
+  rm -f "$legacy_helper"
+  log "  Removed legacy $legacy_helper"
+  UPDATED_ITEMS+=("removed datamachine-kimaki-session helper")
+}
+
+_kimaki_remove_legacy_command_shims() {
+  local helper_dir="$1"
+  local adapter_target="$helper_dir/datamachine-kimaki"
+  local shim_target="$helper_dir/kimaki"
+
   if [ "$DRY_RUN" = true ]; then
-    if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
-      echo -e "${BLUE}[dry-run]${NC} Would update $shim_target"
+    if _kimaki_is_legacy_adapter_file "$adapter_target"; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove legacy $adapter_target"
+    fi
+    if _kimaki_is_legacy_adapter_file "$shim_target"; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove legacy $shim_target"
     fi
     return 0
   fi
 
-  mkdir -p "$helper_dir"
-  if ! cmp -s "$adapter_source" "$shim_target" 2>/dev/null; then
-    cp "$adapter_source" "$shim_target"
-    chmod +x "$shim_target"
-    log "  Updated $shim_target"
-    UPDATED_ITEMS+=("kimaki command shim")
+  if _kimaki_is_legacy_adapter_file "$adapter_target"; then
+    rm -f "$adapter_target"
+    log "  Removed legacy $adapter_target"
+    UPDATED_ITEMS+=("removed legacy datamachine-kimaki adapter")
+  fi
+  if _kimaki_is_legacy_adapter_file "$shim_target"; then
+    rm -f "$shim_target"
+    log "  Removed legacy $shim_target"
+    UPDATED_ITEMS+=("removed legacy kimaki command shim")
+  fi
+
+  if [ "${KIMAKI_BIN:-}" = "$shim_target" ]; then
+    KIMAKI_BIN="$(_kimaki_find_native_binary)"
   fi
 }
 
@@ -247,7 +249,7 @@ bridge_sync_config() {
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
   #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
-  #          post-upgrade.sh + skills-kill-list.txt.
+  #          post-upgrade.sh + skills-disable-list.txt.
   #   Local: opencode.json points at $KIMAKI_DATA_DIR/kimaki-config/plugins, the
   #          durable source that survives `npm update -g kimaki`. Existing configs
   #          that still reference package-local plugin paths are migrated by the
@@ -278,7 +280,7 @@ bridge_sync_config() {
   # kimaki IS the detected bridge and kimaki.service IS running — the
   # config dir just never got bootstrapped. Create it now from the repo.
   # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh,
-  # kill list); there is no user state to preserve.
+  # skill filters); there is no user state to preserve.
   if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would bootstrap $KIMAKI_CONFIG_DIR from $SCRIPT_DIR/bridges/kimaki/"
@@ -286,7 +288,7 @@ bridge_sync_config() {
       log "  $KIMAKI_CONFIG_DIR missing — bootstrapping from repo (install predates v0.4.0)"
       mkdir -p "$KIMAKI_CONFIG_DIR/plugins"
       UPDATED_ITEMS+=("bootstrapped $KIMAKI_CONFIG_DIR (install predates v0.4.0)")
-      # Fall through — the plugin/post-upgrade/kill-list copy logic below
+      # Fall through — the plugin/post-upgrade/skill-filter copy logic below
       # handles the actual file placement idempotently.
     fi
   fi
@@ -327,7 +329,7 @@ bridge_sync_config() {
     done
   fi
 
-  # Stage post-upgrade.sh and skills-kill-list.txt in KIMAKI_CONFIG_DIR.
+  # Stage post-upgrade.sh and skills-disable-list.txt in KIMAKI_CONFIG_DIR.
   # On VPS this is read by ExecStartPre. On local we execute it inline below.
   if [ "$DRY_RUN" = false ]; then
     mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
@@ -348,33 +350,33 @@ bridge_sync_config() {
     fi
   fi
 
-  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" ]; then
+  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" ]; then
     if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
+        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
       fi
     else
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        cp "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        log "  Updated $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        UPDATED_ITEMS+=("kimaki-config/skills-kill-list.txt")
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
+        cp "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        log "  Updated $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        UPDATED_ITEMS+=("kimaki-config/skills-disable-list.txt")
       fi
     fi
   fi
 
-  # Install wp-coding-agents' Kimaki bridge helpers. They are intentionally
+  # Install wp-coding-agents' Kimaki bridge adapter binaries. They are intentionally
   # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe them.
   _kimaki_sync_bin_helpers
 
-  # On local, execute post-upgrade.sh inline to enforce the kill list.
+  # On local, execute post-upgrade.sh inline to restore wp-coding-agents skills.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
   if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would run: $KIMAKI_CONFIG_DIR/post-upgrade.sh"
     else
-      log "  Running post-upgrade.sh to enforce skills kill list..."
+      log "  Running post-upgrade.sh to restore wp-coding-agents skills..."
       if "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>&1 | sed 's/^/    /'; then
-        UPDATED_ITEMS+=("ran post-upgrade.sh (enforced skills kill list)")
+        UPDATED_ITEMS+=("ran post-upgrade.sh (restored wp-coding-agents skills)")
       else
         warn "  post-upgrade.sh exited non-zero — review output above"
       fi
@@ -417,8 +419,8 @@ bridge_sync_config() {
     fi
   fi
 
-  # Refresh the CLI-channel registration so DMC's dispatch runtime picks up
-  # the latest adapter path (npm-global moves between hosts).
+  # Refresh the CLI-channel registration so DMC's dispatch runtime uses native
+  # kimaki instead of the removed adapter path.
   _kimaki_register_cli_channel
 
   # Refresh the worktree runtime-signature registration. Idempotent — only
@@ -525,6 +527,8 @@ bridge_update_launchd() {
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
   [ "$unit" = "kimaki.service" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
+  local skill_filter_args
+  skill_filter_args="$(_kimaki_skill_filter_args_shell)"
   cat <<EOF
 [Unit]
 Description=Kimaki Discord Bot (wp-coding-agents)
@@ -547,7 +551,7 @@ $env_block
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
 ExecStartPre=-/usr/bin/pkill -TERM -u $SERVICE_USER -f "opencode-ai/bin/.*serve"
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
+ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$skill_filter_args
 Restart=always
 RestartSec=10
 
@@ -563,6 +567,8 @@ bridge_render_launchd() {
   kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$KIMAKI_BIN")"
   path_value="$(_compose_path_value "$HOME/.local/bin" "$kimaki_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  local skill_filter_plist_args
+  skill_filter_plist_args="$(_kimaki_skill_filter_args_plist)"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -577,6 +583,7 @@ bridge_render_launchd() {
         <string>$KIMAKI_DATA_DIR</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
+$skill_filter_plist_args
     </array>
     <key>WorkingDirectory</key>
     <string>$SITE_PATH</string>
@@ -600,6 +607,48 @@ bridge_render_launchd() {
 </dict>
 </plist>
 EOF
+}
+
+_kimaki_skill_filter_source() {
+  if [ -n "${KIMAKI_SKILL_FILTERS_FILE:-}" ]; then
+    printf '%s\n' "$KIMAKI_SKILL_FILTERS_FILE"
+  elif [ -n "${KIMAKI_CONFIG_DIR:-}" ] && [ -f "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" ]; then
+    printf '%s\n' "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+  elif [ -n "${KIMAKI_DATA_DIR:-}" ] && [ -f "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt" ]; then
+    printf '%s\n' "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt"
+  else
+    printf '%s\n' "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt"
+  fi
+}
+
+_kimaki_each_disabled_skill() {
+  local filters_file skill
+  filters_file="$(_kimaki_skill_filter_source)"
+  [ -f "$filters_file" ] || return 0
+
+  while IFS= read -r skill || [ -n "$skill" ]; do
+    [ -n "$skill" ] || continue
+    case "$skill" in \#*) continue ;; esac
+    printf '%s\n' "$skill"
+  done < "$filters_file"
+}
+
+_kimaki_skill_filter_args_shell() {
+  local out="" skill
+  while IFS= read -r skill; do
+    out="$out --disable-skill $skill"
+  done < <(_kimaki_each_disabled_skill)
+  printf '%s' "$out"
+}
+
+_kimaki_skill_filter_args_plist() {
+  local out="" skill
+  while IFS= read -r skill; do
+    out="$out        <string>--disable-skill</string>
+        <string>$skill</string>
+"
+  done < <(_kimaki_each_disabled_skill)
+  printf '%s' "$out"
 }
 
 # ============================================================================
@@ -706,11 +755,6 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  local HELPER="${RESOLVED_KIMAKI_HELPER:-/usr/local/bin/datamachine-kimaki-session}"
-  local ADAPTER="${RESOLVED_DATAMACHINE_KIMAKI:-/usr/local/bin/datamachine-kimaki}"
-  local SHIM="${RESOLVED_KIMAKI_SHIM:-/usr/local/bin/kimaki}"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
-  echo "test -x $HELPER   # DMC Kimaki session handoff helper installed"
-  echo "test -x $ADAPTER   # DM Kimaki command adapter installed"
-  echo "test -x $SHIM   # kimaki command shim installed"
+  echo "command -v kimaki >/dev/null   # native Kimaki binary available"
 }
