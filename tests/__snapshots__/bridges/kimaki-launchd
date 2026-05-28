@@ -11,6 +11,10 @@
         <string>/home/chubes/.kimaki</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
+        <string>--enable-skill</string>
+        <string>upgrade-wp-coding-agents</string>
+        <string>--enable-skill</string>
+        <string>wp-coding-agents-setup</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/var/www/site</string>

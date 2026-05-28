@@ -2,18 +2,18 @@
 # bridges/kimaki.sh — Kimaki Discord bridge.
 #
 # Owns install (local launchd / VPS systemd / Linux-local manual), upgrade-time
-# config sync (plugins, post-upgrade.sh, skills kill-list, regression test),
-# systemd + launchd template rendering, summary blocks, and the per-bridge
-# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-kill-list.txt).
+# config sync (plugins, post-upgrade.sh, regression test), systemd + launchd
+# template rendering, summary blocks, and the per-bridge assets at
+# bridges/kimaki/ (plugins/, post-upgrade.sh).
 #
 # Install layout:
-#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-kill-list.txt}
+#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh}
 #          + /usr/local/bin/datamachine-kimaki-session
 #          + /usr/local/bin/datamachine-kimaki
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
-#   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
-#          kill list (executed inline at upgrade time — no launchd
-#          ExecStartPre hook). opencode.json loads plugins directly from this
+#   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins and post-upgrade.sh
+#          (executed inline at upgrade time — no launchd ExecStartPre hook).
+#          opencode.json loads plugins directly from this
 #          durable data-dir copy because `npm update -g kimaki` wipes package-
 #          local files.
 #          + $HOME/.local/bin/datamachine-kimaki-session
@@ -29,6 +29,25 @@ bridge_launchd_labels() { echo "com.wp.kimaki"; }
 bridge_binaries()       { echo "kimaki"; }
 bridge_display_name()   { echo "kimaki"; }
 bridge_display_title()  { echo "Kimaki"; }
+
+KIMAKI_ENABLED_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
+
+_kimaki_skill_filter_args() {
+  local skill
+  for skill in "${KIMAKI_ENABLED_SKILLS[@]}"; do
+    printf ' --enable-skill %s' "$skill"
+  done
+}
+
+_kimaki_launchd_skill_filter_args() {
+  local skill
+  for skill in "${KIMAKI_ENABLED_SKILLS[@]}"; do
+    cat <<EOF
+        <string>--enable-skill</string>
+        <string>$skill</string>
+EOF
+  done
+}
 
 bridge_is_ready() {
   [ -n "${KIMAKI_BOT_TOKEN:-}" ]
@@ -247,7 +266,7 @@ bridge_sync_config() {
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
   #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
-  #          post-upgrade.sh + skills-kill-list.txt.
+  #          post-upgrade.sh.
   #   Local: opencode.json points at $KIMAKI_DATA_DIR/kimaki-config/plugins, the
   #          durable source that survives `npm update -g kimaki`. Existing configs
   #          that still reference package-local plugin paths are migrated by the
@@ -277,8 +296,8 @@ bridge_sync_config() {
   # setup.sh started creating it). We're in the kimaki dispatch branch, so
   # kimaki IS the detected bridge and kimaki.service IS running — the
   # config dir just never got bootstrapped. Create it now from the repo.
-  # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh,
-  # kill list); there is no user state to preserve.
+  # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh); there is
+  # no user state to preserve.
   if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would bootstrap $KIMAKI_CONFIG_DIR from $SCRIPT_DIR/bridges/kimaki/"
@@ -286,8 +305,8 @@ bridge_sync_config() {
       log "  $KIMAKI_CONFIG_DIR missing — bootstrapping from repo (install predates v0.4.0)"
       mkdir -p "$KIMAKI_CONFIG_DIR/plugins"
       UPDATED_ITEMS+=("bootstrapped $KIMAKI_CONFIG_DIR (install predates v0.4.0)")
-      # Fall through — the plugin/post-upgrade/kill-list copy logic below
-      # handles the actual file placement idempotently.
+      # Fall through — the plugin/post-upgrade copy logic below handles the
+      # actual file placement idempotently.
     fi
   fi
 
@@ -327,7 +346,7 @@ bridge_sync_config() {
     done
   fi
 
-  # Stage post-upgrade.sh and skills-kill-list.txt in KIMAKI_CONFIG_DIR.
+  # Stage post-upgrade.sh in KIMAKI_CONFIG_DIR.
   # On VPS this is read by ExecStartPre. On local we execute it inline below.
   if [ "$DRY_RUN" = false ]; then
     mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
@@ -348,33 +367,20 @@ bridge_sync_config() {
     fi
   fi
 
-  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-      fi
-    else
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt" 2>/dev/null; then
-        cp "$SCRIPT_DIR/bridges/kimaki/skills-kill-list.txt" "$KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        log "  Updated $KIMAKI_CONFIG_DIR/skills-kill-list.txt"
-        UPDATED_ITEMS+=("kimaki-config/skills-kill-list.txt")
-      fi
-    fi
-  fi
-
   # Install wp-coding-agents' Kimaki bridge helpers. They are intentionally
   # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe them.
   _kimaki_sync_bin_helpers
 
-  # On local, execute post-upgrade.sh inline to enforce the kill list.
+  # On local, execute post-upgrade.sh inline to refresh package-local custom
+  # skills and validate plugin state.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
   if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would run: $KIMAKI_CONFIG_DIR/post-upgrade.sh"
     else
-      log "  Running post-upgrade.sh to enforce skills kill list..."
+      log "  Running post-upgrade.sh to refresh Kimaki config..."
       if "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>&1 | sed 's/^/    /'; then
-        UPDATED_ITEMS+=("ran post-upgrade.sh (enforced skills kill list)")
+        UPDATED_ITEMS+=("ran post-upgrade.sh (refreshed Kimaki config)")
       else
         warn "  post-upgrade.sh exited non-zero — review output above"
       fi
@@ -547,7 +553,7 @@ $env_block
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
 ExecStartPre=-/usr/bin/pkill -TERM -u $SERVICE_USER -f "opencode-ai/bin/.*serve"
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
+ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$(_kimaki_skill_filter_args)
 Restart=always
 RestartSec=10
 
@@ -577,6 +583,7 @@ bridge_render_launchd() {
         <string>$KIMAKI_DATA_DIR</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
+$(_kimaki_launchd_skill_filter_args)
     </array>
     <key>WorkingDirectory</key>
     <string>$SITE_PATH</string>

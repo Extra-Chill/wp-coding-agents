@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Kimaki services now use native `--enable-skill` filtering for the wp-coding-agents skills instead of deleting bundled skill directories after npm upgrades (#139).
+- `bridges/kimaki/post-upgrade.sh` still restores wp-coding-agents custom skills into Kimaki's package skills path, but no longer prunes arbitrary bundled skills.
+
 ## [1.1.0] - 2026-05-17
 
 ### Added
