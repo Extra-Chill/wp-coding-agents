@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [1.2.1] - 2026-05-28
+
+### Fixed
+- Removed stale Kimaki skill names from the managed disable list so Kimaki 0.13
+  startup does not warn about non-bundled skills.
+
 ## [1.2.0] - 2026-05-28
 
 ### Changed
