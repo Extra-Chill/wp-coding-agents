@@ -2,18 +2,30 @@
 
 ## Unreleased
 
+## [1.2.0] - 2026-05-28
+
 ### Changed
 - Kimaki bridge now registers native `kimaki` for CLI-channel dispatch and
   relies on Kimaki 0.13's unavailable-agent fallback to the default/build
   agent instead of shipping a Data Machine command adapter.
+- Kimaki bridge now uses native `kimaki send --cwd` routing instead of the
+  `datamachine-kimaki-session` handoff helper.
+- Kimaki upgrade/config sync now uses Kimaki 0.13 native skill filters via
+  `--disable-skill` instead of deleting package-owned skill directories.
+- `dm-agent-sync` now only recomposes Data Machine memory and no longer mutates
+  OpenCode agent prompt slots.
 - `dm-context-filter` keeps generic Kimaki `--agent <current_agent>` guidance
   when it survives the existing section-level filters; the old inline stripping
   only existed to compensate for pre-0.13 missing-agent behavior.
+- Runtime-signature registration now records only observed env vars: OpenCode's
+  `OPENCODE_RUN_ID`; Kimaki signature blocks from older releases are removed
+  until Kimaki exports stable session/thread attribution env vars.
 
 ### Removed
 - Removed the `datamachine-kimaki` send-argument adapter and upgrade-time
   command shim installation. Upgrade now deletes prior wp-coding-agents-owned
   adapter files when their marker proves they came from this package.
+- Removed the `datamachine-kimaki-session` helper and its smoke test.
 
 ## [1.1.0] - 2026-05-17
 
