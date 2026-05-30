@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## [1.2.2] - 2026-05-30
+
+### Fixed
+- resolve eslint findings in dm-agent-sync plugin
+- single-source homeboy_project_id and resolve real registered id
+- report attach-path results truthfully and resolve project id consistently
+- normalize HOME paths in effective-prompt snapshots
 
 ## [1.2.1] - 2026-05-28
 
