@@ -16,7 +16,6 @@ import type { Plugin } from "@opencode-ai/plugin";
 const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async () => {
-      const sitePath = getSitePath();
       const wpAvailable = await $`command -v wp`.quiet().nothrow();
       if (wpAvailable.exitCode !== 0) {
         return;
@@ -29,13 +28,16 @@ const dmAgentSync: Plugin = async ({ $ }) => {
       // edits, or other external processes would leave AGENTS.md stale.
       // Running compose here guarantees the file matches live state at the
       // moment OpenCode loads the session prompt.
+      const sitePath = getSitePath();
       const composeResult = sitePath
         ? await $`wp --path=${sitePath} datamachine memory compose --allow-root`.quiet().nothrow()
         : await $`wp datamachine memory compose --allow-root`.quiet().nothrow();
       if (composeResult.exitCode !== 0) {
+        // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
         console.warn(`[dm-agent-sync] memory compose failed (exit ${composeResult.exitCode}): ${await shellOutputText(composeResult)}`);
         return;
       }
+      // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
       console.warn("[dm-agent-sync] recomposed Data Machine memory");
     },
   };
