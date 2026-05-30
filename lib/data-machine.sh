@@ -111,11 +111,10 @@ homeboy_project_id() {
     return 0
   fi
 
-  if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/homeboy.json" ]; then
-    return 1
-  fi
-
-  python3 - "$SITE_PATH/homeboy.json" <<'PY'
+  # Preferred: explicit project config at the site root.
+  if [ -n "${SITE_PATH:-}" ] && [ -f "$SITE_PATH/homeboy.json" ]; then
+    local id
+    id="$(python3 - "$SITE_PATH/homeboy.json" <<'PY'
 import json
 import sys
 
@@ -125,6 +124,51 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 if project_id:
     print(project_id)
 PY
+)"
+    if [ -n "$id" ]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+  fi
+
+  # Fallback: resolve from Homeboy's own registered projects by matching the
+  # project domain to the WordPress site domain. This is the same project a
+  # `homeboy project show` / `attach-path` resolves from the site cwd, so the
+  # resolver here stays consistent with what the attach loop actually targets
+  # even when there is no homeboy.json at the site root.
+  if [ -n "${SITE_DOMAIN:-}" ] && command -v homeboy >/dev/null 2>&1; then
+    local project_list resolved
+    project_list="$(homeboy project list 2>/dev/null)"
+    if [ -n "$project_list" ]; then
+      # Pass the JSON via env var (not stdin) so it does not collide with the
+      # heredoc that supplies the python source on stdin.
+      resolved="$(HOMEBOY_PROJECT_LIST="$project_list" HOMEBOY_SITE_DOMAIN="$SITE_DOMAIN" python3 <<'PY'
+import json
+import os
+
+site_domain = os.environ.get("HOMEBOY_SITE_DOMAIN", "").strip().lower()
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
+except Exception:
+    payload = {}
+
+projects = payload.get("data", {}).get("projects", [])
+for project in projects:
+    domain = (project.get("domain") or "").strip().lower()
+    if domain and domain == site_domain and project.get("id"):
+        print(project["id"])
+        break
+PY
+)"
+      if [ -n "$resolved" ]; then
+        printf '%s\n' "$resolved"
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
 }
 
 sync_homeboy_project_components() {
@@ -191,15 +235,70 @@ sync_homeboy_project_components() {
       continue
     fi
 
-    if homeboy project components attach-path "$project_id" "$repo_path" >/dev/null; then
+    local attach_output attach_status
+    attach_output="$(homeboy project components attach-path "$project_id" "$repo_path" 2>&1)"
+    attach_status=$?
+
+    # Trust Homeboy's JSON `.success` field over the raw exit code: the CLI
+    # can print a success payload while still returning a non-zero status (or
+    # vice versa). Fall back to the exit code only when the output is not
+    # parseable JSON.
+    if homeboy_attach_succeeded "$attach_output" "$attach_status"; then
       log "  attached $repo_name"
       attached=$((attached + 1))
     else
       warn "  failed $repo_name: homeboy attach-path failed"
+      if [ -n "$attach_output" ]; then
+        warn "    $(printf '%s' "$attach_output" | head -n 3 | tr '\n' ' ')"
+      fi
       failed=$((failed + 1))
     fi
   done
   shopt -u nullglob
 
   log "Homeboy component sync complete: $attached attached, $skipped skipped, $failed failed"
+}
+
+# Decide whether a `homeboy ... attach-path` invocation succeeded. Prefers the
+# JSON `.success` field in the command output; falls back to the process exit
+# status when the output is not JSON (e.g. an early crash before any payload).
+homeboy_attach_succeeded() {
+  local output="$1"
+  local status="$2"
+
+  local verdict
+  # Pass the command output via env var (not stdin) so it does not collide
+  # with the heredoc that supplies the python source on stdin.
+  verdict="$(HOMEBOY_ATTACH_OUTPUT="$output" python3 <<'PY' 2>/dev/null
+import json
+import os
+
+raw = os.environ.get("HOMEBOY_ATTACH_OUTPUT", "").strip()
+if not raw:
+    print("nojson")
+    raise SystemExit(0)
+
+# Output may include leading log lines before the JSON object; isolate the
+# outermost JSON object if present.
+start = raw.find("{")
+end = raw.rfind("}")
+if start == -1 or end == -1 or end < start:
+    print("nojson")
+    raise SystemExit(0)
+
+try:
+    payload = json.loads(raw[start : end + 1])
+except Exception:
+    print("nojson")
+    raise SystemExit(0)
+
+print("ok" if payload.get("success") is True else "fail")
+PY
+)"
+
+  case "$verdict" in
+    ok)   return 0 ;;
+    fail) return 1 ;;
+    *)    [ "$status" -eq 0 ] ;;  # nojson / unknown -> trust exit code
+  esac
 }

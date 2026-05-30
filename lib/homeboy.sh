@@ -149,7 +149,13 @@ setup_homeboy_project() {
 
   local project_id server_id spec
   project_id="$(homeboy_project_id)"
-  HOMEBOY_PROJECT_ID="$project_id"
+  # Only cache a non-empty id. Caching an empty string here would otherwise
+  # satisfy a later `[ -n "$HOMEBOY_PROJECT_ID" ]` check is false, but more
+  # importantly it must never shadow the resolver's homeboy.json / registered-
+  # project fallbacks with a blank value.
+  if [ -n "$project_id" ]; then
+    HOMEBOY_PROJECT_ID="$project_id"
+  fi
   server_id="$(homeboy_server_id)"
   HOMEBOY_SERVER_ID_RESOLVED="$server_id"
   spec="$(homeboy_project_json "$SITE_DOMAIN" "$SITE_PATH" "$server_id")"
