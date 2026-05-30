@@ -105,71 +105,9 @@ discover_dm_workspace_dir() {
   fi
 }
 
-homeboy_project_id() {
-  if [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
-    printf '%s\n' "$HOMEBOY_PROJECT_ID"
-    return 0
-  fi
-
-  # Preferred: explicit project config at the site root.
-  if [ -n "${SITE_PATH:-}" ] && [ -f "$SITE_PATH/homeboy.json" ]; then
-    local id
-    id="$(python3 - "$SITE_PATH/homeboy.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    project_id = json.load(handle).get("id", "")
-
-if project_id:
-    print(project_id)
-PY
-)"
-    if [ -n "$id" ]; then
-      printf '%s\n' "$id"
-      return 0
-    fi
-  fi
-
-  # Fallback: resolve from Homeboy's own registered projects by matching the
-  # project domain to the WordPress site domain. This is the same project a
-  # `homeboy project show` / `attach-path` resolves from the site cwd, so the
-  # resolver here stays consistent with what the attach loop actually targets
-  # even when there is no homeboy.json at the site root.
-  if [ -n "${SITE_DOMAIN:-}" ] && command -v homeboy >/dev/null 2>&1; then
-    local project_list resolved
-    project_list="$(homeboy project list 2>/dev/null)"
-    if [ -n "$project_list" ]; then
-      # Pass the JSON via env var (not stdin) so it does not collide with the
-      # heredoc that supplies the python source on stdin.
-      resolved="$(HOMEBOY_PROJECT_LIST="$project_list" HOMEBOY_SITE_DOMAIN="$SITE_DOMAIN" python3 <<'PY'
-import json
-import os
-
-site_domain = os.environ.get("HOMEBOY_SITE_DOMAIN", "").strip().lower()
-
-try:
-    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
-except Exception:
-    payload = {}
-
-projects = payload.get("data", {}).get("projects", [])
-for project in projects:
-    domain = (project.get("domain") or "").strip().lower()
-    if domain and domain == site_domain and project.get("id"):
-        print(project["id"])
-        break
-PY
-)"
-      if [ -n "$resolved" ]; then
-        printf '%s\n' "$resolved"
-        return 0
-      fi
-    fi
-  fi
-
-  return 1
-}
+# NOTE: homeboy_project_id() is defined once, in lib/homeboy.sh, which is
+# sourced after this file. A duplicate definition used to live here and was
+# silently shadowed by the homeboy.sh copy (see #170) — keep it single-sourced.
 
 sync_homeboy_project_components() {
   if ! command -v homeboy >/dev/null 2>&1; then

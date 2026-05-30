@@ -38,13 +38,80 @@ homeboy_server_json() {
 }
 
 homeboy_project_id() {
+  # 1. Explicit override.
   if [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
-    printf '%s' "$HOMEBOY_PROJECT_ID"
-  elif [ -n "${AGENT_SLUG:-}" ]; then
-    printf '%s' "$AGENT_SLUG"
-  else
-    homeboy_slugify "${SITE_DOMAIN:-$SITE_PATH}"
+    printf '%s\n' "$HOMEBOY_PROJECT_ID"
+    return 0
   fi
+
+  # 2. Project config at the site root.
+  if [ -n "${SITE_PATH:-}" ] && [ -f "$SITE_PATH/homeboy.json" ]; then
+    local id
+    id="$(python3 - "$SITE_PATH/homeboy.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    project_id = json.load(handle).get("id", "")
+
+if project_id:
+    print(project_id)
+PY
+)"
+    if [ -n "$id" ]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+  fi
+
+  # 3. Resolve from Homeboy's own registered projects by matching the project
+  # domain to the WordPress site domain. This is the id that `homeboy project
+  # show` / `attach-path` actually resolve from the site, so the resolver stays
+  # consistent with what the attach loop targets — even with no homeboy.json at
+  # the site root. Critically, this returns the REAL registered id (e.g.
+  # "extrachill-site"), not a domain-slug guess.
+  if [ -n "${SITE_DOMAIN:-}" ] && command -v homeboy >/dev/null 2>&1; then
+    local project_list resolved
+    project_list="$(homeboy project list 2>/dev/null)"
+    if [ -n "$project_list" ]; then
+      # Pass the JSON via env var (not stdin) so it does not collide with the
+      # heredoc that supplies the python source on stdin.
+      resolved="$(HOMEBOY_PROJECT_LIST="$project_list" HOMEBOY_SITE_DOMAIN="$SITE_DOMAIN" python3 <<'PY'
+import json
+import os
+
+site_domain = os.environ.get("HOMEBOY_SITE_DOMAIN", "").strip().lower()
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
+except Exception:
+    payload = {}
+
+projects = payload.get("data", {}).get("projects", [])
+for project in projects:
+    domain = (project.get("domain") or "").strip().lower()
+    if domain and domain == site_domain and project.get("id"):
+        print(project["id"])
+        break
+PY
+)"
+      if [ -n "$resolved" ]; then
+        printf '%s\n' "$resolved"
+        return 0
+      fi
+    fi
+  fi
+
+  # 4. Last-ditch fallbacks for setup-time (project not yet registered): an
+  # explicit agent slug, then a domain slug. These only ever produce an id to
+  # CREATE a project with — they must never win over a real registered project
+  # lookup above, which is why they run last.
+  if [ -n "${AGENT_SLUG:-}" ]; then
+    printf '%s\n' "$AGENT_SLUG"
+    return 0
+  fi
+
+  homeboy_slugify "${SITE_DOMAIN:-$SITE_PATH}"
 }
 
 homeboy_server_id() {
