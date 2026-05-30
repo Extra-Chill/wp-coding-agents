@@ -46,6 +46,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, unlink
 import { execSync } from "node:child_process"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { homedir } from "node:os"
 
 import { filters } from "./filters.mjs"
 
@@ -162,6 +163,37 @@ function detectLeaks(text, triggers, allowSections) {
 }
 
 // ---------------------------------------------------------------------------
+// HOME normalization.
+//
+// Kimaki's live system prompt interpolates the local $HOME into a few
+// instructions (e.g. the "debugging kimaki issues" log path
+// `<home>/.kimaki/kimaki.log`). Without canonicalizing those paths, the
+// committed snapshots are pinned to whatever home the author rendered them
+// on, and the test fails with spurious "snapshot drift" on every other
+// machine (every VPS: /home/<user>, /root; every other contributor's Mac).
+//
+// We replace the local home dir — and the common system home roots — with a
+// stable `$HOME` token before snapshotting, leak detection, and diffing, so
+// the test asserts on prompt *content*, not host identity.
+// ---------------------------------------------------------------------------
+
+function normalizeHome(text) {
+  if (typeof text !== "string") return text
+  let out = text
+  const home = homedir()
+  if (home && home !== "/") {
+    out = out.split(home).join("$HOME")
+  }
+  // Catch home-dir paths that don't match the current process home (e.g. a
+  // snapshot rendered under a different account than the one running the
+  // test). These cover the platform-conventional home roots.
+  out = out.replace(/\/Users\/[^/\s`"']+/g, "$HOME")
+  out = out.replace(/\/home\/[^/\s`"']+/g, "$HOME")
+  out = out.replace(/\/root(?=\/\.kimaki\b)/g, "$HOME")
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot + diff.
 // ---------------------------------------------------------------------------
 
@@ -211,8 +243,14 @@ async function runScenario(name, scenario) {
   } finally {
     store.setState({ critiqueEnabled: previousCritiqueEnabled })
   }
-  const baselineOut = await baselineFn(raw)
-  const filteredOut = await filterFn(raw)
+  // Canonicalize host-specific home-dir paths before any snapshot, leak
+  // detection, or diff so the test is portable across machines. Filters run
+  // on the normalized prompt too — they only strip content sections, never
+  // home paths, so normalizing first keeps filter behavior identical while
+  // making the recorded raw snapshot host-independent.
+  raw = normalizeHome(raw)
+  const baselineOut = normalizeHome(await baselineFn(raw))
+  const filteredOut = normalizeHome(await filterFn(raw))
 
   const baselineLeaks = detectLeaks(baselineOut, scenario.triggers, scenario.allowLeakInSection)
   const filteredLeaks = detectLeaks(filteredOut, scenario.triggers, scenario.allowLeakInSection)

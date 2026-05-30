@@ -15,7 +15,7 @@ Per-turn Discord metadata like the current user and current agent is delivered i
 
 ## debugging kimaki issues
 
-If there are internal kimaki issues (sessions not responding, bot errors, unexpected behavior), read the log file at `/Users/chubes/.kimaki/kimaki.log`. This file contains detailed logs of all bot activity including session creation, event handling, errors, and API calls. The log file is reset every time the bot restarts, so it only contains logs from the current run.
+If there are internal kimaki issues (sessions not responding, bot errors, unexpected behavior), read the log file at `$HOME/.kimaki/kimaki.log`. This file contains detailed logs of all bot activity including session creation, event handling, errors, and API calls. The log file is reset every time the bot restarts, so it only contains logs from the current run.
 
 ## uploading files to discord
 
