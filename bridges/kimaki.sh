@@ -457,6 +457,10 @@ Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
     ENV_BLOCK="$ENV_BLOCK
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
   fi
+  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+    ENV_BLOCK="$ENV_BLOCK
+EnvironmentFile=-$(ai_gateway_env_file)"
+  fi
 
   write_file "/etc/systemd/system/kimaki.service" \
     "$(bridge_render_systemd kimaki.service "$ENV_BLOCK")"
@@ -720,6 +724,13 @@ Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
   MERGED_ENV=$(_preserve_systemd_umask "$UNIT_FILE" "$MERGED_ENV")
+  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+    local gateway_env_line="EnvironmentFile=-$(ai_gateway_env_file)"
+    if ! grep -qF "$gateway_env_line" "$UNIT_FILE" 2>/dev/null; then
+      MERGED_ENV="$MERGED_ENV
+$gateway_env_line"
+    fi
+  fi
 
   local NEW_UNIT
   NEW_UNIT=$(bridge_render_systemd kimaki.service "$MERGED_ENV")
@@ -866,7 +877,7 @@ $skill_filter_plist_args
         <key>DATAMACHINE_AGENT_SLUG</key>
         <string>$AGENT_SLUG</string>"; fi)$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
-        <string>$KIMAKI_BOT_TOKEN</string>"; fi)
+        <string>$KIMAKI_BOT_TOKEN</string>"; fi)$(_kimaki_ai_gateway_launchd_env_xml)
     </dict>
 </dict>
 </plist>
@@ -892,6 +903,26 @@ _kimaki_skill_filter_mode() {
   fi
 
   printf '%s\n' "disable"
+}
+
+_kimaki_ai_gateway_launchd_env_xml() {
+  declare -F ai_gateway_enabled_for_opencode >/dev/null || return 0
+  ai_gateway_enabled_for_opencode || return 0
+  declare -F ai_gateway_read_env_value >/dev/null || return 0
+
+  local env_file base_url api_key
+  env_file="$(ai_gateway_env_file)"
+  base_url="$(ai_gateway_read_env_value OPENAI_BASE_URL "$env_file")"
+  api_key="$(ai_gateway_read_env_value OPENAI_API_KEY "$env_file")"
+  [ -n "$base_url" ] || base_url="$(ai_gateway_base_url)"
+
+  echo "
+        <key>OPENAI_BASE_URL</key>
+        <string>$base_url</string>"
+  if [ -n "$api_key" ]; then
+    echo "        <key>OPENAI_API_KEY</key>
+        <string>$api_key</string>"
+  fi
 }
 
 _kimaki_skill_filter_source() {

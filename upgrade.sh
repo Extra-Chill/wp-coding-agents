@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy skills cli-transport cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -94,6 +94,8 @@ SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
 REPAIR_OPENCODE_JSON=false
 SKIP_PLUGINS=false
+WITH_AI_GATEWAY=false
+ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
 
 # Defaults setup.sh expects (detect.sh reads these)
@@ -124,6 +126,11 @@ while [[ $# -gt 0 ]]; do
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
+    --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
+    --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
+    --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
+    --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
+    --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
@@ -166,6 +173,16 @@ USAGE:
   ./upgrade.sh --root           Force root service identity (skips adoption
                                 of the existing unit's User=)
   ./upgrade.sh --non-root       Force non-root service identity (User=opencode)
+  ./upgrade.sh --with-ai-gateway
+                                Opt in to additive WP AI Gateway integration
+                                for OpenCode: install/activate gateway stack,
+                                configure route, reuse existing token env, and
+                                merge a wp-ai-gateway OpenAI-compatible provider
+                                into opencode.json.
+  ./upgrade.sh --with-ai-gateway --rotate-ai-gateway-token
+                                Explicitly mint a replacement gateway token.
+  ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
+                                Configure the WordPress gateway backend route.
 
 SERVICE IDENTITY:
   By default the upgrade adopts the service user from the EXISTING
@@ -203,6 +220,11 @@ OPT-IN TOUCHES:
   - opencode.json (--repair-opencode-json) — full reconcile. In addition
     to the additive behaviour above, removes unexpected plugin entries
     so the array matches exactly what setup would produce today.
+  - WP AI Gateway (--with-ai-gateway) — installs/updates wp-ai-gateway and
+    ai-provider-for-openai, configures the gateway route, writes/reuses
+    .opencode/wp-ai-gateway.env, and additively merges provider.wp-ai-gateway
+    into opencode.json. Existing gateway tokens are reused unless
+    --rotate-ai-gateway-token is also passed.
 HELP
   exit 0
 fi
@@ -354,6 +376,11 @@ sync_cli_transport_runtime() {
 
   log "Phase 2b: Syncing CLI dispatch transport..."
   cli_transport_install
+}
+
+update_ai_gateway() {
+  _run_filter_active plugins || return 0
+  upgrade_ai_gateway
 }
 
 # ============================================================================
@@ -794,6 +821,15 @@ print_summary() {
     warn "  to remove them (the backup from this run is preserved)."
   fi
 
+  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+    echo ""
+    log "WP AI Gateway:"
+    log "  Base URL:  $(ai_gateway_base_url)"
+    log "  Env file:  $(ai_gateway_env_file)"
+    log "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
+    log "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
+  fi
+
   echo ""
   _print_bridge_restart_hint
   _print_verify_block
@@ -872,8 +908,10 @@ _print_verify_block() {
 
 update_data_machine_plugins
 sync_cli_transport_runtime
+update_ai_gateway
 sync_chat_bridge_config
 check_opencode_json_drift
+ai_gateway_configure_opencode
 sync_skills
 regenerate_agents_md
 update_chat_bridge_systemd

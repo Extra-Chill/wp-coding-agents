@@ -156,6 +156,11 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--chat <bridge>` | Chat bridge: `kimaki`, `cc-connect`, or `telegram`. |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
+| `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/chubes4/wp-ai-gateway) setup for OpenCode runtimes. |
+| `--ai-gateway-provider <id>` | WordPress AI Client backend provider for the gateway route (default: `openai`). |
+| `--ai-gateway-model <id>` | Backend model for the gateway route (default: `gpt-4o-mini`). |
+| `--ai-gateway-opencode-model <id>` | OpenCode-facing gateway model ID (default: `site-default`). |
+| `--rotate-ai-gateway-token` | Mint a replacement gateway token instead of reusing `.opencode/wp-ai-gateway.env`. |
 | `--multisite` | Configure WordPress multisite. |
 | `--subdomain` | Use subdomain multisite. |
 | `--no-skills` | Skip installing bundled agent skills. |
@@ -168,6 +173,13 @@ Run `./setup.sh --help` for the complete setup surface.
 ### OpenCode
 
 OpenCode uses `opencode.json` with Data Machine-composed instruction files. Kimaki is the default chat bridge for OpenCode when chat is enabled.
+
+Pass `--with-ai-gateway` to opt OpenCode into this site's [WP AI Gateway](https://github.com/chubes4/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, and writes an OpenAI-compatible `provider.wp-ai-gateway` entry so clients receive only the gateway token while upstream credentials stay in WordPress. Native OpenCode auth is untouched unless gateway mode is opted in.
+
+```bash
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode \
+  --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
+```
 
 ### Claude Code
 

@@ -58,6 +58,14 @@ jobs:
       - name: Run tests/cli-channel-perms.sh
         run: ./tests/cli-channel-perms.sh
 
+  ai-gateway:
+    name: WP AI Gateway opt-in regression (#173)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/ai-gateway.sh
+        run: ./tests/ai-gateway.sh
+
   kimaki-agent-fallback:
     name: Kimaki native agent fallback regression
     runs-on: ubuntu-latest
