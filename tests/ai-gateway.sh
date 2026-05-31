@@ -100,6 +100,26 @@ bridge_render_launchd com.wp.kimaki > "$PLIST_OUT"
 assert_file_contains "launchd includes gateway base URL" "$PLIST_OUT" "<key>OPENAI_BASE_URL</key>"
 assert_file_contains "launchd includes gateway key" "$PLIST_OUT" "<key>OPENAI_API_KEY</key>"
 
+echo "==> recursive gateway topologies are rejected in wp-coding-agents"
+AI_GATEWAY_ROUTE_PROVIDER="wp-ai-gateway"
+if ( ai_gateway_validate_topology ) >/dev/null 2>&1; then
+  echo "  FAIL recursive provider should be rejected"
+  FAIL=$((FAIL+1))
+else
+  echo "  ok   recursive provider rejected"
+  PASS=$((PASS+1))
+fi
+AI_GATEWAY_ROUTE_PROVIDER="openai"
+AI_GATEWAY_ROUTE_MODEL="opencode:site-default"
+if ( ai_gateway_validate_topology ) >/dev/null 2>&1; then
+  echo "  FAIL recursive provider-qualified model should be rejected"
+  FAIL=$((FAIL+1))
+else
+  echo "  ok   recursive provider-qualified model rejected"
+  PASS=$((PASS+1))
+fi
+AI_GATEWAY_ROUTE_MODEL="gpt-4o-mini"
+
 echo "==> opencode.json merge uses OpenCode custom provider shape"
 DRY_RUN=false
 cat > "$SITE_PATH/opencode.json" <<'JSON'

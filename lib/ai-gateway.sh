@@ -18,6 +18,31 @@ ai_gateway_enabled_for_opencode() {
   [ "${RUNTIME:-}" = "opencode" ]
 }
 
+ai_gateway_validate_topology() {
+  ai_gateway_enabled_for_opencode || return 0
+
+  local route_provider route_model model_provider
+  route_provider="$(printf '%s' "$AI_GATEWAY_ROUTE_PROVIDER" | tr '[:upper:]' '[:lower:]')"
+  route_model="$AI_GATEWAY_ROUTE_MODEL"
+  model_provider=""
+  case "$route_model" in
+    *:*) model_provider="${route_model%%:*}" ;;
+  esac
+  model_provider="$(printf '%s' "$model_provider" | tr '[:upper:]' '[:lower:]')"
+
+  case "$route_provider" in
+    wp-ai-gateway|ai-gateway|opencode)
+      error "Refusing recursive WP AI Gateway topology: OpenCode gateway route provider '$AI_GATEWAY_ROUTE_PROVIDER' would route back toward OpenCode/gateway mode. Choose a backend provider such as openai."
+      ;;
+  esac
+
+  case "$model_provider" in
+    wp-ai-gateway|ai-gateway|opencode)
+      error "Refusing recursive WP AI Gateway topology: OpenCode gateway route model '$AI_GATEWAY_ROUTE_MODEL' is provider-qualified back toward OpenCode/gateway mode. Choose a backend model for $AI_GATEWAY_ROUTE_PROVIDER."
+      ;;
+  esac
+}
+
 ai_gateway_base_url() {
   local site_url="${AI_GATEWAY_SITE_URL:-}"
   if [ -z "$site_url" ]; then
@@ -177,6 +202,7 @@ PY
 
 setup_ai_gateway() {
   ai_gateway_enabled_for_opencode || return 0
+  ai_gateway_validate_topology
   ai_gateway_install_stack
   ai_gateway_configure_wordpress
   ai_gateway_write_env
@@ -184,6 +210,7 @@ setup_ai_gateway() {
 
 upgrade_ai_gateway() {
   ai_gateway_enabled_for_opencode || return 0
+  ai_gateway_validate_topology
   ai_gateway_install_stack
   ai_gateway_configure_wordpress
   ai_gateway_write_env
