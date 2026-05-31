@@ -72,7 +72,7 @@ ai_gateway_install_stack() {
 
   log "Phase 6.5: Installing WP AI Gateway provider stack..."
   install_plugin ai-provider-for-openai https://github.com/WordPress/ai-provider-for-openai.git
-  install_plugin wp-ai-gateway https://github.com/chubes4/wp-ai-gateway.git
+  install_plugin wp-ai-gateway https://github.com/Automattic/wp-ai-gateway.git
 }
 
 ai_gateway_configure_wordpress() {
