@@ -45,6 +45,23 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 > - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot). OpenCode only.
 > - **No chat bridge** — Run the agent manually via SSH or terminal when needed."
 
+### Question 3a: Codex Auth / Gateway Path
+
+Ask this only when the user mentions Codex, Codebox minions, OpenCode/Kimaki external clients, or WP AI Gateway.
+
+> "Which Codex usage path are you setting up?
+>
+> - **Codebox minions** — Use WordPress AI Client/provider auth inside the Codebox sandbox. This does **not** require WP AI Gateway; Codebox minions inherit provider auth and connector state directly.
+> - **External OpenCode/Kimaki clients** — Optionally expose WordPress as an OpenAI-compatible endpoint with WP AI Gateway so external clients can point at WordPress."
+
+Keep these boundaries clear:
+- **Codebox minion fan-out does not require WP AI Gateway.** It uses provider auth/Codebox connector inheritance directly.
+- **WP AI Gateway is optional external-client plumbing.** Configure it only when the operator wants external OpenCode/Kimaki to use WordPress as an OpenAI-compatible endpoint.
+- **Do not put provider-specific behavior in WP AI Gateway.** Codex OAuth/token handling belongs in `ai-provider-for-openai`, tracked by WordPress/ai-provider-for-openai#28 and WordPress/php-ai-client#238.
+- **Do not vendor provider or gateway internals into wp-coding-agents.** The setup skill owns the operator recipe; wp-coding-agents owns product wiring for OpenCode/Kimaki external clients.
+- **Canonical gateway repo:** https://github.com/Automattic/wp-ai-gateway
+- **Codebox minion context:** Extra-Chill/homeboy-extensions#979
+
 ### Question 4: Homeboy Developer Layer
 
 > "Do you want the optional **Homeboy developer layer** enabled with `--with-homeboy`?
@@ -258,6 +275,69 @@ grep 'kimaki-config: WARNING' "$HOME/.kimaki/kimaki.log" || true
 ```
 
 If either `test -f` command fails, restart/re-run setup or upgrade before trusting a new OpenCode session. If the log contains a warning about the persistent plugin source dir or required OpenCode plugins, `dm-context-filter.ts` is not guaranteed to be active after restart.
+
+### Codex Auth and Optional WP AI Gateway
+
+Use this section only when the user asked for Codex-backed model access, Codebox minions, or an external OpenCode/Kimaki endpoint. First pick the path:
+
+| Path | Gateway required? | What to verify |
+|------|-------------------|----------------|
+| Codebox minions | No | WordPress AI Client/provider stack is installed, the Codex-capable provider is installed/active, and Codebox can inherit provider auth/connector state directly. |
+| External OpenCode/Kimaki endpoint | Optional, yes if selected | WP AI Gateway is installed/active, gateway status is healthy, `/models` lists the expected Codex model, and a minimal chat completion succeeds. |
+
+#### Codebox minion path: no gateway
+
+For Codebox minions, verify the in-WordPress provider stack and stop there. Do not configure WP AI Gateway just because Codex is involved.
+
+```bash
+wp plugin list | grep -E 'php-ai-client|ai-provider-for-openai|wp-codebox'
+wp plugin is-active ai-provider-for-openai
+wp plugin is-active wp-codebox
+```
+
+If the provider exposes CLI/admin status or login commands, use them to verify Codex availability and auth. If those commands do not exist yet, tell the operator that Codex auth belongs upstream in the provider stack rather than adding a workaround here:
+
+- WordPress/ai-provider-for-openai#28 owns Codex OAuth/token handling in the OpenAI provider.
+- WordPress/php-ai-client#238 owns the shared client/provider contract work.
+- Extra-Chill/homeboy-extensions#979 tracks Codebox minion fan-out usage.
+
+Expected result: Codebox minions use provider auth/Codebox connector inheritance directly, with no gateway endpoint or gateway token involved.
+
+#### External OpenCode/Kimaki path: optional gateway endpoint
+
+Configure the gateway only when the operator explicitly wants external OpenCode/Kimaki to use WordPress as an OpenAI-compatible endpoint. Use the canonical gateway repo:
+
+https://github.com/Automattic/wp-ai-gateway
+
+Verify the gateway and provider stack before giving external clients the endpoint:
+
+```bash
+wp plugin is-active wp-ai-gateway
+wp plugin is-active ai-provider-for-openai
+wp ai-gateway status
+```
+
+Then verify the OpenAI-compatible surface. Replace the URL/token/model placeholders with the installed site's gateway values:
+
+```bash
+curl -sS "$WP_AI_GATEWAY_BASE_URL/models" \
+  -H "Authorization: Bearer $WP_AI_GATEWAY_TOKEN"
+
+curl -sS "$WP_AI_GATEWAY_BASE_URL/chat/completions" \
+  -H "Authorization: Bearer $WP_AI_GATEWAY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"<codex-model>","messages":[{"role":"user","content":"Reply with ok."}]}'
+```
+
+Expected result: `/models` returns the expected Codex-capable model and the minimal chat completion returns a normal assistant response.
+
+#### Troubleshooting Codex/gateway setup
+
+- **Missing provider:** Install/activate the Codex-capable provider stack; do not add provider-specific logic to WP AI Gateway.
+- **Missing model:** Verify provider auth/status first, then confirm `/models` from the gateway includes the expected Codex model when gateway mode is selected.
+- **Missing auth:** Use the provider's login/status flow when available. If it is not available, point to WordPress/ai-provider-for-openai#28 and WordPress/php-ai-client#238; do not create local token shims in wp-coding-agents.
+- **Gateway token failures:** Confirm `wp ai-gateway status`, the token value, the base URL, HTTPS/proxy routing, and that the operator actually selected the external OpenCode/Kimaki gateway path.
+- **Codebox minions ask for gateway credentials:** Treat that as a configuration bug. Codebox minions should inherit provider auth/connector state directly and should not require WP AI Gateway.
 
 ### Homeboy (`--with-homeboy`)
 
