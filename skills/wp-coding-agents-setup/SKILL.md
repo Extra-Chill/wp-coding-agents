@@ -13,7 +13,7 @@ This skill is only the orchestrator. Keep the setup matrix composable:
 ```text
 wp-coding-agents-setup
   -> wp-coding-agents-setup-interview
-  -> wp-coding-agents-setup-skill-compiler
+  -> scripts/compile-setup-profile.mjs
   -> dry-run setup command
   -> confirmed setup command
   -> wp-coding-agents-setup-verify
@@ -26,6 +26,7 @@ Use the scripts for operational details:
 | Need | Source |
 |---|---|
 | Current setup flags and environment variables | `./setup.sh --help` |
+| Setup profile compilation | `node scripts/compile-setup-profile.mjs <profile.json>` |
 | Runtime implementations | `runtimes/*.sh` |
 | Chat bridge implementations | `bridges/*.sh` and `bridges/_dispatch.sh` |
 | Homeboy setup behavior | `lib/homeboy.sh` |
@@ -44,15 +45,15 @@ Do not duplicate script internals in this skill. Compile commands from the user'
    ```
 
 2. **Run the interview skill.**
-   Use `wp-coding-agents-setup-interview` to collect a structured setup profile. The interview collects facts only; it does not choose commands or verification steps.
+   Use `wp-coding-agents-setup-interview` to collect a structured JSON setup profile. The interview collects facts only; it does not choose commands or verification steps.
 
-3. **Run the compiler skill.**
-   Use `wp-coding-agents-setup-skill-compiler` to turn the profile into:
+3. **Run the deterministic compiler script.**
+   Save the profile to a temporary JSON file or pipe it on stdin, then run `node scripts/compile-setup-profile.mjs <profile.json>` to turn the profile into:
    - the exact setup command,
    - the dry-run command,
-   - runtime overlays,
-   - bridge overlays,
    - verification overlay names.
+
+   If the compiler rejects the profile, fix the profile or the setup script. Do not hand-compile around the failure.
 
 4. **Summarize the compiled plan before execution.**
    Include target, WordPress path or domain, runtime axis, bridge axis, optional overlays, and the exact dry-run command. Ask for explicit confirmation before running setup for real.
@@ -64,7 +65,7 @@ Do not duplicate script internals in this skill. Compile commands from the user'
    Drop `--dry-run` from the compiled command. Do not restart an existing live chat bridge unless the user explicitly asks; for a new install, follow the script's post-setup guidance.
 
 7. **Run the verification skill.**
-   Use `wp-coding-agents-setup-verify` with the compiler's verification overlay names. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
+   Use `wp-coding-agents-setup-verify` with the compiler script's verification overlay names. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
 
 ## Policy Boundaries
 

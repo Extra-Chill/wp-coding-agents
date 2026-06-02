@@ -1,12 +1,12 @@
 ---
 name: wp-coding-agents-setup-verify
-description: "Run post-setup verification for wp-coding-agents using overlay names emitted by the setup skill compiler."
-compatibility: "Use after wp-coding-agents-setup-skill-compiler and setup.sh execution. Does not compile setup commands."
+description: "Run post-setup verification for wp-coding-agents using overlay names emitted by the setup profile compiler script."
+compatibility: "Use after scripts/compile-setup-profile.mjs and setup.sh execution. Does not compile setup commands."
 ---
 
 # WP Coding Agents Setup Verify
 
-Run the verification overlays emitted by `wp-coding-agents-setup-skill-compiler`. This skill owns concrete verification command recipes; the compiler owns only overlay selection.
+Run the verification overlays emitted by `scripts/compile-setup-profile.mjs`. This skill owns concrete verification command recipes; the compiler script owns only deterministic command construction and overlay selection.
 
 Use the commands printed by `setup.sh` when they are more specific than the generic recipes below. Treat the script summary as the source of truth for generated paths, service names, bridge restart commands, and local launchd/systemd details.
 

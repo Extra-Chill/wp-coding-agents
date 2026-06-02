@@ -1,12 +1,12 @@
 ---
 name: wp-coding-agents-setup-interview
 description: "Collect a normalized wp-coding-agents setup profile without embedding install execution details or verification matrices."
-compatibility: "Use before wp-coding-agents-setup-skill-compiler. Does not run setup commands."
+compatibility: "Use before scripts/compile-setup-profile.mjs. Does not run setup commands."
 ---
 
 # WP Coding Agents Setup Interview
 
-Collect the facts needed to install wp-coding-agents. Do not build commands, run setup, or provide verification matrices from this skill. Output a normalized setup profile for `wp-coding-agents-setup-skill-compiler`.
+Collect the facts needed to install wp-coding-agents. Do not build commands, run setup, or provide verification matrices from this skill. Output a normalized JSON setup profile for `scripts/compile-setup-profile.mjs`.
 
 ## Interview Questions
 
@@ -66,38 +66,45 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
 
 ## Output Shape
 
-Return the profile in this shape so the compiler can map it deterministically:
+Return the profile as JSON in this shape so the compiler script can map it deterministically:
 
-```yaml
-install_target: local | fresh-vps | existing-vps | migration
-target:
-  ssh_host: ""
-  ssh_user: ""
-  domain: ""
-  wordpress_path: ""
-  wordpress_studio: false
-  migration_backups_ready: false
-runtime:
-  selection: auto | opencode | claude-code | studio-code | multiple
-  runtimes: []
-chat_bridge:
-  selection: auto | kimaki | cc-connect | telegram | none
-  telegram_token_available: false
-  telegram_allowed_user_id_available: false
-codex_path: not-applicable | codebox-minions | external-openai-compatible-endpoint
-overlays:
-  homeboy: false
-  wordpress_studio: false
-  multisite: false
-  subdomain_multisite: false
-  skip_deps: false
-  skip_ssl: false
-  skip_skills: false
-  root: null
-agent:
-  slug: ""
-  name: ""
-notes: []
+```json
+{
+  "install_target": "local | fresh-vps | existing-vps | migration",
+  "target": {
+    "ssh_host": "",
+    "ssh_user": "",
+    "domain": "",
+    "wordpress_path": "",
+    "wordpress_studio": false,
+    "migration_backups_ready": false
+  },
+  "runtime": {
+    "selection": "auto | opencode | claude-code | studio-code | multiple",
+    "runtimes": []
+  },
+  "chat_bridge": {
+    "selection": "auto | kimaki | cc-connect | telegram | none",
+    "telegram_token_available": false,
+    "telegram_allowed_user_id_available": false
+  },
+  "codex_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
+  "overlays": {
+    "homeboy": false,
+    "wordpress_studio": false,
+    "multisite": false,
+    "subdomain_multisite": false,
+    "skip_deps": false,
+    "skip_ssl": false,
+    "skip_skills": false,
+    "root": null
+  },
+  "agent": {
+    "slug": "",
+    "name": ""
+  },
+  "notes": []
+}
 ```
 
 Use empty strings or `false` for unknown optional values. Do not invent defaults beyond recording `auto` where setup should auto-detect.
