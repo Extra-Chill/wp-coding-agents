@@ -200,6 +200,18 @@ homeboy_handle_failure() {
   return 0
 }
 
+sync_homeboy_agents_md_guidance() {
+  if ! declare -F agents_md_guidance_register_homeboy_codebox >/dev/null; then
+    return 0
+  fi
+
+  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
+    agents_md_guidance_register_homeboy_codebox
+  else
+    agents_md_guidance_unregister_homeboy_codebox
+  fi
+}
+
 setup_homeboy_project() {
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
     log "Skipping Homeboy project setup (--no-homeboy)"
@@ -255,6 +267,7 @@ configure_homeboy_wordpress_extension() {
 
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
     sync_homeboy_availability
+    sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
   fi
@@ -262,6 +275,7 @@ configure_homeboy_wordpress_extension() {
   if ! command -v homeboy >/dev/null 2>&1; then
     homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping Homeboy WordPress extension setup."
     sync_homeboy_availability
+    sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
   fi
@@ -276,6 +290,7 @@ configure_homeboy_wordpress_extension() {
       warn "Homeboy is callable, but the WordPress extension is not ready. Run setup with --with-homeboy to install and verify it."
     fi
     sync_homeboy_availability
+    sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
   fi
@@ -288,6 +303,7 @@ configure_homeboy_wordpress_extension() {
     echo -e "${BLUE}[dry-run]${NC} homeboy extension setup wordpress"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension list"
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
+    echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy Codebox AGENTS.md guidance mu-plugin"
     print_homeboy_verification_commands
     return 0
   fi
@@ -315,6 +331,7 @@ configure_homeboy_wordpress_extension() {
   fi
 
   sync_homeboy_availability
+  sync_homeboy_agents_md_guidance
   recompose_agents_md_for_homeboy
   print_homeboy_verification_commands
 }
