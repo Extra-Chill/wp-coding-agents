@@ -65,7 +65,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine homeboy skills cli-channel runtime-signature; do
+for lib in common detect wordpress data-machine homeboy skills cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -536,12 +536,14 @@ regenerate_agents_md() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
+    echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy Codebox AGENTS.md guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
     echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     return 0
   fi
 
   sync_homeboy_availability
+  sync_homeboy_agents_md_guidance
 
   # Backup existing (compose writes in-place to the registered location)
   if [ -f "$AGENTS_MD" ]; then
