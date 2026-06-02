@@ -208,6 +208,8 @@ OPTIONS:
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
   --skills-only      Only run wp-coding-agents skill installation on existing site
+  --runtime-only     Only run runtime setup on an existing agent install
+                     (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default)
   --non-root         Run agent as dedicated service user (opencode)
