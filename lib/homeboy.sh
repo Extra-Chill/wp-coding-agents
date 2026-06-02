@@ -201,14 +201,14 @@ homeboy_handle_failure() {
 }
 
 sync_homeboy_agents_md_guidance() {
-  if ! declare -F agents_md_guidance_register_homeboy_codebox >/dev/null; then
+  if ! declare -F agents_md_guidance_sync_homeboy_codebox >/dev/null; then
     return 0
   fi
 
   if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-    agents_md_guidance_register_homeboy_codebox
+    agents_md_guidance_sync_homeboy_codebox true
   else
-    agents_md_guidance_unregister_homeboy_codebox
+    agents_md_guidance_sync_homeboy_codebox false
   fi
 }
 

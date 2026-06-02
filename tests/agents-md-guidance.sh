@@ -84,10 +84,22 @@ assert_mode_0644() {
   fi
 }
 
+assert_fails() {
+  local name="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    echo "  FAIL $name"
+    echo "    command unexpectedly succeeded: $*"
+    FAILED=$((FAILED + 1))
+  else
+    echo "  ok   $name"
+  fi
+}
+
 echo "==> register Homeboy Codebox guidance"
 (
   umask 077
-  agents_md_guidance_register_homeboy_codebox
+  agents_md_guidance_sync_homeboy_codebox true
 )
 
 assert_php_lint "$MU_FILE" "guidance mu-plugin parses with php -l"
@@ -102,9 +114,14 @@ fi
 
 echo "==> re-register Homeboy Codebox guidance (idempotent)"
 HASH_BEFORE=$(file_hash "$MU_FILE")
-agents_md_guidance_register_homeboy_codebox
+agents_md_guidance_sync_homeboy_codebox true
 HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
+
+echo "==> invalid public API inputs fail before writing broken PHP"
+assert_fails "invalid section id rejected" agents_md_guidance_register "bad section" 36 "Bad" "Bad" "## Bad"
+assert_fails "invalid priority rejected" agents_md_guidance_register "bad-priority" "later" "Bad" "Bad" "## Bad"
+assert_fails "invalid sync availability rejected" agents_md_guidance_sync_homeboy_codebox maybe
 
 echo "==> apply datamachine_sections action and inspect SectionRegistry call"
 SHIM="$TMP/section-shim.php"
@@ -148,7 +165,7 @@ assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives Homeboy Codebox guidan
 
 echo "==> unregister Homeboy Codebox guidance"
 chmod 0600 "$MU_FILE"
-agents_md_guidance_unregister_homeboy_codebox
+agents_md_guidance_sync_homeboy_codebox false
 assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after unregister"
 if grep -q "BEGIN agents-md-guidance:homeboy-codebox-agent-tasks" "$MU_FILE"; then
   echo "  FAIL Homeboy Codebox block still present after unregister"

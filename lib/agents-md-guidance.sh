@@ -14,6 +14,7 @@
 #   agents_md_guidance_ensure_mu_plugin_file
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
+#   agents_md_guidance_sync_homeboy_codebox <available:true|false>
 #   agents_md_guidance_register_homeboy_codebox
 #   agents_md_guidance_unregister_homeboy_codebox
 #
@@ -90,6 +91,9 @@ agents_md_guidance_register() {
     return 1
   fi
 
+  _agents_md_guidance_validate_section_id "$section_id" || return 1
+  _agents_md_guidance_validate_priority "$priority" || return 1
+
   local file
   file="$(agents_md_guidance_mu_plugin_path)" || {
     warn "  agents_md_guidance_register: SITE_PATH not set — skipping section '$section_id'"
@@ -136,6 +140,8 @@ agents_md_guidance_unregister() {
     return 1
   fi
 
+  _agents_md_guidance_validate_section_id "$section_id" || return 1
+
   local file
   file="$(agents_md_guidance_mu_plugin_path)" || return 0
   [ -f "$file" ] || return 0
@@ -158,6 +164,18 @@ agents_md_guidance_unregister() {
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("AGENTS.md guidance removed: $section_id")
   fi
+}
+
+agents_md_guidance_sync_homeboy_codebox() {
+  local available="${1:-false}"
+  case "$available" in
+    true) agents_md_guidance_register_homeboy_codebox ;;
+    false) agents_md_guidance_unregister_homeboy_codebox ;;
+    *)
+      warn "  agents_md_guidance_sync_homeboy_codebox: expected true or false, got '$available'"
+      return 1
+      ;;
+  esac
 }
 
 agents_md_guidance_register_homeboy_codebox() {
@@ -240,6 +258,26 @@ print("        )")
 print("    );")
 print(f"    // END agents-md-guidance:{section_id}")
 PY
+}
+
+_agents_md_guidance_validate_section_id() {
+  local section_id="$1"
+  if printf '%s' "$section_id" | grep -Eq '^[A-Za-z0-9_.-]+$'; then
+    return 0
+  fi
+
+  warn "  AGENTS.md guidance section id may only contain letters, numbers, dots, underscores, and hyphens: $section_id"
+  return 1
+}
+
+_agents_md_guidance_validate_priority() {
+  local priority="$1"
+  if printf '%s' "$priority" | grep -Eq '^-?[0-9]+$'; then
+    return 0
+  fi
+
+  warn "  AGENTS.md guidance priority must be an integer: $priority"
+  return 1
 }
 
 _agents_md_guidance_block_matches() {
