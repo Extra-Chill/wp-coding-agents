@@ -31,7 +31,7 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - `studio-code`
    - `multiple`
 
-   If they choose multiple, collect the comma-separated runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
+   If they choose multiple, collect the desired runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
 
 4. **Chat bridge axis**
    Ask how the user wants to communicate with the agent:

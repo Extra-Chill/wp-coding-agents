@@ -1,12 +1,12 @@
 ---
 name: wp-coding-agents-setup-skill-compiler
-description: "Compile a normalized wp-coding-agents setup profile into exact setup.sh flags, dry-run command, and relevant runtime, bridge, and verification overlays."
+description: "Compile a normalized wp-coding-agents setup profile into exact setup.sh flags, dry-run command, and relevant runtime, bridge, and verification overlay names."
 compatibility: "Use after wp-coding-agents-setup-interview. Requires access to the wp-coding-agents repo so setup.sh --help can be checked."
 ---
 
 # WP Coding Agents Setup Skill Compiler
 
-Convert a setup profile into exact commands and verification overlays. Keep script behavior in `setup.sh`; this skill owns the axis mapping and operator guidance.
+Convert a setup profile into exact commands and verification overlay names. Keep script behavior in `setup.sh`; this skill owns the axis mapping and operator guidance. Use `wp-coding-agents-setup-verify` for concrete verification command recipes.
 
 Always run `./setup.sh --help` in the repo before finalizing a command so the compiled flags match the current script.
 
@@ -31,14 +31,16 @@ When `target.wordpress_studio` or `overlays.wordpress_studio` is true, prefix th
 | `opencode` | `--runtime opencode` |
 | `claude-code` | `--runtime claude-code` |
 | `studio-code` | `--runtime studio-code` |
-| `multiple` | `--runtime <comma-separated runtimes>` |
+| `multiple` | omit `--runtime` for auto-detected multi-runtime skill installation, or use one primary runtime and add others later with separate `--runtime-only --runtime <name>` passes |
 
-Runtime overlays:
+Runtime overlay names:
 
-- OpenCode: verify `opencode --version`; if paired with Kimaki, verify managed OpenCode plugin paths.
-- Claude Code: verify `claude --version`; use the script-generated `CLAUDE.md` and MCP config.
-- Studio Code: verify `studio --version`; use `WP_CMD="studio wp"` for WordPress Studio sites.
-- Multiple: run verification for each selected runtime.
+- `runtime-opencode`
+- `runtime-claude-code`
+- `runtime-studio-code`
+- `runtime-multiple`
+
+Do not compile comma-separated runtimes into `--runtime`. `setup.sh` treats explicit `--runtime` as one runtime file name. When the user wants multiple runtimes on the first setup, omit `--runtime` and let setup auto-detect all installed runtimes while selecting one primary runtime. When the user needs to add a specific runtime later, compile a separate `--runtime-only --runtime <name>` command after the main setup.
 
 ### Chat Bridge
 
@@ -50,12 +52,12 @@ Runtime overlays:
 | `telegram` | `--chat telegram` |
 | `none` | `--no-chat` |
 
-Bridge overlays:
+Bridge overlay names:
 
-- Kimaki: verify bot token/service or launchd configuration after setup; do not restart an existing live bridge without user approval.
-- cc-connect: verify config and service/launchd instructions from setup output.
-- Telegram: require `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID`; verify the bot responds after services start.
-- None: verify the runtime can be started manually in the terminal or over SSH.
+- `bridge-kimaki`
+- `bridge-cc-connect`
+- `bridge-telegram`
+- `bridge-none`
 
 ### Optional Overlays
 
@@ -92,7 +94,8 @@ Codex / gateway overlay policy:
 3. Add bridge flags from the chat bridge axis.
 4. Add optional overlay flags.
 5. Add environment variables before the command when needed.
-6. Produce both commands:
+6. Produce verification overlay names from the selected target, runtime, bridge, and optional overlays.
+7. Produce both commands:
    - dry-run: append `--dry-run`.
    - apply: same command without `--dry-run`.
 
@@ -104,66 +107,40 @@ SITE_DOMAIN=example.com ./setup.sh --runtime claude-code --with-homeboy --dry-ru
 EXISTING_WP=/var/www/mysite ./setup.sh --existing --runtime opencode --chat kimaki --dry-run
 ```
 
-## Verification Overlays
+## Verification Overlay Names
 
-Always verify WordPress and Data Machine first:
+Always include:
 
-```bash
-wp option get siteurl --path=/path/to/site
-wp plugin list --path=/path/to/site | grep data-machine
-```
+- `verify-wordpress`
+- `verify-data-machine`
 
-For WordPress Studio:
+Add target overlays:
 
-```bash
-studio wp option get siteurl
-studio wp plugin list | grep data-machine
-```
+- `verify-wordpress-studio` when `target.wordpress_studio` or `overlays.wordpress_studio` is true.
+- `verify-vps-reachable` for fresh VPS and existing VPS targets.
 
-Runtime checks:
+Add runtime overlays:
 
-```bash
-opencode --version
-claude --version
-studio --version
-```
+- `verify-runtime-opencode` for OpenCode.
+- `verify-runtime-claude-code` for Claude Code.
+- `verify-runtime-studio-code` for Studio Code.
+- `verify-runtime-multiple` when the profile selected multiple runtimes.
 
-Kimaki + OpenCode plugin checks:
+Add bridge overlays:
 
-```bash
-KIMAKI_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
-test -f "$KIMAKI_PLUGINS_DIR/dm-context-filter.ts" && test -f "$KIMAKI_PLUGINS_DIR/dm-agent-sync.ts"
-```
+- `verify-bridge-kimaki` for Kimaki.
+- `verify-bridge-kimaki-opencode-plugins` when Kimaki and OpenCode are both selected or detected.
+- `verify-bridge-cc-connect` for cc-connect.
+- `verify-bridge-telegram` for Telegram.
+- `verify-bridge-none` when chat is disabled.
 
-On VPS Kimaki installs, use the path and commands emitted by setup output. Inspect startup logs for `kimaki-config: WARNING` before trusting a new OpenCode session.
+Add optional overlays:
 
-Homeboy checks when `--with-homeboy` was used:
+- `verify-homeboy` when `--with-homeboy` is compiled.
+- `verify-codex-codebox-provider` for `codex_path: codebox-minions`.
+- `verify-wp-ai-gateway` for `codex_path: external-openai-compatible-endpoint`.
 
-```bash
-homeboy --version
-homeboy extension list
-homeboy project show <project-id>
-homeboy project components list <project-id>
-wp option get datamachine_code_homeboy_available --path=/path/to/site
-wp datamachine memory compose AGENTS.md --path=/path/to/site
-```
-
-For WordPress Studio Homeboy verification, use `studio wp option get datamachine_code_homeboy_available` and `studio wp datamachine memory compose AGENTS.md`.
-
-Codex/Codebox provider checks when selected:
-
-```bash
-wp plugin list | grep -E 'php-ai-client|ai-provider-for-openai|wp-codebox'
-wp plugin is-active ai-provider-for-openai
-wp plugin is-active wp-codebox
-```
-
-Gateway checks only when the external endpoint path is selected:
-
-```bash
-wp plugin is-active wp-ai-gateway
-wp ai-gateway status
-```
+Pass these names to `wp-coding-agents-setup-verify` after setup completes. Do not inline the command recipes here.
 
 ## Output Shape
 
@@ -179,11 +156,8 @@ commands:
   dry_run: ""
   apply: ""
 verification:
-  wordpress: []
-  data_machine: []
-  runtime: []
-  bridge: []
-  optional_overlays: []
+  overlays: []
+follow_up_commands: []
 warnings: []
 ```
 
@@ -191,5 +165,5 @@ warnings: []
 
 - The command maps each profile axis independently.
 - The dry-run command is present and is the first command to run.
-- Verification overlays match the selected runtime, bridge, and options.
+- Verification overlay names match the selected runtime, bridge, and options.
 - The plan does not require restarting a live chat bridge unless the user explicitly asks.

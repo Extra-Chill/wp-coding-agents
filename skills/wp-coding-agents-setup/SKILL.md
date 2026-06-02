@@ -16,7 +16,7 @@ wp-coding-agents-setup
   -> wp-coding-agents-setup-skill-compiler
   -> dry-run setup command
   -> confirmed setup command
-  -> compiled verification overlays
+  -> wp-coding-agents-setup-verify
 ```
 
 ## Source Of Truth
@@ -52,7 +52,7 @@ Do not duplicate script internals in this skill. Compile commands from the user'
    - the dry-run command,
    - runtime overlays,
    - bridge overlays,
-   - optional verification overlays.
+   - verification overlay names.
 
 4. **Summarize the compiled plan before execution.**
    Include target, WordPress path or domain, runtime axis, bridge axis, optional overlays, and the exact dry-run command. Ask for explicit confirmation before running setup for real.
@@ -63,8 +63,8 @@ Do not duplicate script internals in this skill. Compile commands from the user'
 6. **Run setup after confirmation.**
    Drop `--dry-run` from the compiled command. Do not restart an existing live chat bridge unless the user explicitly asks; for a new install, follow the script's post-setup guidance.
 
-7. **Verify using compiled overlays.**
-   Run the verification commands selected by the compiler. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
+7. **Run the verification skill.**
+   Use `wp-coding-agents-setup-verify` with the compiler's verification overlay names. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
 
 ## Policy Boundaries
 
