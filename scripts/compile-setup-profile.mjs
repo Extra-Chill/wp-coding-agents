@@ -160,7 +160,7 @@ function compile(profile) {
   }
 
   if (overlays.homeboy) addFlag(command, "--with-homeboy")
-  if (overlays.multisite) addFlag(command, "--multisite")
+  if (overlays.multisite || overlays.subdomain_multisite) addFlag(command, "--multisite")
   if (overlays.subdomain_multisite) addFlag(command, "--subdomain")
   if (overlays.skip_deps) addFlag(command, "--skip-deps")
   if (overlays.skip_ssl) addFlag(command, "--skip-ssl")
@@ -177,7 +177,10 @@ function compile(profile) {
     if (env.WP_CMD) runtimeOnlyEnv.WP_CMD = env.WP_CMD
 
     for (const name of runtime.requested.slice(1)) {
-      followUpCommands.push(formatCommand(runtimeOnlyEnv, ["./setup.sh", "--runtime-only", "--runtime", name]))
+      const runtimeOnlyCommand = ["./setup.sh"]
+      if (installTarget === "local") runtimeOnlyCommand.push("--local")
+      runtimeOnlyCommand.push("--runtime-only", "--runtime", name)
+      followUpCommands.push(formatCommand(runtimeOnlyEnv, runtimeOnlyCommand))
     }
   }
 

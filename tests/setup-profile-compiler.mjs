@@ -50,6 +50,32 @@ function compile(profile) {
 }
 
 {
+  const plan = compile({
+    install_target: "fresh-vps",
+    target: { domain: "network.example.com" },
+    runtime: { selection: "auto" },
+    chat_bridge: { selection: "none" },
+    overlays: { subdomain_multisite: true },
+    agent: {},
+  })
+
+  assert.equal(plan.commands.dry_run, "SITE_DOMAIN=network.example.com ./setup.sh --no-chat --multisite --subdomain --dry-run")
+}
+
+{
+  const plan = compile({
+    install_target: "local",
+    target: { wordpress_path: "/home/chris/site" },
+    runtime: { selection: "multiple", runtimes: ["claude-code", "studio-code"] },
+    chat_bridge: { selection: "none" },
+    overlays: {},
+    agent: {},
+  })
+
+  assert.deepEqual(plan.follow_up_commands, ["EXISTING_WP=/home/chris/site ./setup.sh --local --runtime-only --runtime studio-code"])
+}
+
+{
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
     input: JSON.stringify({
       install_target: "local",
