@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy skills summary cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -343,5 +343,6 @@ configure_homeboy_wordpress_extension
 runtime_generate_instructions
 runtime_merge_mcp_servers
 install_skills
+cli_transport_install
 install_chat_bridge
 print_summary

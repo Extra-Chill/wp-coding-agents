@@ -57,7 +57,7 @@ bridge_install() {
 
 # _kimaki_register_cli_channel
 #
-# Register kimaki with the Data Machine Code CLI transport runtime so that
+# Register kimaki with the wp-coding-agents CLI transport runtime so that
 # `agents/dispatch-message` (substrate: Automattic/agents-api) can deliver
 # messages to Discord channels by shelling kimaki. `recipient` is the Discord
 # channel ID (numeric string) the message is delivered to. `message` is the

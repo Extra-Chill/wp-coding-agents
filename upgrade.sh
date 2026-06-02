@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy skills cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy skills cli-transport cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -328,6 +328,13 @@ update_data_machine_plugins() {
   upgrade_data_machine_plugins
   sync_carried_plugins
   update_wp_codebox_plugin_subtree
+}
+
+sync_cli_transport_runtime() {
+  _run_filter_active kimaki || return 0
+
+  log "Phase 2b: Syncing CLI dispatch transport..."
+  cli_transport_install
 }
 
 # ============================================================================
@@ -782,6 +789,7 @@ _print_verify_block() {
 # ============================================================================
 
 update_data_machine_plugins
+sync_cli_transport_runtime
 sync_chat_bridge_config
 check_opencode_json_drift
 sync_skills

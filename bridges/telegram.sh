@@ -109,7 +109,7 @@ LOG_LEVEL=info"
 
 # _telegram_register_cli_channel
 #
-# Register telegram with the Data Machine Code CLI transport runtime.
+# Register telegram with the wp-coding-agents CLI transport runtime.
 #
 # Mismatch caveat: opencode-telegram-bot is a long-running INBOUND bot — it
 # polls Telegram for incoming messages and forwards them to a local opencode

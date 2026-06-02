@@ -3,15 +3,17 @@
 #
 # Each chat bridge in bridges/<name>.sh exposes a CLI surface that can deliver
 # messages to a recipient on its platform (kimaki → Discord, cc-connect →
-# multi-platform, opencode-telegram → Telegram). Data Machine Code's generic
-# CLI transport runtime (Extra-Chill/data-machine-code#412) shells those CLIs
-# on behalf of the `agents/dispatch-message` ability, but only if it can
-# discover a channel definition mapping `<channel-name>` → command + argv.
+# multi-platform, opencode-telegram → Telegram). wp-coding-agents' generic CLI
+# transport runtime shells those CLIs on behalf of the `agents/dispatch-message`
+# ability, but only if it can discover a channel definition mapping
+# `<channel-name>` → command + argv.
 #
 # This module owns that discovery surface. It writes a mu-plugin file in the
 # target WordPress install that registers each bridge's channel entry via the
-# `datamachine_code_cli_channels` filter. Each bridge install/sync calls
-# cli_channel_register; each bridge uninstall calls cli_channel_unregister.
+# `wp_coding_agents_cli_channels` filter, with a legacy
+# `datamachine_code_cli_channels` registration kept for migration. Each bridge
+# install/sync calls cli_channel_register; each bridge uninstall calls
+# cli_channel_unregister.
 #
 # Design choices:
 #
@@ -42,7 +44,7 @@
 #   cli_channel_unregister <name>              — remove a bridge's block
 #
 # `args_json` is a JSON array literal (e.g. '["send","--channel","{recipient}",
-# "--prompt","{message}"]'). Substitution tokens supported by the DMC runtime:
+# "--prompt","{message}"]'). Substitution tokens supported by the transport:
 #   {recipient}  — the bridge-specific target identifier (see per-bridge docs)
 #   {message}    — the message body to deliver
 #
@@ -71,13 +73,14 @@ cli_channel_mu_plugin_path() {
 #
 # Create the mu-plugin file with the filter scaffold if it does not exist.
 # Idempotent — does nothing if the file already exists. The scaffold contains
-# a single `add_filter( 'datamachine_code_cli_channels', … )` callback whose
-# body is the marker-delimited region that bridges write into.
+# a single marker-delimited callback registered to both the new
+# `wp_coding_agents_cli_channels` filter and the legacy
+# `datamachine_code_cli_channels` filter.
 #
 # The PHP closure walks the existing $channels array, applies each
 # // BEGIN/END marker block in source order, and returns the merged map. If
-# DMC's CLI runtime is not loaded (no filter consumers), the array is built
-# and discarded — no harm.
+# no CLI runtime is loaded (no filter consumers), the array is built and
+# discarded — no harm.
 cli_channel_ensure_mu_plugin_file() {
   local file
   file="$(cli_channel_mu_plugin_path)" || {
@@ -106,7 +109,7 @@ cli_channel_ensure_mu_plugin_file() {
 /**
  * Plugin Name: wp-coding-agents — CLI channel registry
  * Description: Registers chat bridges installed by wp-coding-agents as CLI
- *              channels for the Data Machine Code generic CLI transport
+ *              channels for the wp-coding-agents generic CLI transport
  *              runtime, which backs the agents/dispatch-message ability.
  *              Managed by wp-coding-agents bridge installers — do not edit
  *              by hand. Bridge install/upgrade rewrites the marker blocks
@@ -123,27 +126,33 @@ cli_channel_ensure_mu_plugin_file() {
  *   ];
  *   // END bridge:<name>
  *
- * Substitution tokens are resolved by the DMC CLI runtime at dispatch time:
+ * Substitution tokens are resolved by the CLI transport at dispatch time:
  *   {recipient} — bridge-specific target identifier (see bridge docs).
  *   {message}   — the message body delivered by agents/dispatch-message.
  *
- * Filter contract: Extra-Chill/data-machine-code#412.
+ * New filter contract: wp_coding_agents_cli_channels.
+ * Legacy migration filter: datamachine_code_cli_channels.
  *
  * @package wp-coding-agents
  */
 
 defined( 'ABSPATH' ) || exit;
 
-add_filter( 'datamachine_code_cli_channels', function ( $channels ) {
-    if ( ! is_array( $channels ) ) {
-        $channels = [];
-    }
+if ( ! function_exists( 'wp_coding_agents_register_cli_channels' ) ) {
+    function wp_coding_agents_register_cli_channels( $channels ) {
+        if ( ! is_array( $channels ) ) {
+            $channels = [];
+        }
 
     // BEGIN bridges
     // END bridges
 
-    return $channels;
-} );
+        return $channels;
+    }
+}
+
+add_filter( 'wp_coding_agents_cli_channels', 'wp_coding_agents_register_cli_channels' );
+add_filter( 'datamachine_code_cli_channels', 'wp_coding_agents_register_cli_channels' );
 PHP
 
   chmod 0644 "$file"

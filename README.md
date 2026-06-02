@@ -28,6 +28,17 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
 
 On activation, Data Machine creates a default agent and scaffolds its memory files. Additional agents get their own files when created. The runtime loads the selected agent's registered files for each session — the agent wakes up knowing who it is and what it's been working on. No memory management overhead in the context window.
 
+## Outbound CLI Dispatch
+
+Agents API owns the canonical `agents/dispatch-message` ability contract. wp-coding-agents owns the local CLI bridge runtime that fulfills that contract on machines where chat bridges are installed.
+
+Setup and upgrade sync two mu-plugins into the target WordPress install:
+
+- `wp-coding-agents-cli-transport.php` registers the generic local CLI transport for `agents/dispatch-message`.
+- `wp-coding-agents-channels.php` registers installed bridge command templates, such as `kimaki`, `cc-connect`, and `telegram`.
+
+Bridge installers publish channels through `wp_coding_agents_cli_channels`. The transport also reads the legacy `datamachine_code_cli_channels` registry during migration, so installs created before wp-coding-agents owned the runtime continue to dispatch without a manual config rewrite.
+
 ## Runtime Auto-Discovery
 
 Drop a file in `runtimes/`, it's available. The script scans `runtimes/*.sh` for available runtimes and auto-detects which one to use based on what's installed:
@@ -185,6 +196,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
 | **AI Provider for Claude Code** | wp-coding-agents-carried WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 | **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
+| **wp-coding-agents CLI transport** | Local `agents/dispatch-message` runtime plus per-bridge command registry | Always synced by setup/upgrade |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
 | **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
 | **wp-coding-agents upgrade skill** | Ongoing upgrade runbook installed with the target agent. The setup skill is intentionally not installed; it is a single-use pre-install entrypoint kept in this repo for the operator's local agent. | `--no-skills` |
@@ -372,17 +384,18 @@ Credentials are stored in `~/.config/opencode-telegram-bot/.env` (chmod 600). Yo
 
 ## Outbound Dispatch (`agents/dispatch-message`)
 
-Each chat bridge installed by wp-coding-agents registers itself as a **CLI channel** with the Data Machine Code generic CLI transport runtime (Extra-Chill/data-machine-code#412). That runtime backs the `agents/dispatch-message` ability, so Data Machine flows can push messages out to whatever platform your bridge speaks — without bespoke webhooks, without HTTP detours, without per-bridge plumbing in DMC itself.
+Each chat bridge installed by wp-coding-agents registers itself as a **CLI channel** with the wp-coding-agents generic CLI transport runtime. That runtime backs the `agents/dispatch-message` ability, so Data Machine flows can push messages out to whatever platform your bridge speaks without bespoke webhooks, HTTP detours, or per-bridge plumbing in Data Machine Code.
 
 ### How it wires up
 
-On install (and every `upgrade.sh` run), each bridge writes its channel config into a mu-plugin file at:
+On install and every `upgrade.sh` run, wp-coding-agents syncs the transport runtime and bridge channel config into mu-plugin files:
 
 ```
+$WP_PATH/wp-content/mu-plugins/wp-coding-agents-cli-transport.php
 $WP_PATH/wp-content/mu-plugins/wp-coding-agents-channels.php
 ```
 
-The file is owned end-to-end by bridge installers: it is created on first registration, each bridge contributes a marker-delimited block (`// BEGIN bridge:<name>` … `// END bridge:<name>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via the `datamachine_code_cli_channels` filter:
+The channel file is owned end-to-end by bridge installers: it is created on first registration, each bridge contributes a marker-delimited block (`// BEGIN bridge:<name>` … `// END bridge:<name>`), and the same install path can rewrite or remove its block idempotently. The file registers entries via `wp_coding_agents_cli_channels` and also registers the legacy `datamachine_code_cli_channels` filter during migration:
 
 ```php
 $channels['kimaki'] = [
@@ -420,7 +433,7 @@ agents/dispatch-message
 
 ### Migrating from the legacy `agent-ping` webhook
 
-Earlier wp-coding-agents installs on Extra Chill's VPS shipped an out-of-band Python webhook at `/opt/agent-ping-webhook/` that POSTed to a local HTTP listener and shelled `kimaki send`. Once the CLI-channel runtime (Extra-Chill/data-machine-code#412) and these bridge registrations are deployed, that stack is dead weight — the same dispatch goes through `agents/dispatch-message` with no HTTP hop.
+Earlier wp-coding-agents installs on Extra Chill's VPS shipped an out-of-band Python webhook at `/opt/agent-ping-webhook/` that POSTed to a local HTTP listener and shelled `kimaki send`. Once the wp-coding-agents CLI-channel runtime and these bridge registrations are deployed, that stack is dead weight — the same dispatch goes through `agents/dispatch-message` with no HTTP hop.
 
 Retirement is a one-time manual cleanup. There is no helper script: this stack only exists on one host, and shipping permanent automation for a one-shot deletion would be technical debt for an experimental feature. On a host that has the legacy stack:
 
@@ -444,7 +457,7 @@ Retirement is a one-time manual cleanup. There is no helper script: this stack o
    sudo rm -f /home/opencode/.secrets/agent-ping-token.txt
    ```
 
-After this, the only outbound message path is `agents/dispatch-message` → DMC CLI runtime → bridge CLI. If you weren't running the legacy webhook to begin with (every install of wp-coding-agents from v0.5.x onward), skip the migration entirely — the bridge registrations land on a clean disk.
+After this, the only outbound message path is `agents/dispatch-message` → wp-coding-agents CLI runtime → bridge CLI. If you weren't running the legacy webhook to begin with (every install of wp-coding-agents from v0.5.x onward), skip the migration entirely — the bridge registrations land on a clean disk.
 
 ## Worktree Session Attribution (Runtime Signatures)
 
