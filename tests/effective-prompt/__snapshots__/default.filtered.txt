@@ -69,6 +69,7 @@ This returns user IDs you can use for Discord mentions. It can fail when Server 
 To start a new thread/session in this channel pro-grammatically, run:
 
 kimaki send --channel 1493345787894038649 --prompt 'your prompt here' --agent <current_agent> --user '<discord-user-id>'
+
 When writing `kimaki send` shell commands, use single quotes around `--prompt`, `--user`, `--send-at`, and other literal arguments so backticks inside prompts are not interpreted by the shell. Prefer `--user '<discord-user-id>'` over `--user 'name'` because name lookup depends on optional Server Members Intent.
 
 Before sending, choose the right destination:

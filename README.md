@@ -43,7 +43,7 @@ runtimes/
 
 Each runtime implements the same interface — install, config generation, MCP merge, skills directory. Adding a new runtime means implementing those functions in a single file.
 
-## Standalone Or Orchestrated
+## Standalone or Orchestrated
 
 wp-coding-agents works in two modes with the same setup:
 

@@ -164,9 +164,28 @@ function stripSection(block: string, heading: string): string {
  * @return {string} System prompt block without the stale helper-session hint.
  */
 function stripHelperSessionFleetHint(block: string): string {
+  if (!block.includes("spawn") && !block.includes("spawned")) {
+    return block;
+  }
+
   return block
-    .replace(/\n+You can use this to "spawn" parallel helper sessions like teammates: start new threads with focused prompts, then come back and collect the results\.\n/g, "\n")
-    .replace(/\n+Prefer passing the current agent with `--agent <current_agent>` so spawned or scheduled sessions keep the same agent unless you are intentionally switching\. Replace `<current_agent>` with the value from the per-turn `Current agent` reminder\.\n/g, "\n");
+    .split("\n")
+    .filter((line) => !isHelperSessionFleetHintLine(line))
+    .join("\n");
+}
+
+/**
+ * Identify Kimaki helper-session lines that promote manual thread spawning as
+ * orchestration. Match on stable concepts instead of the complete sentence.
+ *
+ * @param {string} line - System prompt line.
+ * @return {boolean} Whether the line should be stripped.
+ */
+function isHelperSessionFleetHintLine(line: string): boolean {
+  return (
+    line.includes('"spawn" parallel helper sessions') ||
+    (line.includes("spawned or scheduled sessions") && line.includes("<current_agent>"))
+  );
 }
 
 export default fleetContextFilter;
