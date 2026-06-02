@@ -23,7 +23,7 @@ function compile(profile) {
 
   assert.equal(
     plan.commands.dry_run,
-    "EXISTING_WP='~/Studio/site' WP_CMD='studio wp' ./setup.sh --local --runtime opencode --chat kimaki --with-homeboy --agent-slug site --dry-run"
+    'EXISTING_WP="$HOME/Studio/site" WP_CMD=\'studio wp\' ./setup.sh --local --runtime opencode --chat kimaki --with-homeboy --agent-slug site --dry-run'
   )
   assert.ok(plan.verification.overlays.includes("verify-wordpress-studio"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))

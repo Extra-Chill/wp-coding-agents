@@ -42,6 +42,13 @@ function discoveredNames(dir, suffix = ".sh", skip = new Set()) {
 
 function shellQuote(value) {
   const string = String(value)
+  if (string === "~") {
+    return "$HOME"
+  }
+  if (string.startsWith("~/")) {
+    const rest = string.slice(2).replace(/["\\$`]/g, "\\$&")
+    return `"$HOME/${rest}"`
+  }
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(string)) {
     return string
   }
