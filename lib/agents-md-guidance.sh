@@ -193,21 +193,17 @@ agents_md_guidance_unregister_homeboy_codebox() {
 
 agents_md_guidance_homeboy_codebox_content() {
   cat <<'MD'
-## Homeboy Agent Tasks
+**Agent tasks:** `homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote`; use `homeboy agent-task providers` to inspect registered executor providers. Homeboy owns task plans, durable run state, queueing, concurrency, retries, logs, artifacts, and promotion back into the review workflow.
 
-Use Homeboy `agent-task` for async coding-agent fan-out instead of manual chat-session fleets. Homeboy owns task plans, durable run state, queueing, concurrency, retries, logs, artifacts, and promotion back into the review workflow.
+**Codebox executor:** use the `codebox` backend for disposable WP Codebox WordPress sandboxes. WP Codebox owns sandbox recipes, plugin/runtime overlays, agent invocation, and artifact bundles; Homeboy owns orchestration around those recipes.
 
-**Codebox executor:** the `codebox` backend runs each task in a disposable WP Codebox WordPress sandbox. WP Codebox owns sandbox recipes, plugin/runtime overlays, agent invocation, and artifact bundles; Homeboy owns orchestration around those recipes.
+**Workspace shape:** pass an explicit workspace root for code edits, usually a Data Machine Code worktree under `<workspace>/<repo>@<slug>` locally or the equivalent mounted path inside a sandbox. Keep primary checkouts read-only and cook changes in worktrees.
 
-**Common verbs:** `homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote`. Use `homeboy agent-task providers` to inspect registered executor providers.
-
-**Workspace shape:** pass an explicit workspace root for code edits, usually a Data Machine Code worktree under `/Users/chubes/Developer/<repo>@<slug>` locally or the equivalent mounted path inside a sandbox. Keep primary checkouts read-only and cook changes in worktrees.
-
-**WP Codebox agent mode:** use sandbox mode for Codebox coding tasks. Sandbox mode exposes the bounded workspace tools needed to read, edit, and verify files; conversational/default chat mode is only useful for answering questions.
+**WP Codebox agent mode:** use sandbox mode for Codebox coding tasks. Sandbox mode exposes the bounded workspace tools needed to read, edit, and verify files.
 
 **Codex provider:** Codebox Codex tasks need the OpenAI Codex provider plugin/runtime overlay and `AI_PROVIDER_OPENAI_CODEX_*` secrets passed via `secret_env`. Never print token values in logs or task instructions.
 
-Use Kimaki, Discord, or other chat bridges as thin transport only. They should display task status and results, not own fleet scheduling or spawn worker sessions themselves.
+**Chat bridges:** Kimaki, Discord, and other chat bridges display task status and results while Homeboy remains the source of truth for task state and artifacts.
 MD
 }
 
