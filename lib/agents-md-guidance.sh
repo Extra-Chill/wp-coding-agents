@@ -203,6 +203,8 @@ agents_md_guidance_homeboy_codebox_content() {
 
 **Codex provider:** Codebox Codex tasks need the OpenAI Codex provider plugin/runtime overlay and `AI_PROVIDER_OPENAI_CODEX_*` secrets passed via `secret_env`. Never print token values in logs or task instructions.
 
+**Operator verbs:** `homeboy release`, `homeboy deploy`, `homeboy fleet`, and `homeboy ssh` are operator actions. Use them only when the user explicitly asks for that action.
+
 **Chat bridges:** Kimaki, Discord, and other chat bridges display task status and results while Homeboy remains the source of truth for task state and artifacts.
 MD
 }
