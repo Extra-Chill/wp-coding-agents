@@ -62,6 +62,7 @@ PY
       printf '%s\n' "$id"
       return 0
     fi
+    return 1
   fi
 
   # 3. Resolve from Homeboy's own registered projects by matching the project
@@ -111,7 +112,11 @@ PY
     return 0
   fi
 
-  homeboy_slugify "${SITE_DOMAIN:-$SITE_PATH}"
+  if [ -n "${SITE_DOMAIN:-}" ]; then
+    homeboy_slugify "$SITE_DOMAIN"
+  elif [ -n "${SITE_PATH:-}" ]; then
+    homeboy_slugify "$(basename "$SITE_PATH")"
+  fi
 }
 
 homeboy_server_id() {

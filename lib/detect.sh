@@ -120,13 +120,15 @@ detect_environment() {
       log "Detected WordPress Studio environment"
     fi
 
+    local detected_site_domain=""
     if [ "$DRY_RUN" = true ]; then
-      SITE_DOMAIN="${SITE_DOMAIN:-$(basename "$SITE_PATH")}"
+      detected_site_domain="${SITE_DOMAIN:-}"
     elif [ "$IS_STUDIO" = true ]; then
-      SITE_DOMAIN=$(studio wp option get siteurl 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
+      detected_site_domain=$(studio wp option get siteurl --path="$SITE_PATH" 2>/dev/null | sed -E 's|^https?://||' || true)
     else
-      SITE_DOMAIN=$(cd "$SITE_PATH" && $WP_CMD option get siteurl $WP_ROOT_FLAG 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
+      detected_site_domain=$(cd "$SITE_PATH" && $WP_CMD option get siteurl $WP_ROOT_FLAG 2>/dev/null | sed -E 's|^https?://||' || true)
     fi
+    SITE_DOMAIN="${SITE_DOMAIN:-${detected_site_domain:-$(basename "$SITE_PATH")}}"
     log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
 
     # Detect if existing WP is multisite
