@@ -111,6 +111,6 @@ if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
   cat "$HOMEBOY_ATTACH_LOG"
   exit 1
 fi
-assert_contains "Homeboy project config returned empty id — skipping DMC component attachment" "$TMP/empty-id-output.log"
+assert_contains "Homeboy project config not found at site root — skipping DMC component attachment" "$TMP/empty-id-output.log"
 
 echo "OK: Homeboy component attachment skips worktrees and metadata-less repos"
