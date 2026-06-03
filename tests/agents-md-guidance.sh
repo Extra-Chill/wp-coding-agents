@@ -153,6 +153,9 @@ namespace {
         'slug' => \$call[1] ?? null,
         'priority' => \$call[2] ?? null,
         'label' => \$call[4]['label'] ?? null,
+        'owner' => \$call[4]['owner'] ?? null,
+        'freshness' => \$call[4]['freshness'] ?? null,
+        'conditions' => \$call[4]['conditions'] ?? null,
         'starts_with_homeboy_style_category' => str_starts_with( \$content, '**Agent tasks:**' ),
         'has_agent_task_verbs' => str_contains( \$content, 'homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote' ),
         'has_sandbox_mode' => str_contains( \$content, 'use sandbox mode for Codebox coding tasks' ),
@@ -163,7 +166,7 @@ namespace {
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-codebox-agent-tasks","priority":36,"label":"Homeboy Codebox agent tasks","starts_with_homeboy_style_category":true,"has_agent_task_verbs":true,"has_sandbox_mode":true,"has_operator_boundary":true,"has_old_workflow_comparison":false}'
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-codebox-agent-tasks","priority":36,"label":"Homeboy Codebox agent tasks","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.","starts_with_homeboy_style_category":true,"has_agent_task_verbs":true,"has_sandbox_mode":true,"has_operator_boundary":true,"has_old_workflow_comparison":false}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives Homeboy Codebox guidance section"
 
 echo "==> unregister Homeboy Codebox guidance"
