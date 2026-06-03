@@ -43,22 +43,22 @@ runtimes/
 
 Each runtime implements the same interface — install, config generation, MCP merge, skills directory. Adding a new runtime means implementing those functions in a single file.
 
-## Standalone or Fleet
+## Standalone or Orchestrated
 
 wp-coding-agents works in two modes with the same setup:
 
 **Standalone** — Data Machine handles autonomy. The agent self-schedules flows, queues tasks, runs on cron. No orchestrator needed.
 
-**Fleet member** — An orchestrator routes tasks via Agent Ping webhooks and Discord mentions. The agent executes on its own site, reports back. Multiple agents, each focused on their own WordPress site.
+**Orchestrated** — Optional tools can route work to the agent without becoming universal requirements. Homeboy is the optional repo-aware coding-task orchestrator when installed with `--with-homeboy`; chat bridges such as Kimaki, cc-connect, and Telegram are communication paths for the selected install.
 
 ```
- Orchestrator (fleet-wide context)
-   ├── Agent Ping / @mention ──▶  agent @ site-a.com
-   ├── Agent Ping / @mention ──▶  agent @ site-b.com
-   └── Agent Ping / @mention ──▶  agent @ site-c.com
+ Optional orchestrator / chat bridge
+   ├── Homeboy agent-task ──▶  repo-aware Codebox task
+   ├── CLI dispatch ───────▶  selected chat bridge
+   └── direct session ─────▶  agent @ WordPress site
 ```
 
-This isn't theoretical. It's running in production right now — agents on separate VPS instances, each with their own WordPress site, coordinated through Discord and DM webhooks.
+Installs without Homeboy still use Data Machine workspaces, flows, jobs, and bridge dispatch. Installs without Kimaki use the selected bridge or terminal runtime; Kimaki-specific routing only applies when Kimaki is selected.
 
 ## Quick Start
 
@@ -194,7 +194,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **Scheduled flows** | Cron-driven briefings, digests | No overnight automation |
 | **Infrastructure** | apt, nginx, SSL, systemd | None — uses your existing WordPress |
 | **Root required** | Yes (default) | No |
-| **Best for** | Production agents, fleet members | Development, personal use, testing |
+| **Best for** | Production agents, always-on automation | Development, personal use, testing |
 
 Both modes use the same Data Machine agent engine, same abilities, same memory system. The difference is just infrastructure.
 
@@ -237,7 +237,7 @@ Data Machine is the substrate wp-coding-agents composes on top of — memory, sc
 - Persistent memory across sessions (SOUL.md, USER.md, MEMORY.md)
 - Self-scheduling via flows and cron
 - Task queues for multi-phase projects
-- Agent Ping webhooks for fleet coordination
+- Agent Ping webhooks and CLI bridge dispatch for cross-agent coordination
 - AI tools (content generation, publishing, search)
 - Managed workspace for git repos (`/var/lib/datamachine/workspace/`) with **per-branch worktrees** so multiple parallel agent sessions can edit different branches of the same repo without stepping on each other (`workspace worktree add <repo> <branch>` → operate on the `<repo>@<branch-slug>` handle)
 - GitHub integration (issues, PRs, repos)
@@ -246,6 +246,8 @@ Data Machine is the substrate wp-coding-agents composes on top of — memory, sc
 ## Optional Homeboy Layer
 
 `--with-homeboy` adds Homeboy as an optional, recommended developer power layer. Homeboy is not bundled or vendorized by wp-coding-agents; setup verifies or installs the external Homeboy CLI, verifies the WordPress extension, then exposes its availability to Data Machine Code so composed agent instructions can include Homeboy workflows.
+
+When Homeboy is available, the composed `AGENTS.md` Homeboy Codebox section is the canonical guidance for repo-aware coding fan-out: use `homeboy agent-task` plans/runs with WP Codebox sandboxes for isolated tasks. Without Homeboy, agents should continue using Data Machine Code worktrees, normal git review, and the selected chat or terminal runtime; do not assume Homeboy commands exist.
 
 The setup model is intentionally specific:
 
