@@ -426,13 +426,21 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 
 		/**
 		 * @param array<string, string> $configured Configured env map.
-		 * @return array<string, string>
+		 * @return array<string, string>|null
 		 */
-		private static function build_env_map( array $configured ): array {
-			$env         = array();
-			$parent_path = getenv( 'PATH' );
-			if ( is_string( $parent_path ) && '' !== $parent_path ) {
-				$env['PATH'] = $parent_path;
+		private static function build_env_map( array $configured ): ?array {
+			if ( empty( $configured ) ) {
+				return null;
+			}
+
+			$parent_env = getenv();
+			$env        = is_array( $parent_env ) ? array_filter( $parent_env, 'is_string' ) : array();
+
+			if ( ! isset( $env['PATH'] ) ) {
+				$parent_path = getenv( 'PATH' );
+				if ( is_string( $parent_path ) && '' !== $parent_path ) {
+					$env['PATH'] = $parent_path;
+				}
 			}
 
 			foreach ( $configured as $key => $value ) {

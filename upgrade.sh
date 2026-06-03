@@ -307,7 +307,7 @@ _run_filter_active() {
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
-      systemd|patch) return 1 ;;  # infrastructure phases skipped in *-only modes
+      transport|systemd|patch) return 1 ;;  # infrastructure phases skipped in *-only modes
       *)         return 1 ;;
     esac
   fi
@@ -331,7 +331,7 @@ update_data_machine_plugins() {
 }
 
 sync_cli_transport_runtime() {
-  _run_filter_active kimaki || return 0
+  _run_filter_active transport || return 0
 
   log "Phase 2b: Syncing CLI dispatch transport..."
   cli_transport_install

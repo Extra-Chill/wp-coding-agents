@@ -89,10 +89,11 @@ $find_stub = static function ( array $candidates ): ?string {
 };
 
 $echo_bin  = $find_stub( array( '/bin/echo', '/usr/bin/echo' ) );
+$env_bin   = $find_stub( array( '/usr/bin/env', '/bin/env' ) );
 $true_bin  = $find_stub( array( '/bin/true', '/usr/bin/true' ) );
 $false_bin = $find_stub( array( '/bin/false', '/usr/bin/false' ) );
 $sleep_bin = $find_stub( array( '/bin/sleep', '/usr/bin/sleep' ) );
-foreach ( array( 'echo' => $echo_bin, 'true' => $true_bin, 'false' => $false_bin, 'sleep' => $sleep_bin ) as $name => $path ) {
+foreach ( array( 'echo' => $echo_bin, 'env' => $env_bin, 'true' => $true_bin, 'false' => $false_bin, 'sleep' => $sleep_bin ) as $name => $path ) {
 	if ( null === $path ) {
 		echo "  [SKIP] stub binary {$name} not present\n";
 		exit( 0 );
@@ -205,6 +206,21 @@ $wp_coding_agents_test_options = array(
 			'args'    => array(),
 			'detach'  => true,
 		),
+		'inherit-env'   => array(
+			'command' => $env_bin,
+			'args'    => array(),
+			'detach'  => false,
+			'timeout' => 5,
+		),
+		'configured-env' => array(
+			'command' => $env_bin,
+			'args'    => array(),
+			'detach'  => false,
+			'timeout' => 5,
+			'env'     => array(
+				'WP_CODING_AGENTS_CONFIGURED_ENV' => 'configured-ok',
+			),
+		),
 	),
 );
 
@@ -236,6 +252,15 @@ $assert( 'execute unknown returns WP_Error', $unknown instanceof WP_Error );
 
 $detached = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-true', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'detached returns array', is_array( $detached ) && true === ( $detached['sent'] ?? false ) );
+
+putenv( 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' );
+$inherited = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'inherit-env', 'recipient' => 'r', 'message' => 'm' ) );
+$assert( 'empty channel env inherits parent env', is_array( $inherited ) && str_contains( (string) ( $inherited['metadata']['stdout'] ?? '' ), 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
+
+$configured = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'configured-env', 'recipient' => 'r', 'message' => 'm' ) );
+$configured_stdout = is_array( $configured ) ? (string) ( $configured['metadata']['stdout'] ?? '' ) : '';
+$assert( 'configured channel env keeps parent env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
+$assert( 'configured channel env adds configured env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_CONFIGURED_ENV=configured-ok' ) );
 
 if ( ! empty( $failures ) ) {
 	echo "\nFAIL: " . count( $failures ) . " assertion(s)\n";
