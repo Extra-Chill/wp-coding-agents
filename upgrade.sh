@@ -6,7 +6,8 @@
 # Phases:
 #   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
 #      supports kimaki, cc-connect, telegram).
-#   2. Update setup-installed Data Machine plugins to latest tagged releases.
+#   2. Update setup-installed Data Machine plugins to latest tagged releases,
+#      and sync WP Codebox (subtree-packaged) to its latest tag when installed.
 #   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
 #          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + skill filters)
@@ -65,7 +66,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine homeboy skills cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress data-machine wp-codebox homeboy skills cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -323,6 +324,7 @@ _run_filter_active() {
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
   upgrade_data_machine_plugins
+  update_wp_codebox_plugin_subtree
 }
 
 # ============================================================================
