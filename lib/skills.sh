@@ -1,5 +1,5 @@
 #!/bin/bash
-# Skills: agent skill installation from the wp-coding-agents repo itself.
+# Upgrade skill installation from the wp-coding-agents repo itself.
 # Site-specific WordPress, Data Machine, and Homeboy guidance belongs in the
 # composed AGENTS.md, which is fresher than static external skill snapshots.
 
@@ -16,7 +16,7 @@ is_wp_coding_agents_skill() {
   return 1
 }
 
-# Install skills shipped in this repo ($SCRIPT_DIR/skills/).
+# Install managed skills shipped in this repo ($SCRIPT_DIR/skills/).
 # The installed set intentionally excludes setup. Setup is a pre-install entry
 # point that should be used once from the operator's machine, then discarded.
 # Installed agents only need the upgrade runbook for ongoing maintenance.
@@ -30,7 +30,7 @@ install_skills_from_local_repo() {
       skill_name=$(basename "$skill_dir")
       [ -f "$skill_dir/SKILL.md" ] || continue
       is_wp_coding_agents_skill "$skill_name" || continue
-      echo -e "${BLUE}[dry-run]${NC} Would install in-repo skill: $skill_name → $SKILLS_DIR/"
+      echo -e "${BLUE}[dry-run]${NC} Would install upgrade skill: $skill_name → $SKILLS_DIR/"
     done
     return
   fi
@@ -42,16 +42,16 @@ install_skills_from_local_repo() {
     if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
       rm -rf "$SKILLS_DIR/$skill_name"
       cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
-      log "  Installed skill: $skill_name"
+      log "  Installed upgrade skill: $skill_name"
       copied=$((copied + 1))
     fi
   done
   if [ "$copied" -gt 0 ]; then
-    log "wp-coding-agents in-repo skills installed ($copied)"
+    log "wp-coding-agents upgrade skill installed ($copied)"
   fi
 }
 
-# Mirror wp-coding-agents-owned skills into the persistent
+# Mirror wp-coding-agents-owned upgrade skill into the persistent
 # kimaki-config/skills/ dir. This is the durable source of
 # truth that survives `npm update -g kimaki` wipes — kimaki/post-upgrade.sh
 # reads from this path on every kimaki restart to restore the mirror copy
@@ -91,8 +91,8 @@ install_skills_to_persistent_source() {
     fi
   done
   if [ "$copied" -gt 0 ]; then
-    log "Skills mirrored to persistent source: $persistent_dir/ ($copied)"
-    log "  post-upgrade.sh will restore these on every kimaki restart."
+    log "Upgrade skill mirrored to persistent source: $persistent_dir/ ($copied)"
+    log "  post-upgrade.sh will restore it on every kimaki restart."
   fi
 }
 
@@ -118,11 +118,11 @@ install_skills() {
   SKILLS_DIR="$(runtime_skills_dir)"
 
   if [ "$INSTALL_SKILLS" != true ]; then
-    log "Phase 8.5: Skipping agent skills (--no-skills)"
+    log "Phase 8.5: Skipping upgrade skill (--no-skills)"
     return
   fi
 
-  log "Phase 8.5: Installing agent skills..."
+  log "Phase 8.5: Installing upgrade skill..."
 
   # Build the unique list of skills dirs to populate. claude-code and
   # studio-code both resolve to $SITE_PATH/.claude/skills, so de-dupe.
@@ -152,7 +152,7 @@ install_skills() {
     log "  Populating ${#skills_dirs[@]} unique skills dir(s)"
   fi
 
-  # Install into every detected runtime's skills dir.
+  # Install the managed upgrade skill into every detected runtime's skills dir.
   local target_dir
   for target_dir in "${skills_dirs[@]}"; do
     if [ ${#skills_dirs[@]} -gt 1 ]; then
@@ -168,13 +168,13 @@ install_skills() {
   # (kimaki mirror source, print_skills_summary, summary.sh).
   SKILLS_DIR="$(runtime_skills_dir)"
 
-  # Copy skills to Kimaki's directory if Kimaki is the chat bridge.
+  # Copy the upgrade skill to Kimaki's directory if Kimaki is the chat bridge.
   # Kimaki overrides OpenCode's skill discovery to only look in its
   # own bundled skills dir, so the runtime skills dir alone isn't enough.
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$DRY_RUN" = true ]; then
       KIMAKI_SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
-      echo -e "${BLUE}[dry-run]${NC} Would copy skills to $KIMAKI_SKILLS_DIR/ (if Kimaki installed)"
+      echo -e "${BLUE}[dry-run]${NC} Would copy upgrade skill to $KIMAKI_SKILLS_DIR/ (if Kimaki installed)"
     elif command -v kimaki &> /dev/null; then
       KIMAKI_SKILLS_DIR="$(npm root -g 2>/dev/null)/kimaki/skills"
       if [ -d "$KIMAKI_SKILLS_DIR" ]; then
@@ -184,11 +184,11 @@ install_skills() {
             cp -r "$skill_dir" "$KIMAKI_SKILLS_DIR/$skill_name"
           fi
         done
-        log "Skills also copied to Kimaki: $KIMAKI_SKILLS_DIR/"
+        log "Upgrade skill also copied to Kimaki: $KIMAKI_SKILLS_DIR/"
       fi
     fi
 
-    # Mirror skills into the persistent kimaki-config/skills/ dir so
+    # Mirror the upgrade skill into the persistent kimaki-config/skills/ dir so
     # post-upgrade.sh can restore them on every kimaki restart after
     # `npm update -g kimaki` wipes $(npm root -g)/kimaki/skills/.
     # Path mirrors the plugin-persistence pattern:
@@ -218,7 +218,7 @@ print_skills_summary() {
   [ ${#skills_dirs[@]} -gt 0 ] || skills_dirs=("$SKILLS_DIR")
 
   for dir in "${skills_dirs[@]}"; do
-    log "Skills installed to $dir/"
+    log "Managed upgrade skill target: $dir/"
     if [ "$DRY_RUN" = false ]; then
       ls -1 "$dir" 2>/dev/null | while read -r skill; do
         log "  - $skill"

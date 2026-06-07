@@ -97,10 +97,10 @@ cd ~/Studio/my-wordpress-website && kimaki         # OpenCode + Discord
 
 #### Let Your Agent Do It
 
-Add the `wp-coding-agents-setup` skill to your local coding agent (Claude Code, Cursor, etc.):
+Use the one-shot `wp-coding-agents-setup` entrypoint with your local coding agent (Claude Code, Cursor, etc.):
 
 ```
-skills/wp-coding-agents-setup/
+operator-entrypoints/wp-coding-agents-setup/
 ```
 
 Then: "Help me set up wp-coding-agents on my VPS"
