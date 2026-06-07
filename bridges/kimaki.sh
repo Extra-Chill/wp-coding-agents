@@ -368,15 +368,15 @@ bridge_sync_config() {
   # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe them.
   _kimaki_sync_bin_helpers
 
-  # On local, execute post-upgrade.sh inline to restore wp-coding-agents skills.
+  # On local, execute post-upgrade.sh inline to restore the upgrade skill.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
   if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would run: $KIMAKI_CONFIG_DIR/post-upgrade.sh"
     else
-      log "  Running post-upgrade.sh to restore wp-coding-agents skills..."
+      log "  Running post-upgrade.sh to restore the upgrade skill..."
       if "$KIMAKI_CONFIG_DIR/post-upgrade.sh" 2>&1 | sed 's/^/    /'; then
-        UPDATED_ITEMS+=("ran post-upgrade.sh (restored wp-coding-agents skills)")
+        UPDATED_ITEMS+=("ran post-upgrade.sh (restored upgrade skill)")
       else
         warn "  post-upgrade.sh exited non-zero — review output above"
       fi

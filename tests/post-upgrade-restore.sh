@@ -136,7 +136,7 @@ assert_present "$LIVE_SKILLS/blacklisted-skill/SKILL.md"
 
 # Pass 2: skill restore copied the allowed SKILL.md tree and skipped unmanaged skills.
 assert_present "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
-assert_log_contains "restored skill upgrade-wp-coding-agents"
+assert_log_contains "restored upgrade skill upgrade-wp-coding-agents"
 assert_missing "$LIVE_SKILLS/unmanaged-skill/SKILL.md"
 assert_log_contains "skipped unmanaged skill unmanaged-skill"
 
@@ -234,7 +234,7 @@ if [[ -e "$FALLBACK_LIVE_PLUGINS" ]]; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if ! grep -q "restored skill upgrade-wp-coding-agents" "$TMP/run4.log"; then
+if ! grep -q "restored upgrade skill upgrade-wp-coding-agents" "$TMP/run4.log"; then
   echo "FAIL: fallback run should restore the HOME-backed skill"
   cat "$TMP/run4.log"
   exit 1

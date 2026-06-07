@@ -18,7 +18,7 @@
 #          reminds user to `npm update -g cc-connect`.
 #        telegram: no per-install artifacts; reports binary versions and
 #          reminds user to `npm update -g @grinev/opencode-telegram-bot`.
-#   4. Sync wp-coding-agents skills
+#   4. Sync the wp-coding-agents upgrade skill
 #   5. Regenerate AGENTS.md via Data Machine compose
 #   6. Smart systemd update (VPS only; dispatches per bridge)
 #        kimaki     → kimaki.service
@@ -502,25 +502,25 @@ check_opencode_json_drift() {
 }
 
 # ============================================================================
-# Phase 4: Sync wp-coding-agents skills
+# Phase 4: Sync wp-coding-agents upgrade skill
 # ============================================================================
 
 sync_skills() {
   _run_filter_active skills || return 0
 
-  log "Phase 4: Syncing wp-coding-agents skills..."
+  log "Phase 4: Syncing wp-coding-agents upgrade skill..."
 
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
-    echo -e "${BLUE}[dry-run]${NC} Would install in-repo skills from $SCRIPT_DIR/skills → $SKILLS_DIR"
+    echo -e "${BLUE}[dry-run]${NC} Would install upgrade skill from $SCRIPT_DIR/skills → $SKILLS_DIR"
     if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would copy skills to kimaki skills dir"
+      echo -e "${BLUE}[dry-run]${NC} Would copy upgrade skill to kimaki skills dir"
     fi
     return 0
   fi
 
   install_skills
-  UPDATED_ITEMS+=("wp-coding-agents skills")
+  UPDATED_ITEMS+=("wp-coding-agents upgrade skill")
 }
 
 # ============================================================================
@@ -771,7 +771,7 @@ _print_verify_block() {
   log "  $WP_CMD plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  $WP_CMD plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
-  log "  ls $(runtime_skills_dir)              # installed skills"
+  log "  ls $(runtime_skills_dir)              # installed upgrade skill"
 }
 
 # ============================================================================

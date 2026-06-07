@@ -61,9 +61,9 @@ print_summary() {
   fi
   SKILLS_DIR="$(runtime_skills_dir)"
   if [ "$INSTALL_SKILLS" = true ]; then
-    echo "  Skills:   $SKILLS_DIR"
+    echo "  Upgrade skill: $SKILLS_DIR"
   else
-    echo "  Skills:   Skipped (--no-skills)"
+    echo "  Upgrade skill: Skipped (--no-skills)"
   fi
   echo ""
 

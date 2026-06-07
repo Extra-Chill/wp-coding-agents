@@ -12,11 +12,11 @@ This skill is only the orchestrator. Keep the setup matrix composable:
 
 ```text
 wp-coding-agents-setup
-  -> skills/wp-coding-agents-setup/interview.md
+  -> operator-entrypoints/wp-coding-agents-setup/interview.md
   -> scripts/compile-setup-profile.mjs
   -> dry-run setup command
   -> confirmed setup command
-  -> skills/wp-coding-agents-setup/verify.md
+  -> operator-entrypoints/wp-coding-agents-setup/verify.md
 ```
 
 ## Source Of Truth
@@ -45,7 +45,7 @@ Do not duplicate script internals in this skill. Compile commands from the user'
    ```
 
 2. **Follow the interview branch.**
-   Read `skills/wp-coding-agents-setup/interview.md` to collect a structured JSON setup profile. The interview collects facts only; it does not choose commands or verification steps.
+   Read `operator-entrypoints/wp-coding-agents-setup/interview.md` to collect a structured JSON setup profile. The interview collects facts only; it does not choose commands or verification steps.
 
 3. **Run the deterministic compiler script.**
    Save the profile to a temporary JSON file or pipe it on stdin, then run `node scripts/compile-setup-profile.mjs <profile.json>` to turn the profile into:
@@ -65,7 +65,7 @@ Do not duplicate script internals in this skill. Compile commands from the user'
    Drop `--dry-run` from the compiled command. Do not restart an existing live chat bridge unless the user explicitly asks; for a new install, follow the script's post-setup guidance.
 
 7. **Follow the verification branch.**
-   Read `skills/wp-coding-agents-setup/verify.md` with the compiler script's verification overlay names. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
+   Read `operator-entrypoints/wp-coding-agents-setup/verify.md` with the compiler script's verification overlay names. Report exact failures and source them back to the relevant axis: install target, runtime, bridge, or optional overlay.
 
 ## Policy Boundaries
 

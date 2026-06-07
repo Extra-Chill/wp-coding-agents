@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# post-upgrade.sh — Restore wp-coding-agents skills and validate plugin state.
+# post-upgrade.sh — Restore the wp-coding-agents upgrade skill and validate plugin state.
 #
 # Two passes run against the npm-installed kimaki package and persistent
 # kimaki-config directory:
-#   1. RESTORE skills  — re-copy wp-coding-agents skills from the persistent
+#   1. RESTORE skill   — re-copy the upgrade skill from the persistent
 #                source dir (kimaki-config/skills/) into kimaki/skills/.
 #   2. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
 #                exist at the persistent kimaki-config/plugins path loaded by
@@ -11,7 +11,7 @@
 #                $(npm root -g)/kimaki/plugins because package-local files are
 #                wiped by `npm update -g kimaki`.
 #
-# `npm update -g kimaki` still wipes kimaki/skills/, so skills are rehydrated
+# `npm update -g kimaki` still wipes kimaki/skills/, so the upgrade skill is rehydrated
 # from persistent kimaki-config/ on every restart. Plugins are loaded directly
 # from persistent kimaki-config/plugins and only need validation here.
 #
@@ -74,7 +74,7 @@ is_wp_coding_agents_skill() {
 }
 
 # ----------------------------------------------------------------------------
-# Pass 1: RESTORE skills — re-copy wp-coding-agents skills from the
+# Pass 1: RESTORE skill — re-copy the upgrade skill from the
 # persistent source dir into the npm-managed skills dir. Idempotent: `rm -rf`
 # before each `cp -r` so a stale copy always gets replaced by the current
 # source.
@@ -92,7 +92,7 @@ fi
 
 skills_restored=0
 if [[ ! -d "$SKILLS_DIR" ]]; then
-  echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping skill restore"
+  echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping upgrade skill restore"
 elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
   for skill_dir in "$SKILL_SOURCE_DIR"/*/; do
     [[ -d "$skill_dir" ]] || continue
@@ -105,12 +105,12 @@ elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
       target="$SKILLS_DIR/$skill_name"
       rm -rf "$target"
       cp -r "$skill_dir" "$target"
-      echo "kimaki-config: restored skill $skill_name"
+      echo "kimaki-config: restored upgrade skill $skill_name"
       skills_restored=$((skills_restored + 1))
     fi
   done
 else
-  echo "kimaki-config: persistent skill source dir not found at $SKILL_SOURCE_DIR, skipping skill restore"
+  echo "kimaki-config: persistent skill source dir not found at $SKILL_SOURCE_DIR, skipping upgrade skill restore"
 fi
 
 # ----------------------------------------------------------------------------

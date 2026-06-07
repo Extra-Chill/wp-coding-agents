@@ -13,7 +13,7 @@
 #
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
 # files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md,
-# wp-coding-agents skills,
+# wp-coding-agents upgrade skill,
 # workspace primitive, MCP surface. It is not optional. Uninstall the plugin
 # later if you don't want it.
 #
@@ -265,8 +265,8 @@ fi
 # First-match cascade: studio-code > claude-code > opencode.
 #
 # DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
-# machine with both claude and opencode installed, skills get installed into
-# every detected runtime's skills dir (see install_skills in lib/skills.sh).
+# machine with both claude and opencode installed, the upgrade skill gets
+# installed into every detected runtime's skills dir (see install_skills in lib/skills.sh).
 # Explicit --runtime <name> narrows both lists to that single runtime.
 if [ -n "$RUNTIME" ]; then
   # User passed --runtime explicitly — respect it, single-runtime mode.
