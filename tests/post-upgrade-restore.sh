@@ -204,12 +204,12 @@ FALLBACK_LIVE_SKILLS="$TMP/fallback-live/skills"
 FALLBACK_LIVE_PLUGINS="$TMP/fallback-live/plugins"
 mkdir -p \
   "$FALLBACK_DATA" \
-  "$FALLBACK_HOME/.kimaki/kimaki-config/skills/wp-coding-agents-setup" \
+  "$FALLBACK_HOME/.kimaki/kimaki-config/skills/upgrade-wp-coding-agents" \
   "$FALLBACK_HOME/.kimaki/kimaki-config/plugins" \
   "$FALLBACK_LIVE_SKILLS"
-cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/wp-coding-agents-setup/SKILL.md" <<'EOF'
+cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/upgrade-wp-coding-agents/SKILL.md" <<'EOF'
 ---
-name: wp-coding-agents-setup
+name: upgrade-wp-coding-agents
 description: fallback fixture
 ---
 body
@@ -224,7 +224,7 @@ KIMAKI_DATA_DIR="$FALLBACK_DATA" \
 KIMAKI_SKILLS_DIR="$FALLBACK_LIVE_SKILLS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run4.log" 2>&1
 
-if [[ ! -f "$FALLBACK_LIVE_SKILLS/wp-coding-agents-setup/SKILL.md" ]]; then
+if [[ ! -f "$FALLBACK_LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md" ]]; then
   echo "FAIL: missing KIMAKI_DATA_DIR skills source should fall through to HOME source"
   cat "$TMP/run4.log"
   exit 1
@@ -234,7 +234,7 @@ if [[ -e "$FALLBACK_LIVE_PLUGINS" ]]; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if ! grep -q "restored skill wp-coding-agents-setup" "$TMP/run4.log"; then
+if ! grep -q "restored skill upgrade-wp-coding-agents" "$TMP/run4.log"; then
   echo "FAIL: fallback run should restore the HOME-backed skill"
   cat "$TMP/run4.log"
   exit 1

@@ -3,12 +3,7 @@
 # Site-specific WordPress, Data Machine, and Homeboy guidance belongs in the
 # composed AGENTS.md, which is fresher than static external skill snapshots.
 
-WP_CODING_AGENTS_SKILLS=(
-  upgrade-wp-coding-agents
-  wp-coding-agents-setup
-  wp-coding-agents-setup-interview
-  wp-coding-agents-setup-verify
-)
+WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
 
 is_wp_coding_agents_skill() {
   local candidate="$1"
@@ -22,9 +17,9 @@ is_wp_coding_agents_skill() {
 }
 
 # Install skills shipped in this repo ($SCRIPT_DIR/skills/).
-# These are the skills that ship with wp-coding-agents itself — e.g.
-# upgrade-wp-coding-agents and wp-coding-agents-setup — so every install
-# can run them without a manual copy step.
+# The installed set intentionally excludes setup. Setup is a pre-install entry
+# point that should be used once from the operator's machine, then discarded.
+# Installed agents only need the upgrade runbook for ongoing maintenance.
 install_skills_from_local_repo() {
   local src_dir="$SCRIPT_DIR/skills"
   [ -d "$src_dir" ] || return

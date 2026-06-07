@@ -12,7 +12,7 @@ By default it also updates the setup-installed Data Machine plugins (`data-machi
 
 If the install was created with the optional Homeboy layer, upgrade should preserve that model: the WordPress site root is the Homeboy **project**, primary Data Machine Code workspace checkouts are attached **components**, and `repo@branch` worktrees remain skipped by default. Homeboy is external to wp-coding-agents; do not vendor it or treat the site root as a component during upgrade guidance.
 
-Setup uses `wp-coding-agents-setup-interview` and `scripts/compile-setup-profile.mjs` to map a new install profile into commands. Upgrade intentionally does **not** duplicate that compiler: `upgrade.sh` owns detection, bridge selection, dry-run diffs, and summary commands for an already-installed environment.
+Setup uses `skills/wp-coding-agents-setup/interview.md` and `scripts/compile-setup-profile.mjs` to map a new install profile into commands. Upgrade intentionally does **not** duplicate that compiler: `upgrade.sh` owns detection, bridge selection, dry-run diffs, and summary commands for an already-installed environment.
 
 ## When to use
 

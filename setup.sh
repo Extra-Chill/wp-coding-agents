@@ -55,7 +55,7 @@ DRY_RUN=false
 RUN_AS_ROOT=true
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
-INSTALL_SKILLS=false
+INSTALL_SKILLS=true
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
 WITH_HOMEBOY=false
@@ -127,10 +127,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-skills)
       INSTALL_SKILLS=false
-      shift
-      ;;
-    --with-skills)
-      INSTALL_SKILLS=true
       shift
       ;;
     --with-homeboy)
@@ -206,14 +202,13 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
-  --with-skills      Install optional wp-coding-agents operator skills
-  --no-skills        Do not install wp-coding-agents skills (default)
+  --no-skills        Skip installing the wp-coding-agents upgrade skill
   --with-homeboy     Create/update a Homeboy project and install/verify the
                      WordPress Homeboy extension
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
-  --skills-only      Only run wp-coding-agents skill installation on existing site
+  --skills-only      Only run wp-coding-agents upgrade skill installation on existing site
   --runtime-only     Only run runtime setup on an existing agent install
                      (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
