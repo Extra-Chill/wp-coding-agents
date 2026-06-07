@@ -1,17 +1,11 @@
----
-name: wp-coding-agents-setup
-description: "Orchestrate wp-coding-agents setup on a VPS or local WordPress install by collecting a setup profile, compiling the exact setup.sh command, dry-running it, and guiding verification."
-compatibility: "For VPS: requires SSH access, Ubuntu/Debian recommended. For local: requires an existing WordPress install (WordPress Studio, MAMP, manual, etc.) and Node.js."
----
-
 # WP Coding Agents Setup
 
-Use this skill from the operator's **local machine** to install wp-coding-agents on a remote VPS or an existing local WordPress install. Once the runtime and chat bridge are installed, the new site agent takes over ongoing WordPress management.
+This is the one-shot setup guide for installing wp-coding-agents on a remote VPS or existing local WordPress install. Use it from the operator's local machine before the target agent exists. Once the runtime and chat bridge are installed, the site agent takes over ongoing WordPress management.
 
-This skill is only the orchestrator. Keep the setup matrix composable:
+## Onboarding Flow
 
 ```text
-wp-coding-agents-setup
+operator-entrypoints/wp-coding-agents-setup/setup.md
   -> operator-entrypoints/wp-coding-agents-setup/interview.md
   -> scripts/compile-setup-profile.mjs
   -> dry-run setup command
@@ -33,7 +27,7 @@ Use the scripts for operational details:
 | WordPress/WP-CLI behavior | `lib/wordpress.sh` |
 | Upgrade behavior | `./upgrade.sh --help` and `upgrade-wp-coding-agents` |
 
-Do not duplicate script internals in this skill. Compile commands from the user's setup profile, then verify against script output.
+Do not duplicate script internals in this guide. Compile commands from the setup profile, then verify against script output.
 
 ## Procedure
 
@@ -74,13 +68,13 @@ Do not duplicate script internals in this skill. Compile commands from the user'
 - Keep Codebox minion provider auth separate from optional WP AI Gateway external-client setup.
 - Keep Homeboy external to wp-coding-agents. The WordPress site root is a Homeboy project, not a component.
 - Use `WP_CMD="studio wp"` for WordPress Studio installs when the compiler selects that overlay.
-- Use `--with-homeboy` only when the user wants the optional developer layer.
-- Use `--no-chat` when the user wants terminal/SSH-only operation.
-- Use `--no-skills` only when the user explicitly wants to skip installing the upgrade skill on the target runtime.
+- Use `--with-homeboy` only when the operator wants the optional developer layer.
+- Use `--no-chat` when the operator wants terminal/SSH-only operation.
+- Use `--no-skills` only when the operator explicitly wants to skip installing the upgrade skill on the target runtime.
 
 ## When To Use
 
-Use when the user says things like:
+Use when the operator says things like:
 
 - "Help me install wp-coding-agents on my server"
 - "Set up a coding agent on this VPS"
