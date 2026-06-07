@@ -63,7 +63,7 @@ print_summary() {
   if [ "$INSTALL_SKILLS" = true ]; then
     echo "  Skills:   $SKILLS_DIR"
   else
-    echo "  Skills:   Skipped (--no-skills)"
+    echo "  Skills:   Skipped (optional; use --with-skills)"
   fi
   echo ""
 

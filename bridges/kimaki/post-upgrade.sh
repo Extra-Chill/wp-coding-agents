@@ -60,7 +60,12 @@ else
 fi
 
 REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
-WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
+WP_CODING_AGENTS_SKILLS=(
+  upgrade-wp-coding-agents
+  wp-coding-agents-setup
+  wp-coding-agents-setup-interview
+  wp-coding-agents-setup-verify
+)
 
 is_wp_coding_agents_skill() {
   local candidate="$1"

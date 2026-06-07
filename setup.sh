@@ -55,7 +55,7 @@ DRY_RUN=false
 RUN_AS_ROOT=true
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
-INSTALL_SKILLS=true
+INSTALL_SKILLS=false
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
 WITH_HOMEBOY=false
@@ -69,6 +69,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --skills-only)
       SKILLS_ONLY=true
+      INSTALL_SKILLS=true
       shift
       ;;
     --existing)
@@ -126,6 +127,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-skills)
       INSTALL_SKILLS=false
+      shift
+      ;;
+    --with-skills)
+      INSTALL_SKILLS=true
       shift
       ;;
     --with-homeboy)
@@ -201,7 +206,8 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
-  --no-skills        Skip wp-coding-agents skill installation
+  --with-skills      Install optional wp-coding-agents operator skills
+  --no-skills        Do not install wp-coding-agents skills (default)
   --with-homeboy     Create/update a Homeboy project and install/verify the
                      WordPress Homeboy extension
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed

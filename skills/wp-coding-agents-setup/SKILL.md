@@ -76,7 +76,7 @@ Do not duplicate script internals in this skill. Compile commands from the user'
 - Use `WP_CMD="studio wp"` for WordPress Studio installs when the compiler selects that overlay.
 - Use `--with-homeboy` only when the user wants the optional developer layer.
 - Use `--no-chat` when the user wants terminal/SSH-only operation.
-- Use `--no-skills` only when the user explicitly wants to skip installing wp-coding-agents skills.
+- Use `--with-skills` only when the user explicitly wants optional wp-coding-agents setup/upgrade skills installed into the target runtime.
 
 ## When To Use
 

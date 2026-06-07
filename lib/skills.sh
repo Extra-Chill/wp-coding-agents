@@ -3,7 +3,12 @@
 # Site-specific WordPress, Data Machine, and Homeboy guidance belongs in the
 # composed AGENTS.md, which is fresher than static external skill snapshots.
 
-WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
+WP_CODING_AGENTS_SKILLS=(
+  upgrade-wp-coding-agents
+  wp-coding-agents-setup
+  wp-coding-agents-setup-interview
+  wp-coding-agents-setup-verify
+)
 
 is_wp_coding_agents_skill() {
   local candidate="$1"
@@ -16,28 +21,6 @@ is_wp_coding_agents_skill() {
   return 1
 }
 
-remove_unmanaged_skills() {
-  local target_dir="$1"
-  local label="$2"
-
-  [ -d "$target_dir" ] || return
-
-  local removed=0
-  local skill_dir skill_name
-  for skill_dir in "$target_dir"/*/; do
-    [ -d "$skill_dir" ] || continue
-    skill_name=$(basename "$skill_dir")
-    if [ -f "$skill_dir/SKILL.md" ] && ! is_wp_coding_agents_skill "$skill_name"; then
-      rm -rf "$skill_dir"
-      removed=$((removed + 1))
-    fi
-  done
-
-  if [ "$removed" -gt 0 ]; then
-    log "Removed unmanaged skills from $label: $target_dir/ ($removed)"
-  fi
-}
-
 # Install skills shipped in this repo ($SCRIPT_DIR/skills/).
 # These are the skills that ship with wp-coding-agents itself — e.g.
 # upgrade-wp-coding-agents and wp-coding-agents-setup — so every install
@@ -47,7 +30,6 @@ install_skills_from_local_repo() {
   [ -d "$src_dir" ] || return
 
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would remove unmanaged skills from $SKILLS_DIR/"
     for skill_dir in "$src_dir"/*/; do
       local skill_name
       skill_name=$(basename "$skill_dir")
@@ -57,8 +39,6 @@ install_skills_from_local_repo() {
     done
     return
   fi
-
-  remove_unmanaged_skills "$SKILLS_DIR" "runtime skills dir"
 
   local copied=0
   for skill_dir in "$src_dir"/*/; do
@@ -103,8 +83,6 @@ install_skills_to_persistent_source() {
     warn "Could not create persistent skill source dir $persistent_dir — skipping mirror"
     return
   }
-
-  remove_unmanaged_skills "$persistent_dir" "persistent source"
 
   local copied=0
   for skill_dir in "$SCRIPT_DIR/skills"/*/; do

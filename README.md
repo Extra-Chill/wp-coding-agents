@@ -82,7 +82,7 @@ EXISTING_WP=~/Studio/my-wordpress-website ./setup.sh --local --runtime claude-co
 EXISTING_WP=~/Studio/my-wordpress-website ./setup.sh --local --runtime studio-code
 ```
 
-On macOS, `--local` is auto-detected. The script installs Data Machine, the coding agent, agent skills, and optionally a chat bridge — no infrastructure, no root, no systemd.
+On macOS, `--local` is auto-detected. The script installs Data Machine, the coding agent runtime, and optionally a chat bridge — no infrastructure, no root, no systemd. Optional operator skills are installed only with `--with-skills`.
 
 Start your agent:
 
@@ -131,7 +131,8 @@ systemctl start kimaki  # or: systemctl start cc-connect
 | `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code and Studio Code), `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
 | `--subdomain` | Subdomain multisite (use with `--multisite`, requires wildcard DNS) |
-| `--no-skills` | Skip wp-coding-agents skills |
+| `--with-skills` | Install optional wp-coding-agents setup/upgrade skills |
+| `--no-skills` | Do not install wp-coding-agents skills (default) |
 | `--skip-deps` | Skip apt packages |
 | `--skip-ssl` | Skip SSL/HTTPS |
 | `--root` | Run agent as root (default on VPS) |
@@ -186,7 +187,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
 | **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
-| **wp-coding-agents skills** | Setup and upgrade runbooks shipped with this repo. The composed `AGENTS.md` provides the site-specific WordPress, Data Machine, and Homeboy operating context, so setup does not install redundant external skills. | `--no-skills` |
+| **wp-coding-agents skills** | Optional setup and upgrade runbooks shipped with this repo for operators who use skill-capable agents. The composed `AGENTS.md` provides the site-specific WordPress, Data Machine, and Homeboy operating context; these skills are not needed for normal runtime operation. | `--with-skills` |
 
 ## VPS vs. Local
 

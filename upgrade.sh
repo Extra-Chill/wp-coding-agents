@@ -101,7 +101,7 @@ SKIP_DEPS=true
 SKIP_SSL=true
 INSTALL_DATA_MACHINE=true
 INSTALL_CHAT=true
-INSTALL_SKILLS=true
+INSTALL_SKILLS=false
 RUN_AS_ROOT=true
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
@@ -116,7 +116,8 @@ while [[ $# -gt 0 ]]; do
     --dry-run)       DRY_RUN=true; shift ;;
     --kimaki-only)   KIMAKI_ONLY=true; shift ;;
     --plugins-only)  PLUGINS_ONLY=true; shift ;;
-    --skills-only)   SKILLS_ONLY=true; shift ;;
+    --skills-only)   SKILLS_ONLY=true; INSTALL_SKILLS=true; shift ;;
+    --with-skills)   INSTALL_SKILLS=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
@@ -141,7 +142,8 @@ USAGE:
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
-  ./upgrade.sh --skills-only    Only sync wp-coding-agents skills
+  ./upgrade.sh --skills-only    Only sync optional wp-coding-agents skills
+  ./upgrade.sh --with-skills    Sync optional wp-coding-agents skills during full run
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
   ./upgrade.sh --repair-opencode-json
@@ -507,6 +509,11 @@ check_opencode_json_drift() {
 
 sync_skills() {
   _run_filter_active skills || return 0
+
+  if [ "$INSTALL_SKILLS" != true ]; then
+    log "Phase 4: Skipping wp-coding-agents skills (use --with-skills or --skills-only)"
+    return 0
+  fi
 
   log "Phase 4: Syncing wp-coding-agents skills..."
 
