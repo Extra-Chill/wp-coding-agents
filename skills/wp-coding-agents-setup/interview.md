@@ -1,12 +1,6 @@
----
-name: wp-coding-agents-setup-interview
-description: "Collect a normalized wp-coding-agents setup profile without embedding install execution details or verification matrices."
-compatibility: "Use before scripts/compile-setup-profile.mjs. Does not run setup commands."
----
+# Setup Interview
 
-# WP Coding Agents Setup Interview
-
-Collect the facts needed to install wp-coding-agents. Do not build commands, run setup, or provide verification matrices from this skill. Output a normalized JSON setup profile for `scripts/compile-setup-profile.mjs`.
+Collect the facts needed to install wp-coding-agents. Do not build commands, run setup, or provide verification matrices from this branch. Output a normalized JSON setup profile for `scripts/compile-setup-profile.mjs`.
 
 ## Interview Questions
 

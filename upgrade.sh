@@ -35,7 +35,7 @@
 #   ./upgrade.sh --dry-run       # preview without changes
 #   ./upgrade.sh --kimaki-only   # only sync kimaki config + plugins
 #   ./upgrade.sh --plugins-only  # only update Data Machine plugins
-#   ./upgrade.sh --skills-only   # only sync wp-coding-agents skills
+#   ./upgrade.sh --skills-only   # only sync the wp-coding-agents upgrade skill
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
@@ -141,7 +141,7 @@ USAGE:
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
-  ./upgrade.sh --skills-only    Only sync wp-coding-agents skills
+  ./upgrade.sh --skills-only    Only sync the wp-coding-agents upgrade skill
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
   ./upgrade.sh --repair-opencode-json
