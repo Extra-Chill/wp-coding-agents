@@ -32,8 +32,8 @@ _wp_codebox_latest_tag() {
 _wp_codebox_header_version() {
   local main_file="$1"
   [ -f "$main_file" ] || return 1
-  grep -m1 -E '^\s*\*?\s*Version:' "$main_file" \
-    | sed -E 's/.*Version:\s*([0-9][0-9.]*).*/\1/'
+  grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$main_file" \
+    | sed -E 's/.*Version:[[:space:]]*([0-9][0-9.]*).*/\1/'
 }
 
 update_wp_codebox_plugin_subtree() {

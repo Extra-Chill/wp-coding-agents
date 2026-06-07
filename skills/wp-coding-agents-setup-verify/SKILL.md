@@ -130,6 +130,8 @@ Verify the selected runtime can be started manually in the terminal or over SSH.
 
 ### `verify-homeboy`
 
+This overlay proves Homeboy is installed, linked, and advertised to Data Machine. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
+
 ```bash
 homeboy --version
 homeboy extension list
@@ -155,6 +157,60 @@ DMC repo@branch worktrees = skipped by default
 ```
 
 Do not create `homeboy.json` in the WordPress site root to fix a missing Homeboy project.
+
+### `verify-homeboy-codebox-canary`
+
+Use this explicit opt-in overlay when the install should prove the advertised Homeboy fleet-cooking path actually runs through Codebox. This can call a model and requires provider secret **environment variable names**, so do not run it as part of a casual setup smoke check and never paste secret values into the command.
+
+The canary is intentionally bounded:
+
+- read-only `/workspace` mount
+- no file edits, commits, pushes, or PRs in the prompt
+- one task, one attempt, concurrency `1`
+- low `--max-turns`
+- status/log/artifact validation only
+
+Example for a WordPress Studio install with Data Machine-bundled Agents API:
+
+```bash
+./scripts/verify-homeboy-codebox-canary.sh \
+  --workspace /path/to/existing/repo-or-dmc-worktree \
+  --repo wp-coding-agents \
+  --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/190 \
+  --secret-env OPENAI_API_KEY \
+  --agents-api /path/to/wp-content/plugins/data-machine/vendor/wordpress/agents-api \
+  --agent-runtime /path/to/wp-content/plugins/data-machine \
+  --agent-runtime-tools /path/to/wp-content/plugins/data-machine-code \
+  --provider-plugin-path /path/to/wp-content/plugins/ai-provider-for-openai \
+  --homeboy-extensions "$HOME/.config/homeboy/extensions/wordpress" \
+  --model gpt-4.1-mini \
+  --max-turns 4
+```
+
+The command above prints the resolved dispatch shape without executing it. Add `--run` only when the operator intentionally wants to spend a model call and has the named secret env var available to Homeboy:
+
+```bash
+./scripts/verify-homeboy-codebox-canary.sh ... --run
+```
+
+Passing criteria:
+
+- `homeboy agent-task status <run-id>` reports terminal `succeeded`
+- `homeboy agent-task logs <run-id>` includes a succeeded task event
+- `homeboy agent-task artifacts <run-id>` includes `codebox-changed-files`
+- `codebox-changed-files.metadata.count` is `0`
+- artifacts include `codebox-patch`
+- `codebox-patch` is empty (`metadata.bytes` or `size_bytes` is `0`)
+
+Actionable failure interpretation:
+
+- Missing Homeboy extension/provider: fix `homeboy extension list` / `homeboy agent-task providers` before rerunning.
+- Missing runtime component defaults: pass explicit `--agents-api`, `--agent-runtime`, and `--agent-runtime-tools` paths instead of relying on discovery.
+- Stale standalone Agents API mismatch: point `--agents-api` at Data Machine's bundled `vendor/wordpress/agents-api` path and avoid old standalone plugin paths.
+- Missing provider secret env names: pass `--secret-env NAME`; pass only env var names, never token values.
+- Missing `/workspace` mount: verify the provider config contains a read-only mount with `target: "/workspace"` and `source` set to the existing repo/worktree path.
+
+This canary is stronger than `datamachine_code_homeboy_available=1`: that option means Data Machine should advertise Homeboy guidance, while the canary proves the Codebox executor returned durable run, log, changed-files, and patch evidence for a repo-aware task.
 
 ### `verify-codex-codebox-provider`
 

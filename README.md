@@ -60,6 +60,8 @@ wp-coding-agents works in two modes with the same setup:
 
 Installs without Homeboy still use Data Machine workspaces, flows, jobs, and bridge dispatch. Installs without Kimaki use the selected bridge or terminal runtime; Kimaki-specific routing only applies when Kimaki is selected.
 
+Homeboy setup verification normally proves Homeboy is installed, linked, and advertised through `datamachine_code_homeboy_available`. To prove the full Codebox fleet-cooking path, run the explicit opt-in `scripts/verify-homeboy-codebox-canary.sh` helper from the verification skill. It can call a model, so it requires provider secret environment variable names and validates only read-only status/log/artifact evidence.
+
 ## Quick Start
 
 ### Local (macOS / Linux Desktop)
