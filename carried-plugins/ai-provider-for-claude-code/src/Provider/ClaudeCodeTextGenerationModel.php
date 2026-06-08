@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace ExtraChill\ClaudeCodeAiProvider\Provider;
 
-use ExtraChill\ClaudeCodeAiProvider\Runtime\ClaudeCodeProcess;
 use WordPress\AiClient\Common\Exception\InvalidArgumentException;
 use WordPress\AiClient\Messages\DTO\Message;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
-use WordPress\AiClient\Providers\DTO\ProviderMetadata;
-use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
-use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
-use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
+use WordPress\AiClient\Messages\Enums\MessageRoleEnum;
+use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiBasedModel;
+use WordPress\AiClient\Providers\Http\DTO\Request;
+use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
+use WordPress\AiClient\Providers\Http\DTO\Response;
+use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
+use WordPress\AiClient\Providers\Http\Exception\ResponseException;
+use WordPress\AiClient\Providers\Http\Util\ResponseUtil;
 use WordPress\AiClient\Providers\Models\TextGeneration\Contracts\TextGenerationModelInterface;
 use WordPress\AiClient\Results\DTO\Candidate;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
@@ -20,134 +23,207 @@ use WordPress\AiClient\Results\DTO\TokenUsage;
 use WordPress\AiClient\Results\Enums\FinishReasonEnum;
 
 /**
- * Text generation model backed by `claude -p`.
+ * Text generation model for Claude Code using Anthropic Messages API.
  */
-class ClaudeCodeTextGenerationModel implements ModelInterface, TextGenerationModelInterface
+class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements TextGenerationModelInterface
 {
-    /**
-     * @var ModelMetadata Model metadata.
-     */
-    private ModelMetadata $metadata;
-
-    /**
-     * @var ProviderMetadata Provider metadata.
-     */
-    private ProviderMetadata $providerMetadata;
-
-    /**
-     * @var ModelConfig Model config.
-     */
-    private ModelConfig $config;
-
-    /**
-     * @var ClaudeCodeProcess Claude Code process runner.
-     */
-    private ClaudeCodeProcess $process;
-
-    /**
-     * Constructor.
-     *
-     * @param ModelMetadata     $metadata         Model metadata.
-     * @param ProviderMetadata  $providerMetadata Provider metadata.
-     * @param ClaudeCodeProcess $process          Claude Code process runner.
-     */
-    public function __construct(
-        ModelMetadata $metadata,
-        ProviderMetadata $providerMetadata,
-        ClaudeCodeProcess $process
-    ) {
-        $this->metadata = $metadata;
-        $this->providerMetadata = $providerMetadata;
-        $this->process = $process;
-        $this->config = ModelConfig::fromArray([]);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function metadata(): ModelMetadata
-    {
-        return $this->metadata;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function providerMetadata(): ProviderMetadata
-    {
-        return $this->providerMetadata;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function setConfig(ModelConfig $config): void
-    {
-        $this->config = $config;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function getConfig(): ModelConfig
-    {
-        return $this->config;
-    }
+    private const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
+    private const REQUEST_TIMEOUT_FLOOR = 300.0;
+    private const CONNECT_TIMEOUT_FLOOR = 120.0;
 
     /**
      * {@inheritDoc}
      */
     public function generateTextResult(array $prompt): GenerativeAiResult
     {
-        $customOptions = $this->config->getCustomOptions();
-        $result = $this->process->run(
-            $this->preparePrompt($prompt),
-            $this->metadata->getId(),
-            $customOptions
+        $request = new Request(
+            HttpMethodEnum::POST(),
+            ClaudeCodeProvider::url('messages'),
+            ['Content-Type' => 'application/json'],
+            $this->prepareGenerateTextParams($prompt),
+            $this->getClaudeCodeRequestOptions()
         );
 
-        return new GenerativeAiResult(
-            $result['id'],
-            [new Candidate(new ModelMessage([new MessagePart($result['text'])]), FinishReasonEnum::stop())],
-            new TokenUsage(0, 0, 0),
-            $this->providerMetadata,
-            $this->metadata,
-            [
-                'command' => 'claude-code',
-                'exit_code' => $result['exit_code'],
-            ]
-        );
+        $request = $this->getRequestAuthentication()->authenticateRequest($request);
+        $response = $this->getHttpTransporter()->send($request);
+        ResponseUtil::throwIfNotSuccessful($response);
+
+        return $this->parseResponseToResult($response);
+    }
+
+    private function getClaudeCodeRequestOptions(): RequestOptions
+    {
+        $current = $this->getRequestOptions();
+        $options = new RequestOptions();
+
+        $timeout = $current?->getTimeout();
+        $timeout = max($timeout ?? 0.0, self::REQUEST_TIMEOUT_FLOOR);
+        $options->setTimeout($timeout);
+
+        $connectTimeout = $current?->getConnectTimeout();
+        $connectTimeoutFloor = min(self::CONNECT_TIMEOUT_FLOOR, $timeout);
+        $options->setConnectTimeout(max($connectTimeout ?? 0.0, $connectTimeoutFloor));
+
+        $maxRedirects = $current?->getMaxRedirects();
+        if ($maxRedirects !== null) {
+            $options->setMaxRedirects($maxRedirects);
+        }
+
+        return $options;
     }
 
     /**
-     * Converts WP AI Client messages to a Claude Code prompt string.
+     * Prepares the Anthropic Messages request payload.
      *
-     * @param list<Message> $messages Prompt messages.
-     * @return string Prompt string.
+     * @param list<Message> $prompt Prompt messages.
+     * @return array<string, mixed> Request payload.
      */
-    private function preparePrompt(array $messages): string
+    private function prepareGenerateTextParams(array $prompt): array
     {
-        $chunks = [];
-        $systemInstruction = $this->config->getSystemInstruction();
-        if ($systemInstruction) {
-            $chunks[] = "System:\n" . $systemInstruction;
+        $config = $this->getConfig();
+        $system = [
+            ['type' => 'text', 'text' => self::CLAUDE_CODE_IDENTITY],
+        ];
+
+        if ($config->getSystemInstruction()) {
+            $system[] = ['type' => 'text', 'text' => $config->getSystemInstruction()];
         }
 
+        $params = [
+            'model' => $this->metadata()->getId(),
+            'max_tokens' => $config->getMaxTokens() ?? 4096,
+            'messages' => $this->prepareMessages($prompt),
+            'system' => $system,
+        ];
+
+        $temperature = $config->getTemperature();
+        if ($temperature !== null) {
+            $params['temperature'] = $temperature;
+        }
+
+        $topP = $config->getTopP();
+        if ($topP !== null) {
+            $params['top_p'] = $topP;
+        }
+
+        if ($config->getOutputMimeType() === 'application/json' && $config->getOutputSchema()) {
+            $params['tools'] = [
+                [
+                    'name' => 'response_schema',
+                    'description' => 'Return a response matching the requested JSON schema.',
+                    'input_schema' => $config->getOutputSchema(),
+                ],
+            ];
+            $params['tool_choice'] = ['type' => 'tool', 'name' => 'response_schema'];
+        }
+
+        foreach ($config->getCustomOptions() as $key => $value) {
+            if (isset($params[$key])) {
+                throw new InvalidArgumentException(
+                    sprintf('The custom option "%s" conflicts with an existing Claude Code request parameter.', $key)
+                );
+            }
+            $params[$key] = $value;
+        }
+
+        return $params;
+    }
+
+    /**
+     * Converts prompt messages to Anthropic Messages format.
+     *
+     * @param list<Message> $messages Prompt messages.
+     * @return list<array<string, mixed>> Messages.
+     */
+    private function prepareMessages(array $messages): array
+    {
+        $output = [];
         foreach ($messages as $message) {
-            $parts = [];
+            $content = [];
             foreach ($message->getParts() as $part) {
                 if (!$part->getType()->isText()) {
                     throw new InvalidArgumentException(
                         'Claude Code text generation currently supports text message parts only.'
                     );
                 }
-                $parts[] = $part->getText();
+                $content[] = ['type' => 'text', 'text' => $part->getText()];
             }
 
-            $role = $message->getRole()->isModel() ? 'Assistant' : 'User';
-            $chunks[] = $role . ":\n" . implode("\n", $parts);
+            $output[] = [
+                'role' => $this->roleToAnthropicRole($message->getRole()),
+                'content' => $content,
+            ];
         }
 
-        return implode("\n\n", $chunks);
+        return $output;
+    }
+
+    private function roleToAnthropicRole(MessageRoleEnum $role): string
+    {
+        return $role->isModel() ? 'assistant' : 'user';
+    }
+
+    private function parseResponseToResult(Response $response): GenerativeAiResult
+    {
+        $data = $response->getData();
+        if (!is_array($data)) {
+            $data = json_decode((string) $response->getBody(), true);
+        }
+        if (!is_array($data)) {
+            throw ResponseException::fromMissingData('Claude Code', 'content');
+        }
+
+        $text = $this->extractText($data);
+        if ($text === '') {
+            throw ResponseException::fromMissingData('Claude Code', 'content.text');
+        }
+
+        $usage = isset($data['usage']) && is_array($data['usage']) ? $data['usage'] : [];
+        $inputTokens = $this->getIntegerValue($usage['input_tokens'] ?? null);
+        $outputTokens = $this->getIntegerValue($usage['output_tokens'] ?? null);
+
+        return new GenerativeAiResult(
+            isset($data['id']) && is_string($data['id']) ? $data['id'] : '',
+            [new Candidate(new ModelMessage([new MessagePart($text)]), FinishReasonEnum::stop())],
+            new TokenUsage($inputTokens, $outputTokens, $inputTokens + $outputTokens),
+            $this->providerMetadata(),
+            $this->metadata(),
+            $data
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $data Response data.
+     */
+    private function extractText(array $data): string
+    {
+        $parts = [];
+        if (!isset($data['content']) || !is_array($data['content'])) {
+            return '';
+        }
+
+        foreach ($data['content'] as $part) {
+            if (!is_array($part)) {
+                continue;
+            }
+            if (($part['type'] ?? '') === 'text' && isset($part['text']) && is_string($part['text'])) {
+                $parts[] = $part['text'];
+            } elseif (($part['type'] ?? '') === 'tool_use' && isset($part['input'])) {
+                $encoded = function_exists('wp_json_encode') ? wp_json_encode($part['input']) : json_encode($part['input']);
+                if (is_string($encoded)) {
+                    $parts[] = $encoded;
+                }
+            }
+        }
+
+        return implode("\n", array_filter($parts, 'is_string'));
+    }
+
+    /**
+     * @param mixed $value Raw value.
+     */
+    private function getIntegerValue($value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

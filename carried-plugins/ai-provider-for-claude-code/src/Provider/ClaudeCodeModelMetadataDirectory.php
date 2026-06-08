@@ -13,7 +13,7 @@ use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Providers\Models\Enums\OptionEnum;
 
 /**
- * Model metadata directory for Claude Code CLI models.
+ * Model metadata directory for Claude Code models.
  */
 class ClaudeCodeModelMetadataDirectory implements ModelMetadataDirectoryInterface
 {
@@ -55,13 +55,18 @@ class ClaudeCodeModelMetadataDirectory implements ModelMetadataDirectoryInterfac
     {
         $options = [
             new SupportedOption(OptionEnum::systemInstruction()),
+            new SupportedOption(OptionEnum::maxTokens()),
+            new SupportedOption(OptionEnum::temperature()),
+            new SupportedOption(OptionEnum::topP()),
+            new SupportedOption(OptionEnum::outputMimeType(), ['text/plain', 'application/json']),
+            new SupportedOption(OptionEnum::outputSchema()),
             new SupportedOption(OptionEnum::customOptions()),
             new SupportedOption(OptionEnum::inputModalities(), [[ModalityEnum::text()]]),
             new SupportedOption(OptionEnum::outputModalities(), [[ModalityEnum::text()]]),
         ];
 
         $models = [];
-        foreach (['claude-code', 'sonnet', 'opus', 'haiku'] as $modelId) {
+        foreach (['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] as $modelId) {
             $models[$modelId] = new ModelMetadata(
                 $modelId,
                 $modelId,

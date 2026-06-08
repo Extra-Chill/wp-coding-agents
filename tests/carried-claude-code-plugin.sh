@@ -7,7 +7,24 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 SITE_PATH="$TMP/site"
+PROVIDER_DIR="$SCRIPT_DIR/carried-plugins/ai-provider-for-claude-code"
 mkdir -p "$SITE_PATH/wp-content/plugins"
+
+for required_file in \
+  "$PROVIDER_DIR/src/Provider/ClaudeCodeProvider.php" \
+  "$PROVIDER_DIR/src/Provider/ClaudeCodeOAuthClient.php" \
+  "$PROVIDER_DIR/src/Provider/ClaudeCodeRequestAuthentication.php" \
+  "$PROVIDER_DIR/src/Provider/ClaudeCodeTokenStore.php"; do
+  if [ ! -f "$required_file" ]; then
+    printf 'Expected Claude Code provider file to exist: %s\n' "$required_file" >&2
+    exit 1
+  fi
+done
+
+if [ -e "$PROVIDER_DIR/src/Runtime/ClaudeCodeProcess.php" ]; then
+  printf 'Claude Code provider must use OAuth/API auth, not the local CLI process runtime.\n' >&2
+  exit 1
+fi
 
 export SCRIPT_DIR
 export SITE_PATH

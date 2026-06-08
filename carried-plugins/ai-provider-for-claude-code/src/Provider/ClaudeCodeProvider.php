@@ -4,21 +4,31 @@ declare(strict_types=1);
 
 namespace ExtraChill\ClaudeCodeAiProvider\Provider;
 
-use ExtraChill\ClaudeCodeAiProvider\Runtime\ClaudeCodeProcess;
 use WordPress\AiClient\Common\Exception\RuntimeException;
-use WordPress\AiClient\Providers\AbstractProvider;
+use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiProvider;
 use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
+use WordPress\AiClient\Providers\Contracts\ProviderWithRequestAuthenticationInterface;
 use WordPress\AiClient\Providers\DTO\ProviderMetadata;
 use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
+use WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface;
+use WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod;
 use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 
 /**
- * Provider backed by the local Claude Code CLI session.
+ * Provider for Claude Code subscription-backed access.
  */
-class ClaudeCodeProvider extends AbstractProvider
+class ClaudeCodeProvider extends AbstractApiProvider implements ProviderWithRequestAuthenticationInterface
 {
+    /**
+     * {@inheritDoc}
+     */
+    protected static function baseUrl(): string
+    {
+        return 'https://api.anthropic.com/v1';
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -28,11 +38,7 @@ class ClaudeCodeProvider extends AbstractProvider
     ): ModelInterface {
         foreach ($modelMetadata->getSupportedCapabilities() as $capability) {
             if ($capability->isTextGeneration()) {
-                return new ClaudeCodeTextGenerationModel(
-                    $modelMetadata,
-                    $providerMetadata,
-                    new ClaudeCodeProcess()
-                );
+                return new ClaudeCodeTextGenerationModel($modelMetadata, $providerMetadata);
             }
         }
 
@@ -47,10 +53,10 @@ class ClaudeCodeProvider extends AbstractProvider
         return new ProviderMetadata(
             'claude-code',
             'Claude Code',
-            ProviderTypeEnum::server(),
+            ProviderTypeEnum::cloud(),
             'https://docs.anthropic.com/en/docs/claude-code',
-            null,
-            'Local Claude Code CLI access using the host or sandbox authenticated session.'
+            RequestAuthenticationMethod::apiKey(),
+            'Claude Code subscription-backed access using Claude OAuth credentials.'
         );
     }
 
@@ -59,7 +65,16 @@ class ClaudeCodeProvider extends AbstractProvider
      */
     protected static function createProviderAvailability(): ProviderAvailabilityInterface
     {
-        return new ClaudeCodeProviderAvailability(new ClaudeCodeProcess());
+        return new ClaudeCodeProviderAvailability(new ClaudeCodeTokenStore());
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public static function requestAuthentication(): ?RequestAuthenticationInterface
+    {
+        $tokenStore = new ClaudeCodeTokenStore();
+        return new ClaudeCodeRequestAuthentication($tokenStore, new ClaudeCodeOAuthClient($tokenStore));
     }
 
     /**

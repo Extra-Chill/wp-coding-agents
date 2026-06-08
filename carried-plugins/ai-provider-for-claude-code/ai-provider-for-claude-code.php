@@ -3,7 +3,7 @@
 /**
  * Plugin Name: AI Provider for Claude Code
  * Plugin URI: https://github.com/Extra-Chill/wp-coding-agents
- * Description: WP AI Client provider backed by the locally authenticated Claude Code CLI.
+ * Description: WP AI Client provider backed by Claude Code OAuth credentials.
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Version: 0.1.0

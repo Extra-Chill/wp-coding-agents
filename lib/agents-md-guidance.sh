@@ -203,7 +203,7 @@ agents_md_guidance_homeboy_codebox_content() {
 
 **Codex provider:** Codebox Codex tasks need the OpenAI Codex provider plugin/runtime overlay and `AI_PROVIDER_OPENAI_CODEX_*` secrets passed via `secret_env`. Never print token values in logs or task instructions.
 
-**Claude Code provider:** Codebox Claude Code tasks use the `ai-provider-for-claude-code` plugin carried by wp-coding-agents. It is backed by the locally authenticated `claude` CLI session in the host or sandbox, not an Anthropic API key and not WP AI Gateway. Provider id: `claude-code`. Use `AI_PROVIDER_CLAUDE_CODE_BIN` only to point at a non-standard binary path; do not pass Claude subscription/session material through task prompts or logs.
+**Claude Code provider:** Codebox Claude Code tasks use the `ai-provider-for-claude-code` plugin carried by wp-coding-agents. It is backed by Claude Code OAuth credentials through WP AI Client / PHP AI Client, not the `claude` binary, not an Anthropic API key, and not WP AI Gateway. Provider id: `claude-code`. Provide credentials through `AI_PROVIDER_CLAUDE_CODE_REFRESH_TOKEN` and optional `AI_PROVIDER_CLAUDE_CODE_ACCESS_TOKEN` / `AI_PROVIDER_CLAUDE_CODE_EXPIRES_AT`; never pass Claude subscription/session material through task prompts or logs.
 
 **Operator verbs:** `homeboy release`, `homeboy deploy`, `homeboy fleet`, and `homeboy ssh` are operator actions. Use them only when the user explicitly asks for that action.
 

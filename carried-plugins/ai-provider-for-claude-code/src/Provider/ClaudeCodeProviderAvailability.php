@@ -4,27 +4,26 @@ declare(strict_types=1);
 
 namespace ExtraChill\ClaudeCodeAiProvider\Provider;
 
-use ExtraChill\ClaudeCodeAiProvider\Runtime\ClaudeCodeProcess;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
 
 /**
- * Availability checker for the local Claude Code provider.
+ * Availability checker for the Claude Code provider.
  */
 class ClaudeCodeProviderAvailability implements ProviderAvailabilityInterface
 {
     /**
-     * @var ClaudeCodeProcess Claude Code process runner.
+     * @var ClaudeCodeTokenStore Token store.
      */
-    private ClaudeCodeProcess $process;
+    private ClaudeCodeTokenStore $tokenStore;
 
     /**
      * Constructor.
      *
-     * @param ClaudeCodeProcess $process Claude Code process runner.
+     * @param ClaudeCodeTokenStore $tokenStore Token store.
      */
-    public function __construct(ClaudeCodeProcess $process)
+    public function __construct(ClaudeCodeTokenStore $tokenStore)
     {
-        $this->process = $process;
+        $this->tokenStore = $tokenStore;
     }
 
     /**
@@ -32,6 +31,6 @@ class ClaudeCodeProviderAvailability implements ProviderAvailabilityInterface
      */
     public function isConfigured(): bool
     {
-        return $this->process->isAvailable();
+        return $this->tokenStore->hasRefreshToken();
     }
 }
