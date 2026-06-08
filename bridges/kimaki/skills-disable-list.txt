@@ -2,6 +2,7 @@
 # One skill name per line. Lines starting with # are ignored.
 
 batch
+critique
 egaki
 errore
 goke

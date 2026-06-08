@@ -14,6 +14,8 @@
         <string>--disable-skill</string>
         <string>batch</string>
         <string>--disable-skill</string>
+        <string>critique</string>
+        <string>--disable-skill</string>
         <string>egaki</string>
         <string>--disable-skill</string>
         <string>errore</string>
