@@ -198,13 +198,14 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
 
         if ($part->getType()->isFunctionCall() && $part->getFunctionCall()) {
             $functionCall = $part->getFunctionCall();
-            $arguments = $functionCall->getArgs();
 
             return [
                 'type' => 'tool_use',
                 'id' => (string) ($functionCall->getId() ?? $functionCall->getName() ?? ''),
                 'name' => (string) ($functionCall->getName() ?? ''),
-                'input' => is_array($arguments) ? $arguments : (object) [],
+                // Anthropic requires tool_use.input to be a JSON object. An empty
+                // or list-shaped arguments value must encode as `{}`, not `[]`.
+                'input' => $this->toInputObject($functionCall->getArgs()),
             ];
         }
 
@@ -312,6 +313,29 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
         }
 
         return FinishReasonEnum::stop();
+    }
+
+    /**
+     * Normalizes function-call arguments into a JSON object for `tool_use.input`.
+     *
+     * Anthropic rejects a request when `tool_use.input` is not an object. An
+     * associative array encodes as an object, but an empty or list-shaped array
+     * encodes as `[]`, so those are coerced to an empty object.
+     *
+     * @param mixed $arguments Raw function-call arguments.
+     * @return object|array<string, mixed> Object-encodable input.
+     */
+    private function toInputObject($arguments)
+    {
+        if (is_array($arguments) && $arguments !== [] && array_keys($arguments) !== range(0, count($arguments) - 1)) {
+            return $arguments;
+        }
+
+        if (is_object($arguments)) {
+            return $arguments;
+        }
+
+        return (object) [];
     }
 
     /**

@@ -169,13 +169,19 @@ $config->setFunctionDeclarations([
 ]);
 $model->setConfig($config);
 
-// Prompt includes a prior tool call + response to exercise tool_use/tool_result serialization.
+// Prompt includes a prior tool call + response to exercise tool_use/tool_result
+// serialization, plus a no-argument tool call to verify empty input encodes as `{}`.
 $prompt = [
     new UserMessage([new MessagePart('create X.md')]),
     new ModelMessage([new MessagePart(new FunctionCall('toolu_prev', 'workspace_ls', ['path' => '.']))]),
     new Message(
         MessageRoleEnum::user(),
         [new MessagePart(new FunctionResponse('toolu_prev', 'workspace_ls', ['files' => ['README.md']]))]
+    ),
+    new ModelMessage([new MessagePart(new FunctionCall('toolu_noargs', 'workspace_capabilities', []))]),
+    new Message(
+        MessageRoleEnum::user(),
+        [new MessagePart(new FunctionResponse('toolu_noargs', 'workspace_capabilities', ['ok' => true]))]
     ),
 ];
 
@@ -205,6 +211,18 @@ foreach ($messages as $message) {
 }
 $check(in_array('tool_use', $blocks, true), 'prior FunctionCall serialized as tool_use block');
 $check(in_array('tool_result', $blocks, true), 'prior FunctionResponse serialized as tool_result block');
+
+// Anthropic requires tool_use.input to be a JSON object; a no-argument call must
+// encode as `{}`, never `[]`.
+$noArgsInputJson = null;
+foreach ($messages as $message) {
+    foreach (($message['content'] ?? []) as $contentBlock) {
+        if (($contentBlock['type'] ?? '') === 'tool_use' && ($contentBlock['name'] ?? '') === 'workspace_capabilities') {
+            $noArgsInputJson = json_encode($contentBlock['input']);
+        }
+    }
+}
+$check($noArgsInputJson === '{}', 'no-argument tool_use input encodes as an empty object');
 
 // --- Assert the response tool_use parsed into a FunctionCall message part ---
 $candidates = $result->getCandidates();
