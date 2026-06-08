@@ -2,12 +2,12 @@
 # bridges/kimaki.sh — Kimaki Discord bridge.
 #
 # Owns install (local launchd / VPS systemd / Linux-local manual), upgrade-time
-# config sync (plugins, post-upgrade.sh, skill filters, regression test),
+# config sync (plugins, post-upgrade.sh, skill allowlist, regression test),
 # systemd + launchd template rendering, summary blocks, and the per-bridge
-# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-disable-list.txt).
+# assets at bridges/kimaki/ (plugins/, post-upgrade.sh, skills-enable-list.txt).
 #
 # Install layout:
-#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-disable-list.txt}
+#   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-enable-list.txt}
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
 #          skill filters (executed inline at upgrade time — no launchd
@@ -334,7 +334,7 @@ bridge_sync_config() {
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
   #          and by ExecStartPre in kimaki.service). Config dir holds plugins +
-  #          post-upgrade.sh + skills-disable-list.txt.
+  #          post-upgrade.sh + skills-enable-list.txt.
   #   Local: opencode.json points at $KIMAKI_DATA_DIR/kimaki-config/plugins, the
   #          durable source that survives `npm update -g kimaki`. Existing configs
   #          that still reference package-local plugin paths are migrated by the
@@ -414,7 +414,7 @@ bridge_sync_config() {
     done
   fi
 
-  # Stage post-upgrade.sh and skills-disable-list.txt in KIMAKI_CONFIG_DIR.
+  # Stage post-upgrade.sh and skills-enable-list.txt in KIMAKI_CONFIG_DIR.
   # On VPS this is read by ExecStartPre. On local we execute it inline below.
   if [ "$DRY_RUN" = false ]; then
     mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
@@ -435,16 +435,16 @@ bridge_sync_config() {
     fi
   fi
 
-  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" ]; then
+  if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" ]; then
     if [ "$DRY_RUN" = true ]; then
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
-        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" 2>/dev/null; then
+        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-enable-list.txt"
       fi
     else
-      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" 2>/dev/null; then
-        cp "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt" "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
-        log "  Updated $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
-        UPDATED_ITEMS+=("kimaki-config/skills-disable-list.txt")
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" 2>/dev/null; then
+        cp "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt"
+        log "  Updated $KIMAKI_CONFIG_DIR/skills-enable-list.txt"
+        UPDATED_ITEMS+=("kimaki-config/skills-enable-list.txt")
       fi
     fi
   fi
@@ -694,7 +694,32 @@ $skill_filter_plist_args
 EOF
 }
 
+_kimaki_skill_filter_mode() {
+  if [ -n "${KIMAKI_SKILL_ENABLES_FILE:-}" ] \
+    || { [ -n "${KIMAKI_CONFIG_DIR:-}" ] && [ -f "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" ]; } \
+    || { [ -n "${KIMAKI_DATA_DIR:-}" ] && [ -f "$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt" ]; } \
+    || [ -f "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" ]; then
+    printf '%s\n' "enable"
+    return 0
+  fi
+
+  printf '%s\n' "disable"
+}
+
 _kimaki_skill_filter_source() {
+  if [ "$(_kimaki_skill_filter_mode)" = "enable" ]; then
+    if [ -n "${KIMAKI_SKILL_ENABLES_FILE:-}" ]; then
+      printf '%s\n' "$KIMAKI_SKILL_ENABLES_FILE"
+    elif [ -n "${KIMAKI_CONFIG_DIR:-}" ] && [ -f "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" ]; then
+      printf '%s\n' "$KIMAKI_CONFIG_DIR/skills-enable-list.txt"
+    elif [ -n "${KIMAKI_DATA_DIR:-}" ] && [ -f "$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt" ]; then
+      printf '%s\n' "$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt"
+    else
+      printf '%s\n' "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt"
+    fi
+    return 0
+  fi
+
   if [ -n "${KIMAKI_SKILL_FILTERS_FILE:-}" ]; then
     printf '%s\n' "$KIMAKI_SKILL_FILTERS_FILE"
   elif [ -n "${KIMAKI_CONFIG_DIR:-}" ] && [ -f "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" ]; then
@@ -702,11 +727,11 @@ _kimaki_skill_filter_source() {
   elif [ -n "${KIMAKI_DATA_DIR:-}" ] && [ -f "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt" ]; then
     printf '%s\n' "$KIMAKI_DATA_DIR/kimaki-config/skills-disable-list.txt"
   else
-    printf '%s\n' "$SCRIPT_DIR/bridges/kimaki/skills-disable-list.txt"
+    printf '%s\n' ""
   fi
 }
 
-_kimaki_each_disabled_skill() {
+_kimaki_each_filtered_skill() {
   local filters_file skill
   filters_file="$(_kimaki_skill_filter_source)"
   [ -f "$filters_file" ] || return 0
@@ -719,20 +744,30 @@ _kimaki_each_disabled_skill() {
 }
 
 _kimaki_skill_filter_args_shell() {
-  local out="" skill
+  local out="" skill flag
+  if [ "$(_kimaki_skill_filter_mode)" = "enable" ]; then
+    flag="--enable-skill"
+  else
+    flag="--disable-skill"
+  fi
   while IFS= read -r skill; do
-    out="$out --disable-skill $skill"
-  done < <(_kimaki_each_disabled_skill)
+    out="$out $flag $skill"
+  done < <(_kimaki_each_filtered_skill)
   printf '%s' "$out"
 }
 
 _kimaki_skill_filter_args_plist() {
-  local out="" skill
+  local out="" skill flag
+  if [ "$(_kimaki_skill_filter_mode)" = "enable" ]; then
+    flag="--enable-skill"
+  else
+    flag="--disable-skill"
+  fi
   while IFS= read -r skill; do
-    out="$out        <string>--disable-skill</string>
+    out="$out        <string>$flag</string>
         <string>$skill</string>
 "
-  done < <(_kimaki_each_disabled_skill)
+  done < <(_kimaki_each_filtered_skill)
   printf '%s' "$out"
 }
 
