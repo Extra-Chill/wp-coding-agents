@@ -11,32 +11,8 @@
         <string>/home/chubes/.kimaki</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
-        <string>--disable-skill</string>
-        <string>batch</string>
-        <string>--disable-skill</string>
-        <string>critique</string>
-        <string>--disable-skill</string>
-        <string>egaki</string>
-        <string>--disable-skill</string>
-        <string>errore</string>
-        <string>--disable-skill</string>
-        <string>goke</string>
-        <string>--disable-skill</string>
-        <string>lintcn</string>
-        <string>--disable-skill</string>
-        <string>npm-package</string>
-        <string>--disable-skill</string>
-        <string>playwriter</string>
-        <string>--disable-skill</string>
-        <string>spiceflow</string>
-        <string>--disable-skill</string>
-        <string>termcast</string>
-        <string>--disable-skill</string>
-        <string>tuistory</string>
-        <string>--disable-skill</string>
-        <string>usecomputer</string>
-        <string>--disable-skill</string>
-        <string>zele</string>
+        <string>--enable-skill</string>
+        <string>upgrade-wp-coding-agents</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/var/www/site</string>

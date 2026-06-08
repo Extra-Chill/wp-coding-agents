@@ -1,0 +1,4 @@
+# Skills to enable in managed Kimaki services.
+# One skill name per line. Lines starting with # are ignored.
+
+upgrade-wp-coding-agents

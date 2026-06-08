@@ -22,7 +22,7 @@ Environment=DATAMACHINE_SITE_PATH=/var/www/site
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
 ExecStartPre=-/usr/bin/pkill -TERM -u chubes -f "opencode-ai/bin/.*serve"
 ExecStartPre=/opt/kimaki-config/post-upgrade.sh
-ExecStart=/usr/bin/kimaki --data-dir /home/chubes/.kimaki --auto-restart --no-critique --disable-skill batch --disable-skill critique --disable-skill egaki --disable-skill errore --disable-skill goke --disable-skill lintcn --disable-skill npm-package --disable-skill playwriter --disable-skill spiceflow --disable-skill termcast --disable-skill tuistory --disable-skill usecomputer --disable-skill zele
+ExecStart=/usr/bin/kimaki --data-dir /home/chubes/.kimaki --auto-restart --no-critique --enable-skill upgrade-wp-coding-agents
 Restart=always
 RestartSec=10
 
