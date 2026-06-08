@@ -8,10 +8,8 @@ use WordPress\AiClient\Common\Exception\RuntimeException;
 use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiProvider;
 use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
 use WordPress\AiClient\Providers\Contracts\ProviderAvailabilityInterface;
-use WordPress\AiClient\Providers\Contracts\ProviderWithRequestAuthenticationInterface;
 use WordPress\AiClient\Providers\DTO\ProviderMetadata;
 use WordPress\AiClient\Providers\Enums\ProviderTypeEnum;
-use WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface;
 use WordPress\AiClient\Providers\Http\Enums\RequestAuthenticationMethod;
 use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
@@ -19,7 +17,7 @@ use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 /**
  * Provider for Claude Code subscription-backed access.
  */
-class ClaudeCodeProvider extends AbstractApiProvider implements ProviderWithRequestAuthenticationInterface
+class ClaudeCodeProvider extends AbstractApiProvider
 {
     /**
      * {@inheritDoc}
@@ -66,15 +64,6 @@ class ClaudeCodeProvider extends AbstractApiProvider implements ProviderWithRequ
     protected static function createProviderAvailability(): ProviderAvailabilityInterface
     {
         return new ClaudeCodeProviderAvailability(new ClaudeCodeTokenStore());
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public static function requestAuthentication(): ?RequestAuthenticationInterface
-    {
-        $tokenStore = new ClaudeCodeTokenStore();
-        return new ClaudeCodeRequestAuthentication($tokenStore, new ClaudeCodeOAuthClient($tokenStore));
     }
 
     /**

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace ExtraChill\ClaudeCodeAiProvider\Provider;
 
-use WordPress\AiClient\Providers\Http\Contracts\RequestAuthenticationInterface;
 use WordPress\AiClient\Providers\Http\DTO\Request;
+use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
 
 /**
  * Authenticates requests as Claude Code OAuth traffic.
  */
-class ClaudeCodeRequestAuthentication implements RequestAuthenticationInterface
+class ClaudeCodeRequestAuthentication extends ApiKeyRequestAuthentication
 {
     private const CLAUDE_CODE_VERSION = '2.1.75';
     private const ANTHROPIC_BETA = 'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14';
@@ -27,6 +27,7 @@ class ClaudeCodeRequestAuthentication implements RequestAuthenticationInterface
 
     public function __construct(ClaudeCodeTokenStore $tokenStore, ClaudeCodeOAuthClient $oauthClient)
     {
+        parent::__construct('claude-code-oauth');
         $this->tokenStore = $tokenStore;
         $this->oauthClient = $oauthClient;
     }
@@ -51,10 +52,7 @@ class ClaudeCodeRequestAuthentication implements RequestAuthenticationInterface
      */
     public static function getJsonSchema(): array
     {
-        return [
-            'type' => 'object',
-            'properties' => [],
-        ];
+        return parent::getJsonSchema();
     }
 
     private function userAgent(): string

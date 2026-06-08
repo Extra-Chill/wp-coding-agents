@@ -141,12 +141,7 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
         foreach ($messages as $message) {
             $content = [];
             foreach ($message->getParts() as $part) {
-                if (!$part->getType()->isText()) {
-                    throw new InvalidArgumentException(
-                        'Claude Code text generation currently supports text message parts only.'
-                    );
-                }
-                $content[] = ['type' => 'text', 'text' => $part->getText()];
+                $content[] = ['type' => 'text', 'text' => $this->prepareMessagePartText($part)];
             }
 
             $output[] = [
@@ -156,6 +151,24 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
         }
 
         return $output;
+    }
+
+    private function prepareMessagePartText(MessagePart $part): string
+    {
+        if ($part->getType()->isText()) {
+            return (string) $part->getText();
+        }
+
+        $payload = ['type' => $part->getType()->value];
+        if ($part->getType()->isFunctionCall() && $part->getFunctionCall()) {
+            $payload['function_call'] = $part->getFunctionCall()->toArray();
+        } elseif ($part->getType()->isFunctionResponse() && $part->getFunctionResponse()) {
+            $payload['function_response'] = $part->getFunctionResponse()->toArray();
+        } elseif ($part->getType()->isFile() && $part->getFile()) {
+            $payload['file'] = $part->getFile()->toArray();
+        }
+
+        return $this->encodeJson($payload);
     }
 
     private function roleToAnthropicRole(MessageRoleEnum $role): string
@@ -209,14 +222,20 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
             if (($part['type'] ?? '') === 'text' && isset($part['text']) && is_string($part['text'])) {
                 $parts[] = $part['text'];
             } elseif (($part['type'] ?? '') === 'tool_use' && isset($part['input'])) {
-                $encoded = function_exists('wp_json_encode') ? wp_json_encode($part['input']) : json_encode($part['input']);
-                if (is_string($encoded)) {
-                    $parts[] = $encoded;
-                }
+                $parts[] = $this->encodeJson($part['input']);
             }
         }
 
         return implode("\n", array_filter($parts, 'is_string'));
+    }
+
+    /**
+     * @param mixed $value Raw value.
+     */
+    private function encodeJson($value): string
+    {
+        $encoded = function_exists('wp_json_encode') ? wp_json_encode($value) : json_encode($value);
+        return is_string($encoded) ? $encoded : '';
     }
 
     /**

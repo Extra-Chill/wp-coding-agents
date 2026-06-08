@@ -20,6 +20,9 @@ declare(strict_types=1);
 namespace ExtraChill\ClaudeCodeAiProvider;
 
 use ExtraChill\ClaudeCodeAiProvider\Provider\ClaudeCodeProvider;
+use ExtraChill\ClaudeCodeAiProvider\Provider\ClaudeCodeOAuthClient;
+use ExtraChill\ClaudeCodeAiProvider\Provider\ClaudeCodeRequestAuthentication;
+use ExtraChill\ClaudeCodeAiProvider\Provider\ClaudeCodeTokenStore;
 use WordPress\AiClient\AiClient;
 
 if (!defined('ABSPATH')) {
@@ -44,6 +47,12 @@ function register_provider(): void
     if (!$registry->hasProvider(ClaudeCodeProvider::class)) {
         $registry->registerProvider(ClaudeCodeProvider::class);
     }
+
+    $tokenStore = new ClaudeCodeTokenStore();
+    $registry->setProviderRequestAuthentication(
+        ClaudeCodeProvider::class,
+        new ClaudeCodeRequestAuthentication($tokenStore, new ClaudeCodeOAuthClient($tokenStore))
+    );
 }
 
 add_action('init', __NAMESPACE__ . '\\register_provider', 5);
