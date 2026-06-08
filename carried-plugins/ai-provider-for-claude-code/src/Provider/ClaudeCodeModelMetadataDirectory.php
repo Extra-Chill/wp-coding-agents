@@ -60,6 +60,7 @@ class ClaudeCodeModelMetadataDirectory implements ModelMetadataDirectoryInterfac
             new SupportedOption(OptionEnum::topP()),
             new SupportedOption(OptionEnum::outputMimeType(), ['text/plain', 'application/json']),
             new SupportedOption(OptionEnum::outputSchema()),
+            new SupportedOption(OptionEnum::functionDeclarations()),
             new SupportedOption(OptionEnum::customOptions()),
             new SupportedOption(OptionEnum::inputModalities(), [[ModalityEnum::text()]]),
             new SupportedOption(OptionEnum::outputModalities(), [[ModalityEnum::text()]]),

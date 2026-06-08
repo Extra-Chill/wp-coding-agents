@@ -21,6 +21,8 @@ use WordPress\AiClient\Results\DTO\Candidate;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 use WordPress\AiClient\Results\DTO\TokenUsage;
 use WordPress\AiClient\Results\Enums\FinishReasonEnum;
+use WordPress\AiClient\Tools\DTO\FunctionCall;
+use WordPress\AiClient\Tools\DTO\FunctionResponse;
 
 /**
  * Text generation model for Claude Code using Anthropic Messages API.
@@ -106,7 +108,13 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
             $params['top_p'] = $topP;
         }
 
-        if ($config->getOutputMimeType() === 'application/json' && $config->getOutputSchema()) {
+        $functionDeclarations = $config->getFunctionDeclarations();
+        if (is_array($functionDeclarations) && $functionDeclarations !== []) {
+            // Declare the agent's tools to Anthropic so the model returns
+            // structured `tool_use` blocks instead of improvising tool calls
+            // as freeform text.
+            $params['tools'] = $this->prepareToolsParam($functionDeclarations);
+        } elseif ($config->getOutputMimeType() === 'application/json' && $config->getOutputSchema()) {
             $params['tools'] = [
                 [
                     'name' => 'response_schema',
@@ -130,6 +138,29 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
     }
 
     /**
+     * Prepares the Anthropic `tools` parameter from function declarations.
+     *
+     * @param list<\WordPress\AiClient\Tools\DTO\FunctionDeclaration> $functionDeclarations Declarations.
+     * @return list<array<string, mixed>> Anthropic tool definitions.
+     */
+    private function prepareToolsParam(array $functionDeclarations): array
+    {
+        $tools = [];
+        foreach ($functionDeclarations as $functionDeclaration) {
+            $parameters = $functionDeclaration->getParameters();
+            $tools[] = [
+                'name' => $functionDeclaration->getName(),
+                'description' => $functionDeclaration->getDescription(),
+                'input_schema' => is_array($parameters) && $parameters !== []
+                    ? $parameters
+                    : ['type' => 'object', 'properties' => (object) []],
+            ];
+        }
+
+        return $tools;
+    }
+
+    /**
      * Converts prompt messages to Anthropic Messages format.
      *
      * @param list<Message> $messages Prompt messages.
@@ -141,7 +172,7 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
         foreach ($messages as $message) {
             $content = [];
             foreach ($message->getParts() as $part) {
-                $content[] = ['type' => 'text', 'text' => $this->prepareMessagePartText($part)];
+                $content[] = $this->prepareMessagePartContent($part);
             }
 
             $output[] = [
@@ -153,22 +184,48 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
         return $output;
     }
 
-    private function prepareMessagePartText(MessagePart $part): string
+    /**
+     * Converts a single message part to an Anthropic content block.
+     *
+     * @param MessagePart $part Message part.
+     * @return array<string, mixed> Anthropic content block.
+     */
+    private function prepareMessagePartContent(MessagePart $part): array
     {
         if ($part->getType()->isText()) {
-            return (string) $part->getText();
+            return ['type' => 'text', 'text' => (string) $part->getText()];
         }
 
-        $payload = ['type' => $part->getType()->value];
         if ($part->getType()->isFunctionCall() && $part->getFunctionCall()) {
-            $payload['function_call'] = $part->getFunctionCall()->toArray();
-        } elseif ($part->getType()->isFunctionResponse() && $part->getFunctionResponse()) {
-            $payload['function_response'] = $part->getFunctionResponse()->toArray();
-        } elseif ($part->getType()->isFile() && $part->getFile()) {
+            $functionCall = $part->getFunctionCall();
+            $arguments = $functionCall->getArgs();
+
+            return [
+                'type' => 'tool_use',
+                'id' => (string) ($functionCall->getId() ?? $functionCall->getName() ?? ''),
+                'name' => (string) ($functionCall->getName() ?? ''),
+                'input' => is_array($arguments) ? $arguments : (object) [],
+            ];
+        }
+
+        if ($part->getType()->isFunctionResponse() && $part->getFunctionResponse()) {
+            $functionResponse = $part->getFunctionResponse();
+            $response = $functionResponse->getResponse();
+
+            return [
+                'type' => 'tool_result',
+                'tool_use_id' => (string) ($functionResponse->getId() ?? $functionResponse->getName() ?? ''),
+                'content' => is_string($response) ? $response : $this->encodeJson($response),
+            ];
+        }
+
+        // Fallback for unsupported part types: serialize as text so context is preserved.
+        $payload = ['type' => $part->getType()->value];
+        if ($part->getType()->isFile() && $part->getFile()) {
             $payload['file'] = $part->getFile()->toArray();
         }
 
-        return $this->encodeJson($payload);
+        return ['type' => 'text', 'text' => $this->encodeJson($payload)];
     }
 
     private function roleToAnthropicRole(MessageRoleEnum $role): string
@@ -186,9 +243,9 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
             throw ResponseException::fromMissingData('Claude Code', 'content');
         }
 
-        $text = $this->extractText($data);
-        if ($text === '') {
-            throw ResponseException::fromMissingData('Claude Code', 'content.text');
+        $parts = $this->parseResponseParts($data);
+        if ($parts === []) {
+            throw ResponseException::fromMissingData('Claude Code', 'content');
         }
 
         $usage = isset($data['usage']) && is_array($data['usage']) ? $data['usage'] : [];
@@ -197,7 +254,7 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
 
         return new GenerativeAiResult(
             isset($data['id']) && is_string($data['id']) ? $data['id'] : '',
-            [new Candidate(new ModelMessage([new MessagePart($text)]), FinishReasonEnum::stop())],
+            [new Candidate(new ModelMessage($parts), $this->mapFinishReason($data['stop_reason'] ?? null))],
             new TokenUsage($inputTokens, $outputTokens, $inputTokens + $outputTokens),
             $this->providerMetadata(),
             $this->metadata(),
@@ -206,27 +263,55 @@ class ClaudeCodeTextGenerationModel extends AbstractApiBasedModel implements Tex
     }
 
     /**
+     * Converts Anthropic response content blocks into message parts.
+     *
      * @param array<string, mixed> $data Response data.
+     * @return list<MessagePart> Message parts.
      */
-    private function extractText(array $data): string
+    private function parseResponseParts(array $data): array
     {
         $parts = [];
         if (!isset($data['content']) || !is_array($data['content'])) {
-            return '';
+            return $parts;
         }
 
         foreach ($data['content'] as $part) {
             if (!is_array($part)) {
                 continue;
             }
-            if (($part['type'] ?? '') === 'text' && isset($part['text']) && is_string($part['text'])) {
-                $parts[] = $part['text'];
-            } elseif (($part['type'] ?? '') === 'tool_use' && isset($part['input'])) {
-                $parts[] = $this->encodeJson($part['input']);
+
+            $type = $part['type'] ?? '';
+            if ($type === 'text' && isset($part['text']) && is_string($part['text']) && $part['text'] !== '') {
+                $parts[] = new MessagePart($part['text']);
+            } elseif ($type === 'tool_use') {
+                $name = isset($part['name']) && is_string($part['name']) ? $part['name'] : '';
+                if ($name === '') {
+                    continue;
+                }
+                $input = isset($part['input']) && is_array($part['input']) ? $part['input'] : [];
+                $id = isset($part['id']) && is_string($part['id']) ? $part['id'] : null;
+                $parts[] = new MessagePart(new FunctionCall($id, $name, $input));
             }
         }
 
-        return implode("\n", array_filter($parts, 'is_string'));
+        return $parts;
+    }
+
+    /**
+     * Maps an Anthropic stop reason to a finish reason.
+     *
+     * @param mixed $stopReason Anthropic stop reason.
+     */
+    private function mapFinishReason($stopReason): FinishReasonEnum
+    {
+        if ($stopReason === 'tool_use') {
+            return FinishReasonEnum::toolCalls();
+        }
+        if ($stopReason === 'max_tokens') {
+            return FinishReasonEnum::length();
+        }
+
+        return FinishReasonEnum::stop();
     }
 
     /**
