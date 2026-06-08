@@ -66,7 +66,7 @@ class ClaudeCodeModelMetadataDirectory implements ModelMetadataDirectoryInterfac
         ];
 
         $models = [];
-        foreach (['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] as $modelId) {
+        foreach (['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] as $modelId) {
             $models[$modelId] = new ModelMetadata(
                 $modelId,
                 $modelId,
