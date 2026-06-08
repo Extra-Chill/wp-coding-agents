@@ -298,14 +298,6 @@ for secret_env in "${SECRET_ENVS[@]}"; do
   COMMAND+=(--secret-env "$secret_env")
 done
 
-if [ -n "$CHANNEL" ]; then
-  COMMAND+=(--channel "$CHANNEL")
-fi
-
-if [ -n "$THREAD" ]; then
-  COMMAND+=(--thread "$THREAD")
-fi
-
 if [ -n "$MODEL" ]; then
   COMMAND+=(--model "$MODEL")
 fi

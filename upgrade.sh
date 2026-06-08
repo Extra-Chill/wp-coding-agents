@@ -7,7 +7,8 @@
 #   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
 #      supports kimaki, cc-connect, telegram).
 #   2. Update setup-installed Data Machine plugins to latest tagged releases,
-#      and sync WP Codebox (subtree-packaged) to its latest tag when installed.
+#      sync carried provider plugins, and sync WP Codebox (subtree-packaged)
+#      to its latest tag when installed.
 #   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
 #          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + skill filters)
@@ -66,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine wp-codebox homeboy skills cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy skills cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -176,7 +177,8 @@ NEVER TOUCHED:
 DEFAULT TOUCHES:
   - data-machine and data-machine-code — updates setup-installed git
     checkouts to their latest version tags. Non-git plugin directories are
-    skipped. Use --skip-plugins to skip this phase.
+    skipped. Carried provider plugins are synced from this repo when their
+    runtime is present. Use --skip-plugins to skip this phase.
   - opencode.json — additive repair. Adds managed plugin entries the
     user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
     bridges) and migrates "agent.build.prompt" to top-level "instructions"
@@ -324,6 +326,7 @@ _run_filter_active() {
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
   upgrade_data_machine_plugins
+  sync_carried_plugins
   update_wp_codebox_plugin_subtree
 }
 

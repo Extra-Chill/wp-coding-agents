@@ -183,6 +183,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, or **[Studio Code](https://developer.wordpress.com/studio/)** | AI coding agent runtime | Selected via `--runtime` |
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | No — wp-coding-agents composes on top of DM |
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
+| **AI Provider for Claude Code** | wp-coding-agents-carried WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 | **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
 | **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
@@ -246,6 +247,25 @@ Data Machine is the substrate wp-coding-agents composes on top of — memory, sc
 - Policy-controlled git operations (add, commit, push with allowlists; primary checkout is read-only by default)
 
 ## Optional Homeboy Layer
+
+### Claude Code Provider
+
+When the selected or detected runtime includes Claude Code, wp-coding-agents syncs and activates a carried plugin at:
+
+```
+wp-content/plugins/ai-provider-for-claude-code
+```
+
+This plugin registers WP AI Client provider id `claude-code`. It is backed by Claude Code OAuth credentials and sends Anthropic Messages API requests with Claude Code subscription headers. It is not an official Anthropic API-key provider and does not require WP AI Gateway for Homeboy Codebox cooking.
+
+Use WP AI Gateway only when an external client needs an OpenAI-compatible WordPress endpoint. Homeboy Codebox tasks can select the provider directly with `--provider claude-code` and pass the carried provider plugin path through the provider config.
+
+Configuration:
+
+- `AI_PROVIDER_CLAUDE_CODE_REFRESH_TOKEN` provides the Claude Code OAuth refresh token.
+- `AI_PROVIDER_CLAUDE_CODE_ACCESS_TOKEN` and `AI_PROVIDER_CLAUDE_CODE_EXPIRES_AT` optionally provide a cached access token.
+- The same names may be supplied as WordPress constants.
+- `ai_provider_claude_code_oauth_tokens` can filter token data at runtime.
 
 `--with-homeboy` adds Homeboy as an optional, recommended developer power layer. Homeboy is not bundled or vendorized by wp-coding-agents; setup verifies or installs the external Homeboy CLI, verifies the WordPress extension, then exposes its availability to Data Machine Code so composed agent instructions can include Homeboy workflows.
 

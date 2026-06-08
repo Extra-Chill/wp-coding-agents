@@ -364,5 +364,5 @@ print_homeboy_verification_commands() {
   echo "  homeboy extension show wordpress"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
-  echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; add --run to execute"
+  echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
 }

@@ -93,6 +93,15 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local needle="$1" file="$2"
+  if grep -qF -- "$needle" "$file"; then
+    echo "FAIL: did not expect '$needle' in $file"
+    cat "$file"
+    exit 1
+  fi
+}
+
 assert_json() {
   python3 - "$HOMEBOY_CAPTURE_CONFIG" <<'PY'
 import json
@@ -109,6 +118,13 @@ assert config["provider"] == "openai"
 assert config["model"] == "gpt-4.1-mini"
 assert config["max_turns"] == 2
 assert config["secret_env"] == ["OPENAI_API_KEY"]
+assert config["routing"] == {
+    "channel": "canary-channel",
+    "thread": "canary-thread",
+    "client": "discord",
+    "ui": "kimaki",
+    "user_required": False,
+}
 assert config["mounts"] == [
     {
         "source": config["workspace_root"],
@@ -136,12 +152,16 @@ OUTPUT="$TMP/output.log"
   --provider-plugin-path "$TMP/provider-openai" \
   --model gpt-4.1-mini \
   --max-turns 2 \
+  --channel canary-channel \
+  --thread canary-thread \
   > "$OUTPUT"
 
 assert_contains "--secret-env" "$HOMEBOY_CAPTURE_ARGS"
 assert_contains "OPENAI_API_KEY" "$HOMEBOY_CAPTURE_ARGS"
 assert_contains "--backend" "$HOMEBOY_CAPTURE_ARGS"
 assert_contains "codebox" "$HOMEBOY_CAPTURE_ARGS"
+assert_not_contains "--channel" "$HOMEBOY_CAPTURE_ARGS"
+assert_not_contains "--thread" "$HOMEBOY_CAPTURE_ARGS"
 assert_contains "Canary validation passed" "$OUTPUT"
 assert_contains "Changed files: 0" "$OUTPUT"
 assert_json
