@@ -48,6 +48,14 @@ jobs:
       - name: Run tests/kimaki-agent-fallback.sh
         run: ./tests/kimaki-agent-fallback.sh
 
+  cli-channel-binary-path:
+    name: CLI channel binary-path web-reachability regression (#198)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/cli-channel-binary-path.sh
+        run: ./tests/cli-channel-binary-path.sh
+
   wp-codebox-subtree:
     name: WP Codebox subtree updater
     runs-on: ubuntu-latest

@@ -5,6 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# mktemp -d creates the dir at 0700. The CLI-channel resolver now refuses to
+# register a binary whose ancestor dirs are not world-traversable (the #198
+# fix: a /root- or /home/opencode-trapped binary is unreachable by the
+# www-data CLI-dispatch transport). These fixtures simulate normally-installed,
+# web-reachable binaries, so make the temp root 0755 to match that reality.
+chmod 0755 "$TMP"
+
 if [ -e "$ROOT/bridges/kimaki/bin/datamachine-kimaki" ]; then
   echo "FAIL: datamachine-kimaki adapter should not be shipped"
   exit 1

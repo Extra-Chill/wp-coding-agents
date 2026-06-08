@@ -66,9 +66,24 @@ bridge_install() {
 # Register the native Kimaki binary. Kimaki 0.13 validates requested agents and
 # falls back to the default/build agent when a requested agent is unavailable,
 # so wp-coding-agents must not rewrite `--agent` itself.
+#
+# The command we register here is shelled by the Data Machine Code CLI transport
+# from the `agents/dispatch-message` ability, which runs inside PHP-FPM as the
+# WordPress web user (www-data) on WP-cron / Action Scheduler fires — NOT as the
+# kimaki.service user. On a RUN_AS_ROOT install the kimaki binary resolves under
+# /root/.kimaki/bin (and the data dir under /root, mode 0700); www-data cannot
+# traverse 0700 /root, so proc_open fails with EACCES and every scheduled
+# dispatch dies as datamachine_code_cli_dispatch_spawn_failed. The opencode
+# service-user home (/home/opencode, mode 0750) is the same trap. We therefore
+# only register a path whose ancestor directories are world-traversable
+# (`o+x`), preferring a system-prefix binary (e.g. /usr/bin/kimaki, the
+# npm-global symlink) over any private-home wrapper. See #198 / #93.
 _kimaki_register_cli_channel() {
   local cmd
-  if [ -n "${KIMAKI_BIN:-}" ] && [ -x "$KIMAKI_BIN" ] && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN"; then
+  if [ -n "${KIMAKI_BIN:-}" ] \
+    && [ -x "$KIMAKI_BIN" ] \
+    && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN" \
+    && _kimaki_path_is_web_traversable "$KIMAKI_BIN"; then
     cmd="$KIMAKI_BIN"
   else
     cmd="$(_kimaki_find_native_binary)"
@@ -87,8 +102,66 @@ _kimaki_is_legacy_adapter_file() {
   [ -e "$file" ] && grep -q 'wp-coding-agents datamachine-kimaki adapter' "$file" 2>/dev/null
 }
 
+# _kimaki_path_is_web_traversable <path>
+#
+# Return 0 if every ancestor directory of <path> carries the world-execute
+# bit (`o+x`), i.e. an unrelated user (the PHP-FPM web user that runs the
+# CLI-dispatch transport) can traverse to it. Return 1 if any ancestor is
+# missing `o+x` (e.g. /root at 0700, /home/opencode at 0750) — such a path is
+# unreachable by www-data and must not be registered as the dispatch command.
+#
+# Symlinks are resolved first (via realpath when available) so the real
+# target's ancestors are checked, not the link's. If the path cannot be
+# resolved or stat'd, err on the side of "not traversable" (return 1) so the
+# caller falls back to PATH resolution.
+_kimaki_path_is_web_traversable() {
+  local path="$1"
+  [ -n "$path" ] || return 1
+
+  local resolved
+  if command -v realpath >/dev/null 2>&1; then
+    resolved="$(realpath -e "$path" 2>/dev/null)" || return 1
+  elif command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$path" 2>/dev/null)" || return 1
+  else
+    resolved="$path"
+  fi
+  [ -n "$resolved" ] || return 1
+
+  # Walk every ancestor directory from the binary up to /, asserting o+x.
+  local dir="${resolved%/*}"
+  [ -n "$dir" ] || dir="/"
+  while :; do
+    local perms
+    perms="$(stat -c '%a' "$dir" 2>/dev/null)" || perms="$(stat -f '%Lp' "$dir" 2>/dev/null)" || return 1
+    # Last octal digit is the "other" triad; its execute bit is value 1.
+    local other="${perms: -1}"
+    case "$other" in
+      1|3|5|7) ;;            # o+x present
+      *) return 1 ;;          # o+x missing — not traversable by www-data
+    esac
+    [ "$dir" = "/" ] && break
+    dir="${dir%/*}"
+    [ -n "$dir" ] || dir="/"
+  done
+
+  return 0
+}
+
+# _kimaki_find_native_binary
+#
+# Resolve the kimaki binary to register as the CLI-dispatch command. Walks
+# $PATH and returns the first candidate that is (a) executable, (b) not the
+# legacy adapter shim, and (c) web-traversable (every ancestor dir is `o+x`,
+# so the www-data CLI-dispatch transport can reach it — see #198).
+#
+# A candidate that is executable but trapped under a private home
+# (/root/.kimaki/bin, /home/opencode/.kimaki/bin) is skipped in favor of a
+# later, reachable candidate (typically the /usr/bin npm-global symlink). If
+# nothing on $PATH is reachable, fall back to the bare name "kimaki" and let
+# the runtime resolve it via its own PATH at dispatch time.
 _kimaki_find_native_binary() {
-  local dir candidate
+  local dir candidate first_unreachable=""
   IFS=: read -r -a path_entries <<< "${PATH:-}"
   for dir in "${path_entries[@]}"; do
     [ -n "$dir" ] || continue
@@ -97,9 +170,21 @@ _kimaki_find_native_binary() {
     if _kimaki_is_legacy_adapter_file "$candidate"; then
       continue
     fi
+    if ! _kimaki_path_is_web_traversable "$candidate"; then
+      # Remember the first executable-but-unreachable candidate as a
+      # last-resort over the bare name, but keep looking for a reachable one.
+      [ -n "$first_unreachable" ] || first_unreachable="$candidate"
+      continue
+    fi
     printf '%s\n' "$candidate"
     return 0
   done
+
+  if [ -n "$first_unreachable" ]; then
+    printf '%s\n' "$first_unreachable"
+    return 0
+  fi
+
   printf '%s\n' "kimaki"
 }
 
