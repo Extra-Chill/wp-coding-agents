@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.3.0] - 2026-06-12
+
+### Added
+- make wp-coding-agents skills opt-in
+- derive opencode instructions from Data Machine injectable memory files
+- keep WP Codebox current via subtree-aware plugin updates
+
+### Changed
+- Own CLI dispatch transport in wp-coding-agents
+- Encode empty tool_use input as a JSON object
+- Add structured tool calling to Claude Code provider
+- add claude-opus-4-8 model to Claude Code provider
+- replace Claude Code CLI provider with OAuth API
+- add Claude Code provider plugin
+- clarify upgrade skill boundary
+- add Homeboy Codebox canary verification
+- clarify agents guidance sync API
+
+### Fixed
+- allowlist managed skills
+- disable critique skill in managed services
+- register a web-traversable kimaki binary for CLI dispatch (#198)
+- fix Claude Code provider Codebox canary
+- install only upgrade skill by default
+- preserve Homeboy project detection for blank site URLs
+- add AGENTS.md section provenance metadata
+- tighten Kimaki prompt hint filtering
+- scope agent task guidance to available tooling
+- cover compiler edge cases
+- preserve home path expansion in compiler
+- publish codebox agent task guidance
+
 ## [1.2.2] - 2026-05-30
 
 ### Fixed
