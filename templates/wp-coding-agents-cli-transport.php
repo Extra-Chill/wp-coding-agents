@@ -258,25 +258,78 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		 * @return array<string, mixed>|WP_Error
 		 */
 		private static function dispatch_detached( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env ) {
+			// Capture stderr so an early-exiting child can report WHY it died.
+			// proc_close() below waits for the child either way (it always has —
+			// "detached" here means new session, not fire-and-forget), so the
+			// exit code is available for free. Discarding it caused scheduled
+			// dispatches to be marked delivered when the CLI crashed at startup
+			// (ENOSPC, bad binary path, auth failure). See data-machine-code#643.
+			$stderr_file = tempnam( sys_get_temp_dir(), 'wpca-dispatch-' );
+			$stderr_spec = false !== $stderr_file
+				? array( 'file', $stderr_file, 'w' )
+				: array( 'file', '/dev/null', 'w' );
+
 			$descriptors = array(
 				0 => array( 'file', '/dev/null', 'r' ),
 				1 => array( 'file', '/dev/null', 'w' ),
-				2 => array( 'file', '/dev/null', 'w' ),
+				2 => $stderr_spec,
 			);
 
 			$started_at = microtime( true );
 			$process    = self::open_process( $argv, $descriptors, $cwd, $env, true );
 			if ( $process instanceof WP_Error ) {
+				if ( false !== $stderr_file ) {
+					@unlink( $stderr_file );
+				}
 				return $process;
 			}
 
-			$pid    = null;
-			$status = proc_get_status( $process );
+			$pid       = null;
+			$exit_code = null;
+			$status    = proc_get_status( $process );
 			if ( is_array( $status ) && isset( $status['pid'] ) ) {
 				$pid = (int) $status['pid'];
 			}
+			// exitcode is only valid the first time running flips false.
+			if ( is_array( $status ) && false === ( $status['running'] ?? true ) ) {
+				$exit_code = isset( $status['exitcode'] ) ? (int) $status['exitcode'] : null;
+			}
 
-			proc_close( $process );
+			$close_code = proc_close( $process );
+			if ( null === $exit_code && is_int( $close_code ) && -1 !== $close_code ) {
+				$exit_code = $close_code;
+			}
+
+			$stderr = '';
+			if ( false !== $stderr_file ) {
+				$raw = @file_get_contents( $stderr_file );
+				if ( is_string( $raw ) ) {
+					$stderr = trim( $raw );
+				}
+				@unlink( $stderr_file );
+			}
+
+			$duration_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
+
+			if ( null !== $exit_code && 0 !== $exit_code ) {
+				return new WP_Error(
+					'wp_coding_agents_cli_dispatch_exit_nonzero',
+					sprintf(
+						'CLI dispatch process "%s" exited with code %d after %dms.%s',
+						$argv[0] ?? '',
+						$exit_code,
+						$duration_ms,
+						'' !== $stderr ? ' stderr: ' . self::truncate_output( $stderr ) : ''
+					),
+					array(
+						'channel'     => $channel,
+						'recipient'   => $recipient,
+						'exit_code'   => $exit_code,
+						'duration_ms' => $duration_ms,
+						'stderr'      => self::truncate_output( $stderr ),
+					)
+				);
+			}
 
 			return array(
 				'sent'       => true,
@@ -286,7 +339,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				'metadata'   => array(
 					'mode'        => 'detached',
 					'pid'         => $pid,
-					'duration_ms' => (int) round( ( microtime( true ) - $started_at ) * 1000 ),
+					'exit_code'   => $exit_code,
+					'duration_ms' => $duration_ms,
 				),
 			);
 		}

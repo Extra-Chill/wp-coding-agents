@@ -206,6 +206,11 @@ $wp_coding_agents_test_options = array(
 			'args'    => array(),
 			'detach'  => true,
 		),
+		'detached-false' => array(
+			'command' => $false_bin,
+			'args'    => array(),
+			'detach'  => true,
+		),
 		'inherit-env'   => array(
 			'command' => $env_bin,
 			'args'    => array(),
@@ -252,6 +257,11 @@ $assert( 'execute unknown returns WP_Error', $unknown instanceof WP_Error );
 
 $detached = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-true', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'detached returns array', is_array( $detached ) && true === ( $detached['sent'] ?? false ) );
+
+// Regression: a detached child that exits non-zero must fail the dispatch
+// instead of being reported as delivered (data-machine-code#643).
+$detached_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-false', 'recipient' => 'r', 'message' => 'm' ) );
+$assert( 'detached early exit returns WP_Error', $detached_fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_exit_nonzero' === $detached_fail->get_error_code() );
 
 putenv( 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' );
 $inherited = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'inherit-env', 'recipient' => 'r', 'message' => 'm' ) );
