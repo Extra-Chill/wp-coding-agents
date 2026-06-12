@@ -40,6 +40,24 @@ jobs:
       - name: Run tests/opencode-wrapper-removal.sh
         run: ./tests/opencode-wrapper-removal.sh
 
+  cli-transport:
+    name: CLI dispatch transport runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/cli-transport-install.sh
+        run: ./tests/cli-transport-install.sh
+      - name: Run tests/smoke-cli-transport.php
+        run: php tests/smoke-cli-transport.php
+
+  cli-channel-registry:
+    name: CLI channel registry permissions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/cli-channel-perms.sh
+        run: ./tests/cli-channel-perms.sh
+
   kimaki-agent-fallback:
     name: Kimaki native agent fallback regression
     runs-on: ubuntu-latest

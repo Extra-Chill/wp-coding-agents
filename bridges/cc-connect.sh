@@ -47,7 +47,7 @@ bridge_install() {
 
 # _cc_connect_register_cli_channel
 #
-# Register cc-connect with the Data Machine Code CLI transport runtime.
+# Register cc-connect with the wp-coding-agents CLI transport runtime.
 #
 # `recipient` semantics: cc-connect routes outgoing `send` commands through
 # its currently-active project/session as configured in $CC_DATA_DIR/config.toml
