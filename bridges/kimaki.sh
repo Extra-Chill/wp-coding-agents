@@ -552,6 +552,7 @@ Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
 
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
+  MERGED_ENV=$(_preserve_systemd_umask "$UNIT_FILE" "$MERGED_ENV")
 
   local NEW_UNIT
   NEW_UNIT=$(bridge_render_systemd kimaki.service "$MERGED_ENV")

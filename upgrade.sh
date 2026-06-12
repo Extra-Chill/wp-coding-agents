@@ -111,6 +111,9 @@ RUNTIME=""
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
 CHAT_BRIDGE=""
+# True when the operator forced the identity via --root / --non-root.
+# Suppresses adopt_service_identity_from_units (existing-unit adoption).
+SERVICE_USER_FORCED=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -124,6 +127,8 @@ while [[ $# -gt 0 ]]; do
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
+    --root)          RUN_AS_ROOT=true;  SERVICE_USER_FORCED=true; shift ;;
+    --non-root)      RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
     --help|-h)       SHOW_HELP=true; shift ;;
     *)               shift ;;
   esac
@@ -158,6 +163,15 @@ USAGE:
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
+  ./upgrade.sh --root           Force root service identity (skips adoption
+                                of the existing unit's User=)
+  ./upgrade.sh --non-root       Force non-root service identity (User=opencode)
+
+SERVICE IDENTITY:
+  By default the upgrade adopts the service user from the EXISTING
+  installed systemd unit (its User= line) rather than assuming root.
+  The upgrade never changes the service identity implicitly; use
+  --root / --non-root to change it deliberately.
 
 SUPPORTED CHAT BRIDGES:
   kimaki, cc-connect, telegram  (auto-detected per environment)
@@ -274,6 +288,14 @@ fi
 if [ -n "$CHAT_BRIDGE" ] && bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1; then
   bridge_load "$CHAT_BRIDGE"
 fi
+
+# On upgrade, the installed unit's User= is the source of truth for the
+# service identity. upgrade.sh defaults RUN_AS_ROOT=true, which on a
+# non-root install (User=opencode) made Phase 5 silently rewrite the unit
+# to User=root — root-owned state files, broken next non-root start, and
+# the root-homed-path dispatch trap (#198/#93) all over again. See #204.
+# --root / --non-root force an explicit identity and skip adoption.
+adopt_service_identity_from_units
 
 log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
