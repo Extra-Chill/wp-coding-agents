@@ -197,6 +197,96 @@ _ensure_systemd_path_contains() {
   ' <<< "$current_env"
 }
 
+# _systemd_unit_user <unit_file>
+#
+# Print the User= value from an existing systemd unit. Empty output +
+# return 1 when the file is missing or has no User= directive.
+_systemd_unit_user() {
+  local unit_file="$1"
+  [ -f "$unit_file" ] || return 1
+  local user
+  user=$(sed -n 's/^User=\(.*\)$/\1/p' "$unit_file" | head -1)
+  [ -n "$user" ] || return 1
+  printf '%s' "$user"
+}
+
+# _preserve_systemd_umask <unit_file> <env_block>
+#
+# Carry the existing unit's UMask= directive into a re-rendered unit.
+# The bridge templates do not render UMask, but non-root installs rely on
+# it (e.g. UMask=0002 for group-write with www-data). Without this, every
+# Phase 5 refresh silently dropped the directive. Appends the existing
+# UMask= line to the env block (both land in [Service]); no-op when the
+# existing unit has none.
+_preserve_systemd_umask() {
+  local unit_file="$1" env_block="$2"
+  local umask_line=""
+  if [ -f "$unit_file" ]; then
+    umask_line=$(grep '^UMask=' "$unit_file" | head -1 || true)
+  fi
+  if [ -z "$umask_line" ]; then
+    printf '%s' "$env_block"
+    return 0
+  fi
+  if [ -n "$env_block" ]; then
+    printf '%s\n%s' "$env_block" "$umask_line"
+  else
+    printf '%s' "$umask_line"
+  fi
+}
+
+# adopt_service_identity_from_units
+#
+# On upgrade, the EXISTING installed unit is the source of truth for the
+# service identity — not the script's default. upgrade.sh historically
+# hardcoded RUN_AS_ROOT=true, so on a non-root install (User=opencode)
+# Phase 5 re-rendered the unit with User=root: a silent service-identity
+# flip that creates root-owned state files, breaks the next non-root
+# start, and re-introduces the root-homed-path trap (#198/#93). See #204.
+#
+# Walks the loaded bridge's systemd units, reads User= from the first one
+# that exists, and re-derives SERVICE_USER / SERVICE_HOME /
+# KIMAKI_DATA_DIR / RUN_AS_ROOT to match. Skipped in local mode (no
+# systemd), when no bridge is loaded, or when the operator forced an
+# identity explicitly via --root / --non-root (SERVICE_USER_FORCED=true).
+#
+# SYSTEMD_UNIT_DIR is overridable for tests (defaults to
+# /etc/systemd/system).
+adopt_service_identity_from_units() {
+  [ "${LOCAL_MODE:-false}" = true ] && return 0
+  [ "${SERVICE_USER_FORCED:-false}" = true ] && return 0
+  declare -F bridge_systemd_units >/dev/null 2>&1 || return 0
+
+  local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+  local unit unit_user unit_home
+  for unit in $(bridge_systemd_units); do
+    [ -f "$unit_dir/$unit" ] || continue
+    unit_user=$(_systemd_unit_user "$unit_dir/$unit") || continue
+
+    if [ "$unit_user" != "$SERVICE_USER" ]; then
+      unit_home=$(getent passwd "$unit_user" 2>/dev/null | cut -d: -f6)
+      if [ -z "$unit_home" ]; then
+        if [ "$unit_user" = "root" ]; then
+          unit_home="/root"
+        else
+          unit_home="/home/$unit_user"
+        fi
+      fi
+      log "  Adopting service identity from $unit: User=$unit_user (script default was $SERVICE_USER)"
+      SERVICE_USER="$unit_user"
+      SERVICE_HOME="$unit_home"
+      KIMAKI_DATA_DIR="$unit_home/.kimaki"
+      if [ "$unit_user" = "root" ]; then
+        RUN_AS_ROOT=true
+      else
+        RUN_AS_ROOT=false
+      fi
+    fi
+    return 0
+  done
+  return 0
+}
+
 # _smart_update_systemd_unit <unit_file> <new_unit> [<label>]
 #
 # Diff + write + daemon-reload a single systemd unit. Records the change in

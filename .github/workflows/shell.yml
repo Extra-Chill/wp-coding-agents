@@ -81,3 +81,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/wp-codebox-subtree.sh
         run: ./tests/wp-codebox-subtree.sh
+
+  service-identity-adoption:
+    name: Service identity adoption regression (#204)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/service-identity-adoption.sh
+        run: ./tests/service-identity-adoption.sh

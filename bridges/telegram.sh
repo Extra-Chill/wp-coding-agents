@@ -261,6 +261,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
     local SERVE_CURRENT_ENV SERVE_MERGED_ENV SERVE_NEW
     SERVE_CURRENT_ENV=$(grep '^Environment=' "$SERVE_UNIT" || true)
     SERVE_MERGED_ENV=$(_merge_systemd_env_lines "$SERVE_CURRENT_ENV" "$TEMPLATE_ENV")
+    SERVE_MERGED_ENV=$(_preserve_systemd_umask "$SERVE_UNIT" "$SERVE_MERGED_ENV")
     SERVE_NEW=$(bridge_render_systemd opencode-serve.service "$SERVE_MERGED_ENV")
     _smart_update_systemd_unit "$SERVE_UNIT" "$SERVE_NEW" "opencode-serve.service"
   else
@@ -272,6 +273,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
     local TG_CURRENT_ENV TG_MERGED_ENV TG_NEW
     TG_CURRENT_ENV=$(grep '^Environment=' "$TG_UNIT" || true)
     TG_MERGED_ENV=$(_merge_systemd_env_lines "$TG_CURRENT_ENV" "$TEMPLATE_ENV")
+    TG_MERGED_ENV=$(_preserve_systemd_umask "$TG_UNIT" "$TG_MERGED_ENV")
     TG_NEW=$(bridge_render_systemd opencode-telegram.service "$TG_MERGED_ENV")
     _smart_update_systemd_unit "$TG_UNIT" "$TG_NEW" "opencode-telegram.service"
   else
