@@ -348,6 +348,38 @@ The default chat bridge for OpenCode. On VPS and macOS launchd installs, wp-codi
 
 To customize the managed skill filters, edit `bridges/kimaki/skills-enable-list.txt` before running setup, or edit `/opt/kimaki-config/skills-enable-list.txt` on a VPS or `$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt` on a local install after setup.
 
+#### Kimaki Managed-Plugin Rig
+
+Use the Kimaki rig when a Kimaki upgrade, restart, or local config repair changes how managed OpenCode plugins behave. The rig stages an isolated `KIMAKI_DATA_DIR`, copies the wp-coding-agents Kimaki config into it, runs `post-upgrade.sh` across simulated restart/package-wipe cycles, and proves the managed prompt filter executes against Kimaki's rendered prompt.
+
+```bash
+node scripts/kimaki-managed-plugin-rig.mjs \
+  --artifact-dir ./tmp/kimaki-managed-plugin-rig
+```
+
+To compare a live install against the repo contract, add live paths:
+
+```bash
+node scripts/kimaki-managed-plugin-rig.mjs \
+  --artifact-dir ./tmp/kimaki-managed-plugin-rig \
+  --check-live \
+  --live-site-dir /path/to/wordpress \
+  --live-kimaki-data-dir ~/.kimaki
+```
+
+To run the same rig through Homeboy Lab evidence capture, snapshot-sync the worktree and run it on a connected runner:
+
+```bash
+homeboy runner workspace sync homeboy-lab --path /path/to/wp-coding-agents --mode snapshot
+homeboy runner exec homeboy-lab \
+  --cwd /home/chubes/Developer/_lab_workspaces/<synced-path> \
+  node scripts/kimaki-managed-plugin-rig.mjs \
+    --artifact-dir /home/chubes/Developer/.tmp/kimaki-managed-plugin-rig \
+    --keep
+```
+
+The rig writes `manifest.json`, prompt snapshots, `post-upgrade` logs, optional `live-drift.json`, and file hashes into the artifact directory. It is observational: it does not start the user's real Kimaki bot and does not mutate `~/.kimaki` unless you explicitly point `--artifact-dir` there.
+
 On local installs, Kimaki installs globally via npm but without a systemd service. Run it manually:
 
 ```bash

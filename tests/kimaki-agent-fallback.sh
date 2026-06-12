@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d /tmp/wp-coding-agents-kimaki-agent-fallback.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
 # mktemp -d creates the dir at 0700. The CLI-channel resolver now refuses to

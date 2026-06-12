@@ -120,7 +120,9 @@ _kimaki_path_is_web_traversable() {
 
   local resolved
   if command -v realpath >/dev/null 2>&1; then
-    resolved="$(realpath -e "$path" 2>/dev/null)" || return 1
+    resolved="$(realpath -e "$path" 2>/dev/null)" \
+      || resolved="$(realpath "$path" 2>/dev/null)" \
+      || return 1
   elif command -v readlink >/dev/null 2>&1; then
     resolved="$(readlink -f "$path" 2>/dev/null)" || return 1
   else
@@ -440,11 +442,19 @@ bridge_sync_config() {
       if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" 2>/dev/null; then
         echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/skills-enable-list.txt"
       fi
+      if [ -e "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would remove obsolete $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+      fi
     else
       if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" 2>/dev/null; then
         cp "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt"
         log "  Updated $KIMAKI_CONFIG_DIR/skills-enable-list.txt"
         UPDATED_ITEMS+=("kimaki-config/skills-enable-list.txt")
+      fi
+      if [ -e "$KIMAKI_CONFIG_DIR/skills-disable-list.txt" ]; then
+        rm -f "$KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        log "  Removed obsolete $KIMAKI_CONFIG_DIR/skills-disable-list.txt"
+        UPDATED_ITEMS+=("removed obsolete kimaki-config/skills-disable-list.txt")
       fi
     fi
   fi
