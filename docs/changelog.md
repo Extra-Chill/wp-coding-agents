@@ -3,7 +3,6 @@
 ## [1.3.0] - 2026-06-12
 
 ### Added
-- add Kimaki managed-plugin restart rig
 - make wp-coding-agents skills opt-in
 - derive opencode instructions from Data Machine injectable memory files
 - keep WP Codebox current via subtree-aware plugin updates
