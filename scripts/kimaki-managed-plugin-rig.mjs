@@ -16,6 +16,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = parseArgs(process.argv.slice(2))
+if (args['self-test-args'] === true) {
+  runArgSelfTest()
+  process.exit(0)
+}
 const artifactRoot = path.resolve(args['artifact-dir'] || fs.mkdtempSync(path.join(os.tmpdir(), 'kimaki-managed-plugin-rig-')))
 const keep = args.keep === true
 const checkLive = args['check-live'] === true || !!args['live-site-dir'] || !!args['live-kimaki-data-dir'] || !!args['live-launchd-plist']
@@ -55,7 +59,7 @@ try {
   await runCycle({ name: 'restart-after-package-wipe', simulatePackageWipe: true })
 
   if (checkLive) {
-    recordLiveDriftEvidence()
+    await recordLiveDriftEvidence()
   }
 
   pass('all cycles completed')
@@ -137,7 +141,7 @@ function recordStaticEvidence() {
   pass(`expected managed args include ${expectedArgs.join(' ') || '<no skill filters>'}`)
 }
 
-function recordLiveDriftEvidence() {
+async function recordLiveDriftEvidence() {
   const live = {
     schema: 'wp-coding-agents/kimaki-live-drift/v1',
     checks: [],
@@ -156,6 +160,12 @@ function recordLiveDriftEvidence() {
   live.kimaki_config_dir = liveConfigDir
   live.launchd_plist = liveLaunchdPlist || null
 
+  const expectedSkillMode = fs.existsSync(path.join(repoKimakiDir, 'skills-enable-list.txt')) ? 'enable' : 'disable'
+  const skillListName = expectedSkillMode === 'enable' ? 'skills-enable-list.txt' : 'skills-disable-list.txt'
+  live.expected_skill_mode = expectedSkillMode
+  live.expected_skills = skillNames(path.join(repoKimakiDir, skillListName))
+  live.expected_managed_args = managedArgsFor(liveKimakiDataDir, path.join(repoKimakiDir, skillListName), expectedSkillMode)
+
   compareFile({
     label: 'dm-context-filter installed copy matches repo',
     repoFile: path.join(repoPluginsDir, 'dm-context-filter.ts'),
@@ -169,9 +179,6 @@ function recordLiveDriftEvidence() {
     live,
   })
 
-  const expectedSkillMode = fs.existsSync(path.join(repoKimakiDir, 'skills-enable-list.txt')) ? 'enable' : 'disable'
-  const skillListName = expectedSkillMode === 'enable' ? 'skills-enable-list.txt' : 'skills-disable-list.txt'
-  live.expected_skill_mode = expectedSkillMode
   compareFile({
     label: `${skillListName} installed copy matches repo`,
     repoFile: path.join(repoKimakiDir, skillListName),
@@ -211,10 +218,117 @@ function recordLiveDriftEvidence() {
     liveCheck(false, 'launchd plist exists', live, { file: liveLaunchdPlist })
   }
 
+  await recordLiveRuntimeEvidence({
+    live,
+    liveSiteDir,
+    liveKimakiDataDir,
+    liveConfigDir,
+    livePluginsDir,
+    liveLaunchdPlist,
+    expectedSkillMode,
+    skillListName,
+  })
+
   writeJson('live-drift.json', live)
   const driftCount = live.checks.filter((check) => !check.ok).length
   if (driftCount > 0) {
     throw new Error(`live Kimaki managed config drift detected (${driftCount} failed check${driftCount === 1 ? '' : 's'}); see ${path.join(artifactRoot, 'live-drift.json')}`)
+  }
+}
+
+async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir, liveConfigDir, livePluginsDir, liveLaunchdPlist, expectedSkillMode, skillListName }) {
+  const processes = listProcesses()
+  live.processes = {
+    kimaki: processes.filter(isKimakiProcess).map(enrichProcess),
+    opencode_serve: processes.filter(isOpencodeServeProcess).map(enrichProcess),
+  }
+
+  const expectedSkillFile = path.join(repoKimakiDir, skillListName)
+  const expectedManagedArgs = managedArgsFor(liveKimakiDataDir, expectedSkillFile, expectedSkillMode)
+  const managedKimakiProcesses = live.processes.kimaki.filter((processInfo) => processHasManagedArgs(processInfo.command, expectedManagedArgs))
+  live.managed_kimaki_processes = managedKimakiProcesses
+
+  liveCheck(live.processes.kimaki.length > 0, 'active Kimaki process found', live, { class: 'stale/manual Kimaki process' })
+  liveCheck(managedKimakiProcesses.length > 0, 'active Kimaki process uses managed launch args', live, {
+    class: 'stale/manual Kimaki process',
+    expectedArgs: expectedManagedArgs,
+  })
+
+  const unexpectedSkillArgs = live.processes.kimaki.flatMap((processInfo) => unexpectedKimakiSkillArgs(processInfo.command, expectedSkillMode, live.expected_skills))
+  live.unexpected_skill_args = unexpectedSkillArgs
+  liveCheck(unexpectedSkillArgs.length === 0, 'active Kimaki process exposes only allowlisted skill args', live, {
+    class: 'skill allowlist not applied',
+    unexpectedSkillArgs,
+  })
+
+  const launchdEvidence = liveLaunchdPlist ? inspectLaunchdService('com.wp.kimaki') : null
+  if (launchdEvidence) {
+    live.launchd_service = launchdEvidence
+    if (launchdEvidence.ok && launchdEvidence.pid) {
+      liveCheck(managedKimakiProcesses.some((processInfo) => processInfo.pid === launchdEvidence.pid), 'active Kimaki process PID matches launchd service', live, {
+        class: 'stale/manual Kimaki process',
+        launchdPid: launchdEvidence.pid,
+      })
+    } else {
+      liveCheck(false, 'launchd service exposes active Kimaki PID', live, {
+        class: 'stale/manual Kimaki process',
+        launchd: launchdEvidence,
+      })
+    }
+  }
+
+  liveCheck(live.processes.opencode_serve.length > 0, 'active OpenCode serve process found', live, { class: 'stale OpenCode server' })
+  const opencodeFromManagedKimaki = live.processes.opencode_serve.filter((processInfo) => hasAncestor(processInfo, managedKimakiProcesses, processes))
+  liveCheck(opencodeFromManagedKimaki.length > 0, 'active OpenCode serve process descends from managed Kimaki process', live, {
+    class: 'stale OpenCode server',
+    liveSiteDir,
+  })
+
+  const livePromptEvidence = await renderLivePromptEvidence({ liveConfigDir, livePluginsDir })
+  live.prompt = livePromptEvidence.summary
+  if (livePromptEvidence.rawPath) {
+    live.files['prompts/live.raw.txt'] = fileRecord(livePromptEvidence.rawPath)
+  }
+  if (livePromptEvidence.filteredPath) {
+    live.files['prompts/live.filtered.txt'] = fileRecord(livePromptEvidence.filteredPath)
+  }
+  liveCheck(livePromptEvidence.contextFilterExecuted, 'live dm-context-filter transform executes', live, { class: 'plugin not loaded' })
+  liveCheck(livePromptEvidence.managedPromptActive, 'live effective prompt uses managed bridge prompt', live, { class: 'plugin match predicate failed' })
+  liveCheck(livePromptEvidence.filteredStaleOrchestrationLeaks.length === 0, 'live effective prompt has no non-allowlisted Kimaki prompt surface', live, {
+    class: 'plugin match predicate failed',
+    leaks: livePromptEvidence.filteredStaleOrchestrationLeaks,
+  })
+}
+
+async function renderLivePromptEvidence({ liveConfigDir, livePluginsDir }) {
+  const kimakiDistDir = resolveKimakiDistDir()
+  const rawPath = path.join(artifactRoot, 'prompts', 'live.raw.txt')
+  const filteredPath = path.join(artifactRoot, 'prompts', 'live.filtered.txt')
+  const summary = {
+    kimaki_dist_dir: kimakiDistDir,
+    live_config_dir: liveConfigDir,
+    live_plugins_dir: livePluginsDir,
+  }
+
+  try {
+    return await renderPromptWithPlugin({
+      name: 'live',
+      kimakiDistDir,
+      pluginsDir: livePluginsDir,
+      rawPath,
+      filteredPath,
+      summary,
+    })
+  } catch (error) {
+    return {
+      rawPath: fs.existsSync(rawPath) ? rawPath : null,
+      filteredPath: fs.existsSync(filteredPath) ? filteredPath : null,
+      rawStaleOrchestrationLeaks: [],
+      filteredStaleOrchestrationLeaks: [{ line: 0, text: error instanceof Error ? error.message : String(error) }],
+      contextFilterExecuted: false,
+      managedPromptActive: false,
+      summary: { ...summary, error: error instanceof Error ? error.message : String(error) },
+    }
   }
 }
 
@@ -294,6 +408,17 @@ function runPostUpgrade(name) {
 
 async function renderAndFilterPrompt(name) {
   const kimakiDistDir = resolveKimakiDistDir()
+  return renderPromptWithPlugin({
+    name,
+    kimakiDistDir,
+    pluginsDir: stagedPluginsDir,
+    rawPath: path.join(artifactRoot, 'prompts', `${name}.raw.txt`),
+    filteredPath: path.join(artifactRoot, 'prompts', `${name}.filtered.txt`),
+    summary: {},
+  })
+}
+
+async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath, filteredPath, summary }) {
   const { getOpencodeSystemMessage } = await import(pathToFileURL(path.join(kimakiDistDir, 'system-message.js')).href)
   const { store } = await import(pathToFileURL(path.join(kimakiDistDir, 'store.js')).href)
 
@@ -317,7 +442,7 @@ async function renderAndFilterPrompt(name) {
     store.setState({ critiqueEnabled: previousCritiqueEnabled })
   }
 
-  const contextPluginModule = await import(pathToFileURL(path.join(stagedPluginsDir, 'dm-context-filter.ts')).href)
+  const contextPluginModule = await import(pathToFileURL(path.join(pluginsDir, 'dm-context-filter.ts')).href)
   const contextPlugin = await contextPluginModule.default({})
   const transform = contextPlugin['experimental.chat.system.transform']
   if (typeof transform !== 'function') {
@@ -327,23 +452,27 @@ async function renderAndFilterPrompt(name) {
   await transform({}, output)
   const filtered = output.system.join('\n')
 
-  const agentSyncModule = await import(pathToFileURL(path.join(stagedPluginsDir, 'dm-agent-sync.ts')).href)
+  const agentSyncModule = await import(pathToFileURL(path.join(pluginsDir, 'dm-agent-sync.ts')).href)
   const agentSyncPlugin = await agentSyncModule.default({ $: fakeShell })
   const rawStaleOrchestrationLeaks = findStaleOrchestrationLeaks(raw)
   const filteredStaleOrchestrationLeaks = findStaleOrchestrationLeaks(filtered)
 
   mkdirp(path.join(artifactRoot, 'prompts'))
-  fs.writeFileSync(path.join(artifactRoot, 'prompts', `${name}.raw.txt`), normalizeHome(raw), 'utf8')
-  fs.writeFileSync(path.join(artifactRoot, 'prompts', `${name}.filtered.txt`), normalizeHome(filtered), 'utf8')
+  fs.writeFileSync(rawPath, normalizeHome(raw), 'utf8')
+  fs.writeFileSync(filteredPath, normalizeHome(filtered), 'utf8')
 
   return {
+    rawPath,
+    filteredPath,
     rawIncludesTunnel: raw.includes('## running dev servers with tunnel access'),
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
     rawStaleOrchestrationLeaks,
     filteredStaleOrchestrationLeaks,
     contextFilterExecuted: output.system[0] !== raw,
+    managedPromptActive: filtered.includes('## Kimaki Discord Bridge') && filtered.includes('## Managed Coding Runtime'),
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
+      ...summary,
       kimaki_dist_dir: kimakiDistDir,
       raw_chars: raw.length,
       filtered_chars: filtered.length,
@@ -424,6 +553,134 @@ function expectedManagedSkillArgs() {
   return []
 }
 
+function managedArgsFor(dataDir, skillFile, mode = fs.existsSync(path.join(repoKimakiDir, 'skills-enable-list.txt')) ? 'enable' : 'disable') {
+  const skillFlag = mode === 'enable' ? '--enable-skill' : '--disable-skill'
+  return [
+    '--data-dir',
+    dataDir,
+    '--auto-restart',
+    '--no-critique',
+    ...skillNames(skillFile).flatMap((skill) => [skillFlag, skill]),
+  ]
+}
+
+function processHasManagedArgs(command, expectedArgs) {
+  return expectedArgs.every((expectedArg) => commandIncludesArg(command, expectedArg))
+}
+
+function commandIncludesArg(command, expectedArg) {
+  return command === expectedArg || command.includes(` ${expectedArg} `) || command.endsWith(` ${expectedArg}`) || command.includes(`=${expectedArg}`)
+}
+
+function unexpectedKimakiSkillArgs(command, expectedMode, expectedSkills) {
+  const expected = new Set(expectedSkills)
+  const unexpected = []
+  const tokens = shellishTokens(command)
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]
+    if (token !== '--enable-skill' && token !== '--disable-skill') {
+      continue
+    }
+    const skill = tokens[index + 1] || ''
+    const expectedFlag = expectedMode === 'enable' ? '--enable-skill' : '--disable-skill'
+    if (token !== expectedFlag || !expected.has(skill)) {
+      unexpected.push({ flag: token, skill })
+    }
+  }
+  return unexpected
+}
+
+function shellishTokens(command) {
+  const matches = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || []
+  return matches.map((token) => token.replace(/^['"]|['"]$/g, ''))
+}
+
+function listProcesses() {
+  try {
+    const stdout = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
+    return stdout
+      .split('\n')
+      .map((line) => line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/))
+      .filter(Boolean)
+      .map((match) => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }))
+  } catch (error) {
+    return []
+  }
+}
+
+function isKimakiProcess(processInfo) {
+  const command = processInfo.command
+  return /(^|[/\s])kimaki(\s|$)/.test(command) && !command.includes('kimaki-managed-plugin-rig.mjs')
+}
+
+function isOpencodeServeProcess(processInfo) {
+  const command = processInfo.command
+  return command.includes('opencode') && /\bserve\b/.test(command)
+}
+
+function enrichProcess(processInfo) {
+  return { ...processInfo, cwd: processCwd(processInfo.pid) }
+}
+
+function hasAncestor(processInfo, ancestorCandidates, processes) {
+  const ancestors = new Set(ancestorCandidates.map((candidate) => candidate.pid))
+  const processByPid = new Map(processes.map((candidate) => [candidate.pid, candidate]))
+  let current = processInfo
+  while (current && current.ppid > 0) {
+    if (ancestors.has(current.ppid)) {
+      return true
+    }
+    current = processByPid.get(current.ppid)
+  }
+  return false
+}
+
+function processCwd(pid) {
+  if (process.platform === 'linux') {
+    try {
+      return fs.realpathSync(`/proc/${pid}/cwd`)
+    } catch {
+      return null
+    }
+  }
+  try {
+    const stdout = execFileSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const line = stdout.split('\n').find((candidate) => candidate.startsWith('n'))
+    return line ? line.slice(1) : null
+  } catch {
+    return null
+  }
+}
+
+function inspectLaunchdService(label) {
+  if (process.platform !== 'darwin') {
+    return null
+  }
+  try {
+    const stdout = execFileSync('launchctl', ['print', `gui/${process.getuid()}/${label}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const pidMatch = stdout.match(/\bpid = (\d+)\b/)
+    return { ok: true, label, pid: pidMatch ? Number(pidMatch[1]) : null, stdout: truncate(redactSensitiveText(stdout)) }
+  } catch (error) {
+    return { ok: false, label, status: error.status || 1, stdout: truncate(redactSensitiveText(`${error.stdout || ''}${error.stderr || ''}`)) }
+  }
+}
+
+function redactSensitiveText(text) {
+  if (typeof text !== 'string') {
+    return text
+  }
+  return text
+    .replace(/(\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Z0-9_]*\s*=>\s*)[^\n]+/g, '$1<redacted>')
+    .replace(/(\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Z0-9_]*\s*=\s*)(?!>)[^\s\n]+/g, '$1<redacted>')
+}
+
+function truncate(text, max = 8000) {
+  if (typeof text !== 'string' || text.length <= max) {
+    return text
+  }
+  return `${text.slice(0, max)}\n<truncated ${text.length - max} bytes>`
+}
+
 function skillNames(file) {
   return fs.readFileSync(file, 'utf8')
     .split(/\r?\n/)
@@ -481,15 +738,33 @@ function normalizeHome(text) {
 
 function parseArgs(argv) {
   const parsed = {}
+  const booleanFlags = new Set(['keep', 'check-live', 'self-test-args'])
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (!arg.startsWith('--')) continue
-    const key = arg.slice(2)
-    if (key === 'keep') {
+    const [key, inlineValue] = arg.slice(2).split(/=(.*)/s, 2)
+    if (inlineValue !== undefined) {
+      parsed[key] = inlineValue
+      continue
+    }
+    if (booleanFlags.has(key)) {
       parsed[key] = true
       continue
     }
     parsed[key] = argv[++i]
   }
   return parsed
+}
+
+function runArgSelfTest() {
+  const parsed = parseArgs(['--check-live', '--live-site-dir', '/tmp/site', '--keep', '--artifact-dir=/tmp/artifacts'])
+  const failures = []
+  if (parsed['check-live'] !== true) failures.push('--check-live should parse as boolean true')
+  if (parsed['live-site-dir'] !== '/tmp/site') failures.push('--live-site-dir should consume /tmp/site')
+  if (parsed.keep !== true) failures.push('--keep should parse as boolean true')
+  if (parsed['artifact-dir'] !== '/tmp/artifacts') failures.push('--artifact-dir=value should parse inline value')
+  if (failures.length > 0) {
+    throw new Error(`argument parser self-test failed: ${failures.join('; ')}`)
+  }
+  console.log('PASS kimaki managed-plugin rig arg parser self-test')
 }
