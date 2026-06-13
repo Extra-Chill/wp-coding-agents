@@ -244,9 +244,6 @@ fi
 if [ -n "$RUNTIME" ]; then
   DETECTED_RUNTIMES=("$RUNTIME")
 else
-  if command -v studio &>/dev/null && [ -f "$EXISTING_WP/STUDIO.md" ]; then
-    DETECTED_RUNTIMES+=("studio-code")
-  fi
   if command -v claude &>/dev/null; then
     DETECTED_RUNTIMES+=("claude-code")
   fi
@@ -445,11 +442,10 @@ check_opencode_json_drift() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
-  # exists. The primary RUNTIME may be `studio-code` or `claude-code` (e.g.
-  # on Studio sites where all three runtimes are detected), but the presence
-  # of opencode.json on disk means opencode IS in use — otherwise the file
-  # wouldn't be there. expected_plugins() skips plugin-array drift entirely
-  # for non-opencode runtimes, which would silently mask real drift here.
+  # exists. The primary RUNTIME may be `claude-code`, but the presence of
+  # opencode.json on disk means opencode IS in use — otherwise the file wouldn't
+  # be there. expected_plugins() skips plugin-array drift entirely for
+  # non-opencode runtimes, which would silently mask real drift here.
   local RUNTIME_ARG="opencode"
 
   # Mode: --apply (full reconcile, opt-in) or --additive (default).
@@ -616,8 +612,8 @@ regenerate_agents_md() {
   # ensures the symlink survives directory moves.
   # See: Extra-Chill/wp-coding-agents#108
   if [ -f "$AGENTS_MD" ]; then
-    # Skip if CLAUDE.md exists as a regular file (e.g. claude-code/studio-code runtimes
-    # generate their own CLAUDE.md from a template — don't clobber it).
+    # Skip if CLAUDE.md exists as a regular file (e.g. claude-code runtime
+    # generates its own CLAUDE.md from a template — don't clobber it).
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
       (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
       log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"

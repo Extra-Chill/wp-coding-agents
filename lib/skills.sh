@@ -125,7 +125,7 @@ install_skills() {
   log "Phase 8.5: Installing upgrade skill..."
 
   # Build the unique list of skills dirs to populate. claude-code and
-  # studio-code both resolve to $SITE_PATH/.claude/skills, so de-dupe.
+  # Claude-compatible runtimes can resolve to $SITE_PATH/.claude/skills, so de-dupe.
   local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
   local -a skills_dirs=()
   local seen_dir rt dir

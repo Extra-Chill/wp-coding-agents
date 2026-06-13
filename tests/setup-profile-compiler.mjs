@@ -66,13 +66,13 @@ function compile(profile) {
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "/home/chris/site" },
-    runtime: { selection: "multiple", runtimes: ["claude-code", "studio-code"] },
+    runtime: { selection: "multiple", runtimes: ["opencode", "claude-code"] },
     chat_bridge: { selection: "none" },
     overlays: {},
     agent: {},
   })
 
-  assert.deepEqual(plan.follow_up_commands, ["EXISTING_WP=/home/chris/site ./setup.sh --local --runtime-only --runtime studio-code"])
+  assert.deepEqual(plan.follow_up_commands, ["EXISTING_WP=/home/chris/site ./setup.sh --local --runtime-only --runtime claude-code"])
 }
 
 {
