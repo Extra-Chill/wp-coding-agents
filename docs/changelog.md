@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.1] - 2026-06-13
+
+### Changed
+- clarify managed prompt replacement invariant
+
+### Fixed
+- keep managed prompt conditional
+- replace managed system prompt
+- strip stale orchestration guidance
+
 ## [1.4.0] - 2026-06-13
 
 ### Added
