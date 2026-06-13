@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.1] - 2026-06-13
+
+### Changed
+- Restore generated changelog
+- Remove unsupported Studio Code runtime
+- Remove unrelated prompt snapshot refresh
+- Remove manual changelog entry
+- Add Kimaki managed plugin rig
+
+### Fixed
+- Fix Homeboy release packaging config
+- adopt service identity from existing unit instead of assuming root
+
 ## [1.3.0] - 2026-06-12
 
 ### Added
