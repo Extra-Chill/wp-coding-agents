@@ -64,6 +64,21 @@ kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <curren
 
 cross-session discovery text that should be stripped
 
+## showing diffs
+
+Always run bunx critique --web and upload diffs to critique.work.
+
+## about critique
+
+critique is an external diff viewer that must not leak into managed context.
+
+<available_skills>
+  <skill>
+    <name>critique</name>
+    <description>Diff viewer skill that must not leak into managed context.</description>
+  </skill>
+</available_skills>
+
 ## markdown formatting
 
 Keep this section.
@@ -111,6 +126,11 @@ fi
 
 if grep -Eq '^## (starting new sessions from CLI|creating worktrees|cross-project commands|waiting for a session to finish)$|kimaki send|kimaki project list|Homeboy|Data Machine Code|dev\.chubes\.net' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
   echo "FAIL: filtered prompt leaked stale Kimaki orchestration guidance"
+  exit 1
+fi
+
+if grep -Eiq '^## (showing diffs|about critique)$|\b(bunx )?critique\b|critique\.work|<name>critique</name>' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
+  echo "FAIL: filtered prompt leaked critique guidance"
   exit 1
 fi
 

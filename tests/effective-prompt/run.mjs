@@ -97,6 +97,10 @@ const DEFAULT_TRIGGERS = [
   { name: "dmc-hardcode",       pattern: "\\bData Machine Code\\b"                 },
   { name: "global-tunnel-url",  pattern: "\\bdev\\.chubes\\.net\\b"                },
   { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
+  { name: "critique-section",   pattern: "^## (?:showing diffs|about critique)$"    },
+  { name: "critique-command",   pattern: "\\b(?:bunx )?critique\\b"               },
+  { name: "critique-url",       pattern: "\\bcritique\\.work\\b"                  },
+  { name: "critique-skill",     pattern: "<name>critique</name>"                    },
 ]
 
 // The current filter replaces Kimaki's generated bridge prompt and preserves
