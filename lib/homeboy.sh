@@ -206,6 +206,15 @@ homeboy_handle_failure() {
 }
 
 sync_homeboy_agents_md_guidance() {
+  # The Homeboy CLI command map is presence-gated on `command -v homeboy` and
+  # regenerated from `homeboy --help` every sync, so a homeboy version bump
+  # auto-refreshes the map. When homeboy is absent it is a complete no-op
+  # (any stale section is removed) — the section's presence is itself the
+  # signal that homeboy is callable on this host.
+  if declare -F agents_md_guidance_sync_homeboy_cli >/dev/null; then
+    agents_md_guidance_sync_homeboy_cli
+  fi
+
   if ! declare -F agents_md_guidance_sync_homeboy_codebox >/dev/null; then
     return 0
   fi
