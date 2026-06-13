@@ -30,6 +30,20 @@ homeboy_project_json() {
   printf '}'
 }
 
+homeboy_run() {
+  if [ "${LOCAL_MODE:-false}" != true ] && \
+     [ -n "${SERVICE_USER:-}" ] && \
+     [ "$SERVICE_USER" != "root" ] && \
+     [ -n "${SERVICE_HOME:-}" ] && \
+     { [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; } && \
+     command -v sudo >/dev/null 2>&1; then
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" homeboy "$@"
+    return $?
+  fi
+
+  homeboy "$@"
+}
+
 homeboy_server_json() {
   local user port
   user="$(homeboy_json_escape "$1")"
@@ -73,7 +87,7 @@ PY
   # "extrachill-site"), not a domain-slug guess.
   if [ -n "${SITE_DOMAIN:-}" ] && command -v homeboy >/dev/null 2>&1; then
     local project_list resolved
-    project_list="$(homeboy project list 2>/dev/null)"
+    project_list="$(homeboy_run project list 2>/dev/null)"
     if [ -n "$project_list" ]; then
       # Pass the JSON via env var (not stdin) so it does not collide with the
       # heredoc that supplies the python source on stdin.
@@ -130,7 +144,7 @@ homeboy_server_id() {
     return 0
   fi
 
-  if [ "$DRY_RUN" = false ] && homeboy server show "$SITE_DOMAIN" >/dev/null 2>&1; then
+  if [ "$DRY_RUN" = false ] && homeboy_run server show "$SITE_DOMAIN" >/dev/null 2>&1; then
     printf '%s' "$SITE_DOMAIN"
   fi
 
@@ -158,7 +172,7 @@ homeboy_wordpress_extension_ready() {
   command -v homeboy >/dev/null 2>&1 || return 1
 
   local list_json
-  list_json=$(homeboy extension list 2>/dev/null) || return 1
+  list_json=$(homeboy_run extension list 2>/dev/null) || return 1
 
   printf '%s' "$list_json" | python3 -c '
 import json, sys
@@ -180,7 +194,7 @@ homeboy_wordpress_extension_linked() {
   command -v homeboy >/dev/null 2>&1 || return 1
 
   local show_json
-  show_json=$(homeboy extension show wordpress 2>/dev/null) || return 1
+  show_json=$(homeboy_run extension show wordpress 2>/dev/null) || return 1
 
   printf '%s' "$show_json" | python3 -c '
 import json, sys
