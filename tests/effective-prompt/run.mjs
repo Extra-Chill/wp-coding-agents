@@ -76,11 +76,23 @@ const VERBOSE = args.includes("--verbose")
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TRIGGERS = [
-  { name: "permissions",     pattern: "^## permissions$"                         },
-  { name: "upgrade",         pattern: "^## upgrading kimaki$"                    },
-  { name: "scheduler",       pattern: "^## scheduled sends and task management$" },
-  { name: "site-runtime",    pattern: "^## running dev servers with tunnel access$" },
-  { name: "session-history", pattern: "^## reading other sessions$"              },
+  { name: "permissions",        pattern: "^## permissions$"                         },
+  { name: "upgrade",            pattern: "^## upgrading kimaki$"                    },
+  { name: "scheduler",          pattern: "^## scheduled sends and task management$" },
+  { name: "site-runtime",       pattern: "^## running dev servers with tunnel access$" },
+  { name: "session-history",    pattern: "^## reading other sessions$"              },
+  { name: "session-start",      pattern: "^## starting new sessions from CLI$"       },
+  { name: "slash-fanout",       pattern: "^## running opencode commands via kimaki send$" },
+  { name: "agent-switch",       pattern: "^## switching agents in the current session$" },
+  { name: "worktree-create",    pattern: "^## creating worktrees$"                  },
+  { name: "cross-project",      pattern: "^## cross-project commands$"              },
+  { name: "session-wait",       pattern: "^## waiting for a session to finish$"      },
+  { name: "kimaki-worktree",    pattern: "\\bkimaki send\\b.*\\b--worktree\\b"    },
+  { name: "kimaki-cwd",         pattern: "\\bkimaki send\\b.*\\b--cwd\\b"         },
+  { name: "kimaki-project",     pattern: "\\bkimaki project (?:list|add|create)\\b" },
+  { name: "kimaki-send-project", pattern: "\\bkimaki send\\b.*\\b--project\\b"     },
+  { name: "kimaki-tunnel",      pattern: "\\bkimaki tunnel\\b"                     },
+  { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
 ]
 
 // The filter is strip-only — it never appends sections. Any trigger word

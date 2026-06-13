@@ -6,10 +6,8 @@
 // What it removes from the system prompt:
 // 1. Scheduling — Data Machine owns recurring automation, flows, jobs, and
 //    reminders, so the agent should not learn a second scheduler path.
-// 2. Tunnel / dev server — DM-managed
-//    WordPress installs already have a site runtime (Studio locally, a live
-//    site on VPS). Tunnels are task-specific for inbound public URLs like
-//    webhooks/OAuth callbacks, not the default way to interact with the site.
+// 2. Tunnel / dev server — managed WordPress installs already have a site
+//    runtime and Homeboy owns preview/tunnel lifecycle for managed tasks.
 // 3. Permissions — metadata describing which Discord roles can message the
 //    bot. The agent has no capability to act on this; pure metadata leakage.
 // 4. Upgrading kimaki — the /upgrade-and-restart playbook. The user
@@ -19,13 +17,17 @@
 //    --project` / `session search --channel <id>`. These are cross-project
 //    discovery vectors; on a single-project fleet server the agent only ever
 //    needs to list sessions in the current project (no flags required).
-// 6. Kimaki's generic helper-session fleet hint. On managed installs, composed
-//    site guidance owns orchestration policy; Kimaki is the chat/session bridge.
+// 6. Kimaki orchestration guidance — starting/waiting on sessions, worktree
+//    creation, cwd/project routing, and slash-command fanout. On managed
+//    installs, Homeboy owns task orchestration and Data Machine Code owns
+//    workspace/worktree lifecycle; Kimaki remains the chat/status bridge.
 //
 // What it intentionally keeps under Kimaki 0.13:
-// - Generic `--agent <current_agent>` examples. Kimaki now falls back to the
-//   build agent when a requested agent does not exist, so Data Machine no
-//   longer needs prompt surgery to compensate for runtime-agent names.
+// - Bridge utilities that are not orchestration defaults, such as Kimaki issue
+//   debugging, Discord uploads, and explicit thread archiving.
+// - Generic agent metadata. Kimaki now falls back to the build agent when a
+//   requested agent does not exist, so Data Machine no longer needs prompt
+//   surgery to compensate for runtime-agent names.
 // - Critique instructions. wp-coding-agents starts managed Kimaki services with
 //   `--no-critique`, so the section is absent before this filter runs.
 //
@@ -65,7 +67,12 @@ const fleetContextFilter: Plugin = async () => {
         result = stripSection(result, "## scheduled sends and task management");
         result = stripSection(result, "## running dev servers with tunnel access");
         result = stripSection(result, "## reading other sessions");
-        result = stripHelperSessionFleetHint(result);
+        result = stripSection(result, "## starting new sessions from CLI");
+        result = stripSection(result, "## running opencode commands via kimaki send");
+        result = stripSection(result, "## switching agents in the current session");
+        result = stripSection(result, "## creating worktrees");
+        result = stripSection(result, "## cross-project commands");
+        result = stripSection(result, "## waiting for a session to finish");
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
         return result;
@@ -153,39 +160,6 @@ function stripSection(block: string, heading: string): string {
   const before = lines.slice(0, start);
   const after = lines.slice(end);
   return [...before, ...after].join("\n");
-}
-
-/**
- * Remove Kimaki's generic helper-session wording that frames manual thread
- * spawning as an orchestration primitive. Keep the command examples themselves
- * available for Kimaki chat/session routing.
- *
- * @param {string} block - System prompt block.
- * @return {string} System prompt block without the stale helper-session hint.
- */
-function stripHelperSessionFleetHint(block: string): string {
-  if (!block.includes("spawn") && !block.includes("spawned")) {
-    return block;
-  }
-
-  return block
-    .split("\n")
-    .filter((line) => !isHelperSessionFleetHintLine(line))
-    .join("\n");
-}
-
-/**
- * Identify Kimaki helper-session lines that promote manual thread spawning as
- * orchestration. Match on stable concepts instead of the complete sentence.
- *
- * @param {string} line - System prompt line.
- * @return {boolean} Whether the line should be stripped.
- */
-function isHelperSessionFleetHintLine(line: string): boolean {
-  return (
-    line.includes('"spawn" parallel helper sessions') ||
-    (line.includes("spawned or scheduled sessions") && line.includes("<current_agent>"))
-  );
 }
 
 export default fleetContextFilter;

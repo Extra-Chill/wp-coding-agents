@@ -71,36 +71,6 @@ function stripProjectDiscoveryInlines(block) {
   return result
 }
 
-function appendDataMachineSessionHandoffInstruction(block) {
-  const instruction = `
-
-## Data Machine Session Handoff
-
-For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through native Kimaki cwd routing. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session and records the checkout metadata.
-
-Typical flow:
-
-1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
-2. Start the helper session with \`kimaki send --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
-3. Use the helper thread for the isolated task and bring the result back here.
-`
-  return block.replace(/\s*$/, "") + instruction
-}
-
-function appendWordPressSiteRuntimeInstruction(block) {
-  const instruction = `
-
-## WordPress Site Runtime
-
-This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
-
-On local WordPress Studio installs, use Studio and \`studio wp\` against the existing site. On VPS installs, use the live WordPress site and \`wp\` in the configured site path.
-
-Use \`kimaki tunnel\` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
-`
-  return block.replace(/\s*$/, "") + instruction
-}
-
 async function currentFilter(block) {
   const pluginModule = await import(pathToFileURL(PLUGIN_PATH).href)
   const plugin = await pluginModule.default({})
@@ -151,8 +121,6 @@ function brokenFilter(block) {
   r = stripWorktreeInlines(r)
   r = stripProjectDiscoveryInlines(r)
   r = r.replace(/\n{3,}/g, "\n\n")
-  r = appendWordPressSiteRuntimeInstruction(r)
-  r = appendDataMachineSessionHandoffInstruction(r)
   return r
 }
 
