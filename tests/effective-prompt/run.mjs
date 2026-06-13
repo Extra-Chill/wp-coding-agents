@@ -48,7 +48,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { homedir } from "node:os"
 
-import { filters } from "./filters.mjs"
+import { currentFilterSystemBlocks, filters } from "./filters.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -76,16 +76,32 @@ const VERBOSE = args.includes("--verbose")
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TRIGGERS = [
-  { name: "permissions",     pattern: "^## permissions$"                         },
-  { name: "upgrade",         pattern: "^## upgrading kimaki$"                    },
-  { name: "scheduler",       pattern: "^## scheduled sends and task management$" },
-  { name: "site-runtime",    pattern: "^## running dev servers with tunnel access$" },
-  { name: "session-history", pattern: "^## reading other sessions$"              },
+  { name: "permissions",        pattern: "^## permissions$"                         },
+  { name: "upgrade",            pattern: "^## upgrading kimaki$"                    },
+  { name: "scheduler",          pattern: "^## scheduled sends and task management$" },
+  { name: "site-runtime",       pattern: "^## running dev servers with tunnel access$" },
+  { name: "session-history",    pattern: "^## reading other sessions$"              },
+  { name: "session-start",      pattern: "^## starting new sessions from CLI$"       },
+  { name: "slash-fanout",       pattern: "^## running opencode commands via kimaki send$" },
+  { name: "agent-switch",       pattern: "^## switching agents in the current session$" },
+  { name: "worktree-create",    pattern: "^## creating worktrees$"                  },
+  { name: "cross-project",      pattern: "^## cross-project commands$"              },
+  { name: "session-wait",       pattern: "^## waiting for a session to finish$"      },
+  { name: "kimaki-worktree",    pattern: "\\bkimaki send\\b.*\\b--worktree\\b"    },
+  { name: "kimaki-cwd",         pattern: "\\bkimaki send\\b.*\\b--cwd\\b"         },
+  { name: "kimaki-send",        pattern: "\\bkimaki send\\b"                      },
+  { name: "kimaki-project",     pattern: "\\bkimaki project (?:list|add|create)\\b" },
+  { name: "kimaki-send-project", pattern: "\\bkimaki send\\b.*\\b--project\\b"     },
+  { name: "kimaki-tunnel",      pattern: "\\bkimaki tunnel\\b"                     },
+  { name: "homeboy-hardcode",   pattern: "\\bHomeboy\\b"                           },
+  { name: "dmc-hardcode",       pattern: "\\bData Machine Code\\b"                 },
+  { name: "global-tunnel-url",  pattern: "\\bdev\\.chubes\\.net\\b"                },
+  { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
 ]
 
-// The filter is strip-only — it never appends sections. Any trigger word
-// appearing in the filtered output is a real leak that needs investigation,
-// not an intentional appendix.
+// The current filter replaces Kimaki's generated bridge prompt and preserves
+// other system blocks. Any trigger word appearing in the filtered Kimaki output
+// is a real leak that needs investigation, not an intentional appendix.
 const DEFAULT_ALLOW_LEAK_SECTIONS = []
 
 const DEFAULT_SCENARIO = {
@@ -295,6 +311,16 @@ async function runScenario(name, scenario) {
     failures.push(
       `current filter leaks more (${filteredLeaks.length}) than baseline (${baselineLeaks.length}) — regression`,
     )
+  }
+  if (scenario.filter === "current") {
+    const sentinelBlock = "## Sentinel Non-Kimaki System Block\n\nThis block represents composed AGENTS guidance."
+    const transformedBlocks = await currentFilterSystemBlocks([sentinelBlock, raw])
+    if (transformedBlocks[0] !== sentinelBlock) {
+      failures.push("current filter changed a non-Kimaki system block")
+    }
+    if (transformedBlocks.length !== 2) {
+      failures.push(`current filter returned ${transformedBlocks.length} system blocks for a two-block input`)
+    }
   }
 
   return {

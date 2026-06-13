@@ -53,6 +53,15 @@ kimaki session archive --session ses_EFFECTIVE_PROMPT_TEST
 
 Only do this when the user explicitly asks to close or archive the thread, and only after your final message.
 
+## aborting a session
+
+If you made a mistake with `kimaki send` (wrong prompt, wrong channel, mangled heredoc), abort the session immediately using the session ID printed in the output:
+
+kimaki session abort <session_id>
+
+This stops the AI from processing but keeps the thread visible in Discord.
+Different from `kimaki session archive` which hides the thread.
+
 ## discord user mentions
 
 Prefer Discord user IDs for mentions. Discord bots cannot ping by @name; use `<@userId>` in message text or pass the ID to `--user`.
@@ -271,21 +280,3 @@ Examples:
 <channel-topic>
 intelligence-chubes4 personal agent
 </channel-topic>
-
-## WordPress Site Runtime
-
-This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
-
-On local WordPress Studio installs, use Studio and `studio wp` against the existing site. On VPS installs, use the live WordPress site and `wp` in the configured site path.
-
-Use `kimaki tunnel` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
-
-## Data Machine Session Handoff
-
-For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through native Kimaki cwd routing. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session and records the checkout metadata.
-
-Typical flow:
-
-1. Create the checkout with `studio wp datamachine-code workspace worktree add <repo> <branch>`.
-2. Start the helper session with `kimaki send --channel <current_channel> --cwd <workspace_path> --prompt '<task>'`.
-3. Use the helper thread for the isolated task and bring the result back here.

@@ -264,6 +264,8 @@ async function runCycle({ name, simulatePackageWipe }) {
 
   assert(promptEvidence.rawIncludesTunnel, `${name}: raw Kimaki prompt contains tunnel section`, cycle)
   assert(!promptEvidence.filteredIncludesTunnel, `${name}: filtered prompt removes tunnel section`, cycle)
+  assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0, `${name}: raw Kimaki prompt contains stale orchestration sections`, cycle)
+  assert(promptEvidence.filteredStaleOrchestrationLeaks.length === 0, `${name}: filtered prompt removes stale orchestration sections`, cycle)
   assert(promptEvidence.contextFilterExecuted, `${name}: dm-context-filter hook executed`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
 }
@@ -327,6 +329,8 @@ async function renderAndFilterPrompt(name) {
 
   const agentSyncModule = await import(pathToFileURL(path.join(stagedPluginsDir, 'dm-agent-sync.ts')).href)
   const agentSyncPlugin = await agentSyncModule.default({ $: fakeShell })
+  const rawStaleOrchestrationLeaks = findStaleOrchestrationLeaks(raw)
+  const filteredStaleOrchestrationLeaks = findStaleOrchestrationLeaks(filtered)
 
   mkdirp(path.join(artifactRoot, 'prompts'))
   fs.writeFileSync(path.join(artifactRoot, 'prompts', `${name}.raw.txt`), normalizeHome(raw), 'utf8')
@@ -335,6 +339,8 @@ async function renderAndFilterPrompt(name) {
   return {
     rawIncludesTunnel: raw.includes('## running dev servers with tunnel access'),
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
+    rawStaleOrchestrationLeaks,
+    filteredStaleOrchestrationLeaks,
     contextFilterExecuted: output.system[0] !== raw,
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
@@ -342,8 +348,33 @@ async function renderAndFilterPrompt(name) {
       raw_chars: raw.length,
       filtered_chars: filtered.length,
       stripped_chars: raw.length - filtered.length,
+      raw_stale_orchestration_leaks: rawStaleOrchestrationLeaks.length,
+      filtered_stale_orchestration_leaks: filteredStaleOrchestrationLeaks.length,
     },
   }
+}
+
+function findStaleOrchestrationLeaks(text) {
+  const triggers = [
+    /^## starting new sessions from CLI$/,
+    /^## running opencode commands via kimaki send$/,
+    /^## switching agents in the current session$/,
+    /^## creating worktrees$/,
+    /^## cross-project commands$/,
+    /^## waiting for a session to finish$/,
+    /\bkimaki send\b/,
+    /\bkimaki send\b.*\b--worktree\b/,
+    /\bkimaki send\b.*\b--cwd\b/,
+    /\bkimaki project (?:list|add|create)\b/,
+    /\bkimaki send\b.*\b--project\b/,
+    /\bHomeboy\b/,
+    /\bData Machine Code\b/,
+    /\bdev\.chubes\.net\b/,
+  ]
+  return text
+    .split('\n')
+    .map((line, index) => ({ line: index + 1, text: line }))
+    .filter(({ text }) => triggers.some((trigger) => trigger.test(text)))
 }
 
 function resolveKimakiDistDir() {
