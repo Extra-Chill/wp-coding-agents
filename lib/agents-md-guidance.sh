@@ -17,6 +17,10 @@
 #   agents_md_guidance_sync_homeboy_codebox <available:true|false>
 #   agents_md_guidance_register_homeboy_codebox
 #   agents_md_guidance_unregister_homeboy_codebox
+#   agents_md_guidance_sync_homeboy_cli          # presence-gated on `command -v homeboy`
+#   agents_md_guidance_register_homeboy_cli
+#   agents_md_guidance_unregister_homeboy_cli
+#   agents_md_guidance_homeboy_cli_content       # renders section body from `homeboy --help`
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -211,6 +215,134 @@ agents_md_guidance_homeboy_codebox_content() {
 MD
 }
 
+# ---------------------------------------------------------------------------
+# Homeboy CLI command map (issue #208)
+#
+# homeboy is an OPTIONAL host binary. The map is strictly presence-gated:
+#   - present (`command -v homeboy` succeeds) -> emit a first-class section
+#     generated from `homeboy --help`, refreshed every setup/upgrade so a
+#     homeboy version bump auto-refreshes the command list.
+#   - absent -> complete no-op (unregister any stale section, emit nothing).
+#
+# The command list is NEVER hardcoded; it is parsed from `homeboy --help` at
+# sync time. A hardcoded list is precisely the drift bug #208 fixes.
+# ---------------------------------------------------------------------------
+
+# agents_md_guidance_sync_homeboy_cli
+#
+# Presence-gated entry point. Reuses the same `command -v homeboy` detection
+# the rest of the homeboy integration uses so the section and the integration
+# agree on presence.
+agents_md_guidance_sync_homeboy_cli() {
+  if command -v homeboy >/dev/null 2>&1; then
+    agents_md_guidance_register_homeboy_cli
+  else
+    agents_md_guidance_unregister_homeboy_cli
+  fi
+}
+
+agents_md_guidance_register_homeboy_cli() {
+  local content
+  content="$(agents_md_guidance_homeboy_cli_content)" || {
+    warn "  agents_md_guidance_register_homeboy_cli: could not enumerate homeboy commands — skipping"
+    return 1
+  }
+
+  if [ -z "$content" ]; then
+    warn "  agents_md_guidance_register_homeboy_cli: homeboy --help produced no commands — skipping"
+    return 1
+  fi
+
+  AGENTS_MD_GUIDANCE_FRESHNESS="conditional" \
+  AGENTS_MD_GUIDANCE_CONDITIONS="Generated from 'homeboy --help' on hosts where the homeboy binary is installed; removed when homeboy is absent." \
+  agents_md_guidance_register \
+    "homeboy-cli" \
+    34 \
+    "Homeboy CLI" \
+    "Host orchestrator command map, generated from 'homeboy --help'." \
+    "$content"
+}
+
+agents_md_guidance_unregister_homeboy_cli() {
+  agents_md_guidance_unregister "homeboy-cli"
+}
+
+# agents_md_guidance_homeboy_cli_content
+#
+# Renders the Homeboy CLI AGENTS.md section body from live `homeboy --help`
+# output. Prints nothing and returns non-zero when homeboy is unavailable or
+# emits no parseable command table.
+agents_md_guidance_homeboy_cli_content() {
+  command -v homeboy >/dev/null 2>&1 || return 1
+
+  local help_text
+  help_text="$(homeboy --help 2>/dev/null)" || return 1
+  [ -n "$help_text" ] || return 1
+
+  HOMEBOY_HELP_TEXT="$help_text" python3 <<'PY'
+import os
+import re
+import sys
+
+help_text = os.environ.get("HOMEBOY_HELP_TEXT", "")
+
+# Parse the "Commands:" block of `homeboy --help`. Each command line looks like
+#   "  agent-task      Run generic agent task plans"
+# i.e. leading whitespace, a command token, run of spaces, then the summary.
+commands = []
+in_commands = False
+for raw in help_text.splitlines():
+    stripped = raw.strip()
+    if not in_commands:
+        if stripped == "Commands:":
+            in_commands = True
+        continue
+
+    # The commands block ends at the first blank line or the Options: header.
+    if stripped == "" or stripped == "Options:" or raw.startswith("Options:"):
+        break
+
+    m = re.match(r"^\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s{2,}(.+?)\s*$", raw)
+    if not m:
+        # Continuation / wrapped summary lines have no command token; ignore.
+        continue
+
+    name, summary = m.group(1), m.group(2).strip()
+    commands.append((name, summary))
+
+if not commands:
+    sys.exit(1)
+
+# `help` / `list` are meta commands; drop them from the map (the footer already
+# tells the agent how to discover everything).
+SKIP = {"help", "list"}
+commands = [(n, s) for (n, s) in commands if n not in SKIP]
+
+if not commands:
+    sys.exit(1)
+
+lines = []
+lines.append(
+    "Homeboy is the host orchestrator binary — build, deploy, release, triage, "
+    "test, and inspect components from the CLI. It is detected on this host, so "
+    "the command map below is generated from `homeboy --help` and refreshes "
+    "whenever homeboy is upgraded."
+)
+lines.append("")
+for name, summary in commands:
+    lines.append(f"- `homeboy {name}` — {summary}")
+lines.append("")
+lines.append(
+    "Discover everything: `homeboy --help`. Drill into any command with "
+    "`homeboy <command> --help`. Releases (`homeboy release`) and deploys "
+    "(`homeboy deploy`) are operator actions — run them only when the user "
+    "explicitly asks."
+)
+
+sys.stdout.write("\n".join(lines))
+PY
+}
+
 _agents_md_guidance_render_block() {
   local section_id="$1" priority="$2" label="$3" description="$4" content="$5"
   AGENTS_MD_GUIDANCE_SECTION_ID="$section_id" \
@@ -218,6 +350,8 @@ _agents_md_guidance_render_block() {
   AGENTS_MD_GUIDANCE_LABEL="$label" \
   AGENTS_MD_GUIDANCE_DESCRIPTION="$description" \
   AGENTS_MD_GUIDANCE_CONTENT="$content" \
+  AGENTS_MD_GUIDANCE_FRESHNESS="${AGENTS_MD_GUIDANCE_FRESHNESS:-conditional}" \
+  AGENTS_MD_GUIDANCE_CONDITIONS="${AGENTS_MD_GUIDANCE_CONDITIONS:-Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.}" \
   python3 <<'PY'
 import os
 import re
@@ -228,6 +362,8 @@ priority = os.environ["AGENTS_MD_GUIDANCE_PRIORITY"]
 label = os.environ["AGENTS_MD_GUIDANCE_LABEL"]
 description = os.environ.get("AGENTS_MD_GUIDANCE_DESCRIPTION", "")
 content = os.environ["AGENTS_MD_GUIDANCE_CONTENT"].rstrip("\n")
+freshness = os.environ.get("AGENTS_MD_GUIDANCE_FRESHNESS", "conditional")
+conditions = os.environ.get("AGENTS_MD_GUIDANCE_CONDITIONS", "")
 
 if not re.fullmatch(r"[A-Za-z0-9_.-]+", section_id):
     sys.stderr.write("AGENTS.md guidance section id may only contain letters, numbers, dots, underscores, and hyphens\n")
@@ -255,8 +391,8 @@ print("        array(")
 print(f"            'label'       => '{esc(label)}',")
 print(f"            'description' => '{esc(description)}',")
 print("            'owner'       => 'wp-coding-agents',")
-print("            'freshness'   => 'conditional',")
-print("            'conditions'  => 'Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.',")
+print(f"            'freshness'   => '{esc(freshness)}',")
+print(f"            'conditions'  => '{esc(conditions)}',")
 print("        )")
 print("    );")
 print(f"    // END agents-md-guidance:{section_id}")

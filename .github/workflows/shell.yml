@@ -89,3 +89,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/service-identity-adoption.sh
         run: ./tests/service-identity-adoption.sh
+
+  agents-md-guidance:
+    name: AGENTS.md guidance registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/agents-md-guidance.sh
+        run: ./tests/agents-md-guidance.sh
+
+  homeboy-agents-md:
+    name: Homeboy CLI command map (#208)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/homeboy-agents-md.sh
+        run: ./tests/homeboy-agents-md.sh
