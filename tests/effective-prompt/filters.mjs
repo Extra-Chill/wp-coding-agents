@@ -72,6 +72,11 @@ function stripProjectDiscoveryInlines(block) {
 }
 
 async function currentFilter(block) {
+  const blocks = await currentFilterSystemBlocks([block])
+  return blocks.join("\n")
+}
+
+export async function currentFilterSystemBlocks(blocks) {
   const pluginModule = await import(pathToFileURL(PLUGIN_PATH).href)
   const plugin = await pluginModule.default({})
   const transform = plugin["experimental.chat.system.transform"]
@@ -79,9 +84,9 @@ async function currentFilter(block) {
     throw new Error(`dm-context-filter plugin is missing experimental.chat.system.transform: ${PLUGIN_PATH}`)
   }
 
-  const output = { system: [block] }
+  const output = { system: [...blocks] }
   await transform({}, output)
-  return output.system.join("\n")
+  return output.system
 }
 
 // ---------------------------------------------------------------------------

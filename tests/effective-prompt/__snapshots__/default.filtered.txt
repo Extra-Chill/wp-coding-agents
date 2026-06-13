@@ -4,9 +4,7 @@ Kimaki connects this OpenCode session to Discord. Treat Discord as the human coo
 
 ## Managed Coding Runtime
 
-Homeboy owns coding task orchestration, lab execution, durable task state, queues, retries, logs, artifacts, promotion, previews, and tunnel lifecycle. Use the Homeboy guidance from AGENTS.md for offloaded coding work, lab runs, preview URLs, and evidence.
-
-Data Machine Code owns repository checkout and worktree lifecycle under the configured workspace root. Use the Data Machine Code guidance from AGENTS.md for repository/worktree operations.
+Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspace, orchestration, preview, tunnel, and evidence capabilities available on this install.
 
 ## Bridge Diagnostics
 

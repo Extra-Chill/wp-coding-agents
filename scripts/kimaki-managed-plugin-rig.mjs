@@ -367,6 +367,9 @@ function findStaleOrchestrationLeaks(text) {
     /\bkimaki send\b.*\b--cwd\b/,
     /\bkimaki project (?:list|add|create)\b/,
     /\bkimaki send\b.*\b--project\b/,
+    /\bHomeboy\b/,
+    /\bData Machine Code\b/,
+    /\bdev\.chubes\.net\b/,
   ]
   return text
     .split('\n')

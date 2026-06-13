@@ -48,7 +48,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { homedir } from "node:os"
 
-import { filters } from "./filters.mjs"
+import { currentFilterSystemBlocks, filters } from "./filters.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -93,6 +93,9 @@ const DEFAULT_TRIGGERS = [
   { name: "kimaki-project",     pattern: "\\bkimaki project (?:list|add|create)\\b" },
   { name: "kimaki-send-project", pattern: "\\bkimaki send\\b.*\\b--project\\b"     },
   { name: "kimaki-tunnel",      pattern: "\\bkimaki tunnel\\b"                     },
+  { name: "homeboy-hardcode",   pattern: "\\bHomeboy\\b"                           },
+  { name: "dmc-hardcode",       pattern: "\\bData Machine Code\\b"                 },
+  { name: "global-tunnel-url",  pattern: "\\bdev\\.chubes\\.net\\b"                },
   { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
 ]
 
@@ -308,6 +311,16 @@ async function runScenario(name, scenario) {
     failures.push(
       `current filter leaks more (${filteredLeaks.length}) than baseline (${baselineLeaks.length}) — regression`,
     )
+  }
+  if (scenario.filter === "current") {
+    const sentinelBlock = "## Sentinel Non-Kimaki System Block\n\nThis block represents composed AGENTS guidance."
+    const transformedBlocks = await currentFilterSystemBlocks([sentinelBlock, raw])
+    if (transformedBlocks[0] !== sentinelBlock) {
+      failures.push("current filter changed a non-Kimaki system block")
+    }
+    if (transformedBlocks.length !== 2) {
+      failures.push(`current filter returned ${transformedBlocks.length} system blocks for a two-block input`)
+    }
   }
 
   return {

@@ -1,13 +1,15 @@
 // dm-context-filter.ts — OpenCode plugin for WordPress agent VPSes with Data Machine.
 //
 // Replaces Kimaki's built-in system prompt on managed installs. Kimaki remains
-// the Discord bridge and human coordination surface; Homeboy owns task/lab
-// orchestration and preview/tunnel lifecycle; Data Machine Code owns repository
-// workspace/worktree lifecycle.
+// the Discord bridge and human coordination surface. Available runtime,
+// orchestration, preview, tunnel, and workspace guidance comes from composed
+// Data Machine AGENTS.md sections registered by the components present on the
+// install.
 //
 // The replacement prompt is deliberately small. Repository, agent memory,
-// scheduling, worktree, and Homeboy lab instructions come from the composed
-// Data Machine/AGENTS instruction stack, not from Kimaki's generic CLI prompt.
+// scheduling, lab, preview, tunnel, and workspace instructions come from the
+// composed Data Machine/AGENTS instruction stack, not from Kimaki's generic CLI
+// prompt.
 //
 // What it removes from chat message injection:
 // 1. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
@@ -30,9 +32,7 @@ Kimaki connects this OpenCode session to Discord. Treat Discord as the human coo
 
 ## Managed Coding Runtime
 
-Homeboy owns coding task orchestration, lab execution, durable task state, queues, retries, logs, artifacts, promotion, previews, and tunnel lifecycle. Use the Homeboy guidance from AGENTS.md for offloaded coding work, lab runs, preview URLs, and evidence.
-
-Data Machine Code owns repository checkout and worktree lifecycle under the configured workspace root. Use the Data Machine Code guidance from AGENTS.md for repository/worktree operations.
+Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspace, orchestration, preview, tunnel, and evidence capabilities available on this install.
 
 ## Bridge Diagnostics
 
@@ -43,7 +43,12 @@ const fleetContextFilter: Plugin = async () => {
   return {
     // Replace Kimaki's generic CLI/orchestration prompt with managed guidance.
     "experimental.chat.system.transform": async (_input, output) => {
-      output.system = [MANAGED_KIMAKI_SYSTEM_PROMPT];
+      output.system = output.system.map((block) => {
+        if (isKimakiSystemPrompt(block)) {
+          return MANAGED_KIMAKI_SYSTEM_PROMPT;
+        }
+        return block;
+      });
     },
 
     // Filter out Kimaki's MEMORY.md injection and time-gap MEMORY.md reminders.
@@ -75,5 +80,21 @@ const fleetContextFilter: Plugin = async () => {
     },
   };
 };
+
+/**
+ * Identify Kimaki's generated system prompt without matching composed AGENTS.md
+ * or other OpenCode system blocks from the managed install.
+ *
+ * @param {string} block - System prompt block.
+ * @return {boolean} Whether this block is Kimaki's generated bridge prompt.
+ */
+function isKimakiSystemPrompt(block: string): boolean {
+  return (
+    block.includes("The user is reading your messages from inside Discord, via kimaki.dev") ||
+    block.includes("## debugging kimaki issues") ||
+    block.includes("## uploading files to discord") ||
+    block.includes("Your current OpenCode session ID is:")
+  );
+}
 
 export default fleetContextFilter;

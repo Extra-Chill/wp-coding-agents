@@ -25,7 +25,9 @@ EOF
 
 cat > "$KIMAKI_DIST/system-message.js" <<'EOF'
 export function getOpencodeSystemMessage() {
-  return `## permissions
+  return `The user is reading your messages from inside Discord, via kimaki.dev
+
+## permissions
 
 metadata that should be stripped
 
@@ -107,7 +109,7 @@ if grep -q '^## running dev servers with tunnel access$' "$ARTIFACTS/prompts/ini
   exit 1
 fi
 
-if grep -Eq '^## (starting new sessions from CLI|creating worktrees|cross-project commands|waiting for a session to finish)$|kimaki send|kimaki project list' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
+if grep -Eq '^## (starting new sessions from CLI|creating worktrees|cross-project commands|waiting for a session to finish)$|kimaki send|kimaki project list|Homeboy|Data Machine Code|dev\.chubes\.net' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
   echo "FAIL: filtered prompt leaked stale Kimaki orchestration guidance"
   exit 1
 fi
