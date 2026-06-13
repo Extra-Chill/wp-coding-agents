@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# post-upgrade.sh — Restore the wp-coding-agents upgrade skill and validate plugin state.
+# post-upgrade.sh — Enforce the managed Kimaki skill surface and validate plugin state.
 #
 # Two passes run against the npm-installed kimaki package and persistent
 # kimaki-config directory:
-#   1. RESTORE skill   — re-copy the upgrade skill from the persistent
-#                source dir (kimaki-config/skills/) into kimaki/skills/.
+#   1. SKILL surface   — remove package-local managed skill duplicates and,
+#                when a skills-enable-list.txt is present, remove bundled skills
+#                outside the allowlist from kimaki/skills/.
 #   2. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
 #                exist at the persistent kimaki-config/plugins path loaded by
 #                opencode.json. Local installs no longer restore plugins into
 #                $(npm root -g)/kimaki/plugins because package-local files are
 #                wiped by `npm update -g kimaki`.
 #
-# `npm update -g kimaki` still wipes kimaki/skills/, so the upgrade skill is rehydrated
-# from persistent kimaki-config/ on every restart. Plugins are loaded directly
-# from persistent kimaki-config/plugins and only need validation here.
+# `npm update -g kimaki` can recreate bundled skills in kimaki/skills/. The
+# managed service starts Kimaki with --enable-skill, but post-upgrade also
+# enforces the package-local skill surface so recreated bundled skills and stale
+# wp-coding-agents duplicates do not leak or trigger duplicate discovery.
+# Plugins are loaded directly from persistent kimaki-config/plugins and only
+# need validation here.
 #
 # Invoked two ways:
 #   VPS:   ExecStartPre in kimaki.service (runs on every service start).
@@ -28,7 +32,7 @@
 #   1. KIMAKI_PLUGINS_DIR env var (explicit override)
 #   2. Persistent plugin source dir below (default for local and VPS)
 #
-# Persistent skill source dir resolution priority:
+# Persistent config dir resolution priority:
 #   1. KIMAKI_SKILL_SOURCE_DIR env var (explicit override)
 #   2. $KIMAKI_DATA_DIR/kimaki-config/skills/ if KIMAKI_DATA_DIR set and dir exists
 #   3. $HOME/.kimaki/kimaki-config/skills/ (local default)
@@ -74,10 +78,12 @@ is_wp_coding_agents_skill() {
 }
 
 # ----------------------------------------------------------------------------
-# Pass 1: RESTORE skill — re-copy the upgrade skill from the
-# persistent source dir into the npm-managed skills dir. Idempotent: `rm -rf`
-# before each `cp -r` so a stale copy always gets replaced by the current
-# source.
+# Pass 1: SKILL surface — keep persistent kimaki-config/skills/ as the durable
+# source and avoid copying it into Kimaki's package skills dir. OpenCode already
+# discovers project/user/runtime skills; package-local copies only create
+# duplicate skill warnings. If an allowlist exists, remove package-local skills
+# outside it so npm upgrades/restarts cannot recreate unwanted bundled skills
+# such as critique.
 # ----------------------------------------------------------------------------
 
 if [[ -n "${KIMAKI_SKILL_SOURCE_DIR:-}" ]]; then
@@ -90,27 +96,57 @@ else
   SKILL_SOURCE_DIR="/opt/kimaki-config/skills"
 fi
 
-skills_restored=0
+if [[ -n "${KIMAKI_SKILL_ENABLES_FILE:-}" ]]; then
+  SKILL_ENABLES_FILE="$KIMAKI_SKILL_ENABLES_FILE"
+elif [[ -n "${KIMAKI_DATA_DIR:-}" && -f "$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt" ]]; then
+  SKILL_ENABLES_FILE="$KIMAKI_DATA_DIR/kimaki-config/skills-enable-list.txt"
+elif [[ -f "$HOME/.kimaki/kimaki-config/skills-enable-list.txt" ]]; then
+  SKILL_ENABLES_FILE="$HOME/.kimaki/kimaki-config/skills-enable-list.txt"
+elif [[ -f "/opt/kimaki-config/skills-enable-list.txt" ]]; then
+  SKILL_ENABLES_FILE="/opt/kimaki-config/skills-enable-list.txt"
+else
+  SKILL_ENABLES_FILE=""
+fi
+
+skill_is_enabled() {
+  local candidate="$1"
+  [[ -n "$SKILL_ENABLES_FILE" && -f "$SKILL_ENABLES_FILE" ]] || return 1
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="${line//[[:space:]]/}"
+    [[ -n "$line" ]] || continue
+    [[ "$line" == "$candidate" ]] && return 0
+  done < "$SKILL_ENABLES_FILE"
+  return 1
+}
+
+skills_removed=0
 if [[ ! -d "$SKILLS_DIR" ]]; then
-  echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping upgrade skill restore"
-elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
-  for skill_dir in "$SKILL_SOURCE_DIR"/*/; do
+  echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping package skill surface enforcement"
+else
+  for skill_dir in "$SKILLS_DIR"/*/; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
-    if ! is_wp_coding_agents_skill "$skill_name"; then
-      echo "kimaki-config: skipped unmanaged skill $skill_name"
+    if is_wp_coding_agents_skill "$skill_name"; then
+      rm -rf "$skill_dir"
+      echo "kimaki-config: removed package-local duplicate skill $skill_name"
+      skills_removed=$((skills_removed + 1))
       continue
     fi
-    if [[ -f "$skill_dir/SKILL.md" ]]; then
-      target="$SKILLS_DIR/$skill_name"
-      rm -rf "$target"
-      cp -r "$skill_dir" "$target"
-      echo "kimaki-config: restored upgrade skill $skill_name"
-      skills_restored=$((skills_restored + 1))
+
+    if [[ -n "$SKILL_ENABLES_FILE" && -f "$SKILL_ENABLES_FILE" ]] && ! skill_is_enabled "$skill_name"; then
+      rm -rf "$skill_dir"
+      echo "kimaki-config: removed package-local skill outside allowlist $skill_name"
+      skills_removed=$((skills_removed + 1))
     fi
   done
+fi
+
+if [[ -d "$SKILL_SOURCE_DIR" ]]; then
+  echo "kimaki-config: persistent skill source available at $SKILL_SOURCE_DIR"
 else
-  echo "kimaki-config: persistent skill source dir not found at $SKILL_SOURCE_DIR, skipping upgrade skill restore"
+  echo "kimaki-config: persistent skill source dir not found at $SKILL_SOURCE_DIR"
 fi
 
 # ----------------------------------------------------------------------------
@@ -177,4 +213,4 @@ else
   done
 fi
 
-echo "kimaki-config: done ($skills_restored skills restored, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"
+echo "kimaki-config: done ($skills_removed package skills removed, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"

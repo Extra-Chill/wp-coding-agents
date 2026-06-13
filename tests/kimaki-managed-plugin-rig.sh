@@ -94,6 +94,11 @@ for (const cycle of manifest.cycles) {
     `${cycle.name}: filtered prompt removes tunnel section`,
     `${cycle.name}: raw Kimaki prompt contains stale orchestration sections`,
     `${cycle.name}: filtered prompt removes stale orchestration sections`,
+    `${cycle.name}: bundled critique skill removed from npm skills dir`,
+    `${cycle.name}: package-local upgrade skill duplicate removed`,
+    `${cycle.name}: persistent upgrade skill source remains present`,
+    `${cycle.name}: generated skill permission denies unlisted skills`,
+    `${cycle.name}: generated skill permission allows upgrade skill`,
     `${cycle.name}: dm-context-filter hook executed`,
     `${cycle.name}: dm-agent-sync module loads`,
   ]) {
