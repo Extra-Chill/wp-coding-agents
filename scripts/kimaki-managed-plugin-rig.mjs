@@ -371,8 +371,7 @@ async function runCycle({ name, simulatePackageWipe }) {
   cycle.post_upgrade = postUpgrade
   assert(postUpgrade.status === 0, `${name}: post-upgrade exits 0`, cycle)
   assert(!fs.existsSync(path.join(npmSkillsDir, 'critique', 'SKILL.md')), `${name}: bundled critique skill removed from npm skills dir`, cycle)
-  assert(fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: package-local upgrade skill remains present`, cycle)
-  assert(fileRecord(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256 === fileRecord(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256, `${name}: package-local upgrade skill matches persistent source`, cycle)
+  assert(!fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: package-local upgrade skill duplicate removed`, cycle)
   assert(fs.existsSync(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: persistent upgrade skill source remains present`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-context-filter.ts')), `${name}: context filter present after restart`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-agent-sync.ts')), `${name}: agent sync present after restart`, cycle)
@@ -421,6 +420,21 @@ function seedPackageSkill(name) {
   const skillDir = path.join(npmSkillsDir, name)
   mkdirp(skillDir)
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${name} stale package fixture\n`, 'utf8')
+}
+
+function expectedSkillPermission() {
+  const enableList = path.join(kimakiConfigDir, 'skills-enable-list.txt')
+  const disableList = path.join(kimakiConfigDir, 'skills-disable-list.txt')
+  if (fs.existsSync(enableList)) {
+    return Object.fromEntries([
+      ['*', 'deny'],
+      ...skillNames(enableList).map((skill) => [skill, 'allow']),
+    ])
+  }
+  if (fs.existsSync(disableList)) {
+    return Object.fromEntries(skillNames(disableList).map((skill) => [skill, 'deny']))
+  }
+  return undefined
 }
 
 async function renderAndFilterPrompt(name) {
