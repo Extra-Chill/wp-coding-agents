@@ -52,13 +52,45 @@ exit 2
 SH
 chmod +x "$FAKE_BIN/homeboy"
 
+cat > "$FAKE_BIN/sudo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SUDO_LOG"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -n|-H)
+      shift
+      ;;
+    -u)
+      shift 2
+      ;;
+    env)
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          *=*) export "$1"; shift ;;
+          *) break ;;
+        esac
+      done
+      exec "$@"
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+exit 2
+SH
+chmod +x "$FAKE_BIN/sudo"
+
 HOMEBOY_ATTACH_LOG="$TMP/attached.log"
 export HOMEBOY_ATTACH_LOG
 PATH="$FAKE_BIN:$PATH"
 
 assert_contains() {
   local needle="$1" file="$2"
-  if ! grep -qF "$needle" "$file"; then
+  if ! grep -qF -- "$needle" "$file"; then
     echo "FAIL: expected '$needle' in $file"
     cat "$file"
     exit 1
@@ -67,7 +99,7 @@ assert_contains() {
 
 assert_not_contains() {
   local needle="$1" file="$2"
-  if grep -qF "$needle" "$file"; then
+  if grep -qF -- "$needle" "$file"; then
     echo "FAIL: unexpected '$needle' in $file"
     cat "$file"
     exit 1
@@ -112,5 +144,24 @@ if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
   exit 1
 fi
 assert_contains "Homeboy project config not found at site root — skipping DMC component attachment" "$TMP/empty-id-output.log"
+
+cat > "$SITE_PATH/homeboy.json" <<'JSON'
+{"id":"site-project"}
+JSON
+DRY_RUN=false
+SERVICE_USER="opencode"
+SERVICE_HOME="$TMP/opencode-home"
+WP_CODING_AGENTS_TEST_ASSUME_ROOT=true
+HOMEBOY_ATTACH_LOG="$TMP/service-user-attached.log"
+SUDO_LOG="$TMP/sudo.log"
+export HOMEBOY_ATTACH_LOG SUDO_LOG SERVICE_USER SERVICE_HOME WP_CODING_AGENTS_TEST_ASSUME_ROOT
+
+sync_homeboy_project_components > "$TMP/service-user-output.log"
+
+assert_contains "site-project|$DM_WORKSPACE_DIR/alpha" "$HOMEBOY_ATTACH_LOG"
+assert_contains "site-project|$DM_WORKSPACE_DIR/beta" "$HOMEBOY_ATTACH_LOG"
+assert_contains "-n -H -u opencode env HOME=$SERVICE_HOME" "$SUDO_LOG"
+assert_contains "PATH=" "$SUDO_LOG"
+assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/alpha" "$SUDO_LOG"
 
 echo "OK: Homeboy component attachment skips worktrees and metadata-less repos"
