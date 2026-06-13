@@ -1,6 +1,6 @@
 ---
 name: upgrade-wp-coding-agents
-description: "Safely upgrade wp-coding-agents on a live install — VPS or local — without touching user state. Syncs plugins, skills, AGENTS.md, systemd unit (VPS), and removes any legacy opencode-claude-auth wrapper from prior installs."
+description: "Safely upgrade wp-coding-agents on a live install — VPS or local — without touching user state. Syncs plugins, skills, AGENTS.md, and service files for the detected environment."
 compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Works on VPS (systemd) and local installs (macOS launchd or manual)."
 ---
 
@@ -48,7 +48,7 @@ The user says something like:
    ```bash
    node tests/effective-prompt/run.mjs
    ```
-   Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still strips the Kimaki-only prompt sections the Data Machine agent should not see. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
+   Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still replaces Kimaki's generic prompt with the managed bridge prompt while preserving unrelated system blocks. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
 
 7. **Verify Homeboy when the install uses it.** Only do this when the user enabled Homeboy or `AGENTS.md` contains the Homeboy section. Run the project/component checks and pass failures through clearly:
    ```bash
