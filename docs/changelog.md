@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.0] - 2026-06-13
+
+### Added
+- feat(agents-md): generate presence-gated homeboy CLI section from homeboy --help (#208)
+
 ## [1.3.1] - 2026-06-13
 
 ### Changed
