@@ -362,6 +362,7 @@ function findStaleOrchestrationLeaks(text) {
     /^## creating worktrees$/,
     /^## cross-project commands$/,
     /^## waiting for a session to finish$/,
+    /\bkimaki send\b/,
     /\bkimaki send\b.*\b--worktree\b/,
     /\bkimaki send\b.*\b--cwd\b/,
     /\bkimaki project (?:list|add|create)\b/,

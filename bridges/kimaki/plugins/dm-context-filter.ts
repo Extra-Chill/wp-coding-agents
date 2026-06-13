@@ -1,50 +1,18 @@
 // dm-context-filter.ts — OpenCode plugin for WordPress agent VPSes with Data Machine.
 //
-// Strips Kimaki built-in features from the agent context when Data Machine
-// owns the corresponding memory, scheduling, or site-runtime policy.
+// Replaces Kimaki's built-in system prompt on managed installs. Kimaki remains
+// the Discord bridge and human coordination surface; Homeboy owns task/lab
+// orchestration and preview/tunnel lifecycle; Data Machine Code owns repository
+// workspace/worktree lifecycle.
 //
-// What it removes from the system prompt:
-// 1. Scheduling — Data Machine owns recurring automation, flows, jobs, and
-//    reminders, so the agent should not learn a second scheduler path.
-// 2. Tunnel / dev server — managed WordPress installs already have a site
-//    runtime and Homeboy owns preview/tunnel lifecycle for managed tasks.
-// 3. Permissions — metadata describing which Discord roles can message the
-//    bot. The agent has no capability to act on this; pure metadata leakage.
-// 4. Upgrading kimaki — the /upgrade-and-restart playbook. The user
-//    runs the slash command themselves when they want to upgrade.
-// 5. Reading other sessions — cross-session discovery commands such as
-//    `kimaki session list
-//    --project` / `session search --channel <id>`. These are cross-project
-//    discovery vectors; on a single-project fleet server the agent only ever
-//    needs to list sessions in the current project (no flags required).
-// 6. Kimaki orchestration guidance — starting/waiting on sessions, worktree
-//    creation, cwd/project routing, and slash-command fanout. On managed
-//    installs, Homeboy owns task orchestration and Data Machine Code owns
-//    workspace/worktree lifecycle; Kimaki remains the chat/status bridge.
-//
-// What it intentionally keeps under Kimaki 0.13:
-// - Bridge utilities that are not orchestration defaults, such as Kimaki issue
-//   debugging, Discord uploads, and explicit thread archiving.
-// - Generic agent metadata. Kimaki now falls back to the build agent when a
-//   requested agent does not exist, so Data Machine no longer needs prompt
-//   surgery to compensate for runtime-agent names.
-// - Critique instructions. wp-coding-agents starts managed Kimaki services with
-//   `--no-critique`, so the section is absent before this filter runs.
-//
-// This plugin is strip-only. Positive guidance about how to use Kimaki's
-// session bridge or the WordPress site runtime belongs in Data Machine's
-// instruction stack (AGENTS.md, SOUL.md, SITE.md, etc.) — not pre-injected
-// into every prompt by a runtime bridge filter. Bridge-specific guidance
-// pre-injected here would recreate the same problem we're trying to solve:
-// runtime-bridge concerns leaking into the generic agent context.
-//
-// NOTE: "## debugging kimaki issues" is intentionally kept — when Kimaki itself
-// throws errors, the agent needs the kimaki.log path to investigate.
+// The replacement prompt is deliberately small. Repository, agent memory,
+// scheduling, worktree, and Homeboy lab instructions come from the composed
+// Data Machine/AGENTS instruction stack, not from Kimaki's generic CLI prompt.
 //
 // What it removes from chat message injection:
-// 8. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
+// 1. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
 //    injects a condensed TOC. Conflicts with Data Machine's own memory files.
-// 9. "Update MEMORY.md" time-gap reminder — Redundant with external memory system.
+// 2. "Update MEMORY.md" time-gap reminder — Redundant with external memory system.
 // Total savings depends on the Kimaki version and managed startup flags.
 //
 // How to use:
@@ -56,27 +24,26 @@
  */
 import type { Plugin } from "@opencode-ai/plugin";
 
+const MANAGED_KIMAKI_SYSTEM_PROMPT = `## Kimaki Discord Bridge
+
+Kimaki connects this OpenCode session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
+
+## Managed Coding Runtime
+
+Homeboy owns coding task orchestration, lab execution, durable task state, queues, retries, logs, artifacts, promotion, previews, and tunnel lifecycle. Use the Homeboy guidance from AGENTS.md for offloaded coding work, lab runs, preview URLs, and evidence.
+
+Data Machine Code owns repository checkout and worktree lifecycle under the configured workspace root. Use the Data Machine Code guidance from AGENTS.md for repository/worktree operations.
+
+## Bridge Diagnostics
+
+For Kimaki bridge failures, inspect \`$HOME/.kimaki/kimaki.log\`. The log is reset every time Kimaki restarts, so it only covers the current run.
+`;
+
 const fleetContextFilter: Plugin = async () => {
   return {
-    // Strip sections from the system prompt.
+    // Replace Kimaki's generic CLI/orchestration prompt with managed guidance.
     "experimental.chat.system.transform": async (_input, output) => {
-      output.system = output.system.map((block) => {
-        let result = block;
-        result = stripSection(result, "## permissions");
-        result = stripSection(result, "## upgrading kimaki");
-        result = stripSection(result, "## scheduled sends and task management");
-        result = stripSection(result, "## running dev servers with tunnel access");
-        result = stripSection(result, "## reading other sessions");
-        result = stripSection(result, "## starting new sessions from CLI");
-        result = stripSection(result, "## running opencode commands via kimaki send");
-        result = stripSection(result, "## switching agents in the current session");
-        result = stripSection(result, "## creating worktrees");
-        result = stripSection(result, "## cross-project commands");
-        result = stripSection(result, "## waiting for a session to finish");
-        // Clean up leftover double/triple blank lines.
-        result = result.replace(/\n{3,}/g, "\n\n");
-        return result;
-      });
+      output.system = [MANAGED_KIMAKI_SYSTEM_PROMPT];
     },
 
     // Filter out Kimaki's MEMORY.md injection and time-gap MEMORY.md reminders.
@@ -108,58 +75,5 @@ const fleetContextFilter: Plugin = async () => {
     },
   };
 };
-
-/**
- * Remove a markdown section from a system prompt block.
- *
- * @param {string} block   - System prompt block.
- * @param {string} heading - Section heading to remove.
- * @return {string} System prompt block without the requested section.
- */
-function stripSection(block: string, heading: string): string {
-  const lines = block.split("\n");
-  const level = (heading.match(/^#+/) || ["##"])[0].length;
-
-  // Find the heading line. Match exact (whole-line) so a heading like
-  // "## scheduled sends and task management" doesn't accidentally match
-  // "## scheduled sends and task management with a suffix".
-  let start = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] === heading) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) {
-    return block;
-  }
-
-  // Walk forward looking for the next heading of the same or higher level
-  // (i.e. fewer-or-equal `#` characters), tracking fenced-code-block state
-  // so `# bash comments` inside ```bash``` are ignored.
-  let inFence = false;
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^```/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      continue;
-    }
-    const m = line.match(/^(#{1,6})\s+\S/);
-    if (m && m[1].length <= level) {
-      end = i;
-      break;
-    }
-  }
-
-  // Splice out [start, end). Preserve a trailing newline so the next
-  // section's leading "\n" doesn't collapse into the previous one.
-  const before = lines.slice(0, start);
-  const after = lines.slice(end);
-  return [...before, ...after].join("\n");
-}
 
 export default fleetContextFilter;

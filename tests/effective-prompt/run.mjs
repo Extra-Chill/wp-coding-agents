@@ -89,6 +89,7 @@ const DEFAULT_TRIGGERS = [
   { name: "session-wait",       pattern: "^## waiting for a session to finish$"      },
   { name: "kimaki-worktree",    pattern: "\\bkimaki send\\b.*\\b--worktree\\b"    },
   { name: "kimaki-cwd",         pattern: "\\bkimaki send\\b.*\\b--cwd\\b"         },
+  { name: "kimaki-send",        pattern: "\\bkimaki send\\b"                      },
   { name: "kimaki-project",     pattern: "\\bkimaki project (?:list|add|create)\\b" },
   { name: "kimaki-send-project", pattern: "\\bkimaki send\\b.*\\b--project\\b"     },
   { name: "kimaki-tunnel",      pattern: "\\bkimaki tunnel\\b"                     },
