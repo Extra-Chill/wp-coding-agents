@@ -99,9 +99,9 @@ const DEFAULT_TRIGGERS = [
   { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
 ]
 
-// The filter is strip-only — it never appends sections. Any trigger word
-// appearing in the filtered output is a real leak that needs investigation,
-// not an intentional appendix.
+// The current filter replaces Kimaki's generated bridge prompt and preserves
+// other system blocks. Any trigger word appearing in the filtered Kimaki output
+// is a real leak that needs investigation, not an intentional appendix.
 const DEFAULT_ALLOW_LEAK_SECTIONS = []
 
 const DEFAULT_SCENARIO = {
