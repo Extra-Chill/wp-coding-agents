@@ -194,7 +194,7 @@ Actionable failure interpretation:
 
 - Missing Homeboy extension/provider: fix `homeboy extension list` / `homeboy agent-task providers` before rerunning.
 - Missing runtime component defaults: pass explicit `--agents-api`, `--agent-runtime`, and `--agent-runtime-tools` paths instead of relying on discovery.
-- Stale standalone Agents API mismatch: point `--agents-api` at Data Machine's bundled `vendor/wordpress/agents-api` path and avoid old standalone plugin paths.
+- Agents API path mismatch: point `--agents-api` at Data Machine's bundled `vendor/wordpress/agents-api` path.
 - Missing provider secret env names: pass `--secret-env NAME`; pass only env var names, never token values.
 - Missing `/workspace` mount: verify the provider config contains a read-only mount with `target: "/workspace"` and `source` set to the existing repo/worktree path.
 
