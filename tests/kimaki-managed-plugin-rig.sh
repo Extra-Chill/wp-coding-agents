@@ -11,6 +11,8 @@ KIMAKI_DIST="$TMP/kimaki-dist"
 ARTIFACTS="$TMP/artifacts"
 mkdir -p "$KIMAKI_DIST" "$ARTIFACTS"
 
+node "$ROOT/scripts/kimaki-managed-plugin-rig.mjs" --self-test-args
+
 cat > "$KIMAKI_DIST/package.json" <<'EOF'
 {"type":"module"}
 EOF
