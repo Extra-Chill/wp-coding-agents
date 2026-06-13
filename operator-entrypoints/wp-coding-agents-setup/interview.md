@@ -22,7 +22,6 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    Ask which runtime or runtimes the user wants:
    - `opencode`
    - `claude-code`
-   - `studio-code`
    - `multiple`
 
    If they choose multiple, collect the desired runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
@@ -74,7 +73,7 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "migration_backups_ready": false
   },
   "runtime": {
-    "selection": "auto | opencode | claude-code | studio-code | multiple",
+    "selection": "auto | opencode | claude-code | multiple",
     "runtimes": []
   },
   "chat_bridge": {

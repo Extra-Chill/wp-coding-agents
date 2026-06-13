@@ -2,7 +2,7 @@
 
 **A lean, composable AI agent on WordPress — VPS or local.**
 
-wp-coding-agents puts an AI coding agent on any WordPress install with WordPress as its operating layer. Pick your runtime — [OpenCode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), or [Studio Code](https://developer.wordpress.com/studio/) — and the script handles the rest. [Data Machine](https://github.com/Extra-Chill/data-machine) handles memory and scheduling, and a pluggable chat bridge ([Kimaki](https://kimaki.xyz) for Discord, [cc-connect](https://github.com/nichochar/cc-connect) for multi-platform, [opencode-telegram](https://github.com/grinev/opencode-telegram-bot) for Telegram, or none) handles communication. The agent's context window stays clean — no overhead for systems it's not using.
+wp-coding-agents puts an AI coding agent on any WordPress install with WordPress as its operating layer. Pick your runtime — [OpenCode](https://opencode.ai) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — and the script handles the rest. [Data Machine](https://github.com/Extra-Chill/data-machine) handles memory and scheduling, and a pluggable chat bridge ([Kimaki](https://kimaki.xyz) for Discord, [cc-connect](https://github.com/nichochar/cc-connect) for multi-platform, [opencode-telegram](https://github.com/grinev/opencode-telegram-bot) for Telegram, or none) handles communication. The agent's context window stays clean — no overhead for systems it's not using.
 
 Runs on a dedicated VPS for always-on autonomous operation, or locally on your Mac/Linux machine for development and personal use.
 
@@ -15,7 +15,7 @@ Runs on a dedicated VPS for always-on autonomous operation, or locally on your M
  Chat bridge (Kimaki, cc-connect, Telegram, or direct)
    │
    ▼
- Coding agent (OpenCode, Claude Code, or Studio Code)
+ Coding agent (OpenCode or Claude Code)
    │
    ├── Config ──────── opencode.json / CLAUDE.md
    ├── SOUL.md ─────── identity (who am I?)
@@ -49,7 +49,6 @@ hooks/
 runtimes/
 ├── opencode.sh        # OpenCode: opencode.json instructions + AGENTS.md
 ├── claude-code.sh     # Claude Code: CLAUDE.md + @ includes + .mcp.json
-└── studio-code.sh     # Studio Code: CLAUDE.md + @ includes + Studio tools
 ```
 
 Each runtime implements the same interface — install, config generation, MCP merge, skills directory. Adding a new runtime means implementing those functions in a single file.
@@ -89,8 +88,6 @@ EXISTING_WP=~/Studio/my-wordpress-website ./setup.sh --local
 # Claude Code
 EXISTING_WP=~/Studio/my-wordpress-website ./setup.sh --local --runtime claude-code
 
-# Studio Code (auto-detected in WordPress Studio sites)
-EXISTING_WP=~/Studio/my-wordpress-website ./setup.sh --local --runtime studio-code
 ```
 
 On macOS, `--local` is auto-detected. The script installs Data Machine, the coding agent runtime, the upgrade skill, and optionally a chat bridge — no infrastructure, no root, no systemd.
@@ -100,7 +97,6 @@ Start your agent:
 ```bash
 cd ~/Studio/my-wordpress-website && opencode      # OpenCode terminal
 cd ~/Studio/my-wordpress-website && claude         # Claude Code terminal
-cd ~/Studio/my-wordpress-website && studio code    # Studio Code terminal
 cd ~/Studio/my-wordpress-website && kimaki         # OpenCode + Discord
 ```
 
@@ -132,14 +128,14 @@ systemctl start kimaki  # or: systemctl start cc-connect
 
 | Flag | Description |
 |------|-------------|
-| `--runtime <name>` | Coding agent runtime: `opencode` (default), `claude-code`, `studio-code`. Auto-detected if omitted. |
+| `--runtime <name>` | Coding agent runtime: `opencode` (default) or `claude-code`. Auto-detected if omitted. |
 | `--local` | Local machine mode — skip infrastructure (no apt, nginx, systemd, SSL). Auto-detected on macOS. |
 | `--existing` | Add to existing WordPress (skip WP install) |
 | `--wp-path <path>` | Path to WordPress root (implies `--existing`) |
 | `--agent-slug <slug>` | Override Data Machine agent slug (default: derived from domain) |
 | `--with-homeboy` | Enable optional [Homeboy](https://github.com/Extra-Chill/homeboy) project setup for repo-aware developer workflows |
 | `--no-chat` | Skip chat bridge |
-| `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code and Studio Code), `telegram` |
+| `--chat <bridge>` | Chat bridge: `kimaki` (Discord, default for OpenCode), `cc-connect` (default for Claude Code), `telegram` |
 | `--multisite` | Convert to WordPress Multisite (subdirectory by default) |
 | `--subdomain` | Subdomain multisite (use with `--multisite`, requires wildcard DNS) |
 | `--no-skills` | Skip installing the wp-coding-agents upgrade skill |
@@ -157,9 +153,6 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local
 
 # Local: Claude Code + DM + cc-connect
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code
-
-# Local: Studio Code + DM (auto-detected in Studio sites)
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime studio-code
 
 # Local: recommended developer power layer with Homeboy project setup
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy
@@ -191,14 +184,14 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | Component | Role | Optional? |
 |-----------|------|-----------|
 | **WordPress** | Site platform, WP-CLI access | No (existing install on local) |
-| **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, or **[Studio Code](https://developer.wordpress.com/studio/)** | AI coding agent runtime | Selected via `--runtime` |
+| **[OpenCode](https://opencode.ai)** or **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | AI coding agent runtime | Selected via `--runtime` |
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | No — wp-coding-agents composes on top of DM |
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
 | **AI Provider for Claude Code** | wp-coding-agents-carried WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 | **[Homeboy](https://github.com/Extra-Chill/homeboy)** | Optional developer power layer for project status, component-aware checks, review loops, and WordPress extension verification | `--with-homeboy` |
 | **wp-coding-agents CLI transport** | Local `agents/dispatch-message` runtime plus per-bridge command registry | Always synced by setup/upgrade |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
-| **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code and Studio Code) | Always installed |
+| **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session for Claude Code | Always installed for Claude Code |
 | **wp-coding-agents upgrade skill** | Ongoing upgrade runbook installed with the target agent. The setup skill is intentionally not installed; it is a single-use pre-install entrypoint kept in this repo for the operator's local agent. | `--no-skills` |
 
 ## VPS vs. Local
@@ -237,9 +230,9 @@ Data Machine manages memory files across three layers, each scoped to a differen
 |------|---------|
 | **USER.md** | Information about the human the agent works with. Injected in chat and editor contexts only. |
 
-On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. The selected agent's discovered files are injected into each session via the runtime's config — top-level `opencode.json` `instructions` for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code and Studio Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. The selected agent's discovered files are injected into each session via the runtime's config — top-level `opencode.json` `instructions` for OpenCode or `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
 
-**Runtime sync:** Claude Code and Studio Code use a SessionStart hook that queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. OpenCode uses top-level `instructions` plus a Kimaki plugin that only recomposes Data Machine memory files before OpenCode reads them; it does not write `agent.build.prompt`, `agent.plan.prompt`, or register every Data Machine agent into OpenCode config. Claude Code's built-in auto-memory is disabled, since DM handles memory. Studio Code uses the same hook mechanism — it runs the Claude Agent SDK with the `claude_code` preset, which loads `.claude/settings.json` hooks by default.
+**Runtime sync:** Claude Code uses a SessionStart hook that queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. OpenCode uses top-level `instructions` plus a Kimaki plugin that only recomposes Data Machine memory files before OpenCode reads them; it does not write `agent.build.prompt`, `agent.plan.prompt`, or register every Data Machine agent into OpenCode config. Claude Code's built-in auto-memory is disabled, since DM handles memory.
 
 ## Abilities
 

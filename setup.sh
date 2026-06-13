@@ -183,7 +183,6 @@ USAGE:
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
   Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
   With Claude Code:   ./setup.sh --runtime claude-code --existing
-  With Studio Code:   ./setup.sh --runtime studio-code --local
 
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
@@ -262,7 +261,7 @@ fi
 #
 # RUNTIME is the "primary" runtime — the one that drives runtime_install,
 # runtime_generate_config, runtime_install_hooks, and the chat-bridge default.
-# First-match cascade: studio-code > claude-code > opencode.
+# First-match cascade: claude-code > opencode.
 #
 # DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
 # machine with both claude and opencode installed, the upgrade skill gets
@@ -272,9 +271,6 @@ if [ -n "$RUNTIME" ]; then
   # User passed --runtime explicitly — respect it, single-runtime mode.
   DETECTED_RUNTIMES=("$RUNTIME")
 else
-  if command -v studio &>/dev/null && [ "${IS_STUDIO:-false}" = true ]; then
-    DETECTED_RUNTIMES+=("studio-code")
-  fi
   if command -v claude &>/dev/null; then
     DETECTED_RUNTIMES+=("claude-code")
   fi
@@ -299,7 +295,7 @@ source "$RUNTIME_FILE"
 # Set default chat bridge based on runtime
 if [ -z "$CHAT_BRIDGE" ]; then
   case "$RUNTIME" in
-    claude-code|studio-code) CHAT_BRIDGE="cc-connect" ;;
+    claude-code) CHAT_BRIDGE="cc-connect" ;;
     *)                       CHAT_BRIDGE="kimaki" ;;
   esac
 fi

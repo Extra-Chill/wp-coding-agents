@@ -38,7 +38,7 @@ Output (stdout): JSON diagnostic object. Examples:
 
 CLI usage:
   repair-opencode-json.py --file <path> \
-    --runtime <opencode|claude-code|studio-code> \
+    --runtime <opencode|claude-code> \
     --chat-bridge <kimaki|cc-connect|telegram|none> \
     [--kimaki-plugins-dir <path>] \
     [--additive | --apply] \
@@ -83,7 +83,7 @@ def expected_plugins(
 
     if runtime != "opencode":
         # Non-opencode runtimes don't use the opencode.json plugin array.
-        # Claude Code / Studio Code have their own config. Return empty so
+        # Claude Code has its own config. Return empty so
         # "drift" comparisons on those runtimes are no-ops.
         return plugins
 
@@ -302,7 +302,7 @@ def main() -> int:
     parser.add_argument(
         "--runtime",
         required=True,
-        choices=["opencode", "claude-code", "studio-code"],
+        choices=["opencode", "claude-code"],
     )
     parser.add_argument(
         "--chat-bridge",
@@ -380,7 +380,7 @@ def main() -> int:
             args.kimaki_plugins_dir,
         )
 
-    # Claude Code / Studio Code: no plugin array concept here. Report ok
+    # Claude Code: no plugin array concept here. Report ok
     # if current is empty or absent; otherwise let user know we skipped.
     plugin_skipped = False
     if args.runtime != "opencode":

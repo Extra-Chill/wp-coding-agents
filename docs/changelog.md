@@ -2,6 +2,9 @@
 
 ## [1.3.0] - 2026-06-12
 
+### Removed
+- remove the unsupported Studio Code runtime path because current Studio uses the PI harness and no longer loads the Claude Code-compatible config surfaces this integration wrote
+
 ### Added
 - make wp-coding-agents skills opt-in
 - derive opencode instructions from Data Machine injectable memory files
@@ -286,7 +289,6 @@
 - Replace python3 with jq for settings.json merge and fix hook format
 - delegate AGENTS.md generation to SectionRegistry compose
 - Improve AGENTS.md: add abilities, expand Data Machine, drop stale sections
-- Add Studio Code runtime support
 - Remove BOOTSTRAP.md — setup skills handle first-run
 - Use gh repo clone for GitHub URLs in install_plugin
 - Add DM workspace to Claude Code additionalDirectories
@@ -310,8 +312,6 @@
 
 ### Fixed
 - fix(kimaki-plugin): strip worktree conflicts + low-value sections from agent context
-- Fix Studio Code runtime writing invalid SessionStart hook format
-- Fix Studio Code runtime to detect dev CLI
 - Fix dm-agent-sync hook: detect dev CLI, handle inline JSON summary
 - Fix install_plugin gh clone failing on macOS due to .git suffix
 - Fix README: accurately describe the memory system

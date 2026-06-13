@@ -1,7 +1,7 @@
 #!/bin/bash
 # bridges/cc-connect.sh — cc-connect chat bridge.
 #
-# Multi-platform chat bridge for Claude Code / Studio Code. No per-install
+# Multi-platform chat bridge for Claude Code. No per-install
 # config artifacts beyond the npm package + a user-owned config.toml. Token
 # is optional; the bridge runs without one.
 

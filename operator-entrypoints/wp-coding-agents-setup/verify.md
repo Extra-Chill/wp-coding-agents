@@ -63,12 +63,6 @@ opencode --version
 claude --version
 ```
 
-### `verify-runtime-studio-code`
-
-```bash
-studio --version
-```
-
 ### `verify-runtime-multiple`
 
 Run the selected runtime checks for each runtime in the compiled profile. If the setup used auto-detection, compare the detected runtime list from setup output with installed runtime binaries.
