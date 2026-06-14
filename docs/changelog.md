@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] - 2026-06-13
+
+### Changed
+- assert live managed runtime state
+
+### Fixed
+- refresh managed upgrade skill
+- tolerate partial component pruning
+- prune stale worktree components
+- fix upgrade homeboy service user context
+
 ## [1.4.1] - 2026-06-13
 
 ### Changed
