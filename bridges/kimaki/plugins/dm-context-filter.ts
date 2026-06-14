@@ -44,11 +44,29 @@ const fleetContextFilter: Plugin = async () => {
     // Replace Kimaki's generic CLI/orchestration prompt with managed guidance.
     "experimental.chat.system.transform": async (_input, output) => {
       output.system = output.system.map((block) => {
-        if (isKimakiSystemPrompt(block)) {
-          return MANAGED_KIMAKI_SYSTEM_PROMPT;
-        }
-        return block;
+        return replaceKimakiSystemPrompt(block);
       });
+    },
+
+    // Kimaki passes its generated Discord prompt through promptAsync's per-call
+    // `system` field. Some OpenCode releases do not expose that field through
+    // the system transform hook before model dispatch, but the final message
+    // transform still sees text parts that are about to reach the model. Keep a
+    // second replacement pass here so managed installs do not depend on one
+    // experimental hook shape.
+    "experimental.chat.messages.transform": async (_input, output) => {
+      for (const message of output.messages) {
+        for (const part of message.parts) {
+          if (part.type !== "text") {
+            continue;
+          }
+          const text = (part as any).text;
+          if (typeof text !== "string") {
+            continue;
+          }
+          (part as any).text = replaceKimakiSystemPrompt(text);
+        }
+      }
     },
 
     // Filter out Kimaki's MEMORY.md injection and time-gap MEMORY.md reminders.
@@ -95,6 +113,13 @@ function isKimakiSystemPrompt(block: string): boolean {
     block.includes("## uploading files to discord") ||
     block.includes("Your current OpenCode session ID is:")
   );
+}
+
+function replaceKimakiSystemPrompt(block: string): string {
+  if (isKimakiSystemPrompt(block)) {
+    return MANAGED_KIMAKI_SYSTEM_PROMPT;
+  }
+  return block;
 }
 
 export default fleetContextFilter;
