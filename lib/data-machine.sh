@@ -139,6 +139,8 @@ sync_homeboy_project_components() {
 
   log "Attaching Homeboy components from DMC workspace: $DM_WORKSPACE_DIR"
 
+  prune_homeboy_project_components "$project_id"
+
   local attached=0
   local skipped=0
   local failed=0
@@ -195,6 +197,80 @@ sync_homeboy_project_components() {
   shopt -u nullglob
 
   log "Homeboy component sync complete: $attached attached, $skipped skipped, $failed failed"
+}
+
+prune_homeboy_project_components() {
+  local project_id="$1"
+
+  [ -n "$project_id" ] || return 0
+  [ -n "${DM_WORKSPACE_DIR:-}" ] || return 0
+
+  local project_json
+  project_json="$(homeboy_run project show "$project_id" 2>/dev/null || true)"
+  [ -n "$project_json" ] || return 0
+
+  local component_ids
+  component_ids="$(HOMEBOY_PROJECT_JSON="$project_json" HOMEBOY_DM_WORKSPACE_DIR="$DM_WORKSPACE_DIR" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_JSON", ""))
+except Exception:
+    raise SystemExit(0)
+
+workspace = Path(os.environ.get("HOMEBOY_DM_WORKSPACE_DIR", "")).resolve()
+components = payload.get("data", {}).get("entity", {}).get("components", [])
+for component in components:
+    component_id = component.get("id") or ""
+    local_path = component.get("local_path") or ""
+    if not component_id or not local_path:
+        continue
+
+    path = Path(local_path).expanduser()
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path.absolute()
+
+    try:
+        resolved.relative_to(workspace)
+    except ValueError:
+        continue
+
+    if "@" in path.name or not (resolved / "homeboy.json").is_file():
+        print(component_id)
+PY
+)"
+
+  [ -n "$component_ids" ] || return 0
+
+  local remove_ids=()
+  local component_id
+  while IFS= read -r component_id; do
+    [ -n "$component_id" ] || continue
+    remove_ids+=("$component_id")
+  done <<< "$component_ids"
+
+  [ ${#remove_ids[@]} -gt 0 ] || return 0
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} homeboy project components remove $project_id ${remove_ids[*]}"
+    return 0
+  fi
+
+  local remove_output remove_status
+  remove_output="$(homeboy_run project components remove "$project_id" "${remove_ids[@]}" 2>&1)"
+  remove_status=$?
+  if homeboy_attach_succeeded "$remove_output" "$remove_status"; then
+    log "  pruned stale Homeboy component(s): ${remove_ids[*]}"
+  else
+    warn "  failed to prune stale Homeboy component(s): ${remove_ids[*]}"
+    if [ -n "$remove_output" ]; then
+      warn "    $(printf '%s' "$remove_output" | head -n 3 | tr '\n' ' ')"
+    fi
+  fi
 }
 
 # Decide whether a `homeboy ... attach-path` invocation succeeded. Prefers the

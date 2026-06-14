@@ -44,6 +44,18 @@ FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/sh
+if [ "$1 $2" = "project show" ]; then
+  cat "$HOMEBOY_PROJECT_SHOW_JSON"
+  exit 0
+fi
+if [ "$1 $2 $3" = "project components remove" ]; then
+  shift 3
+  project_id="$1"
+  shift
+  printf '%s|%s\n' "$project_id" "$*" >> "$HOMEBOY_REMOVE_LOG"
+  printf '{"success":true}\n'
+  exit 0
+fi
 if [ "$1 $2 $3" = "project components attach-path" ]; then
   printf '%s|%s\n' "$4" "$5" >> "$HOMEBOY_ATTACH_LOG"
   exit 0
@@ -85,8 +97,24 @@ SH
 chmod +x "$FAKE_BIN/sudo"
 
 HOMEBOY_ATTACH_LOG="$TMP/attached.log"
-export HOMEBOY_ATTACH_LOG
+HOMEBOY_REMOVE_LOG="$TMP/removed.log"
+HOMEBOY_PROJECT_SHOW_JSON="$TMP/project-show.json"
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG HOMEBOY_PROJECT_SHOW_JSON
 PATH="$FAKE_BIN:$PATH"
+
+write_project_show_json() {
+  cat > "$HOMEBOY_PROJECT_SHOW_JSON" <<JSON
+{"success":true,"data":{"entity":{"components":[
+  {"id":"alpha","local_path":"$DM_WORKSPACE_DIR/alpha"},
+  {"id":"beta","local_path":"$DM_WORKSPACE_DIR/beta"},
+  {"id":"alpha-feature","local_path":"$DM_WORKSPACE_DIR/alpha@feature"},
+  {"id":"no-metadata","local_path":"$DM_WORKSPACE_DIR/no-metadata"},
+  {"id":"external","local_path":"$TMP/external@repo"}
+]}}}
+JSON
+}
+
+write_project_show_json
 
 assert_contains() {
   local needle="$1" file="$2"
@@ -112,14 +140,18 @@ assert_contains "site-project|$DM_WORKSPACE_DIR/alpha" "$HOMEBOY_ATTACH_LOG"
 assert_contains "site-project|$DM_WORKSPACE_DIR/beta" "$HOMEBOY_ATTACH_LOG"
 assert_not_contains "alpha@feature" "$HOMEBOY_ATTACH_LOG"
 assert_not_contains "no-metadata" "$HOMEBOY_ATTACH_LOG"
+assert_contains "site-project|alpha-feature no-metadata" "$HOMEBOY_REMOVE_LOG"
+assert_not_contains "external" "$HOMEBOY_REMOVE_LOG"
 
+assert_contains "pruned stale Homeboy component(s): alpha-feature no-metadata" "$TMP/output.log"
 assert_contains "skipped alpha@feature: worktree skipped" "$TMP/output.log"
 assert_contains "skipped no-metadata: no homeboy.json" "$TMP/output.log"
 assert_contains "Homeboy component sync complete: 2 attached, 2 skipped, 0 failed" "$TMP/output.log"
 
 DRY_RUN=true
 HOMEBOY_ATTACH_LOG="$TMP/dry-run-attached.log"
-export HOMEBOY_ATTACH_LOG
+HOMEBOY_REMOVE_LOG="$TMP/dry-run-removed.log"
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG
 sync_homeboy_project_components > "$TMP/dry-run-output.log"
 
 if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
@@ -129,13 +161,20 @@ if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
 fi
 assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/alpha" "$TMP/dry-run-output.log"
 assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/beta" "$TMP/dry-run-output.log"
+assert_contains "homeboy project components remove site-project alpha-feature no-metadata" "$TMP/dry-run-output.log"
+if [ -f "$HOMEBOY_REMOVE_LOG" ]; then
+  echo "FAIL: dry-run should not call homeboy components remove"
+  cat "$HOMEBOY_REMOVE_LOG"
+  exit 1
+fi
 
 cat > "$SITE_PATH/homeboy.json" <<'JSON'
 {}
 JSON
 DRY_RUN=false
 HOMEBOY_ATTACH_LOG="$TMP/empty-id-attached.log"
-export HOMEBOY_ATTACH_LOG
+HOMEBOY_REMOVE_LOG="$TMP/empty-id-removed.log"
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG
 sync_homeboy_project_components > "$TMP/empty-id-output.log"
 
 if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
@@ -153,15 +192,18 @@ SERVICE_USER="opencode"
 SERVICE_HOME="$TMP/opencode-home"
 WP_CODING_AGENTS_TEST_ASSUME_ROOT=true
 HOMEBOY_ATTACH_LOG="$TMP/service-user-attached.log"
+HOMEBOY_REMOVE_LOG="$TMP/service-user-removed.log"
 SUDO_LOG="$TMP/sudo.log"
-export HOMEBOY_ATTACH_LOG SUDO_LOG SERVICE_USER SERVICE_HOME WP_CODING_AGENTS_TEST_ASSUME_ROOT
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG SUDO_LOG SERVICE_USER SERVICE_HOME WP_CODING_AGENTS_TEST_ASSUME_ROOT
 
 sync_homeboy_project_components > "$TMP/service-user-output.log"
 
+assert_contains "site-project|alpha-feature no-metadata" "$HOMEBOY_REMOVE_LOG"
 assert_contains "site-project|$DM_WORKSPACE_DIR/alpha" "$HOMEBOY_ATTACH_LOG"
 assert_contains "site-project|$DM_WORKSPACE_DIR/beta" "$HOMEBOY_ATTACH_LOG"
 assert_contains "-n -H -u opencode env HOME=$SERVICE_HOME" "$SUDO_LOG"
 assert_contains "PATH=" "$SUDO_LOG"
+assert_contains "homeboy project components remove site-project alpha-feature no-metadata" "$SUDO_LOG"
 assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/alpha" "$SUDO_LOG"
 
-echo "OK: Homeboy component attachment skips worktrees and metadata-less repos"
+echo "OK: Homeboy component attachment prunes stale worktrees and skips metadata-less repos"
