@@ -371,8 +371,7 @@ async function runCycle({ name, simulatePackageWipe }) {
   cycle.post_upgrade = postUpgrade
   assert(postUpgrade.status === 0, `${name}: post-upgrade exits 0`, cycle)
   assert(!fs.existsSync(path.join(npmSkillsDir, 'critique', 'SKILL.md')), `${name}: bundled critique skill removed from npm skills dir`, cycle)
-  assert(fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: package-local upgrade skill remains present`, cycle)
-  assert(fileRecord(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256 === fileRecord(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256, `${name}: package-local upgrade skill matches persistent source`, cycle)
+  assert(!fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: package-local upgrade skill duplicate removed`, cycle)
   assert(fs.existsSync(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: persistent upgrade skill source remains present`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-context-filter.ts')), `${name}: context filter present after restart`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-agent-sync.ts')), `${name}: agent sync present after restart`, cycle)
@@ -391,6 +390,7 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0, `${name}: raw Kimaki prompt contains stale orchestration sections`, cycle)
   assert(promptEvidence.filteredStaleOrchestrationLeaks.length === 0, `${name}: filtered prompt removes stale orchestration sections`, cycle)
   assert(promptEvidence.contextFilterExecuted, `${name}: dm-context-filter hook executed`, cycle)
+  assert(promptEvidence.systemAndMessageTransformsAgree, `${name}: system and message transforms agree`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
 }
 
@@ -461,13 +461,28 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
 
   const contextPluginModule = await import(pathToFileURL(path.join(pluginsDir, 'dm-context-filter.ts')).href)
   const contextPlugin = await contextPluginModule.default({})
-  const transform = contextPlugin['experimental.chat.system.transform']
-  if (typeof transform !== 'function') {
+  const systemTransform = contextPlugin['experimental.chat.system.transform']
+  if (typeof systemTransform !== 'function') {
     throw new Error('dm-context-filter did not expose experimental.chat.system.transform')
   }
-  const output = { system: [raw] }
-  await transform({}, output)
-  const filtered = output.system.join('\n')
+  const systemOutput = { system: [raw] }
+  await systemTransform({}, systemOutput)
+  const systemFiltered = systemOutput.system.join('\n')
+
+  const messageTransform = contextPlugin['experimental.chat.messages.transform']
+  if (typeof messageTransform !== 'function') {
+    throw new Error('dm-context-filter did not expose experimental.chat.messages.transform')
+  }
+  const messageOutput = {
+    messages: [
+      {
+        info: { id: `msg_${name}` },
+        parts: [{ type: 'text', text: raw }],
+      },
+    ],
+  }
+  await messageTransform({}, messageOutput)
+  const filtered = messageOutput.messages[0].parts[0].text
 
   const agentSyncModule = await import(pathToFileURL(path.join(pluginsDir, 'dm-agent-sync.ts')).href)
   const agentSyncPlugin = await agentSyncModule.default({ $: fakeShell })
@@ -485,8 +500,9 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
     rawStaleOrchestrationLeaks,
     filteredStaleOrchestrationLeaks,
-    contextFilterExecuted: output.system[0] !== raw,
+    contextFilterExecuted: systemOutput.system[0] !== raw && filtered !== raw,
     managedPromptActive: filtered.includes('## Kimaki Discord Bridge') && filtered.includes('## Managed Coding Runtime'),
+    systemAndMessageTransformsAgree: systemFiltered === filtered,
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
       ...summary,

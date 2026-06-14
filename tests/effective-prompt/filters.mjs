@@ -76,6 +76,26 @@ async function currentFilter(block) {
   return blocks.join("\n")
 }
 
+export async function currentFilterMessageText(block) {
+  const pluginModule = await import(pathToFileURL(PLUGIN_PATH).href)
+  const plugin = await pluginModule.default({})
+  const transform = plugin["experimental.chat.messages.transform"]
+  if (typeof transform !== "function") {
+    throw new Error(`dm-context-filter plugin is missing experimental.chat.messages.transform: ${PLUGIN_PATH}`)
+  }
+
+  const output = {
+    messages: [
+      {
+        info: { id: "msg_effective_prompt_test" },
+        parts: [{ type: "text", text: block }],
+      },
+    ],
+  }
+  await transform({}, output)
+  return output.messages[0].parts[0].text
+}
+
 export async function currentFilterSystemBlocks(blocks) {
   const pluginModule = await import(pathToFileURL(PLUGIN_PATH).href)
   const plugin = await pluginModule.default({})

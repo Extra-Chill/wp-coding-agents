@@ -8,8 +8,8 @@
 # What we cover:
 #   1. Bundled Kimaki skills outside the allowlist are removed from the package
 #      skills dir because npm upgrades can recreate them.
-#   2. Managed wp-coding-agents SKILL.md trees are refreshed from the persistent
-#      source into the package skills dir so the package-local copy is not stale.
+#   2. Package-local wp-coding-agents SKILL.md duplicates are removed; the
+#      persistent source remains authoritative.
 #   3. Default plugin pass is a no-op because opencode loads the persistent
 #      source dir directly.
 #   4. Explicit KIMAKI_PLUGINS_DIR compatibility override still copies *.ts
@@ -50,7 +50,7 @@ mkdir -p "$LIVE_SKILLS" "$SRC_SKILLS" "$SRC_PLUGINS"
 # Note: deliberately NOT creating LIVE_PLUGINS — explicit override mode must
 # still mkdir it.
 
-# Seed package-local skills that post-upgrade must scrub or refresh in allowlist mode.
+# Seed package-local skills that post-upgrade must remove in allowlist mode.
 mkdir -p "$LIVE_SKILLS/critique" "$LIVE_SKILLS/upgrade-wp-coding-agents"
 echo "stub" > "$LIVE_SKILLS/critique/SKILL.md"
 echo "stale" > "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
@@ -137,18 +137,12 @@ assert_log_contains_file() {
   fi
 }
 
-# Pass 1: unallowlisted package skills are removed.
+# Pass 1: package-local skills are scrubbed; persistent source remains.
 assert_missing "$LIVE_SKILLS/critique/SKILL.md"
+assert_missing "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
+assert_present "$SRC_SKILLS/upgrade-wp-coding-agents/SKILL.md"
 assert_log_contains "removed package-local skill outside allowlist critique"
-
-# Pass 2: managed skill is refreshed from persistent source and unmanaged source skills are skipped.
-assert_present "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
-if ! cmp -s "$SRC_SKILLS/upgrade-wp-coding-agents/SKILL.md" "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"; then
-  echo "FAIL: package-local upgrade skill should match persistent source"
-  cat "$TMP/run1.log"
-  exit 1
-fi
-assert_log_contains "refreshed package-local managed skill upgrade-wp-coding-agents"
+assert_log_contains "removed package-local duplicate skill upgrade-wp-coding-agents"
 assert_missing "$LIVE_SKILLS/unmanaged-skill/SKILL.md"
 assert_log_contains "persistent skill source available at $SRC_SKILLS"
 
@@ -222,6 +216,9 @@ mkdir -p \
   "$FALLBACK_HOME/.kimaki/kimaki-config/skills/upgrade-wp-coding-agents" \
   "$FALLBACK_HOME/.kimaki/kimaki-config/plugins" \
   "$FALLBACK_LIVE_SKILLS"
+cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills-enable-list.txt" <<'EOF'
+upgrade-wp-coding-agents
+EOF
 cat > "$FALLBACK_HOME/.kimaki/kimaki-config/skills/upgrade-wp-coding-agents/SKILL.md" <<'EOF'
 ---
 name: upgrade-wp-coding-agents
@@ -239,8 +236,8 @@ KIMAKI_DATA_DIR="$FALLBACK_DATA" \
 KIMAKI_SKILLS_DIR="$FALLBACK_LIVE_SKILLS" \
   "$TEST_SCRIPT_DIR/post-upgrade.sh" > "$TMP/run4.log" 2>&1
 
-if [[ ! -f "$FALLBACK_LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md" ]]; then
-  echo "FAIL: missing KIMAKI_DATA_DIR skills source should fall through to HOME source"
+if [[ -f "$FALLBACK_LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md" ]]; then
+  echo "FAIL: fallback run should not copy HOME-backed skill into package skills dir"
   cat "$TMP/run4.log"
   exit 1
 fi
@@ -249,8 +246,8 @@ if [[ -e "$FALLBACK_LIVE_PLUGINS" ]]; then
   cat "$TMP/run4.log"
   exit 1
 fi
-if ! grep -q "restored package-local managed skill upgrade-wp-coding-agents" "$TMP/run4.log"; then
-  echo "FAIL: fallback run should restore the HOME-backed skill"
+if ! grep -q "persistent skill source available at $FALLBACK_HOME/.kimaki/kimaki-config/skills" "$TMP/run4.log"; then
+  echo "FAIL: fallback run should find the HOME-backed skill source"
   cat "$TMP/run4.log"
   exit 1
 fi
