@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.6] - 2026-06-14
+
+### Fixed
+- fix homeboy project resolution by site path
+
 ## [1.4.5] - 2026-06-14
 
 ### Fixed
