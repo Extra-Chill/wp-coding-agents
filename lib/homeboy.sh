@@ -114,6 +114,101 @@ PY
         printf '%s\n' "$resolved"
         return 0
       fi
+
+      # Local Studio installs can surface a transient localhost URL while the
+      # registered Homeboy project keeps the stable Studio project id/domain.
+      # In that case, resolve by base_path before falling back to a slug.
+      if [ -n "${SITE_PATH:-}" ]; then
+        resolved="$(HOMEBOY_PROJECT_LIST="$project_list" HOMEBOY_SITE_PATH="$SITE_PATH" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+site_path = Path(os.environ.get("HOMEBOY_SITE_PATH", "")).expanduser()
+try:
+    site_path = site_path.resolve()
+except Exception:
+    site_path = site_path.absolute()
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
+except Exception:
+    payload = {}
+
+for project in payload.get("data", {}).get("projects", []):
+    base_path = project.get("base_path") or ""
+    if not base_path:
+        continue
+    candidate = Path(base_path).expanduser()
+    try:
+        candidate = candidate.resolve()
+    except Exception:
+        candidate = candidate.absolute()
+    if candidate == site_path and project.get("id"):
+        print(project["id"])
+        break
+PY
+)"
+        if [ -z "$resolved" ]; then
+          local project_id project_ids project_json
+          project_ids="$(HOMEBOY_PROJECT_LIST="$project_list" python3 <<'PY'
+import json
+import os
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
+except Exception:
+    payload = {}
+
+for project in payload.get("data", {}).get("projects", []):
+    project_id = project.get("id") or ""
+    if project_id:
+        print(project_id)
+PY
+)"
+          while IFS= read -r project_id; do
+            [ -n "$project_id" ] || continue
+            project_json="$(homeboy_run project show "$project_id" 2>/dev/null || true)"
+            [ -n "$project_json" ] || continue
+            resolved="$(HOMEBOY_PROJECT_JSON="$project_json" HOMEBOY_SITE_PATH="$SITE_PATH" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+site_path = Path(os.environ.get("HOMEBOY_SITE_PATH", "")).expanduser()
+try:
+    site_path = site_path.resolve()
+except Exception:
+    site_path = site_path.absolute()
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_JSON", ""))
+except Exception:
+    payload = {}
+
+entity = payload.get("data", {}).get("entity", {})
+base_path = entity.get("base_path") or ""
+project_id = entity.get("id") or payload.get("data", {}).get("id") or ""
+if base_path and project_id:
+    candidate = Path(base_path).expanduser()
+    try:
+        candidate = candidate.resolve()
+    except Exception:
+        candidate = candidate.absolute()
+    if candidate == site_path:
+        print(project_id)
+PY
+)"
+            if [ -n "$resolved" ]; then
+              break
+            fi
+          done <<< "$project_ids"
+        fi
+        if [ -n "$resolved" ]; then
+          printf '%s\n' "$resolved"
+          return 0
+        fi
+      fi
     fi
   fi
 
