@@ -361,15 +361,25 @@ async function runCycle({ name, simulatePackageWipe }) {
   artifacts.cycles.push(cycle)
 
   if (simulatePackageWipe) {
-    fs.rmSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents'), { recursive: true, force: true })
+    fs.rmSync(npmSkillsDir, { recursive: true, force: true })
+    mkdirp(npmSkillsDir)
+    seedPackageSkill('critique')
+    seedPackageSkill('upgrade-wp-coding-agents')
   }
 
   const postUpgrade = runPostUpgrade(name)
   cycle.post_upgrade = postUpgrade
   assert(postUpgrade.status === 0, `${name}: post-upgrade exits 0`, cycle)
-  assert(fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: upgrade skill restored to npm skills dir`, cycle)
+  assert(!fs.existsSync(path.join(npmSkillsDir, 'critique', 'SKILL.md')), `${name}: bundled critique skill removed from npm skills dir`, cycle)
+  assert(fs.existsSync(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: package-local upgrade skill remains present`, cycle)
+  assert(fileRecord(path.join(npmSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256 === fileRecord(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')).sha256, `${name}: package-local upgrade skill matches persistent source`, cycle)
+  assert(fs.existsSync(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: persistent upgrade skill source remains present`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-context-filter.ts')), `${name}: context filter present after restart`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-agent-sync.ts')), `${name}: agent sync present after restart`, cycle)
+
+  const permission = expectedSkillPermission()
+  assert(permission?.['*'] === 'deny', `${name}: generated skill permission denies unlisted skills`, cycle)
+  assert(permission?.['upgrade-wp-coding-agents'] === 'allow', `${name}: generated skill permission allows upgrade skill`, cycle)
 
   const promptEvidence = await renderAndFilterPrompt(name)
   cycle.prompt = promptEvidence.summary
@@ -391,6 +401,7 @@ function runPostUpgrade(name) {
     KIMAKI_DATA_DIR: kimakiDataDir,
     KIMAKI_SKILLS_DIR: npmSkillsDir,
     KIMAKI_SKILL_SOURCE_DIR: stagedSkillsDir,
+    KIMAKI_SKILL_ENABLES_FILE: path.join(kimakiConfigDir, 'skills-enable-list.txt'),
     KIMAKI_PLUGIN_SOURCE_DIR: stagedPluginsDir,
     KIMAKI_PLUGINS_DIR: stagedPluginsDir,
   }
@@ -404,6 +415,12 @@ function runPostUpgrade(name) {
     fs.writeFileSync(outPath, stdout, 'utf8')
     return { status: error.status || 1, log: path.relative(artifactRoot, outPath), stdout }
   }
+}
+
+function seedPackageSkill(name) {
+  const skillDir = path.join(npmSkillsDir, name)
+  mkdirp(skillDir)
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${name} stale package fixture\n`, 'utf8')
 }
 
 async function renderAndFilterPrompt(name) {
@@ -551,6 +568,21 @@ function expectedManagedSkillArgs() {
     return skillNames(disableList).flatMap((skill) => ['--disable-skill', skill])
   }
   return []
+}
+
+function expectedSkillPermission() {
+  const enableList = path.join(kimakiConfigDir, 'skills-enable-list.txt')
+  const disableList = path.join(kimakiConfigDir, 'skills-disable-list.txt')
+  if (fs.existsSync(enableList)) {
+    return Object.fromEntries([
+      ['*', 'deny'],
+      ...skillNames(enableList).map((skill) => [skill, 'allow']),
+    ])
+  }
+  if (fs.existsSync(disableList)) {
+    return Object.fromEntries(skillNames(disableList).map((skill) => [skill, 'deny']))
+  }
+  return undefined
 }
 
 function managedArgsFor(dataDir, skillFile, mode = fs.existsSync(path.join(repoKimakiDir, 'skills-enable-list.txt')) ? 'enable' : 'disable') {
