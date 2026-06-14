@@ -423,21 +423,6 @@ function seedPackageSkill(name) {
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${name} stale package fixture\n`, 'utf8')
 }
 
-function expectedSkillPermission() {
-  const enableList = path.join(kimakiConfigDir, 'skills-enable-list.txt')
-  const disableList = path.join(kimakiConfigDir, 'skills-disable-list.txt')
-  if (fs.existsSync(enableList)) {
-    return Object.fromEntries([
-      ['*', 'deny'],
-      ...skillNames(enableList).map((skill) => [skill, 'allow']),
-    ])
-  }
-  if (fs.existsSync(disableList)) {
-    return Object.fromEntries(skillNames(disableList).map((skill) => [skill, 'deny']))
-  }
-  return undefined
-}
-
 async function renderAndFilterPrompt(name) {
   const kimakiDistDir = resolveKimakiDistDir()
   return renderPromptWithPlugin({
