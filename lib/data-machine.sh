@@ -261,9 +261,12 @@ PY
   fi
 
   local remove_output remove_status
+  set +e
   remove_output="$(homeboy_run project components remove "$project_id" "${remove_ids[@]}" 2>&1)"
   remove_status=$?
-  if homeboy_attach_succeeded "$remove_output" "$remove_status"; then
+  set -e
+
+  if homeboy_attach_succeeded "$remove_output" "$remove_status" || homeboy_components_absent "$project_id" "${remove_ids[@]}"; then
     log "  pruned stale Homeboy component(s): ${remove_ids[*]}"
   else
     warn "  failed to prune stale Homeboy component(s): ${remove_ids[*]}"
@@ -271,6 +274,42 @@ PY
       warn "    $(printf '%s' "$remove_output" | head -n 3 | tr '\n' ' ')"
     fi
   fi
+}
+
+homeboy_components_absent() {
+  local project_id="$1"
+  shift
+  [ -n "$project_id" ] || return 1
+  [ "$#" -gt 0 ] || return 0
+
+  local project_json
+  project_json="$(homeboy_run project show "$project_id" 2>/dev/null || true)"
+  [ -n "$project_json" ] || return 1
+
+  local remaining
+  remaining="$(HOMEBOY_PROJECT_JSON="$project_json" python3 - "$@" <<'PY'
+import json
+import os
+import sys
+
+try:
+    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_JSON", ""))
+except Exception:
+    raise SystemExit(1)
+
+expected_absent = set(sys.argv[1:])
+components = payload.get("data", {}).get("entity", {}).get("components", [])
+present = {
+    component.get("id")
+    for component in components
+    if component.get("id")
+}
+for component_id in sorted(expected_absent & present):
+    print(component_id)
+PY
+)"
+
+  [ -z "$remaining" ]
 }
 
 # Decide whether a `homeboy ... attach-path` invocation succeeded. Prefers the
