@@ -176,8 +176,10 @@ sync_homeboy_project_components() {
     fi
 
     local attach_output attach_status
+    set +e
     attach_output="$(homeboy_run project components attach-path "$project_id" "$repo_path" 2>&1)"
     attach_status=$?
+    set -e
 
     # Trust Homeboy's JSON `.success` field over the raw exit code: the CLI
     # can print a success payload while still returning a non-zero status (or
