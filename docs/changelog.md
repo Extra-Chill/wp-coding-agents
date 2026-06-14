@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.5] - 2026-06-14
+
+### Fixed
+- fix homeboy component attach status handling
+
 ## [1.4.4] - 2026-06-14
 
 ### Fixed
