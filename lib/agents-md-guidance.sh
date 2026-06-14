@@ -201,7 +201,7 @@ agents_md_guidance_homeboy_codebox_content() {
 
 **Codebox executor:** use the `codebox` backend for disposable WP Codebox WordPress sandboxes. WP Codebox owns sandbox recipes, plugin/runtime overlays, agent invocation, and artifact bundles; Homeboy owns orchestration around those recipes.
 
-**Workspace shape:** pass an explicit workspace root for code edits, usually a Data Machine Code worktree under `<workspace>/<repo>@<slug>` locally or the equivalent mounted path inside a sandbox. Keep primary checkouts read-only and cook changes in worktrees.
+**Workspace shape:** pass an explicit workspace root for code edits, usually a Data Machine Code worktree under `<workspace>/<repo>@<slug>` locally or the equivalent mounted path inside a sandbox. Keep primary checkouts read-only.
 
 **WP Codebox agent mode:** use sandbox mode for Codebox coding tasks. Sandbox mode exposes the bounded workspace tools needed to read, edit, and verify files.
 
@@ -209,7 +209,7 @@ agents_md_guidance_homeboy_codebox_content() {
 
 **Claude Code provider:** Codebox Claude Code tasks use the `ai-provider-for-claude-code` plugin carried by wp-coding-agents. It is backed by Claude Code OAuth credentials through WP AI Client / PHP AI Client, not the `claude` binary, not an Anthropic API key, and not WP AI Gateway. Provider id: `claude-code`. Provide credentials through `AI_PROVIDER_CLAUDE_CODE_REFRESH_TOKEN` and optional `AI_PROVIDER_CLAUDE_CODE_ACCESS_TOKEN` / `AI_PROVIDER_CLAUDE_CODE_EXPIRES_AT`; never pass Claude subscription/session material through task prompts or logs.
 
-**Operator verbs:** `homeboy release`, `homeboy deploy`, `homeboy fleet`, and `homeboy ssh` are operator actions. Use them only when the user explicitly asks for that action.
+**Operator verbs:** `homeboy release`, `homeboy deploy`, and `homeboy ssh` are operator actions. Use them only when the user explicitly asks for that action.
 
 **Chat bridges:** Kimaki, Discord, and other chat bridges display task status and results while Homeboy remains the source of truth for task state and artifacts.
 MD
