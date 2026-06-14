@@ -66,7 +66,11 @@ if [ "$1 $2 $3" = "project components remove" ]; then
 fi
 if [ "$1 $2 $3" = "project components attach-path" ]; then
   printf '%s|%s\n' "$4" "$5" >> "$HOMEBOY_ATTACH_LOG"
-  exit 0
+  if [ "${HOMEBOY_ATTACH_STATUS:-0}" = 0 ]; then
+    exit 0
+  fi
+  printf '{"success":true,"warning":"non-zero status with success payload"}\n'
+  exit "$HOMEBOY_ATTACH_STATUS"
 fi
 exit 2
 SH
@@ -108,8 +112,9 @@ HOMEBOY_ATTACH_LOG="$TMP/attached.log"
 HOMEBOY_REMOVE_LOG="$TMP/removed.log"
 HOMEBOY_PROJECT_SHOW_JSON="$TMP/project-show.json"
 HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON="$TMP/project-show-after-remove.json"
+HOMEBOY_ATTACH_STATUS=0
 HOMEBOY_REMOVE_STATUS=1
-export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG HOMEBOY_PROJECT_SHOW_JSON HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON HOMEBOY_REMOVE_STATUS
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG HOMEBOY_PROJECT_SHOW_JSON HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON HOMEBOY_ATTACH_STATUS HOMEBOY_REMOVE_STATUS
 PATH="$FAKE_BIN:$PATH"
 
 write_project_show_json() {
@@ -164,6 +169,18 @@ assert_contains "pruned stale Homeboy component(s): alpha-feature no-metadata" "
 assert_contains "skipped alpha@feature: worktree skipped" "$TMP/output.log"
 assert_contains "skipped no-metadata: no homeboy.json" "$TMP/output.log"
 assert_contains "Homeboy component sync complete: 2 attached, 2 skipped, 0 failed" "$TMP/output.log"
+
+HOMEBOY_ATTACH_STATUS=4
+HOMEBOY_ATTACH_LOG="$TMP/nonzero-success-attached.log"
+HOMEBOY_REMOVE_LOG="$TMP/nonzero-success-removed.log"
+export HOMEBOY_ATTACH_STATUS HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG
+sync_homeboy_project_components > "$TMP/nonzero-success-output.log"
+
+assert_contains "site-project|$DM_WORKSPACE_DIR/alpha" "$HOMEBOY_ATTACH_LOG"
+assert_contains "site-project|$DM_WORKSPACE_DIR/beta" "$HOMEBOY_ATTACH_LOG"
+assert_contains "Homeboy component sync complete: 2 attached, 2 skipped, 0 failed" "$TMP/nonzero-success-output.log"
+
+HOMEBOY_ATTACH_STATUS=0
 
 DRY_RUN=true
 HOMEBOY_ATTACH_LOG="$TMP/dry-run-attached.log"
