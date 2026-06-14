@@ -45,6 +45,10 @@ mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/sh
 if [ "$1 $2" = "project show" ]; then
+  if [ -n "${HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON:-}" ] && [ -f "${HOMEBOY_REMOVE_LOG:-}" ]; then
+    cat "$HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON"
+    exit 0
+  fi
   cat "$HOMEBOY_PROJECT_SHOW_JSON"
   exit 0
 fi
@@ -53,8 +57,12 @@ if [ "$1 $2 $3" = "project components remove" ]; then
   project_id="$1"
   shift
   printf '%s|%s\n' "$project_id" "$*" >> "$HOMEBOY_REMOVE_LOG"
-  printf '{"success":true}\n'
-  exit 0
+  if [ "${HOMEBOY_REMOVE_STATUS:-0}" = 0 ]; then
+    printf '{"success":true}\n'
+    exit 0
+  fi
+  printf '{"success":false,"error":{"message":"validation failed after partial mutation"}}\n'
+  exit "$HOMEBOY_REMOVE_STATUS"
 fi
 if [ "$1 $2 $3" = "project components attach-path" ]; then
   printf '%s|%s\n' "$4" "$5" >> "$HOMEBOY_ATTACH_LOG"
@@ -99,7 +107,9 @@ chmod +x "$FAKE_BIN/sudo"
 HOMEBOY_ATTACH_LOG="$TMP/attached.log"
 HOMEBOY_REMOVE_LOG="$TMP/removed.log"
 HOMEBOY_PROJECT_SHOW_JSON="$TMP/project-show.json"
-export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG HOMEBOY_PROJECT_SHOW_JSON
+HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON="$TMP/project-show-after-remove.json"
+HOMEBOY_REMOVE_STATUS=1
+export HOMEBOY_ATTACH_LOG HOMEBOY_REMOVE_LOG HOMEBOY_PROJECT_SHOW_JSON HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON HOMEBOY_REMOVE_STATUS
 PATH="$FAKE_BIN:$PATH"
 
 write_project_show_json() {
@@ -115,6 +125,13 @@ JSON
 }
 
 write_project_show_json
+cat > "$HOMEBOY_PROJECT_SHOW_AFTER_REMOVE_JSON" <<JSON
+{"success":true,"data":{"entity":{"components":[
+  {"id":"alpha","local_path":"$DM_WORKSPACE_DIR/alpha"},
+  {"id":"beta","local_path":"$DM_WORKSPACE_DIR/beta"},
+  {"id":"external","local_path":"$TMP/external@repo"}
+]}}}
+JSON
 
 assert_contains() {
   local needle="$1" file="$2"
