@@ -64,6 +64,22 @@ kimaki send --thread <thread_id> --prompt 'Run the tests' --wait --agent <curren
 
 cross-session discovery text that should be stripped
 
+## uploading files to discord
+
+kimaki upload-to-discord --session ses_example artifact.txt
+
+## requesting files from the user
+
+Use the native file picker.
+
+## archiving the current thread
+
+kimaki session archive --session ses_example
+
+## generating audio from text
+
+kimaki tts 'summary' -o /tmp/summary.mp3
+
 ## showing diffs
 
 Always run bunx critique --web and upload diffs to critique.work.
@@ -76,6 +92,10 @@ critique is an external diff viewer that must not leak into managed context.
   <skill>
     <name>critique</name>
     <description>Diff viewer skill that must not leak into managed context.</description>
+  </skill>
+  <skill>
+    <name>playwriter</name>
+    <description>Browser automation skill that must not leak unless explicitly allowlisted.</description>
   </skill>
 </available_skills>
 
@@ -110,6 +130,7 @@ for (const cycle of manifest.cycles) {
     `${cycle.name}: raw Kimaki prompt contains stale orchestration sections`,
     `${cycle.name}: filtered prompt removes stale orchestration sections`,
     `${cycle.name}: dm-context-filter hook executed`,
+    `${cycle.name}: system and message transforms agree`,
     `${cycle.name}: dm-agent-sync module loads`,
   ]) {
     if (!labels.includes(expected)) {
@@ -129,8 +150,8 @@ if grep -Eq '^## (starting new sessions from CLI|creating worktrees|cross-projec
   exit 1
 fi
 
-if grep -Eiq '^## (showing diffs|about critique)$|\b(bunx )?critique\b|critique\.work|<name>critique</name>' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
-  echo "FAIL: filtered prompt leaked critique guidance"
+if grep -Eiq '^## (showing diffs|about critique|uploading files to discord|requesting files from the user|archiving the current thread|generating audio from text)$|\bkimaki (send|session|project|tunnel|upload-to-discord|tts|task)\b|<available_skills>|<skill>|</skill>|<name>(critique|playwriter)</name>|critique\.work|\b(bunx )?critique\b' "$ARTIFACTS/prompts/initial-start.filtered.txt"; then
+  echo "FAIL: filtered prompt leaked generic Kimaki guidance or non-allowlisted skills"
   exit 1
 fi
 

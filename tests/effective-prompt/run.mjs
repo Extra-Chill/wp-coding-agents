@@ -48,7 +48,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { homedir } from "node:os"
 
-import { currentFilterSystemBlocks, filters } from "./filters.mjs"
+import { currentFilterMessageText, currentFilterSystemBlocks, filters } from "./filters.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -97,10 +97,10 @@ const DEFAULT_TRIGGERS = [
   { name: "dmc-hardcode",       pattern: "\\bData Machine Code\\b"                 },
   { name: "global-tunnel-url",  pattern: "\\bdev\\.chubes\\.net\\b"                },
   { name: "helper-fanout",      pattern: "spawn(?:ed)? .*helper sessions"           },
-  { name: "critique-section",   pattern: "^## (?:showing diffs|about critique)$"    },
-  { name: "critique-command",   pattern: "\\b(?:bunx )?critique\\b"               },
-  { name: "critique-url",       pattern: "\\bcritique\\.work\\b"                  },
-  { name: "critique-skill",     pattern: "<name>critique</name>"                    },
+  { name: "kimaki-generic-section", pattern: "^## (?:showing diffs|uploading files to discord|requesting files from the user|archiving the current thread|aborting a session|discord user mentions|generating audio from text|markdown formatting|Callouts in Kimaki Discord)$" },
+  { name: "kimaki-command",         pattern: "\\bkimaki (?:send|session|project|tunnel|upload-to-discord|tts|task)\\b" },
+  { name: "generic-skill-entry",    pattern: "<available_skills>|<skill>|</skill>|<name>(?!upgrade-wp-coding-agents</name>)" },
+  { name: "external-diff-surface",  pattern: "\\b(?:critique\\.work|(?:bunx )?critique)\\b" },
 ]
 
 // The current filter replaces Kimaki's generated bridge prompt and preserves
@@ -324,6 +324,19 @@ async function runScenario(name, scenario) {
     }
     if (transformedBlocks.length !== 2) {
       failures.push(`current filter returned ${transformedBlocks.length} system blocks for a two-block input`)
+    }
+
+    const transformedMessageText = await currentFilterMessageText(raw)
+    const messageLeaks = detectLeaks(transformedMessageText, scenario.triggers, scenario.allowLeakInSection)
+    if (messageLeaks.length > 0) {
+      failures.push(`current message transform has ${messageLeaks.length} trigger leaks (expected 0)`)
+    }
+    if (transformedMessageText !== filteredOut) {
+      failures.push("current system and message transforms disagree for the Kimaki prompt")
+    }
+    const sentinelMessageText = await currentFilterMessageText(sentinelBlock)
+    if (sentinelMessageText !== sentinelBlock) {
+      failures.push("current message transform changed a non-Kimaki text part")
     }
   }
 

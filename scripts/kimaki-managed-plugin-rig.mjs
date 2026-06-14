@@ -267,6 +267,7 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0, `${name}: raw Kimaki prompt contains stale orchestration sections`, cycle)
   assert(promptEvidence.filteredStaleOrchestrationLeaks.length === 0, `${name}: filtered prompt removes stale orchestration sections`, cycle)
   assert(promptEvidence.contextFilterExecuted, `${name}: dm-context-filter hook executed`, cycle)
+  assert(promptEvidence.systemAndMessageTransformsAgree, `${name}: system and message transforms agree`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
 }
 
@@ -319,13 +320,28 @@ async function renderAndFilterPrompt(name) {
 
   const contextPluginModule = await import(pathToFileURL(path.join(stagedPluginsDir, 'dm-context-filter.ts')).href)
   const contextPlugin = await contextPluginModule.default({})
-  const transform = contextPlugin['experimental.chat.system.transform']
-  if (typeof transform !== 'function') {
+  const systemTransform = contextPlugin['experimental.chat.system.transform']
+  if (typeof systemTransform !== 'function') {
     throw new Error('dm-context-filter did not expose experimental.chat.system.transform')
   }
-  const output = { system: [raw] }
-  await transform({}, output)
-  const filtered = output.system.join('\n')
+  const systemOutput = { system: [raw] }
+  await systemTransform({}, systemOutput)
+  const systemFiltered = systemOutput.system.join('\n')
+
+  const messageTransform = contextPlugin['experimental.chat.messages.transform']
+  if (typeof messageTransform !== 'function') {
+    throw new Error('dm-context-filter did not expose experimental.chat.messages.transform')
+  }
+  const messageOutput = {
+    messages: [
+      {
+        info: { id: `msg_${name}` },
+        parts: [{ type: 'text', text: raw }],
+      },
+    ],
+  }
+  await messageTransform({}, messageOutput)
+  const filtered = messageOutput.messages[0].parts[0].text
 
   const agentSyncModule = await import(pathToFileURL(path.join(stagedPluginsDir, 'dm-agent-sync.ts')).href)
   const agentSyncPlugin = await agentSyncModule.default({ $: fakeShell })
@@ -341,7 +357,8 @@ async function renderAndFilterPrompt(name) {
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
     rawStaleOrchestrationLeaks,
     filteredStaleOrchestrationLeaks,
-    contextFilterExecuted: output.system[0] !== raw,
+    contextFilterExecuted: systemOutput.system[0] !== raw && filtered !== raw,
+    systemAndMessageTransformsAgree: systemFiltered === filtered,
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
       kimaki_dist_dir: kimakiDistDir,
