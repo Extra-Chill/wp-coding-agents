@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.4] - 2026-06-14
+
+### Fixed
+- Fix managed Kimaki prompt replacement and skill surface enforcement.
+
 ## [1.4.3] - 2026-06-14
 
 ### Changed
