@@ -6,13 +6,13 @@ compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Wo
 
 # Upgrade wp-coding-agents
 
-`upgrade.sh` already auto-detects the environment, picks the chat bridge, prints a diff in dry-run, and emits the right verify + restart commands in its summary block. This skill exists for the **policy boundary** the script can't enforce on its own.
+`upgrade.sh` already auto-detects the environment, picks the chat bridge, applies the managed sync, and emits the right verify + restart commands in its summary block. This skill exists for the **policy boundary** the script can't enforce on its own.
 
 By default it also updates the setup-installed Data Machine plugins (`data-machine`, `data-machine-code`) to their latest version tags when those plugins are git checkouts. Use `--skip-plugins` to preserve the previous no-plugin-update behavior.
 
 If the install was created with the optional Homeboy layer, upgrade should preserve that model: the WordPress site root is the Homeboy **project**, primary Data Machine Code workspace checkouts are attached **components**, and `repo@branch` worktrees remain skipped by default. Homeboy is external to wp-coding-agents; do not vendor it or treat the site root as a component during upgrade guidance.
 
-Setup uses the one-shot guide at `operator-entrypoints/wp-coding-agents-setup/setup.md`, plus `operator-entrypoints/wp-coding-agents-setup/interview.md` and `scripts/compile-setup-profile.mjs`, to map a new install profile into commands. Upgrade intentionally does **not** duplicate that compiler: `upgrade.sh` owns detection, bridge selection, dry-run diffs, and summary commands for an already-installed environment.
+Setup uses the one-shot guide at `operator-entrypoints/wp-coding-agents-setup/setup.md`, plus `operator-entrypoints/wp-coding-agents-setup/interview.md` and `scripts/compile-setup-profile.mjs`, to map a new install profile into commands. Upgrade intentionally does **not** duplicate that compiler: `upgrade.sh` owns detection, bridge selection, apply-time sync, and summary commands for an already-installed environment.
 
 ## When to use
 
@@ -31,26 +31,24 @@ The user says something like:
    ```
    If the user maintains a fork or a feature branch, ask before pulling. Default is `origin/main`.
 
-2. **Dry-run first.** Always.
+2. **Run the upgrade directly.**
    ```bash
-   ./upgrade.sh --dry-run                      # VPS
-   ./upgrade.sh --dry-run --wp-path /path      # local (auto-set on macOS)
+   ./upgrade.sh                      # VPS
+   ./upgrade.sh --wp-path /path      # local (auto-set on macOS)
    ```
-   Read the output. Stop and investigate if anything looks wrong (wrong runtime, unexpected unit rewrite, plugin paths point somewhere weird).
+   Read the output. Stop and investigate if anything fails or looks wrong (wrong runtime, unexpected unit rewrite, plugin paths point somewhere weird).
 
-3. **Apply** by dropping `--dry-run`. The script prints a summary with the exact verify + restart commands for the detected bridge × environment. Pass them through to the user verbatim — do not paraphrase, do not guess.
+3. **Restart the detected chat bridge.** The script prints the exact restart command for the detected bridge × environment. Run that command after a successful upgrade so the new bridge config, OpenCode plugins, skills, and prompt patches take effect immediately. If the restart command is unavailable or fails, report that as incomplete work.
 
-4. **Tell the user to restart the chat bridge themselves.** Active chat sessions die on restart, so the user picks the moment.
+4. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block includes a `test -f .../dm-context-filter.ts && test -f .../dm-agent-sync.ts` command. Run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
 
-5. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block includes a `test -f .../dm-context-filter.ts && test -f .../dm-agent-sync.ts` command. Run it or ask the user to run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
-
-6. **Verify the filter behavior from the repo when available.** Run:
+5. **Verify the filter behavior from the repo when available.** Run:
    ```bash
    node tests/effective-prompt/run.mjs
    ```
    Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still replaces Kimaki's generic prompt with the managed bridge prompt while preserving unrelated system blocks. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
 
-7. **Verify Homeboy when the install uses it.** Only do this when the user enabled Homeboy or `AGENTS.md` contains the Homeboy section. Run the project/component checks and pass failures through clearly:
+6. **Verify Homeboy when the install uses it.** Only do this when the user enabled Homeboy or `AGENTS.md` contains the Homeboy section. Run the project/component checks and pass failures through clearly:
    ```bash
    homeboy --version
    homeboy extension list
@@ -65,8 +63,7 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 
 ## Never do
 
-- **Never restart the chat bridge automatically.** It kills active sessions including the one you're talking in.
-- **Never skip the dry-run** on a live install.
+- **Never leave the chat bridge running after a successful upgrade.** Restart it with the summary command so managed config changes take effect.
 - **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.kimaki/` auth state and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
 - **Never vendor Homeboy** into wp-coding-agents or scaffold `homeboy.json` in the WordPress site root. The site root is a Homeboy project; component metadata belongs in attached primary workspace repos.
 - **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific DMC worktrees and are skipped by default.
