@@ -31,7 +31,7 @@ The user says something like:
    ```
    If the user maintains a fork or a feature branch, ask before pulling. Default is `origin/main`.
 
-2. **Run the upgrade directly.** Do not add `--dry-run` unless the user explicitly asks for a preview instead of an upgrade.
+2. **Run the upgrade directly.**
    ```bash
    ./upgrade.sh                      # VPS
    ./upgrade.sh --wp-path /path      # local (auto-set on macOS)
@@ -64,7 +64,6 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 ## Never do
 
 - **Never leave the chat bridge running after a successful upgrade.** Restart it with the summary command so managed config changes take effect.
-- **Never run `--dry-run` as the default upgrade path.** Use dry-run only when the user explicitly asks for a preview or plan instead of an upgrade.
 - **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.kimaki/` auth state and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
 - **Never vendor Homeboy** into wp-coding-agents or scaffold `homeboy.json` in the WordPress site root. The site root is a Homeboy project; component metadata belongs in attached primary workspace repos.
 - **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific DMC worktrees and are skipped by default.
