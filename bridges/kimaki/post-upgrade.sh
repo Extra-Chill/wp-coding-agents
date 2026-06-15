@@ -6,7 +6,11 @@
 #   1. SKILL surface   — remove package-local managed skill duplicates and,
 #                when a skills-enable-list.txt is present, remove bundled skills
 #                outside the allowlist from kimaki/skills/.
-#   2. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
+#   2. PATCH prompt    — replace Kimaki's package-generated system prompt on
+#                managed installs before it reaches OpenCode's per-call system
+#                field. OpenCode plugin transforms are still kept as defense in
+#                depth, but cannot be the only boundary for this prompt surface.
+#   3. VERIFY plugins  — confirm required wp-coding-agents opencode plugins
 #                exist at the persistent kimaki-config/plugins path loaded by
 #                opencode.json. Local installs no longer restore plugins into
 #                $(npm root -g)/kimaki/plugins because package-local files are
@@ -65,6 +69,14 @@ fi
 
 REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
 WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
+
+if [[ -n "${KIMAKI_DIST_DIR:-}" ]]; then
+  KIMAKI_DIST_DIR_RESOLVED="$KIMAKI_DIST_DIR"
+elif [[ -n "$NPM_ROOT" ]]; then
+  KIMAKI_DIST_DIR_RESOLVED="$NPM_ROOT/kimaki/dist"
+else
+  KIMAKI_DIST_DIR_RESOLVED="/usr/lib/node_modules/kimaki/dist"
+fi
 
 is_wp_coding_agents_skill() {
   local candidate="$1"
@@ -150,7 +162,72 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# Pass 2: VERIFY plugins — opencode.json now loads wp-coding-agents plugins
+# Pass 2: PATCH prompt — Kimaki passes its generated Discord guidance through
+# session.promptAsync({ system: ... }). Current OpenCode plugin transforms do not
+# reliably rewrite that SDK per-call system field before model dispatch. Patch
+# the managed Kimaki package entrypoint directly so the bulky generic prompt is
+# never submitted on wp-coding-agents managed installs.
+# ----------------------------------------------------------------------------
+
+prompt_patch_status="skipped"
+_kimaki_patch_system_prompt() {
+  local system_message_file="$KIMAKI_DIST_DIR_RESOLVED/system-message.js"
+
+  if [[ ! -f "$system_message_file" ]]; then
+    echo "kimaki-config: WARNING: Kimaki system-message.js not found at $system_message_file; managed prompt patch skipped"
+    prompt_patch_status="missing"
+    return 0
+  fi
+
+  SYSTEM_MESSAGE_FILE="$system_message_file" node <<'NODE'
+const fs = require('node:fs')
+
+const file = process.env.SYSTEM_MESSAGE_FILE
+const marker = 'wp-coding-agents managed Kimaki system prompt patch'
+const source = fs.readFileSync(file, 'utf8')
+
+if (source.includes(marker)) {
+  process.exit(0)
+}
+
+const needle = 'export function getOpencodeSystemMessage({ sessionId, channelId, guildId, threadId, channelTopic, agents, userId, }) {\n'
+const managedReturn = `export function getOpencodeSystemMessage({ sessionId, channelId, guildId, threadId, channelTopic, agents, userId, }) {
+    // ${marker}. Keep this small; Data Machine AGENTS.md owns managed runtime policy.
+    return \`## Kimaki Discord Bridge
+
+Kimaki connects this OpenCode session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
+
+## Managed Coding Runtime
+
+Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspace, orchestration, preview, tunnel, and evidence capabilities available on this install.
+
+## Bridge Diagnostics
+
+For Kimaki bridge failures, inspect $HOME/.kimaki/kimaki.log. The log is reset every time Kimaki restarts, so it only covers the current run.
+\`;
+`
+
+if (!source.includes(needle)) {
+  console.error(`function signature not found in ${file}`)
+  process.exit(2)
+}
+
+fs.writeFileSync(file, source.replace(needle, managedReturn), 'utf8')
+NODE
+  local patch_exit=$?
+  if [[ "$patch_exit" -eq 0 ]]; then
+    echo "kimaki-config: managed Kimaki system prompt patch active at $system_message_file"
+    prompt_patch_status="active"
+  else
+    echo "kimaki-config: WARNING: managed Kimaki system prompt patch failed for $system_message_file"
+    prompt_patch_status="failed"
+  fi
+}
+
+_kimaki_patch_system_prompt
+
+# ----------------------------------------------------------------------------
+# Pass 3: VERIFY plugins — opencode.json now loads wp-coding-agents plugins
 # directly from persistent kimaki-config/plugins. When the target and source are
 # the same directory (the default), there is nothing to restore. An explicit
 # KIMAKI_PLUGINS_DIR override still receives a best-effort copy for operator
@@ -213,4 +290,4 @@ else
   done
 fi
 
-echo "kimaki-config: done ($skills_removed package skills removed, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"
+echo "kimaki-config: done ($skills_removed package skills removed, prompt patch $prompt_patch_status, $plugins_restored plugins restored, $missing_required_plugins required plugins missing)"
