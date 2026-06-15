@@ -283,6 +283,12 @@ async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir,
     class: 'stale OpenCode server',
     liveSiteDir,
   })
+  const staleOpenCodeServers = live.processes.opencode_serve.filter((processInfo) => !hasAncestor(processInfo, managedKimakiProcesses, processes))
+  live.stale_opencode_serve = staleOpenCodeServers
+  liveCheck(staleOpenCodeServers.length === 0, 'no stale OpenCode serve processes outside managed Kimaki ancestry', live, {
+    class: 'stale OpenCode server',
+    stale: staleOpenCodeServers,
+  })
 
   const livePromptEvidence = await renderLivePromptEvidence({ liveConfigDir, livePluginsDir })
   live.prompt = livePromptEvidence.summary
@@ -811,6 +817,18 @@ function runArgSelfTest() {
   if (parsed['live-site-dir'] !== '/tmp/site') failures.push('--live-site-dir should consume /tmp/site')
   if (parsed.keep !== true) failures.push('--keep should parse as boolean true')
   if (parsed['artifact-dir'] !== '/tmp/artifacts') failures.push('--artifact-dir=value should parse inline value')
+  const processFixtures = [
+    { pid: 10, ppid: 1, command: 'node /bin/kimaki --data-dir /tmp/kimaki --auto-restart --no-critique' },
+    { pid: 11, ppid: 10, command: 'node /bin/opencode serve --port 12345' },
+    { pid: 12, ppid: 1, command: 'node /bin/opencode serve --port 23456' },
+  ]
+  const managedKimakiFixtures = [processFixtures[0]]
+  const staleOpenCodeFixtures = processFixtures
+    .filter(isOpencodeServeProcess)
+    .filter((processInfo) => !hasAncestor(processInfo, managedKimakiFixtures, processFixtures))
+  if (staleOpenCodeFixtures.length !== 1 || staleOpenCodeFixtures[0].pid !== 12) {
+    failures.push('stale OpenCode process detector should flag orphaned serve process')
+  }
   if (failures.length > 0) {
     throw new Error(`argument parser self-test failed: ${failures.join('; ')}`)
   }

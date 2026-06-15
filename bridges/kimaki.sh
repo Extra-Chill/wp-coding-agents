@@ -9,11 +9,12 @@
 # Install layout:
 #   VPS:   /opt/kimaki-config/{plugins,post-upgrade.sh,skills-enable-list.txt}
 #          + /etc/systemd/system/kimaki.service (ExecStartPre runs post-upgrade.sh)
-#   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh +
-#          skill filters (executed inline at upgrade time — no launchd
-#          ExecStartPre hook). opencode.json loads plugins directly from this
-#          durable data-dir copy because `npm update -g kimaki` wipes package-
-#          local files.
+#   Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins, post-upgrade.sh,
+#          launchd-start.sh, and skill filters. launchd-start.sh gives macOS
+#          the same pre-start cleanup/post-upgrade hook that systemd gets from
+#          ExecStartPre. opencode.json loads plugins directly from this durable
+#          data-dir copy because `npm update -g kimaki` wipes package-local
+#          files.
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
 # ============================================================================
@@ -278,6 +279,13 @@ _kimaki_install_launchd() {
   run_cmd mkdir -p "$KIMAKI_DATA_DIR"
   run_cmd mkdir -p "$KIMAKI_PLIST_DIR"
 
+  local KIMAKI_CONFIG_DIR="${KIMAKI_DATA_DIR}/kimaki-config"
+  if [ "$DRY_RUN" = false ] && [ -f "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" ]; then
+    mkdir -p "$KIMAKI_CONFIG_DIR"
+    cp "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$KIMAKI_CONFIG_DIR/launchd-start.sh"
+    chmod +x "$KIMAKI_CONFIG_DIR/launchd-start.sh"
+  fi
+
   write_file "$KIMAKI_PLIST" "$(bridge_render_launchd "$KIMAKI_PLIST_LABEL")"
 
   if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_BOT_TOKEN" ]; then
@@ -416,7 +424,7 @@ bridge_sync_config() {
     done
   fi
 
-  # Stage post-upgrade.sh and skills-enable-list.txt in KIMAKI_CONFIG_DIR.
+  # Stage post-upgrade.sh, launchd-start.sh, and skills-enable-list.txt in KIMAKI_CONFIG_DIR.
   # On VPS this is read by ExecStartPre. On local we execute it inline below.
   if [ "$DRY_RUN" = false ]; then
     mkdir -p "$KIMAKI_CONFIG_DIR" 2>/dev/null || true
@@ -433,6 +441,21 @@ bridge_sync_config() {
         chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
         log "  Updated $KIMAKI_CONFIG_DIR/post-upgrade.sh"
         UPDATED_ITEMS+=("kimaki-config/post-upgrade.sh")
+      fi
+    fi
+  fi
+
+  if [ -f "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$KIMAKI_CONFIG_DIR/launchd-start.sh" 2>/dev/null; then
+        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/launchd-start.sh"
+      fi
+    else
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$KIMAKI_CONFIG_DIR/launchd-start.sh" 2>/dev/null; then
+        cp "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$KIMAKI_CONFIG_DIR/launchd-start.sh"
+        chmod +x "$KIMAKI_CONFIG_DIR/launchd-start.sh"
+        log "  Updated $KIMAKI_CONFIG_DIR/launchd-start.sh"
+        UPDATED_ITEMS+=("kimaki-config/launchd-start.sh")
       fi
     fi
   fi
@@ -665,6 +688,8 @@ bridge_render_launchd() {
   path_value="$(_compose_path_value "$HOME/.local/bin" "$kimaki_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   local skill_filter_plist_args
   skill_filter_plist_args="$(_kimaki_skill_filter_args_plist)"
+  local launchd_start
+  launchd_start="${KIMAKI_DATA_DIR}/kimaki-config/launchd-start.sh"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -674,6 +699,7 @@ bridge_render_launchd() {
     <string>$label</string>
     <key>ProgramArguments</key>
     <array>
+        <string>$launchd_start</string>
         <string>$KIMAKI_BIN</string>
         <string>--data-dir</string>
         <string>$KIMAKI_DATA_DIR</string>
@@ -695,6 +721,8 @@ $skill_filter_plist_args
         <string>$path_value</string>
         <key>KIMAKI_DATA_DIR</key>
         <string>$KIMAKI_DATA_DIR</string>
+        <key>KIMAKI_CONFIG_DIR</key>
+        <string>${KIMAKI_DATA_DIR}/kimaki-config</string>
         <key>DATAMACHINE_SITE_PATH</key>
         <string>$SITE_PATH</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
