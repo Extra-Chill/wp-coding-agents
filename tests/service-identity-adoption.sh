@@ -174,6 +174,89 @@ assert "rendered unit keeps UMask=0002"        "$(echo "$RENDERED" | grep -q '^U
 assert "pkill scoped to adopted user"          "$(echo "$RENDERED" | grep -q 'pkill -TERM -u opencode'; echo $?)"
 
 # ---------------------------------------------------------------------------
+# Issue #232: KIMAKI_BIN / PATH must follow the ADOPTED service identity, not
+# the invoking shell. Reproduces the production trap: upgrade runs as root,
+# adoption flips SERVICE_USER to opencode, but `which kimaki` would resolve
+# /root/.kimaki/bin/kimaki — an ExecStart the opencode service user can't read.
+echo "==> #232: binary resolution follows adopted identity (root invoker + opencode unit)"
+
+# Adopt opencode from the unit (root defaults -> opencode), exactly as above.
+SERVICE_USER="root"
+SERVICE_HOME="/root"
+KIMAKI_DATA_DIR="/root/.kimaki"
+RUN_AS_ROOT=true
+adopt_service_identity_from_units
+
+# Sandbox so the resolver's system-prefix probe and SERVICE_HOME fallback are
+# deterministic and offline (no real /usr/bin/kimaki, no sudo). SERVICE_HOME
+# is redirected into the temp dir so the per-user fallback is writable.
+BIN232="$TMP/bin232"
+ADOPTED_HOME="$TMP/home-opencode"
+mkdir -p "$BIN232" "$ADOPTED_HOME/.kimaki/bin"
+SERVICE_HOME="$ADOPTED_HOME"
+KIMAKI_DATA_DIR="$ADOPTED_HOME/.kimaki"
+# Per-user install layout under the ADOPTED (non-root) home.
+printf '#!/bin/sh\n' > "$ADOPTED_HOME/.kimaki/bin/kimaki"
+chmod +x "$ADOPTED_HOME/.kimaki/bin/kimaki"
+
+# No system-prefix binary exists in this sandbox (yet).
+export KIMAKI_SYSTEM_PREFIX_BINS="$BIN232/usr-bin-kimaki $BIN232/usr-local-kimaki"
+# Force the "invoking user != service user, running as root" branch. Build a
+# clean PATH containing only the coreutils the test needs — crucially WITHOUT
+# `sudo` and WITHOUT `kimaki`, so resolver step 2 (sudo probe) is skipped and
+# resolution falls through to the SERVICE_HOME per-user binary, deterministic
+# and offline on any machine.
+CLEANBIN="$TMP/cleanbin"
+mkdir -p "$CLEANBIN"
+for tool in bash mkdir rm chmod grep cat dirname id printf env; do
+  tool_path="$(command -v "$tool" 2>/dev/null || true)"
+  [ -n "$tool_path" ] && ln -sf "$tool_path" "$CLEANBIN/$tool"
+done
+export WP_CODING_AGENTS_TEST_ASSUME_ROOT=true
+LOCAL_MODE=false
+PATH_SAVE="$PATH"
+export PATH="$CLEANBIN"
+
+RESOLVED_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
+assert "resolved bin is under adopted SERVICE_HOME" \
+  "$([ "$RESOLVED_BIN" = "$ADOPTED_HOME/.kimaki/bin/kimaki" ]; echo $?)"
+assert "resolved bin is NOT under /root" \
+  "$(case "$RESOLVED_BIN" in /root/*) echo 1 ;; *) echo 0 ;; esac)"
+
+# A real system-prefix binary wins over the per-user home (issue option 1).
+printf '#!/bin/sh\n' > "$BIN232/usr-bin-kimaki"
+chmod +x "$BIN232/usr-bin-kimaki"
+RESOLVED_SYS=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
+assert "system-prefix binary preferred over per-user home" \
+  "$([ "$RESOLVED_SYS" = "$BIN232/usr-bin-kimaki" ]; echo $?)"
+
+export PATH="$PATH_SAVE"
+unset KIMAKI_SYSTEM_PREFIX_BINS WP_CODING_AGENTS_TEST_ASSUME_ROOT
+
+# Guard: _kimaki_assert_bin_identity warns when the binary / PATH segment
+# references a different user's home than the adopted SERVICE_HOME.
+echo "==> #232: identity guard warns on a /root binary under an opencode unit"
+SERVICE_USER="opencode"
+SERVICE_HOME="/home/opencode"
+GUARD_BAD=$(_kimaki_assert_bin_identity \
+  "/root/.kimaki/bin/kimaki" \
+  "/root/.kimaki/bin:/home/opencode/.kimaki/bin:/usr/bin:/bin" 2>&1)
+assert "guard warns on /root ExecStart binary" \
+  "$(echo "$GUARD_BAD" | grep -q 'NOT under SERVICE_HOME'; echo $?)"
+assert "guard warns on /root PATH segment" \
+  "$(echo "$GUARD_BAD" | grep -q "PATH segment '/root/.kimaki/bin'"; echo $?)"
+
+GUARD_OK=$(_kimaki_assert_bin_identity \
+  "/home/opencode/.kimaki/bin/kimaki" \
+  "/home/opencode/.kimaki/bin:/usr/bin:/bin" 2>&1)
+assert "guard silent on consistent opencode identity" \
+  "$([ -z "$GUARD_OK" ]; echo $?)"
+
+GUARD_SYS=$(_kimaki_assert_bin_identity "/usr/bin/kimaki" "/usr/bin:/bin" 2>&1)
+assert "guard silent on system-prefix binary" \
+  "$([ -z "$GUARD_SYS" ]; echo $?)"
+
+# ---------------------------------------------------------------------------
 echo ""
 if [ "$FAIL" -gt 0 ]; then
   echo "FAIL: $FAIL assertion(s):$fail_list"
