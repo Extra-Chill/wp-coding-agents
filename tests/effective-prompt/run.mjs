@@ -341,6 +341,18 @@ async function runScenario(name, scenario) {
       failures.push(`current joined final system transform has ${joinedSystemLeaks.length} trigger leaks (expected 0)`)
     }
 
+    const leakedAgentsPrefix = `${joinedSystemPrefix}\n\n## starting new sessions from CLI\n\nkimaki send --channel <channel_id> --prompt 'spawn helper' --agent <current_agent>\n\n## creating worktrees\n\nkimaki send --channel <channel_id> --worktree leaked-worktree --prompt 'cook it' --agent <current_agent>`
+    const leakedAgentsInput = `${leakedAgentsPrefix}\n\n${raw}`
+    const leakedAgentsBlocks = await currentFilterSystemBlocks([leakedAgentsInput])
+    const leakedAgentsOut = leakedAgentsBlocks.join("\n")
+    const leakedAgentsLeaks = detectLeaks(leakedAgentsOut, scenario.triggers, scenario.allowLeakInSection)
+    if (!leakedAgentsOut.includes(joinedSystemPrefix)) {
+      failures.push("current filter dropped the safe part of a composed AGENTS prefix")
+    }
+    if (leakedAgentsLeaks.length > 0) {
+      failures.push(`current filter leaked ${leakedAgentsLeaks.length} Kimaki trigger(s) from a composed AGENTS prefix`)
+    }
+
     const transformedMessageText = await currentFilterMessageText(raw)
     const messageLeaks = detectLeaks(transformedMessageText, scenario.triggers, scenario.allowLeakInSection)
     if (messageLeaks.length > 0) {

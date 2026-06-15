@@ -39,6 +39,29 @@ Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspa
 For Kimaki bridge failures, inspect \`$HOME/.kimaki/kimaki.log\`. The log is reset every time Kimaki restarts, so it only covers the current run.
 `;
 
+const KIMAKI_GENERIC_SECTION_HEADINGS = [
+  "## permissions",
+  "## upgrading kimaki",
+  "## debugging kimaki issues",
+  "## uploading files to discord",
+  "## requesting files from the user",
+  "## archiving the current thread",
+  "## aborting a session",
+  "## discord user mentions",
+  "## starting new sessions from CLI",
+  "## running opencode commands via kimaki send",
+  "## switching agents in the current session",
+  "## scheduled sends and task management",
+  "## reading other sessions",
+  "## cross-project commands",
+  "## waiting for a session to finish",
+  "## creating worktrees",
+  "## generating audio from text",
+  "## running dev servers with tunnel access",
+  "## markdown formatting",
+  "## Callouts in Kimaki Discord",
+];
+
 const fleetContextFilter: Plugin = async () => {
   return {
     // Replace Kimaki's generic CLI/orchestration prompt with managed guidance.
@@ -116,13 +139,64 @@ function isKimakiSystemPrompt(block: string): boolean {
 }
 
 function replaceKimakiSystemPrompt(block: string): string {
-  const kimakiStart = kimakiSystemPromptStart(block);
+  const filteredBlock = stripKimakiGenericSections(block);
+  const kimakiStart = kimakiSystemPromptStart(filteredBlock);
   if (kimakiStart === -1) {
+    return filteredBlock;
+  }
+
+  const prefix = filteredBlock.slice(0, kimakiStart).trimEnd();
+  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
+}
+
+function stripKimakiGenericSections(block: string): string {
+  let result = block;
+  for (const heading of KIMAKI_GENERIC_SECTION_HEADINGS) {
+    result = stripMarkdownSection(result, heading);
+  }
+  return result.replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
+function stripMarkdownSection(block: string, heading: string): string {
+  const lines = block.split("\n");
+  const level = headingLevel(heading);
+  let start = -1;
+  let inFence = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (/^```/.test(lines[i])) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && lines[i] === heading) {
+      start = i;
+      break;
+    }
+  }
+
+  if (start === -1) {
     return block;
   }
 
-  const prefix = block.slice(0, kimakiStart).trimEnd();
-  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
+  let end = lines.length;
+  inFence = false;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^```/.test(lines[i])) {
+      inFence = !inFence;
+      continue;
+    }
+    const match = !inFence ? lines[i].match(/^(#{1,6})\s+\S/) : null;
+    if (match && match[1].length <= level) {
+      end = i;
+      break;
+    }
+  }
+
+  return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+}
+
+function headingLevel(heading: string): number {
+  return heading.match(/^#+/)?.[0].length ?? 2;
 }
 
 function kimakiSystemPromptStart(block: string): number {
