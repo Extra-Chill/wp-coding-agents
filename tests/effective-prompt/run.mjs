@@ -326,6 +326,21 @@ async function runScenario(name, scenario) {
       failures.push(`current filter returned ${transformedBlocks.length} system blocks for a two-block input`)
     }
 
+    const joinedSystemPrefix = "## Sentinel Joined System Prefix\n\nThis block represents composed Data Machine AGENTS guidance."
+    const joinedSystemInput = `${joinedSystemPrefix}\n\n${raw}`
+    const joinedSystemBlocks = await currentFilterSystemBlocks([joinedSystemInput])
+    const joinedSystemOut = joinedSystemBlocks.join("\n")
+    const joinedSystemLeaks = detectLeaks(joinedSystemOut, scenario.triggers, scenario.allowLeakInSection)
+    if (!joinedSystemOut.includes(joinedSystemPrefix)) {
+      failures.push("current filter dropped the non-Kimaki prefix from a joined final system block")
+    }
+    if (!joinedSystemOut.includes("## Kimaki Discord Bridge")) {
+      failures.push("current filter did not insert the managed bridge prompt into a joined final system block")
+    }
+    if (joinedSystemLeaks.length > 0) {
+      failures.push(`current joined final system transform has ${joinedSystemLeaks.length} trigger leaks (expected 0)`)
+    }
+
     const transformedMessageText = await currentFilterMessageText(raw)
     const messageLeaks = detectLeaks(transformedMessageText, scenario.triggers, scenario.allowLeakInSection)
     if (messageLeaks.length > 0) {

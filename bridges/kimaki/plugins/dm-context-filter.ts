@@ -116,10 +116,30 @@ function isKimakiSystemPrompt(block: string): boolean {
 }
 
 function replaceKimakiSystemPrompt(block: string): string {
-  if (isKimakiSystemPrompt(block)) {
-    return MANAGED_KIMAKI_SYSTEM_PROMPT;
+  const kimakiStart = kimakiSystemPromptStart(block);
+  if (kimakiStart === -1) {
+    return block;
   }
-  return block;
+
+  const prefix = block.slice(0, kimakiStart).trimEnd();
+  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
+}
+
+function kimakiSystemPromptStart(block: string): number {
+  const markers = [
+    "The user is reading your messages from inside Discord, via kimaki.dev",
+    "Your current OpenCode session ID is:",
+    "## debugging kimaki issues",
+    "## uploading files to discord",
+  ];
+
+  return markers.reduce((earliest, marker) => {
+    const index = block.indexOf(marker);
+    if (index === -1) {
+      return earliest;
+    }
+    return earliest === -1 ? index : Math.min(earliest, index);
+  }, -1);
 }
 
 export default fleetContextFilter;
