@@ -54,6 +54,9 @@ export LOCAL_MODE=false
 export DRY_RUN=false
 export INSTALL_CHAT=true
 export RUN_AS_ROOT=false
+export IS_STUDIO=false
+export WP_CMD="wp"
+export AGENT_SLUG="intelligence-chubes4"
 
 # kimaki
 export KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
@@ -81,6 +84,12 @@ export OPENCODE_MODEL=""
 # ---------------------------------------------------------------------------
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 
+REDACTED_DIFF=$(printf '%s\n' ' Environment=KIMAKI_BOT_TOKEN=secret-token' '         <key>KIMAKI_BOT_TOKEN</key>' '         <string>secret-token</string>' | _redact_secret_diff)
+if echo "$REDACTED_DIFF" | grep -q 'secret-token'; then
+  echo "FAIL: bridge diff redaction leaked a token"
+  exit 1
+fi
+
 kimaki_env_block() {
   local kimaki_bin_dir node_bin_dir path_value
   kimaki_bin_dir=$(dirname "$KIMAKI_BIN")
@@ -89,7 +98,9 @@ kimaki_env_block() {
   local out="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$path_value
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
-Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
+Environment=DATAMACHINE_WP_CMD=$WP_CMD
+Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
   if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then
     out="$out
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"

@@ -320,11 +320,18 @@ _kimaki_install_systemd() {
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
   PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
+  local DATAMACHINE_WP_CMD
+  DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
 
   local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
-Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
+Environment=DATAMACHINE_WP_CMD=$DATAMACHINE_WP_CMD"
+  if [ -n "${AGENT_SLUG:-}" ]; then
+    ENV_BLOCK="$ENV_BLOCK
+Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
+  fi
   if [ -n "$KIMAKI_BOT_TOKEN" ]; then
     ENV_BLOCK="$ENV_BLOCK
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
@@ -581,7 +588,12 @@ bridge_update_systemd() {
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
-Environment=DATAMACHINE_SITE_PATH=$SITE_PATH"
+Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
+Environment=DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)"
+  if [ -n "${AGENT_SLUG:-}" ]; then
+    TEMPLATE_ENV="$TEMPLATE_ENV
+Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
+  fi
 
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
@@ -626,7 +638,7 @@ bridge_update_launchd() {
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would update $plist"
     echo -e "${BLUE}[dry-run]${NC} Diff:"
-    diff -u "$plist" <(echo "$new_plist") 2>/dev/null | head -30 | sed 's/^/    /' || true
+    diff -u "$plist" <(echo "$new_plist") 2>/dev/null | _redact_secret_diff | head -30 | sed 's/^/    /' || true
     return 0
   fi
 
@@ -634,7 +646,7 @@ bridge_update_launchd() {
   echo "$new_plist" > "$plist"
   log "  Updated $plist (backup: ${plist}.backup.$TIMESTAMP)"
   log "  Diff:"
-  diff -u "${plist}.backup.$TIMESTAMP" "$plist" 2>/dev/null | head -30 | sed 's/^/    /' || true
+  diff -u "${plist}.backup.$TIMESTAMP" "$plist" 2>/dev/null | _redact_secret_diff | head -30 | sed 's/^/    /' || true
   log "  NOTE: com.wp.kimaki NOT restarted — run the restart command in the summary when ready"
   UPDATED_ITEMS+=("com.wp.kimaki.plist (not restarted)")
 }
@@ -690,6 +702,8 @@ bridge_render_launchd() {
   skill_filter_plist_args="$(_kimaki_skill_filter_args_plist)"
   local launchd_start
   launchd_start="${KIMAKI_DATA_DIR}/kimaki-config/launchd-start.sh"
+  local datamachine_wp_cmd
+  datamachine_wp_cmd=$(_kimaki_datamachine_wp_cmd)
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -724,13 +738,26 @@ $skill_filter_plist_args
         <key>KIMAKI_CONFIG_DIR</key>
         <string>${KIMAKI_DATA_DIR}/kimaki-config</string>
         <key>DATAMACHINE_SITE_PATH</key>
-        <string>$SITE_PATH</string>$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
+        <string>$SITE_PATH</string>
+        <key>DATAMACHINE_WP_CMD</key>
+        <string>$datamachine_wp_cmd</string>$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
+        <key>DATAMACHINE_AGENT_SLUG</key>
+        <string>$AGENT_SLUG</string>"; fi)$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
         <string>$KIMAKI_BOT_TOKEN</string>"; fi)
     </dict>
 </dict>
 </plist>
 EOF
+}
+
+_kimaki_datamachine_wp_cmd() {
+  if [ "${IS_STUDIO:-false}" = true ]; then
+    printf '%s\n' "studio wp"
+    return 0
+  fi
+
+  printf '%s\n' "${WP_CMD:-wp}"
 }
 
 _kimaki_skill_filter_mode() {
