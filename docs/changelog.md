@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.7] - 2026-06-15
+
+### Changed
+- test kimaki managed runtime freshness
+
+### Fixed
+- fix kimaki final system prompt stripping
+- fix kimaki datamachine command context
+- fix kimaki launchd stale opencode cleanup
+
 ## [1.4.6] - 2026-06-14
 
 ### Fixed
