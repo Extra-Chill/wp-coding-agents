@@ -55,9 +55,12 @@ The user says something like:
    homeboy project show <project-id>
    homeboy project components list <project-id>
    wp option get datamachine_code_homeboy_available --path=/path/to/site
+   wp config get DATAMACHINE_COMPOSE_AGENTS_MD --path=/path/to/site
    wp datamachine memory compose AGENTS.md --path=/path/to/site
    ```
    For WordPress Studio installs, use `studio wp option get datamachine_code_homeboy_available` and `studio wp datamachine memory compose AGENTS.md`. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
+
+   Setup and upgrade write `define( 'DATAMACHINE_COMPOSE_AGENTS_MD', true )` to wp-config.php (idempotent grep-guard; skipped on Studio and dry-run). This is the gate that turns on core-owned AGENTS.md composition — `wp config get DATAMACHINE_COMPOSE_AGENTS_MD` should return `true` after either run.
 
 Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
 

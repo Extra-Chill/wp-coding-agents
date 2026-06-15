@@ -24,6 +24,33 @@ install_data_machine() {
   elif [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
   fi
+
+  set_compose_agents_md_constant
+}
+
+# Write the DATAMACHINE_COMPOSE_AGENTS_MD gate to wp-config.php.
+#
+# This boolean constant turns ON core-owned AGENTS.md composition in Data
+# Machine (see data-machine#2640). wp-coding-agents is the rightful writer
+# because its presence is the signal that an external coding agent lives here —
+# installs without one stay default-OFF and emit zero AGENTS.md noise.
+#
+# Mirrors the DATAMACHINE_WORKSPACE_PATH block above: idempotent grep-guard,
+# respects DRY_RUN / IS_STUDIO / wp-config.php existence. Written as a raw
+# boolean (true) via --raw so the define is `define( ..., true )`, not the
+# string "true". Safe to (re-)run on both setup and upgrade; harmless even if
+# core does not yet read the constant.
+set_compose_agents_md_constant() {
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ] && [ "$IS_STUDIO" = false ]; then
+    if ! grep -q 'DATAMACHINE_COMPOSE_AGENTS_MD' "$SITE_PATH/wp-config.php"; then
+      wp_cmd config set DATAMACHINE_COMPOSE_AGENTS_MD true --raw --type=constant
+      log "Set DATAMACHINE_COMPOSE_AGENTS_MD to true"
+    else
+      log "DATAMACHINE_COMPOSE_AGENTS_MD already defined in wp-config.php"
+    fi
+  elif [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_COMPOSE_AGENTS_MD true --raw --type=constant"
+  fi
 }
 
 upgrade_data_machine_plugins() {
@@ -35,6 +62,9 @@ upgrade_data_machine_plugins() {
   log "Phase 2: Updating Data Machine plugins to latest tagged releases..."
   update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
   update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+
+  # Backfill the AGENTS.md composition gate on existing installs (idempotent).
+  set_compose_agents_md_constant
 }
 
 create_dm_agent() {
