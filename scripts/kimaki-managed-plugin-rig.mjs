@@ -162,6 +162,13 @@ async function recordLiveDriftEvidence() {
 
   const expectedSkillMode = fs.existsSync(path.join(repoKimakiDir, 'skills-enable-list.txt')) ? 'enable' : 'disable'
   const skillListName = expectedSkillMode === 'enable' ? 'skills-enable-list.txt' : 'skills-disable-list.txt'
+  const liveFreshnessFiles = [
+    path.join(livePluginsDir, 'dm-context-filter.ts'),
+    path.join(livePluginsDir, 'dm-agent-sync.ts'),
+    path.join(liveConfigDir, 'post-upgrade.sh'),
+    path.join(liveConfigDir, skillListName),
+    liveLaunchdPlist,
+  ].filter(Boolean)
   live.expected_skill_mode = expectedSkillMode
   live.expected_skills = skillNames(path.join(repoKimakiDir, skillListName))
   live.expected_managed_args = managedArgsFor(liveKimakiDataDir, path.join(repoKimakiDir, skillListName), expectedSkillMode)
@@ -225,6 +232,7 @@ async function recordLiveDriftEvidence() {
     liveConfigDir,
     livePluginsDir,
     liveLaunchdPlist,
+    liveFreshnessFiles,
     expectedSkillMode,
     skillListName,
   })
@@ -236,7 +244,7 @@ async function recordLiveDriftEvidence() {
   }
 }
 
-async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir, liveConfigDir, livePluginsDir, liveLaunchdPlist, expectedSkillMode, skillListName }) {
+async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir, liveConfigDir, livePluginsDir, liveLaunchdPlist, liveFreshnessFiles, expectedSkillMode, skillListName }) {
   const processes = listProcesses()
   live.processes = {
     kimaki: processes.filter(isKimakiProcess).map(enrichProcess),
@@ -283,6 +291,15 @@ async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir,
     class: 'stale OpenCode server',
     liveSiteDir,
   })
+
+  const freshness = managedRuntimeFreshness(opencodeFromManagedKimaki, liveFreshnessFiles)
+  live.runtime_freshness = freshness
+  liveCheck(freshness.fresh, 'active OpenCode serve process started after managed Kimaki config files', live, {
+    class: 'stale OpenCode server',
+    newestManagedConfig: freshness.newestManagedConfig,
+    staleProcesses: freshness.staleProcesses,
+  })
+
   const staleOpenCodeServers = live.processes.opencode_serve.filter((processInfo) => !hasAncestor(processInfo, managedKimakiProcesses, processes))
   live.stale_opencode_serve = staleOpenCodeServers
   liveCheck(staleOpenCodeServers.length === 0, 'no stale OpenCode serve processes outside managed Kimaki ancestry', live, {
@@ -673,7 +690,40 @@ function isOpencodeServeProcess(processInfo) {
 }
 
 function enrichProcess(processInfo) {
-  return { ...processInfo, cwd: processCwd(processInfo.pid) }
+  return { ...processInfo, cwd: processCwd(processInfo.pid), started_at: processStartedAt(processInfo.pid) }
+}
+
+function managedRuntimeFreshness(opencodeProcesses, freshnessFiles) {
+  const newestManagedConfig = newestFileMtime(freshnessFiles)
+  const staleProcesses = opencodeProcesses
+    .filter((processInfo) => !processInfo.started_at || (newestManagedConfig?.mtimeMs && Date.parse(processInfo.started_at) < newestManagedConfig.mtimeMs))
+    .map((processInfo) => ({
+      pid: processInfo.pid,
+      started_at: processInfo.started_at,
+      command: processInfo.command,
+      cwd: processInfo.cwd,
+    }))
+
+  return {
+    fresh: !!newestManagedConfig && opencodeProcesses.length > 0 && staleProcesses.length === 0,
+    newestManagedConfig,
+    staleProcesses,
+  }
+}
+
+function newestFileMtime(files) {
+  let newest = null
+  for (const file of files) {
+    if (!file || !fs.existsSync(file)) {
+      continue
+    }
+    const stats = fs.statSync(file)
+    const record = { file, mtimeMs: stats.mtimeMs, mtime: stats.mtime.toISOString() }
+    if (!newest || record.mtimeMs > newest.mtimeMs) {
+      newest = record
+    }
+  }
+  return newest
 }
 
 function hasAncestor(processInfo, ancestorCandidates, processes) {
@@ -701,6 +751,46 @@ function processCwd(pid) {
     const stdout = execFileSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
     const line = stdout.split('\n').find((candidate) => candidate.startsWith('n'))
     return line ? line.slice(1) : null
+  } catch {
+    return null
+  }
+}
+
+function processStartedAt(pid) {
+  if (process.platform === 'linux') {
+    return linuxProcessStartedAt(pid)
+  }
+
+  try {
+    const stdout = execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    const parsed = Date.parse(stdout)
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
+  } catch {
+    return null
+  }
+}
+
+function linuxProcessStartedAt(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const parts = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)
+    const startTicks = Number(parts[19])
+    const clockTicks = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim()) || 100
+    const bootTime = linuxBootTimeMs()
+    if (!bootTime || !Number.isFinite(startTicks)) {
+      return null
+    }
+    return new Date(bootTime + (startTicks / clockTicks) * 1000).toISOString()
+  } catch {
+    return null
+  }
+}
+
+function linuxBootTimeMs() {
+  try {
+    const stat = fs.readFileSync('/proc/stat', 'utf8')
+    const match = stat.match(/^btime\s+(\d+)$/m)
+    return match ? Number(match[1]) * 1000 : null
   } catch {
     return null
   }

@@ -310,7 +310,7 @@ _smart_update_systemd_unit() {
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would update $unit_file"
     echo -e "${BLUE}[dry-run]${NC} Diff:"
-    diff -u "$unit_file" <(echo "$new_unit") 2>/dev/null | head -30 | sed 's/^/    /' || true
+    diff -u "$unit_file" <(echo "$new_unit") 2>/dev/null | _redact_secret_diff | head -30 | sed 's/^/    /' || true
     echo -e "${BLUE}[dry-run]${NC} Would run: systemctl daemon-reload"
     return 0
   fi
@@ -319,11 +319,34 @@ _smart_update_systemd_unit() {
   echo "$new_unit" > "$unit_file"
   log "  Updated $unit_file (backup: ${unit_file}.backup.$TIMESTAMP)"
   log "  Diff:"
-  diff -u "${unit_file}.backup.$TIMESTAMP" "$unit_file" 2>/dev/null | head -30 | sed 's/^/    /' || true
+  diff -u "${unit_file}.backup.$TIMESTAMP" "$unit_file" 2>/dev/null | _redact_secret_diff | head -30 | sed 's/^/    /' || true
   systemctl daemon-reload
   log "  systemctl daemon-reload complete"
   log "  NOTE: $label NOT restarted — run the restart command in the summary when ready"
   UPDATED_ITEMS+=("$label (daemon-reloaded, not restarted)")
+}
+
+_redact_secret_diff() {
+  awk '
+    /Environment=.*TOKEN=/ {
+      sub(/=.*/, "=<redacted>")
+      print
+      redact_next_string = 0
+      next
+    }
+    /<key>.*TOKEN/ {
+      print
+      redact_next_string = 1
+      next
+    }
+    redact_next_string && /<string>.*<\/string>/ {
+      sub(/<string>.*<\/string>/, "<string><redacted></string>")
+      print
+      redact_next_string = 0
+      next
+    }
+    { print; redact_next_string = 0 }
+  '
 }
 
 # _plist_string_after_key <plist_path> <key>

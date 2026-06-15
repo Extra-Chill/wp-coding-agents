@@ -49,9 +49,33 @@ async function runConfig(config, responses) {
   return warnings
 }
 
+async function withEnv(env, callback) {
+  const previous = {}
+  for (const key of Object.keys(env)) {
+    previous[key] = process.env[key]
+    if (env[key] === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = env[key]
+    }
+  }
+
+  try {
+    return await callback()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 const commonResponses = [
   [/^command -v wp$/, output("/usr/local/bin/wp")],
-  [/^wp --path=\/tmp\/datamachine-site datamachine memory compose/, output("composed")],
+  [/^sh -lc wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
 ]
 
 {
@@ -99,10 +123,23 @@ const commonResponses = [
   const config = {}
   const warnings = await runConfig(config, [
     [/^command -v wp$/, output("/usr/local/bin/wp")],
-    [/^wp --path=\/tmp\/datamachine-site datamachine memory compose/, output("", 1, "db down")],
+    [/^sh -lc wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("", 1, "db down")],
   ])
   assert.ok(warnings.some((line) => line.includes("memory compose failed")))
   assert.equal(config.agent, undefined)
 }
+
+await withEnv({ DATAMACHINE_WP_CMD: "custom-wp", DATAMACHINE_AGENT_SLUG: "intelligence-chubes4" }, async () => {
+  const config = {}
+  const warnings = await runConfig(config, [
+    [/^sh -lc custom-wp 'datamachine' 'memory' 'compose' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
+    [/^sh -lc custom-wp 'datamachine' 'memory' 'injectable-files' '--format=json' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output(JSON.stringify([
+      { path: "/tmp/datamachine-site/AGENTS.md" },
+      { path: "/tmp/datamachine-site/MEMORY.md" },
+    ]))],
+  ])
+  assert.ok(warnings.some((line) => line.includes("recomposed Data Machine memory")))
+  assert.deepEqual(config.instructions, ["/tmp/datamachine-site/AGENTS.md", "/tmp/datamachine-site/MEMORY.md"])
+})
 
 console.log("OK: dm-agent-sync recomposes DM memory without mutating OpenCode agents")

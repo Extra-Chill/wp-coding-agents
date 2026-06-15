@@ -35,12 +35,13 @@ interface InjectableFile {
 const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async (input) => {
-      const wpAvailable = await $`command -v wp`.quiet().nothrow();
-      if (wpAvailable.exitCode !== 0) {
+      const wpCli = await resolveWpCli($);
+      if (!wpCli) {
         return;
       }
 
       const sitePath = getSitePath();
+      const agentSlug = getAgentSlug(input);
 
       // Refresh composable files before the session reads them.
       // DM SectionRegistry callbacks render live state (configured sources,
@@ -49,9 +50,7 @@ const dmAgentSync: Plugin = async ({ $ }) => {
       // edits, or other external processes would leave AGENTS.md stale.
       // Running compose here guarantees the file matches live state at the
       // moment OpenCode loads the session prompt.
-      const composeResult = sitePath
-        ? await $`wp --path=${sitePath} datamachine memory compose --allow-root`.quiet().nothrow()
-        : await $`wp datamachine memory compose --allow-root`.quiet().nothrow();
+      const composeResult = await runDatamachineCommand($, wpCli, sitePath, agentSlug, "compose");
       if (composeResult.exitCode !== 0) {
         // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
         console.warn(`[dm-agent-sync] memory compose failed (exit ${composeResult.exitCode}): ${await shellOutputText(composeResult)}`);
@@ -64,10 +63,42 @@ const dmAgentSync: Plugin = async ({ $ }) => {
       // files so it stays in sync with the registry. If DM is too old to
       // provide the command, or it returns nothing usable, leave whatever
       // static list opencode.json already has untouched (graceful no-op).
-      await syncInstructions(input, sitePath, $);
+      await syncInstructions(input, sitePath, $, wpCli, agentSlug);
     },
   };
 };
+
+type WpCli = string;
+
+async function resolveWpCli($: any): Promise<WpCli | null> {
+  const configured = process.env.DATAMACHINE_WP_CMD || process.env.WP_CMD || "";
+  if (configured) {
+    return configured;
+  }
+
+  const wpAvailable = await $`command -v wp`.quiet().nothrow();
+  if (wpAvailable.exitCode === 0) {
+    return "wp";
+  }
+
+  return null;
+}
+
+async function runDatamachineCommand($: any, wpCli: WpCli, sitePath: string, agentSlug: string, command: "compose" | "injectable-files"): Promise<any> {
+  const args = ["datamachine", "memory", command];
+  if (command === "injectable-files") {
+    args.push("--format=json");
+  }
+  if (agentSlug) {
+    args.push(`--agent=${agentSlug}`);
+  }
+  if (sitePath) {
+    args.push(`--path=${sitePath}`);
+  }
+  args.push("--allow-root");
+
+  return $`sh -lc ${[wpCli, ...args.map(shellQuote)].join(" ")}`.quiet().nothrow();
+}
 
 /**
  * Replace config.instructions with the absolute paths Data Machine reports as
@@ -79,10 +110,16 @@ async function syncInstructions(
   input: { instructions?: string[] },
   sitePath: string,
   $: any,
+  wpCli: WpCli,
+  agentSlug: string,
 ): Promise<void> {
-  const result = sitePath
-    ? await $`wp --path=${sitePath} datamachine memory injectable-files --format=json --allow-root`.quiet().nothrow()
-    : await $`wp datamachine memory injectable-files --format=json --allow-root`.quiet().nothrow();
+  if (!agentSlug) {
+    // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
+    console.warn("[dm-agent-sync] agent slug unavailable; leaving instructions unchanged");
+    return;
+  }
+
+  const result = await runDatamachineCommand($, wpCli, sitePath, agentSlug, "injectable-files");
 
   if (result.exitCode !== 0) {
     // DM predates the command, or the call failed — keep the existing list.
@@ -118,6 +155,27 @@ async function syncInstructions(
 
 function getSitePath(): string {
   return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || "";
+}
+
+function getAgentSlug(input: { instructions?: string[] }): string {
+  const envSlug = process.env.DATAMACHINE_AGENT_SLUG || process.env.AGENT_SLUG || process.env.DATAMACHINE_AGENT || "";
+  if (envSlug) {
+    return envSlug;
+  }
+
+  const instructions = Array.isArray(input.instructions) ? input.instructions : [];
+  for (const instruction of instructions) {
+    const match = instruction.match(/(?:^|\/)agents\/([^/]+)\//);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return "";
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 async function shellOutputText(output: any): Promise<string> {
