@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.8] - 2026-06-15
+
+### Fixed
+- fix kimaki managed system prompt patch
+
 ## [1.4.7] - 2026-06-15
 
 ### Changed
