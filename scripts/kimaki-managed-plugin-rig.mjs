@@ -317,6 +317,11 @@ async function recordLiveRuntimeEvidence({ live, liveSiteDir, liveKimakiDataDir,
   }
   liveCheck(livePromptEvidence.contextFilterExecuted, 'live dm-context-filter transform executes', live, { class: 'plugin not loaded' })
   liveCheck(livePromptEvidence.managedPromptActive, 'live effective prompt uses managed bridge prompt', live, { class: 'plugin match predicate failed' })
+  liveCheck(livePromptEvidence.joinedSystemPrefixPreserved, 'live final system transform preserves non-Kimaki prefix', live, { class: 'plugin overmatched final system block' })
+  liveCheck(livePromptEvidence.joinedSystemStaleOrchestrationLeaks.length === 0, 'live final system transform strips Kimaki promptAsync system field', live, {
+    class: 'plugin match predicate failed',
+    leaks: livePromptEvidence.joinedSystemStaleOrchestrationLeaks,
+  })
   liveCheck(livePromptEvidence.filteredStaleOrchestrationLeaks.length === 0, 'live effective prompt has no non-allowlisted Kimaki prompt surface', live, {
     class: 'plugin match predicate failed',
     leaks: livePromptEvidence.filteredStaleOrchestrationLeaks,
@@ -348,8 +353,10 @@ async function renderLivePromptEvidence({ liveConfigDir, livePluginsDir }) {
       filteredPath: fs.existsSync(filteredPath) ? filteredPath : null,
       rawStaleOrchestrationLeaks: [],
       filteredStaleOrchestrationLeaks: [{ line: 0, text: error instanceof Error ? error.message : String(error) }],
+      joinedSystemStaleOrchestrationLeaks: [{ line: 0, text: error instanceof Error ? error.message : String(error) }],
       contextFilterExecuted: false,
       managedPromptActive: false,
+      joinedSystemPrefixPreserved: false,
       summary: { ...summary, error: error instanceof Error ? error.message : String(error) },
     }
   }
@@ -413,6 +420,8 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0, `${name}: raw Kimaki prompt contains stale orchestration sections`, cycle)
   assert(promptEvidence.filteredStaleOrchestrationLeaks.length === 0, `${name}: filtered prompt removes stale orchestration sections`, cycle)
   assert(promptEvidence.contextFilterExecuted, `${name}: dm-context-filter hook executed`, cycle)
+  assert(promptEvidence.joinedSystemPrefixPreserved, `${name}: final system transform preserves non-Kimaki prefix`, cycle)
+  assert(promptEvidence.joinedSystemStaleOrchestrationLeaks.length === 0, `${name}: final system transform strips Kimaki promptAsync system field`, cycle)
   assert(promptEvidence.systemAndMessageTransformsAgree, `${name}: system and message transforms agree`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
 }
@@ -491,6 +500,10 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
   const systemOutput = { system: [raw] }
   await systemTransform({}, systemOutput)
   const systemFiltered = systemOutput.system.join('\n')
+  const joinedSystemPrefix = '## Sentinel Joined System Prefix\n\nThis block represents composed Data Machine AGENTS guidance.'
+  const joinedSystemOutput = { system: [`${joinedSystemPrefix}\n\n${raw}`] }
+  await systemTransform({}, joinedSystemOutput)
+  const joinedSystemFiltered = joinedSystemOutput.system.join('\n')
 
   const messageTransform = contextPlugin['experimental.chat.messages.transform']
   if (typeof messageTransform !== 'function') {
@@ -511,6 +524,7 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
   const agentSyncPlugin = await agentSyncModule.default({ $: fakeShell })
   const rawStaleOrchestrationLeaks = findStaleOrchestrationLeaks(raw)
   const filteredStaleOrchestrationLeaks = findStaleOrchestrationLeaks(filtered)
+  const joinedSystemStaleOrchestrationLeaks = findStaleOrchestrationLeaks(joinedSystemFiltered)
 
   mkdirp(path.join(artifactRoot, 'prompts'))
   fs.writeFileSync(rawPath, normalizeHome(raw), 'utf8')
@@ -523,8 +537,10 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
     rawStaleOrchestrationLeaks,
     filteredStaleOrchestrationLeaks,
+    joinedSystemStaleOrchestrationLeaks,
     contextFilterExecuted: systemOutput.system[0] !== raw && filtered !== raw,
     managedPromptActive: filtered.includes('## Kimaki Discord Bridge') && filtered.includes('## Managed Coding Runtime'),
+    joinedSystemPrefixPreserved: joinedSystemFiltered.includes(joinedSystemPrefix) && joinedSystemFiltered.includes('## Kimaki Discord Bridge'),
     systemAndMessageTransformsAgree: systemFiltered === filtered,
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
@@ -535,6 +551,7 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
       stripped_chars: raw.length - filtered.length,
       raw_stale_orchestration_leaks: rawStaleOrchestrationLeaks.length,
       filtered_stale_orchestration_leaks: filteredStaleOrchestrationLeaks.length,
+      joined_system_stale_orchestration_leaks: joinedSystemStaleOrchestrationLeaks.length,
     },
   }
 }

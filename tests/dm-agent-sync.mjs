@@ -5,6 +5,9 @@ import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
 
 const sitePath = "/tmp/datamachine-site"
 process.env.DATAMACHINE_SITE_PATH = sitePath
+delete process.env.DATAMACHINE_WP_CMD
+delete process.env.WP_CMD
+delete process.env.DATAMACHINE_AGENT_SLUG
 
 function output(stdout = "", exitCode = 0, stderr = "") {
   return {
