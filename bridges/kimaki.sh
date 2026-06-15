@@ -273,7 +273,7 @@ _kimaki_install_launchd() {
   if [ "$DRY_RUN" = true ]; then
     KIMAKI_BIN="/opt/homebrew/bin/kimaki"
   else
-    KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/opt/homebrew/bin/kimaki")
+    KIMAKI_BIN=$(_kimaki_resolve_service_bin "/opt/homebrew/bin/kimaki")
   fi
 
   run_cmd mkdir -p "$KIMAKI_DATA_DIR"
@@ -305,6 +305,126 @@ _kimaki_install_launchd() {
   log "  Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
 }
 
+# _kimaki_resolve_service_bin
+#
+# Resolve the kimaki binary that goes into ExecStart / ProgramArguments using
+# the ADOPTED service identity (SERVICE_USER / SERVICE_HOME), never the
+# invoking shell's $PATH. This is the fix for #232: upgrade.sh runs as root,
+# but adopt_service_identity_from_units() (bridges/_dispatch.sh) may have
+# already re-derived SERVICE_USER=opencode / SERVICE_HOME=/home/opencode from
+# the existing unit. A bare `which kimaki` resolves against root's PATH and
+# leaks /root/.kimaki/bin/kimaki into a unit that runs as opencode and writes
+# HOME=/home/opencode — an internally inconsistent unit whose ExecStart the
+# service user cannot read, crashing the bridge on the next restart.
+#
+# Resolution order (issue option order — prefer a stable, identity-consistent
+# path over the invoking user's private home):
+#   1. A system-prefix binary (/usr/bin, /usr/local/bin, /opt/homebrew/bin):
+#      reachable by any service user, the npm-global symlink target the
+#      installer already prefers (see _kimaki_register_cli_channel, ~line 80).
+#   2. When SERVICE_USER differs from the invoking user, resolve UNDER the
+#      service user: `sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME"
+#      bash -lc 'command -v kimaki'` (mirrors lib/homeboy.sh:40). Guarded for
+#      sudo availability / non-zero exit.
+#   3. $SERVICE_HOME/.kimaki/bin/kimaki if that file exists (the canonical
+#      per-user install layout, derived from the adopted home — never /root).
+#   4. /usr/bin/kimaki as a last-resort stable default.
+#
+# Args: $1 = fallback system-prefix default (e.g. /usr/bin/kimaki on Linux,
+#            /opt/homebrew/bin/kimaki on macOS).
+_kimaki_resolve_service_bin() {
+  local default_bin="${1:-/usr/bin/kimaki}"
+  local candidate
+
+  # 1. Stable system-prefix binary — reachable by any service user. The list
+  #    is overridable (space-separated) only so tests can point it at a temp
+  #    prefix and exercise the service-user / SERVICE_HOME fallback paths
+  #    deterministically; production always uses the real system prefixes.
+  local system_bins="${KIMAKI_SYSTEM_PREFIX_BINS:-/usr/bin/kimaki /usr/local/bin/kimaki /opt/homebrew/bin/kimaki}"
+  for candidate in $system_bins; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  # 2. Resolve under the adopted service user when it differs from the
+  #    invoking user (the root-upgrade-against-opencode-unit case).
+  local invoking_user running_as_root=false
+  invoking_user="$(id -un 2>/dev/null || echo "")"
+  if [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; then
+    running_as_root=true
+  fi
+  if [ "${LOCAL_MODE:-false}" != true ] \
+    && [ -n "${SERVICE_USER:-}" ] \
+    && [ "$SERVICE_USER" != "$invoking_user" ] \
+    && [ -n "${SERVICE_HOME:-}" ] \
+    && [ "$running_as_root" = true ] \
+    && command -v sudo >/dev/null 2>&1; then
+    candidate="$(sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" bash -lc 'command -v kimaki' 2>/dev/null || true)"
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  # 3. Canonical per-user install layout under the ADOPTED home (not /root).
+  if [ -n "${SERVICE_HOME:-}" ] && [ -f "$SERVICE_HOME/.kimaki/bin/kimaki" ]; then
+    printf '%s\n' "$SERVICE_HOME/.kimaki/bin/kimaki"
+    return 0
+  fi
+
+  # 4. Last-resort stable default.
+  printf '%s\n' "$default_bin"
+}
+
+# _kimaki_assert_bin_identity <kimaki_bin> <path_value>
+#
+# Cheap guard requested by #232: after resolving KIMAKI_BIN / PATH_VALUE,
+# assert that the binary and any `.kimaki/bin` PATH segment live under the
+# adopted $SERVICE_HOME OR a system prefix. If either references a DIFFERENT
+# user's home, warn loudly rather than silently writing a mismatched unit.
+# Never fatal — the unit is still written, but the operator sees the warning
+# in the upgrade output and can intervene before the next restart.
+_kimaki_assert_bin_identity() {
+  local kimaki_bin="$1" path_value="$2"
+  local home="${SERVICE_HOME:-}"
+
+  _kimaki_path_under_allowed_home() {
+    local path="$1"
+    case "$path" in
+      /usr/bin/*|/usr/local/bin/*|/opt/homebrew/bin/*) return 0 ;;
+    esac
+    if [ -n "$home" ]; then
+      case "$path" in
+        "$home"/*) return 0 ;;
+      esac
+    fi
+    return 1
+  }
+
+  if ! _kimaki_path_under_allowed_home "$kimaki_bin"; then
+    warn "  kimaki binary '$kimaki_bin' is NOT under SERVICE_HOME ($home) or a system prefix"
+    warn "  the rendered unit runs as User=${SERVICE_USER:-?} and may not be able to read it (see #232)"
+  fi
+
+  # Inspect every PATH segment that points at a per-user .kimaki/bin: it must
+  # belong to the adopted home, not another user's (e.g. /root/.kimaki/bin).
+  local seg
+  local IFS=:
+  for seg in $path_value; do
+    case "$seg" in
+      */.kimaki/bin)
+        if ! _kimaki_path_under_allowed_home "$seg"; then
+          warn "  PATH segment '$seg' references a different user's home than SERVICE_HOME ($home) (see #232)"
+        fi
+        ;;
+    esac
+  done
+
+  unset -f _kimaki_path_under_allowed_home
+}
+
 _kimaki_install_systemd() {
   KIMAKI_CONFIG_DIR="/opt/kimaki-config"
   run_cmd cp -r "$SCRIPT_DIR/bridges/kimaki" "$KIMAKI_CONFIG_DIR"
@@ -313,13 +433,14 @@ _kimaki_install_systemd() {
   if [ "$DRY_RUN" = true ]; then
     KIMAKI_BIN="/usr/bin/kimaki"
   else
-    KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
+    KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
   fi
 
   local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
   PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
+  _kimaki_assert_bin_identity "$KIMAKI_BIN" "$PATH_VALUE"
   local DATAMACHINE_WP_CMD
   DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
 
@@ -574,12 +695,13 @@ bridge_update_systemd() {
   CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
 
   local KIMAKI_BIN
-  KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/usr/bin/kimaki")
+  KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
   local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
   local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
   PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
+  _kimaki_assert_bin_identity "$KIMAKI_BIN" "$PATH_VALUE"
   CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$KIMAKI_BIN_DIR")
   if [ -n "$NODE_BIN_DIR" ]; then
     CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$NODE_BIN_DIR")
@@ -612,7 +734,7 @@ bridge_update_launchd() {
   [ -f "$plist" ] || { warn "  $plist does not exist — skipping"; return 0; }
 
   local KIMAKI_BIN
-  KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/opt/homebrew/bin/kimaki")
+  KIMAKI_BIN=$(_kimaki_resolve_service_bin "/opt/homebrew/bin/kimaki")
 
   local previous_token="${KIMAKI_BOT_TOKEN:-}"
   local token_was_set=false
