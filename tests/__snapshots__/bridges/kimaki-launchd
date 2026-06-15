@@ -6,6 +6,7 @@
     <string>com.wp.kimaki</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/home/chubes/.kimaki/kimaki-config/launchd-start.sh</string>
         <string>/opt/homebrew/bin/kimaki</string>
         <string>--data-dir</string>
         <string>/home/chubes/.kimaki</string>
@@ -28,6 +29,8 @@
         <string>/home/chubes/.local/bin:/opt/homebrew/bin:/home/chubes/.opencode/bin:/home/chubes/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>KIMAKI_DATA_DIR</key>
         <string>/home/chubes/.kimaki</string>
+        <key>KIMAKI_CONFIG_DIR</key>
+        <string>/home/chubes/.kimaki/kimaki-config</string>
         <key>DATAMACHINE_SITE_PATH</key>
         <string>/var/www/site</string>
     </dict>
