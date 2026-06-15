@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.9] - 2026-06-15
+
+### Fixed
+- resolve kimaki binary against adopted service identity, not invoking shell
+
 ## [1.4.8] - 2026-06-15
 
 ### Fixed
