@@ -123,6 +123,37 @@ assert_fails "invalid section id rejected" agents_md_guidance_register "bad sect
 assert_fails "invalid priority rejected" agents_md_guidance_register "bad-priority" "later" "Bad" "Bad" "## Bad"
 assert_fails "invalid sync availability rejected" agents_md_guidance_sync_homeboy_codebox maybe
 
+echo "==> skip registration when Data Machine core gate is unavailable"
+SHIM_DISABLED="$TMP/section-shim-disabled.php"
+cat > "$SHIM_DISABLED" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$calls = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$calls[] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+
+namespace {
+    define( 'ABSPATH', '/' );
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][] = \$callback;
+    }
+    require '$MU_FILE';
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
+        \$callback();
+    }
+    echo json_encode([ 'calls' => count( \DataMachine\Engine\AI\SectionRegistry::\$calls ) ]);
+}
+PHP
+
+RESULT=$(php "$SHIM_DISABLED")
+EXPECTED='{"calls":0}'
+assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives no wp-coding-agents guidance without core AGENTS gate"
+
 echo "==> apply datamachine_sections action and inspect SectionRegistry call"
 SHIM="$TMP/section-shim.php"
 cat > "$SHIM" <<PHP
@@ -138,6 +169,7 @@ namespace DataMachine\Engine\AI {
 
 namespace {
     define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
     \$GLOBALS['actions'] = [];
     function add_action( \$tag, \$callback, \$priority = 10 ) {
         \$GLOBALS['actions'][\$tag][] = \$callback;
