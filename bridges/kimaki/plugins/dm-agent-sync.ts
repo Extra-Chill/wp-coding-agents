@@ -24,8 +24,6 @@
  * External dependencies
  */
 import type { Plugin } from "@opencode-ai/plugin";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 interface InjectableFile {
   filename: string;
@@ -35,8 +33,6 @@ interface InjectableFile {
 }
 
 const dmAgentSync: Plugin = async ({ $ }) => {
-  let instructionPaths: string[] = [];
-
   return {
     config: async (input) => {
       const wpCli = await resolveWpCli($);
@@ -46,7 +42,6 @@ const dmAgentSync: Plugin = async ({ $ }) => {
 
       const sitePath = getSitePath();
       const agentSlug = getAgentSlug(input);
-      instructionPaths = resolveConfiguredInstructionPaths(input.instructions, sitePath);
 
       // Refresh composable files before the session reads them.
       // DM SectionRegistry callbacks render live state (configured sources,
@@ -68,17 +63,7 @@ const dmAgentSync: Plugin = async ({ $ }) => {
       // files so it stays in sync with the registry. If DM is too old to
       // provide the command, or it returns nothing usable, leave whatever
       // static list opencode.json already has untouched (graceful no-op).
-      const syncedPaths = await syncInstructions(input, sitePath, $, wpCli, agentSlug);
-      if (syncedPaths.length > 0) {
-        instructionPaths = syncedPaths;
-      }
-    },
-
-    // OpenCode's config hook can successfully mutate config.instructions while
-    // some request paths still miss those files. Append the same DM memory files
-    // at the final system-transform hook as a request-time safety net.
-    "experimental.chat.system.transform": async (_input, output) => {
-      await appendInstructionBlocks(output.system, instructionPaths);
+      await syncInstructions(input, sitePath, $, wpCli, agentSlug);
     },
   };
 };
@@ -127,11 +112,11 @@ async function syncInstructions(
   $: any,
   wpCli: WpCli,
   agentSlug: string,
-): Promise<string[]> {
+): Promise<void> {
   if (!agentSlug) {
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn("[dm-agent-sync] agent slug unavailable; leaving instructions unchanged");
-    return [];
+    return;
   }
 
   const result = await runDatamachineCommand($, wpCli, sitePath, agentSlug, "injectable-files");
@@ -140,7 +125,7 @@ async function syncInstructions(
     // DM predates the command, or the call failed — keep the existing list.
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn(`[dm-agent-sync] injectable-files unavailable (exit ${result.exitCode}); leaving instructions unchanged`);
-    return [];
+    return;
   }
 
   const raw = await shellOutputText(result);
@@ -150,7 +135,7 @@ async function syncInstructions(
   } catch {
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn("[dm-agent-sync] could not parse injectable-files output; leaving instructions unchanged");
-    return [];
+    return;
   }
 
   const paths = Array.isArray(files)
@@ -160,53 +145,16 @@ async function syncInstructions(
   if (paths.length === 0) {
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn("[dm-agent-sync] injectable-files returned no paths; leaving instructions unchanged");
-    return [];
+    return;
   }
 
   input.instructions = paths;
   // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
   console.warn(`[dm-agent-sync] synced ${paths.length} instruction file(s) from Data Machine`);
-  return paths;
-}
-
-async function appendInstructionBlocks(system: string[], paths: string[]): Promise<void> {
-  for (const filePath of paths) {
-    const marker = `Instructions from: ${filePath}`;
-    if (system.some((block) => block.includes(marker))) {
-      continue;
-    }
-
-    let content = "";
-    try {
-      content = await fs.readFile(filePath, "utf8");
-    } catch {
-      continue;
-    }
-
-    if (!content.trim()) {
-      continue;
-    }
-
-    system.push(`${marker}\n${content}`);
-  }
 }
 
 function getSitePath(): string {
   return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || "";
-}
-
-function resolveConfiguredInstructionPaths(instructions: string[] | undefined, sitePath: string): string[] {
-  return (Array.isArray(instructions) ? instructions : [])
-    .filter((instruction) => !instruction.startsWith("http://") && !instruction.startsWith("https://"))
-    .map((instruction) => {
-      if (instruction.startsWith("~/")) {
-        return path.join(process.env.HOME || "", instruction.slice(2));
-      }
-      if (path.isAbsolute(instruction)) {
-        return instruction;
-      }
-      return path.resolve(sitePath || process.cwd(), instruction);
-    });
 }
 
 function getAgentSlug(input: { instructions?: string[] }): string {
