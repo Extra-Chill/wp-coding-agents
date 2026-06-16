@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1] - 2026-06-16
+
+### Changed
+- gate homeboy AGENTS guidance fixture
+
+### Fixed
+- gate generated AGENTS guidance
+
 ## [1.5.0] - 2026-06-15
 
 ### Added
