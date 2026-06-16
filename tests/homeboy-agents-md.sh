@@ -127,6 +127,7 @@ namespace DataMachine\Engine\AI {
 
 namespace {
     define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
     \$GLOBALS['actions'] = [];
     function add_action( \$tag, \$callback, \$priority = 10 ) {
         \$GLOBALS['actions'][\$tag][] = \$callback;

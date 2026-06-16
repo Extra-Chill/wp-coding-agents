@@ -71,6 +71,10 @@ agents_md_guidance_ensure_mu_plugin_file() {
 defined( 'ABSPATH' ) || exit;
 
 add_action( 'datamachine_sections', function () {
+    if ( ! function_exists( 'datamachine_agents_md_enabled' ) || ! datamachine_agents_md_enabled() ) {
+        return;
+    }
+
     if ( ! class_exists( '\DataMachine\Engine\AI\SectionRegistry' ) ) {
         return;
     }
