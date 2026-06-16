@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -59,6 +59,8 @@ INSTALL_SKILLS=true
 SKILLS_ONLY=false
 RUNTIME_ONLY=false
 WITH_HOMEBOY=false
+WITH_AI_GATEWAY=false
+ROTATE_AI_GATEWAY_TOKEN=false
 RUNTIME=""
 HOMEBOY_MODE="auto"
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
@@ -134,6 +136,26 @@ while [[ $# -gt 0 ]]; do
       WITH_HOMEBOY=true
       shift
       ;;
+    --with-ai-gateway)
+      WITH_AI_GATEWAY=true
+      shift
+      ;;
+    --ai-gateway-provider)
+      AI_GATEWAY_ROUTE_PROVIDER="$2"
+      shift 2
+      ;;
+    --ai-gateway-model)
+      AI_GATEWAY_ROUTE_MODEL="$2"
+      shift 2
+      ;;
+    --ai-gateway-opencode-model)
+      AI_GATEWAY_MODEL_ID="$2"
+      shift 2
+      ;;
+    --rotate-ai-gateway-token)
+      ROTATE_AI_GATEWAY_TOKEN=true
+      shift
+      ;;
     --no-homeboy)
       HOMEBOY_MODE="disabled"
       shift
@@ -203,7 +225,23 @@ OPTIONS:
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip installing the wp-coding-agents upgrade skill
   --with-homeboy     Create/update a Homeboy project and install/verify the
-                     WordPress Homeboy extension
+                      WordPress Homeboy extension
+  --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
+                     Installs/activates the gateway/provider stack, configures
+                     the gateway route, mints/reuses a gateway token, and adds
+                     an OpenAI-compatible provider to opencode.json.
+  --ai-gateway-provider <id>
+                     Backend WordPress AI Client provider for site-default
+                     routing (default: openai)
+  --ai-gateway-model <id>
+                     Backend provider model for site-default routing
+                     (default: gpt-4o-mini)
+  --ai-gateway-opencode-model <id>
+                     OpenCode model ID exposed by the gateway provider
+                     (default: site-default)
+  --rotate-ai-gateway-token
+                     Mint a new gateway token instead of reusing the existing
+                     .opencode/wp-ai-gateway.env value
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
@@ -229,6 +267,10 @@ ENVIRONMENT VARIABLES:
   HOMEBOY_SERVER_ID  Homeboy server ID for VPS project registration
   OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
   OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
+  AI_GATEWAY_ROUTE_PROVIDER  Backend provider used by --with-ai-gateway
+  AI_GATEWAY_ROUTE_MODEL     Backend model used by --with-ai-gateway
+  AI_GATEWAY_MODEL_ID        OpenCode gateway model id (default: site-default)
+  AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
   TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
   TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
@@ -331,9 +373,12 @@ if [ "$RUNTIME_ONLY" != true ]; then
   setup_service_permissions
 fi
 
+setup_ai_gateway
+
 runtime_install
 runtime_discover_dm_paths
 runtime_generate_config
+ai_gateway_configure_opencode
 runtime_install_hooks
 configure_homeboy_wordpress_extension
 runtime_generate_instructions

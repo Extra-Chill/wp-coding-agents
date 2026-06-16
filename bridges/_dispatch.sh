@@ -287,6 +287,35 @@ adopt_service_identity_from_units() {
   return 0
 }
 
+# Redact secret-looking values before printing generated unit/plist diffs.
+# Dry-run output is operator-facing and often pasted into chats or PRs.
+_redact_secret_diff() {
+  awk '
+    /<key>[^<]*(TOKEN|SECRET|PASSWORD|API_KEY|REFRESH_TOKEN)[^<]*<\/key>/ {
+      print
+      redact_next_string = 1
+      next
+    }
+    redact_next_string && /<string>.*<\/string>/ {
+      sub(/<string>.*<\/string>/, "<string><redacted></string>")
+      print
+      redact_next_string = 0
+      next
+    }
+    /^[-+ ]Environment=[^=]*(TOKEN|SECRET|PASSWORD|API_KEY|REFRESH_TOKEN)=/ {
+      sub(/=.*/, "=<redacted>")
+      print
+      next
+    }
+    /^[-+ ](OPENAI_API_KEY|KIMAKI_BOT_TOKEN|TELEGRAM_BOT_TOKEN|CC_CONNECT_TOKEN)=/ {
+      sub(/=.*/, "=<redacted>")
+      print
+      next
+    }
+    { print }
+  '
+}
+
 # _smart_update_systemd_unit <unit_file> <new_unit> [<label>]
 #
 # Diff + write + daemon-reload a single systemd unit. Records the change in
@@ -324,29 +353,6 @@ _smart_update_systemd_unit() {
   log "  systemctl daemon-reload complete"
   log "  NOTE: $label NOT restarted — run the restart command in the summary when ready"
   UPDATED_ITEMS+=("$label (daemon-reloaded, not restarted)")
-}
-
-_redact_secret_diff() {
-  awk '
-    /Environment=.*TOKEN=/ {
-      sub(/=.*/, "=<redacted>")
-      print
-      redact_next_string = 0
-      next
-    }
-    /<key>.*TOKEN/ {
-      print
-      redact_next_string = 1
-      next
-    }
-    redact_next_string && /<string>.*<\/string>/ {
-      sub(/<string>.*<\/string>/, "<string><redacted></string>")
-      print
-      redact_next_string = 0
-      next
-    }
-    { print; redact_next_string = 0 }
-  '
 }
 
 # _plist_string_after_key <plist_path> <key>
