@@ -8,9 +8,12 @@ Checks two independent drift vectors:
   1. `plugin` array — matches what setup would produce for the detected
      (RUNTIME, CHAT_BRIDGE) combo.
   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that breaks
-     Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated to a
-     top-level `instructions` array that preserves the canonical system prompt
-     opening.
+      Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated to a
+      top-level `instructions` array that preserves the canonical system prompt
+      opening.
+  3. Data Machine managed instruction paths — when supplied by upgrade/setup,
+      keep top-level `instructions` aligned to Data Machine's injectable memory
+      files while preserving non-Data-Machine user entries.
 
 Modes:
   default          diagnose drift; exit 1 on drift, 0 on clean
@@ -67,6 +70,7 @@ from typing import List, Tuple
 
 
 MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
+DM_MEMORY_MARKER = "/datamachine-files/"
 
 
 def expected_plugins(
@@ -296,6 +300,49 @@ def apply_prompt_migration(data: dict) -> dict:
     return result
 
 
+def read_managed_instructions(path: str) -> List[str]:
+    if not path:
+        return []
+    with open(path, "r", encoding="utf-8") as handle:
+        return [line.strip() for line in handle if line.strip()]
+
+
+def is_dm_managed_instruction(value: object) -> bool:
+    return isinstance(value, str) and DM_MEMORY_MARKER in value.replace("\\", "/")
+
+
+def check_instruction_sync(data: dict, desired: List[str]) -> dict:
+    if not desired:
+        return {"status": "ok", "desired": []}
+
+    current = list(data.get("instructions", []))
+    current_managed = [item for item in current if is_dm_managed_instruction(item)]
+    status = "ok" if current_managed == desired else "needed"
+    return {
+        "status": status,
+        "desired": desired,
+        "current_managed": current_managed,
+    }
+
+
+def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
+    result = check_instruction_sync(data, desired)
+    if result["status"] != "needed":
+        return result
+
+    preserved = [
+        item
+        for item in list(data.get("instructions", []))
+        if not is_dm_managed_instruction(item)
+    ]
+    merged: List[str] = []
+    for item in [*desired, *preserved]:
+        if item not in merged:
+            merged.append(item)
+    data["instructions"] = merged
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", required=True, help="Path to opencode.json")
@@ -341,6 +388,14 @@ def main() -> int:
         default="",
         help="Suffix for backup file (default: current timestamp)",
     )
+    parser.add_argument(
+        "--managed-instructions-file",
+        default="",
+        help=(
+            "Newline-delimited Data Machine injectable instruction paths. "
+            "Only existing datamachine-files entries are replaced; user entries are preserved."
+        ),
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.file):
@@ -363,6 +418,8 @@ def main() -> int:
     # --- Prompt migration check (runs for all runtimes with opencode.json) ---
     prompt_result = check_prompt_migration(data)
     agent_cleanup_result = check_agent_cleanup(data)
+    managed_instructions = read_managed_instructions(args.managed_instructions_file)
+    instruction_sync_result = check_instruction_sync(data, managed_instructions)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -401,7 +458,8 @@ def main() -> int:
     has_plugin_drift = bool(diff["missing"] or diff["unexpected"] or plugin_rewrites)
     has_prompt_drift = prompt_result["status"] == "needed"
     has_agent_cleanup_drift = agent_cleanup_result["status"] == "needed"
-    has_any_drift = has_plugin_drift or has_prompt_drift or has_agent_cleanup_drift
+    has_instruction_drift = instruction_sync_result["status"] == "needed"
+    has_any_drift = has_plugin_drift or has_prompt_drift or has_agent_cleanup_drift or has_instruction_drift
 
     if not has_any_drift:
         result: dict = {
@@ -409,6 +467,7 @@ def main() -> int:
             "plugins": current,
             "prompt_migration": "ok",
             "agent_cleanup": "ok",
+            "instruction_sync": "ok",
         }
         if plugin_skipped:
             result["plugins_skipped"] = (
@@ -425,6 +484,7 @@ def main() -> int:
             "expected": expected,
             "prompt_migration": prompt_result["status"],
             "agent_cleanup": agent_cleanup_result["status"],
+            "instruction_sync": instruction_sync_result["status"],
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
@@ -436,6 +496,9 @@ def main() -> int:
             result["prompt_instructions"] = prompt_result.get("instructions", [])
         if has_agent_cleanup_drift:
             result["agent_cleanup_remove"] = agent_cleanup_result.get("remove", [])
+        if has_instruction_drift:
+            result["instruction_sync_desired"] = instruction_sync_result.get("desired", [])
+            result["instruction_sync_current"] = instruction_sync_result.get("current_managed", [])
         if plugin_skipped:
             result["plugins_skipped"] = (
                 f"runtime {args.runtime} does not use opencode.json plugin array"
@@ -464,6 +527,11 @@ def main() -> int:
 
     removed_agent_blocks = apply_agent_cleanup(data)
 
+    instruction_sync_status = "ok"
+    if has_instruction_drift:
+        apply_instruction_sync(data, managed_instructions)
+        instruction_sync_status = "synced"
+
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
@@ -484,6 +552,7 @@ def main() -> int:
             "backup": backup_path,
             "prompt_migration": prompt_migration_status,
             "agent_cleanup": "removed" if removed_agent_blocks else "ok",
+            "instruction_sync": instruction_sync_status,
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
@@ -503,6 +572,7 @@ def main() -> int:
         "backup": backup_path,
         "prompt_migration": prompt_migration_status,
         "agent_cleanup": "removed" if removed_agent_blocks else "ok",
+        "instruction_sync": instruction_sync_status,
     }
     if plugin_rewrites:
         result["rewritten"] = plugin_rewrites

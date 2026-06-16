@@ -106,11 +106,26 @@ runtime_discover_dm_paths() {
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
+    DM_INJECTABLE_RAW=$(wp_cmd datamachine memory injectable-files --format=json $AGENT_FLAG 2>/dev/null || echo "")
+    # SQLite translation layer may emit HTML error noise — extract only JSON.
+    DM_INJECTABLE_JSON=$(echo "$DM_INJECTABLE_RAW" | sed -n '/^\[/,/^\]/p')
+    if [ -n "$DM_INJECTABLE_JSON" ]; then
+      DM_AGENT_FILES=$(echo "$DM_INJECTABLE_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for f in data:
+    path = f.get('path')
+    if path:
+        print(path)
+")
+      log "Agent files discovered via '$WP_CMD datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+      return
+    fi
+
     DM_PATHS_RAW=$(wp_cmd datamachine memory paths --format=json $AGENT_FLAG 2>/dev/null || echo "")
-    # SQLite translation layer may emit HTML error noise — extract only JSON
     DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -z "$DM_PATHS_JSON" ]; then
-      error "'$WP_CMD datamachine memory paths' returned no JSON — is Data Machine active and agent created?"
+      error "'$WP_CMD datamachine memory injectable-files' and '$WP_CMD datamachine memory paths' returned no JSON — is Data Machine active and agent created?"
     fi
     DM_AGENT_FILES=$(echo "$DM_PATHS_JSON" | python3 -c "
 import sys, json
@@ -213,7 +228,14 @@ runtime_generate_config() {
     OPENCODE_INSTRUCTIONS=""
     while IFS= read -r rel_path; do
       [ -z "$rel_path" ] && continue
-      OPENCODE_INSTRUCTIONS="${OPENCODE_INSTRUCTIONS}\n    \"./${rel_path}\","
+      case "$rel_path" in
+        /*|http://*|https://*|~/*)
+          OPENCODE_INSTRUCTIONS="${OPENCODE_INSTRUCTIONS}\n    \"${rel_path}\","
+          ;;
+        *)
+          OPENCODE_INSTRUCTIONS="${OPENCODE_INSTRUCTIONS}\n    \"./${rel_path}\","
+          ;;
+      esac
     done <<< "$DM_AGENT_FILES"
     if [ -n "$OPENCODE_INSTRUCTIONS" ]; then
       OPENCODE_INSTRUCTIONS=$(echo "$OPENCODE_INSTRUCTIONS" | sed 's/,$//')
@@ -253,6 +275,13 @@ _runtime_repair_opencode_json_additive() {
   local PLUGINS_DIR="${KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
   local SUFFIX
   SUFFIX="$(date +%Y%m%d-%H%M%S)"
+  local MANAGED_INSTRUCTIONS_FILE=""
+  local managed_args=()
+  if [ -n "${DM_AGENT_FILES:-}" ]; then
+    MANAGED_INSTRUCTIONS_FILE=$(mktemp)
+    printf '%s\n' "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
+    managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+  fi
 
   log "opencode.json already exists — running additive repair..."
 
@@ -262,8 +291,10 @@ _runtime_repair_opencode_json_additive() {
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
+    "${managed_args[@]}" \
     --additive \
     --backup-suffix "$SUFFIX" 2>&1) && repair_rc=0 || repair_rc=$?
+  [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
 
   local repair_status
   repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")

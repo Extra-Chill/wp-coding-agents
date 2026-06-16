@@ -141,4 +141,45 @@ PY
 grep -q '"status": "additive_repaired"' "$TMP/local-plugin-path.out"
 grep -q '"rewritten"' "$TMP/local-plugin-path.out"
 
+cat > "$TMP/managed-instructions.json" <<'JSON'
+{
+  "instructions": [
+    "./wp-content/uploads/datamachine-files/shared/SITE.md",
+    "./wp-content/uploads/datamachine-files/agents/old-agent/MEMORY.md",
+    "./docs/custom.md"
+  ]
+}
+JSON
+cat > "$TMP/managed-instructions.txt" <<'EOF'
+/srv/site/wp-content/uploads/datamachine-files/shared/SITE.md
+/srv/site/wp-content/uploads/datamachine-files/agents/current-agent/MEMORY.md
+/srv/site/wp-content/uploads/datamachine-files/users/1/USER.md
+EOF
+
+python3 "$REPAIR" \
+  --file "$TMP/managed-instructions.json" \
+  --runtime opencode \
+  --chat-bridge kimaki \
+  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --managed-instructions-file "$TMP/managed-instructions.txt" \
+  --additive > "$TMP/managed-instructions.out"
+
+python3 - "$TMP/managed-instructions.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+expected = [
+    "/srv/site/wp-content/uploads/datamachine-files/shared/SITE.md",
+    "/srv/site/wp-content/uploads/datamachine-files/agents/current-agent/MEMORY.md",
+    "/srv/site/wp-content/uploads/datamachine-files/users/1/USER.md",
+    "./docs/custom.md",
+]
+if data.get("instructions") != expected:
+    raise SystemExit(f"unexpected instructions: {data.get('instructions')}")
+PY
+grep -q '"instruction_sync": "synced"' "$TMP/managed-instructions.out"
+
 echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"
