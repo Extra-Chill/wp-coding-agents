@@ -307,6 +307,46 @@ def read_managed_instructions(path: str) -> List[str]:
         return [line.strip() for line in handle if line.strip()]
 
 
+def normalize_instruction_path_for_project(path_value: str, project_root: str) -> str:
+    """Return *path_value* using the active project root spelling when possible.
+
+    WordPress/Studio paths can differ only by case (``Studio`` vs ``studio``) on
+    macOS. OpenCode's sandbox treats the lower-cased absolute path as escaping
+    the project even though the OS can read it. Keep absolute paths, but rewrite
+    any managed file that is inside the active project to the exact project-root
+    prefix from ``opencode.json``.
+    """
+    if not path_value or not os.path.isabs(path_value):
+        return path_value
+
+    root = os.path.abspath(project_root)
+    candidate = os.path.abspath(path_value)
+    root_cmp = root.rstrip(os.sep).casefold()
+    candidate_cmp = candidate.casefold()
+
+    if candidate_cmp == root_cmp:
+        return root
+
+    prefix = f"{root_cmp}{os.sep}"
+    if candidate_cmp.startswith(prefix):
+        return os.path.join(root, candidate[len(root.rstrip(os.sep)) + 1 :])
+
+    container_prefix = f"{os.sep}wordpress{os.sep}wp-content{os.sep}"
+    if candidate_cmp.startswith(container_prefix):
+        return os.path.join(root, candidate[len(f"{os.sep}wordpress{os.sep}") :])
+
+    return path_value
+
+
+def normalize_managed_instruction_paths(desired: List[str], project_root: str) -> List[str]:
+    normalized: List[str] = []
+    for item in desired:
+        replacement = normalize_instruction_path_for_project(item, project_root)
+        if replacement not in normalized:
+            normalized.append(replacement)
+    return normalized
+
+
 def is_dm_managed_instruction(value: object) -> bool:
     return isinstance(value, str) and DM_MEMORY_MARKER in value.replace("\\", "/")
 
@@ -418,7 +458,10 @@ def main() -> int:
     # --- Prompt migration check (runs for all runtimes with opencode.json) ---
     prompt_result = check_prompt_migration(data)
     agent_cleanup_result = check_agent_cleanup(data)
-    managed_instructions = read_managed_instructions(args.managed_instructions_file)
+    managed_instructions = normalize_managed_instruction_paths(
+        read_managed_instructions(args.managed_instructions_file),
+        os.path.dirname(os.path.abspath(args.file)),
+    )
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
 
     # --- Plugin array check ---

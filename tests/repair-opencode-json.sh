@@ -182,4 +182,39 @@ if data.get("instructions") != expected:
 PY
 grep -q '"instruction_sync": "synced"' "$TMP/managed-instructions.out"
 
+mkdir -p "$TMP/Studio/site"
+cat > "$TMP/Studio/site/opencode.json" <<'JSON'
+{
+  "instructions": []
+}
+JSON
+cat > "$TMP/case-managed-instructions.txt" <<EOF
+$TMP/studio/site/wp-content/uploads/datamachine-files/agents/current-agent/SOUL.md
+/wordpress/wp-content/uploads/datamachine-files/agents/current-agent/MEMORY.md
+EOF
+
+python3 "$REPAIR" \
+  --file "$TMP/Studio/site/opencode.json" \
+  --runtime opencode \
+  --chat-bridge kimaki \
+  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --managed-instructions-file "$TMP/case-managed-instructions.txt" \
+  --additive > "$TMP/case-managed-instructions.out"
+
+python3 - "$TMP/Studio/site/opencode.json" "$TMP" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+tmp = sys.argv[2]
+expected = [
+    f"{tmp}/Studio/site/wp-content/uploads/datamachine-files/agents/current-agent/SOUL.md",
+    f"{tmp}/Studio/site/wp-content/uploads/datamachine-files/agents/current-agent/MEMORY.md",
+]
+if data.get("instructions") != expected:
+    raise SystemExit(f"unexpected case-normalized instructions: {data.get('instructions')}")
+PY
+
 echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"

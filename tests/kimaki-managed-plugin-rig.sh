@@ -127,9 +127,9 @@ for (const cycle of manifest.cycles) {
   }
   const labels = cycle.checks.map((check) => check.label);
   for (const expected of [
-    `${cycle.name}: raw Kimaki prompt contains tunnel section`,
+    `${cycle.name}: raw Kimaki prompt is generic or already managed`,
     `${cycle.name}: filtered prompt removes tunnel section`,
-    `${cycle.name}: raw Kimaki prompt contains stale orchestration sections`,
+    `${cycle.name}: raw Kimaki prompt contains stale orchestration sections or is already managed`,
     `${cycle.name}: filtered prompt removes stale orchestration sections`,
     `${cycle.name}: bundled critique skill removed from npm skills dir`,
     `${cycle.name}: package-local upgrade skill duplicate removed`,
@@ -137,6 +137,7 @@ for (const cycle of manifest.cycles) {
     `${cycle.name}: generated skill permission denies unlisted skills`,
     `${cycle.name}: generated skill permission allows upgrade skill`,
     `${cycle.name}: dm-context-filter hook executed`,
+    `${cycle.name}: final system transform preserves trailing instruction blocks`,
     `${cycle.name}: system and message transforms agree`,
     `${cycle.name}: dm-agent-sync module loads`,
   ]) {

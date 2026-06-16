@@ -146,7 +146,8 @@ function replaceKimakiSystemPrompt(block: string): string {
   }
 
   const prefix = filteredBlock.slice(0, kimakiStart).trimEnd();
-  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
+  const suffix = filteredBlock.slice(kimakiSystemPromptEnd(filteredBlock, kimakiStart)).trimStart();
+  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT, suffix].filter(Boolean).join("\n\n");
 }
 
 function stripKimakiGenericSections(block: string): string {
@@ -190,6 +191,10 @@ function stripMarkdownSection(block: string, heading: string): string {
       end = i;
       break;
     }
+    if (!inFence && lines[i].startsWith("Instructions from: ")) {
+      end = i;
+      break;
+    }
   }
 
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
@@ -214,6 +219,14 @@ function kimakiSystemPromptStart(block: string): number {
     }
     return earliest === -1 ? index : Math.min(earliest, index);
   }, -1);
+}
+
+function kimakiSystemPromptEnd(block: string, start: number): number {
+  const trailingInstruction = block.slice(start).search(/\nInstructions from: /);
+  if (trailingInstruction !== -1) {
+    return start + trailingInstruction + 1;
+  }
+  return block.length;
 }
 
 export default fleetContextFilter;

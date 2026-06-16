@@ -139,7 +139,10 @@ async function syncInstructions(
   }
 
   const paths = Array.isArray(files)
-    ? files.map((f) => f?.path).filter((p): p is string => typeof p === "string" && p.length > 0)
+    ? dedupe(files
+        .map((f) => f?.path)
+        .filter((p): p is string => typeof p === "string" && p.length > 0)
+        .map((p) => normalizeInstructionPathForProject(p, sitePath)))
     : [];
 
   if (paths.length === 0) {
@@ -155,6 +158,37 @@ async function syncInstructions(
 
 function getSitePath(): string {
   return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || "";
+}
+
+function normalizeInstructionPathForProject(value: string, sitePath: string): string {
+  if (!sitePath || !value.startsWith("/")) {
+    return value;
+  }
+
+  const root = sitePath.replace(/\/+$/, "");
+  const candidate = value;
+  const rootLower = root.toLowerCase();
+  const candidateLower = candidate.toLowerCase();
+
+  if (candidateLower === rootLower) {
+    return root;
+  }
+
+  const prefix = `${rootLower}/`;
+  if (candidateLower.startsWith(prefix)) {
+    return `${root}/${candidate.slice(root.length).replace(/^\/+/, "")}`;
+  }
+
+  const containerPrefix = "/wordpress/wp-content/";
+  if (candidateLower.startsWith(containerPrefix)) {
+    return `${root}/${candidate.slice("/wordpress/".length)}`;
+  }
+
+  return value;
+}
+
+function dedupe(items: string[]): string[] {
+  return items.filter((item, index) => items.indexOf(item) === index);
 }
 
 function getAgentSlug(input: { instructions?: string[] }): string {

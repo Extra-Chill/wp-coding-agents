@@ -341,6 +341,13 @@ async function runScenario(name, scenario) {
       failures.push(`current joined final system transform has ${joinedSystemLeaks.length} trigger leaks (expected 0)`)
     }
 
+    const soulInstruction = "Instructions from: /tmp/SOUL.md\n# Agent Soul\n\n## Interests\n\nMaster chef, cooking delicious software with holistic practices."
+    const suffixSystemBlocks = await currentFilterSystemBlocks([`${raw}\n\n${soulInstruction}`])
+    const suffixSystemOut = suffixSystemBlocks.join("\n")
+    if (!suffixSystemOut.includes(soulInstruction)) {
+      failures.push("current filter dropped trailing OpenCode instruction blocks")
+    }
+
     const leakedAgentsPrefix = `${joinedSystemPrefix}\n\n## starting new sessions from CLI\n\nkimaki send --channel <channel_id> --prompt 'spawn helper' --agent <current_agent>\n\n## creating worktrees\n\nkimaki send --channel <channel_id> --worktree leaked-worktree --prompt 'cook it' --agent <current_agent>`
     const leakedAgentsInput = `${leakedAgentsPrefix}\n\n${raw}`
     const leakedAgentsBlocks = await currentFilterSystemBlocks([leakedAgentsInput])

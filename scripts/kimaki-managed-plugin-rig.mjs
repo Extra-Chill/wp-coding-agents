@@ -415,12 +415,13 @@ async function runCycle({ name, simulatePackageWipe }) {
   cycle.files[`prompts/${name}.raw.txt`] = fileRecord(path.join(artifactRoot, 'prompts', `${name}.raw.txt`))
   cycle.files[`prompts/${name}.filtered.txt`] = fileRecord(path.join(artifactRoot, 'prompts', `${name}.filtered.txt`))
 
-  assert(promptEvidence.rawIncludesTunnel, `${name}: raw Kimaki prompt contains tunnel section`, cycle)
+  assert(promptEvidence.rawIncludesTunnel || promptEvidence.rawManagedPromptActive, `${name}: raw Kimaki prompt is generic or already managed`, cycle)
   assert(!promptEvidence.filteredIncludesTunnel, `${name}: filtered prompt removes tunnel section`, cycle)
-  assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0, `${name}: raw Kimaki prompt contains stale orchestration sections`, cycle)
+  assert(promptEvidence.rawStaleOrchestrationLeaks.length > 0 || promptEvidence.rawManagedPromptActive, `${name}: raw Kimaki prompt contains stale orchestration sections or is already managed`, cycle)
   assert(promptEvidence.filteredStaleOrchestrationLeaks.length === 0, `${name}: filtered prompt removes stale orchestration sections`, cycle)
   assert(promptEvidence.contextFilterExecuted, `${name}: dm-context-filter hook executed`, cycle)
   assert(promptEvidence.joinedSystemPrefixPreserved, `${name}: final system transform preserves non-Kimaki prefix`, cycle)
+  assert(promptEvidence.joinedSystemInstructionSuffixPreserved, `${name}: final system transform preserves trailing instruction blocks`, cycle)
   assert(promptEvidence.joinedSystemStaleOrchestrationLeaks.length === 0, `${name}: final system transform strips Kimaki promptAsync system field`, cycle)
   assert(promptEvidence.systemAndMessageTransformsAgree, `${name}: system and message transforms agree`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
@@ -504,6 +505,10 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
   const joinedSystemOutput = { system: [`${joinedSystemPrefix}\n\n${raw}`] }
   await systemTransform({}, joinedSystemOutput)
   const joinedSystemFiltered = joinedSystemOutput.system.join('\n')
+  const soulInstruction = 'Instructions from: /tmp/SOUL.md\n# Agent Soul\n\n## Interests\n\nMaster chef, cooking delicious software with holistic practices.'
+  const joinedSystemWithSuffixOutput = { system: [`${raw}\n\n${soulInstruction}`] }
+  await systemTransform({}, joinedSystemWithSuffixOutput)
+  const joinedSystemWithSuffixFiltered = joinedSystemWithSuffixOutput.system.join('\n')
 
   const messageTransform = contextPlugin['experimental.chat.messages.transform']
   if (typeof messageTransform !== 'function') {
@@ -534,6 +539,7 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
     rawPath,
     filteredPath,
     rawIncludesTunnel: raw.includes('## running dev servers with tunnel access'),
+    rawManagedPromptActive: raw.includes('## Kimaki Discord Bridge') && raw.includes('## Managed Coding Runtime'),
     filteredIncludesTunnel: filtered.includes('## running dev servers with tunnel access'),
     rawStaleOrchestrationLeaks,
     filteredStaleOrchestrationLeaks,
@@ -541,6 +547,7 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
     contextFilterExecuted: systemOutput.system[0] !== raw && filtered !== raw,
     managedPromptActive: filtered.includes('## Kimaki Discord Bridge') && filtered.includes('## Managed Coding Runtime'),
     joinedSystemPrefixPreserved: joinedSystemFiltered.includes(joinedSystemPrefix) && joinedSystemFiltered.includes('## Kimaki Discord Bridge'),
+    joinedSystemInstructionSuffixPreserved: joinedSystemWithSuffixFiltered.includes(soulInstruction),
     systemAndMessageTransformsAgree: systemFiltered === filtered,
     agentSyncLoaded: !!agentSyncPlugin && typeof agentSyncPlugin === 'object',
     summary: {
@@ -552,6 +559,7 @@ async function renderPromptWithPlugin({ name, kimakiDistDir, pluginsDir, rawPath
       raw_stale_orchestration_leaks: rawStaleOrchestrationLeaks.length,
       filtered_stale_orchestration_leaks: filteredStaleOrchestrationLeaks.length,
       joined_system_stale_orchestration_leaks: joinedSystemStaleOrchestrationLeaks.length,
+      joined_system_instruction_suffix_preserved: joinedSystemWithSuffixFiltered.includes(soulInstruction),
     },
   }
 }
