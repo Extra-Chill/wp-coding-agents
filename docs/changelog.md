@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0] - 2026-06-15
+
+### Added
+- write DATAMACHINE_COMPOSE_AGENTS_MD gate to wp-config on setup/upgrade
+
+### Changed
+- Add opt-in WP AI Gateway setup for OpenCode
+- Revert "fix kimaki dm memory prompt injection"
+
+### Fixed
+- fix opencode dm instruction repair
+- fix kimaki dm memory prompt injection
+- fix kimaki instruction prompt leaks
+
 ## [1.4.9] - 2026-06-15
 
 ### Fixed
