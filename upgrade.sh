@@ -448,6 +448,42 @@ check_opencode_json_drift() {
   # non-opencode runtimes, which would silently mask real drift here.
   local RUNTIME_ARG="opencode"
 
+  local MANAGED_INSTRUCTIONS_FILE=""
+  local AGENT_FOR_INSTRUCTIONS=""
+  AGENT_FOR_INSTRUCTIONS=$(python3 - "$OPENCODE_JSON_FILE" <<'PY' 2>/dev/null || true
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+for item in data.get("instructions", []):
+    if not isinstance(item, str):
+        continue
+    match = re.search(r"(?:^|/)agents/([^/]+)/", item)
+    if match:
+        print(match.group(1))
+        break
+PY
+)
+  if [ -n "$AGENT_FOR_INSTRUCTIONS" ]; then
+    local injectable_raw injectable_json
+    injectable_raw=$($WP_CMD datamachine memory injectable-files --format=json --agent="$AGENT_FOR_INSTRUCTIONS" --path="$SITE_PATH" $WP_ROOT_FLAG 2>/dev/null || echo "")
+    injectable_json=$(echo "$injectable_raw" | sed -n '/^\[/,/^\]/p')
+    if [ -n "$injectable_json" ]; then
+      MANAGED_INSTRUCTIONS_FILE=$(mktemp)
+      echo "$injectable_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for item in data:
+    path = item.get('path')
+    if path:
+        print(path)
+" > "$MANAGED_INSTRUCTIONS_FILE"
+    fi
+  fi
+
   # Mode: --apply (full reconcile, opt-in) or --additive (default).
   local MODE_FLAG="--additive"
   local MODE_LABEL="additive repair"
@@ -459,29 +495,46 @@ check_opencode_json_drift() {
   log "Phase 3b: opencode.json $MODE_LABEL..."
 
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR $MODE_FLAG"
+    local managed_arg_display=""
+    if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
+      managed_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
+    fi
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR$managed_arg_display $MODE_FLAG"
     local dry_out
+    local managed_args=()
+    if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
+      managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+    fi
     dry_out=$(python3 "$HELPER" \
       --file "$OPENCODE_JSON_FILE" \
       --runtime "$RUNTIME_ARG" \
       --chat-bridge "$BRIDGE_ARG" \
-      --kimaki-plugins-dir "$PLUGINS_DIR" 2>&1 || true)
+      --kimaki-plugins-dir "$PLUGINS_DIR" \
+      "${managed_args[@]}" 2>&1 || true)
     echo "$dry_out" | sed 's/^/    /'
+    [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
     return 0
   fi
 
   local repair_out repair_rc
+  local managed_args=()
+  if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
+    managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+  fi
   repair_out=$(python3 "$HELPER" \
     --file "$OPENCODE_JSON_FILE" \
     --runtime "$RUNTIME_ARG" \
     --chat-bridge "$BRIDGE_ARG" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
+    "${managed_args[@]}" \
     "$MODE_FLAG" \
     --backup-suffix "$TIMESTAMP" 2>&1) && repair_rc=0 || repair_rc=$?
+  [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
 
-  local repair_status prompt_migration
+  local repair_status prompt_migration instruction_sync
   repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
   prompt_migration=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('prompt_migration','?'))" 2>/dev/null || echo "?")
+  instruction_sync=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('instruction_sync','?'))" 2>/dev/null || echo "?")
 
   case "$repair_status" in
     ok)
@@ -493,7 +546,12 @@ check_opencode_json_drift() {
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
       fi
-      UPDATED_ITEMS+=("opencode.json plugin array (added missing managed entries)")
+      if [ "$instruction_sync" = "synced" ]; then
+        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
+      fi
+      if echo "$repair_out" | grep -q '"added": \["'; then
+        UPDATED_ITEMS+=("opencode.json plugin array (added missing managed entries)")
+      fi
       ;;
     needs_full_repair)
       warn "  opencode.json additively repaired, but unexpected plugin entries remain"
@@ -501,6 +559,9 @@ check_opencode_json_drift() {
       warn "  $repair_out"
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
+      fi
+      if [ "$instruction_sync" = "synced" ]; then
+        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
       fi
       UPDATED_ITEMS+=("opencode.json plugin array (added managed entries; unexpected entries still present)")
       OPENCODE_JSON_DRIFT=true
@@ -510,6 +571,9 @@ check_opencode_json_drift() {
       log "  $repair_out"
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
+      fi
+      if [ "$instruction_sync" = "synced" ]; then
+        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
       fi
       UPDATED_ITEMS+=("opencode.json plugin array (repaired)")
       ;;
