@@ -226,6 +226,24 @@ $wp_coding_agents_test_options = array(
 				'WP_CODING_AGENTS_CONFIGURED_ENV' => 'configured-ok',
 			),
 		),
+		// #228: a channel with no configured HOME must not have a poisoned
+		// (unwritable) inherited HOME leak through to the child.
+		'guard-home'    => array(
+			'command' => $env_bin,
+			'args'    => array(),
+			'detach'  => false,
+			'timeout' => 5,
+		),
+		// #228: a channel that pins a writable HOME keeps it verbatim.
+		'pinned-home'   => array(
+			'command' => $env_bin,
+			'args'    => array(),
+			'detach'  => false,
+			'timeout' => 5,
+			'env'     => array(
+				'HOME' => sys_get_temp_dir(),
+			),
+		),
 	),
 );
 
@@ -271,6 +289,31 @@ $configured = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' =>
 $configured_stdout = is_array( $configured ) ? (string) ( $configured['metadata']['stdout'] ?? '' ) : '';
 $assert( 'configured channel env keeps parent env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
 $assert( 'configured channel env adds configured env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_CONFIGURED_ENV=configured-ok' ) );
+
+// #228 regression: when the caller's HOME is unwritable (PHP-FPM/WP-cron as
+// www-data with HOME=/var/www) and the channel does not pin HOME, the
+// transport must NOT pass the poisoned HOME through to the child — it drops
+// it so the CLI falls back to a system default instead of dying with EACCES.
+$poisoned_home = sys_get_temp_dir() . '/wpca-unwritable-home-' . getmypid();
+$prev_home     = getenv( 'HOME' );
+// A non-existent directory is, by definition, not a writable HOME.
+putenv( 'HOME=' . $poisoned_home );
+$guarded = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'guard-home', 'recipient' => 'r', 'message' => 'm' ) );
+$guarded_stdout = is_array( $guarded ) ? (string) ( $guarded['metadata']['stdout'] ?? '' ) : '';
+$assert( 'unwritable inherited HOME is not leaked', ! str_contains( $guarded_stdout, 'HOME=' . $poisoned_home ) );
+$assert( 'guarded channel still inherits other parent env', str_contains( $guarded_stdout, 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
+
+// #228: a channel that pins a writable HOME keeps it even when the inherited
+// HOME is poisoned — this is the kimaki installer's fix path.
+$pinned = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'pinned-home', 'recipient' => 'r', 'message' => 'm' ) );
+$pinned_stdout = is_array( $pinned ) ? (string) ( $pinned['metadata']['stdout'] ?? '' ) : '';
+$assert( 'pinned writable HOME wins over poisoned inherited HOME', str_contains( $pinned_stdout, 'HOME=' . sys_get_temp_dir() ) );
+// Restore HOME so any later code/tests see the original value.
+if ( false === $prev_home ) {
+	putenv( 'HOME' );
+} else {
+	putenv( 'HOME=' . $prev_home );
+}
 
 if ( ! empty( $failures ) ) {
 	echo "\nFAIL: " . count( $failures ) . " assertion(s)\n";

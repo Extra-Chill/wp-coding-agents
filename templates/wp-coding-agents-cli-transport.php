@@ -479,11 +479,36 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		}
 
 		/**
+		 * Build the child process environment for a dispatched CLI.
+		 *
+		 * The base is the inherited parent env (with PATH special-cased so a
+		 * stripped-down FPM/cron env still resolves binaries), then the
+		 * channel-configured `env` map is overlaid on top — that overlay is
+		 * where a channel pins vendor-specific values such as a writable HOME
+		 * / data-dir (see the CLI-channel registry installer).
+		 *
+		 * Generic HOME guard (defense-in-depth, layer-pure — no vendor names,
+		 * no hardcoded paths): this transport is shelled from PHP-FPM / WP-cron,
+		 * which often run as a web user whose HOME points at a non-writable,
+		 * root-owned directory (e.g. /var/www). Many CLIs create a per-user
+		 * data dir under $HOME at startup and die with EACCES on such a HOME.
+		 * If the resolved env does not carry an explicit, writable HOME (either
+		 * inherited or channel-configured), we UNSET HOME entirely rather than
+		 * pass a poisoned value through — proc_open then leaves HOME to the
+		 * system/account default instead of a guaranteed-unwritable path. The
+		 * correct positive HOME value, when one is required, comes from the
+		 * channel config (installer-written), keeping vendor specifics out of
+		 * this generic layer.
+		 *
 		 * @param array<string, string> $configured Configured env map.
 		 * @return array<string, string>|null
 		 */
 		private static function build_env_map( array $configured ): ?array {
-			if ( empty( $configured ) ) {
+			$home_configured = array_key_exists( 'HOME', $configured );
+
+			// Fast path: no channel config AND the inherited HOME is sane —
+			// nothing to normalize, inherit the full parent env as before.
+			if ( empty( $configured ) && self::inherited_home_is_writable() ) {
 				return null;
 			}
 
@@ -501,7 +526,38 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				$env[ $key ] = $value;
 			}
 
+			// If HOME wasn't pinned by the channel and the effective HOME is
+			// empty or unwritable, drop it rather than hand the child a
+			// poisoned path. The concrete writable HOME, when needed, is the
+			// channel config's job — not this generic transport's.
+			if ( ! $home_configured && ! self::home_value_is_writable( $env['HOME'] ?? null ) ) {
+				unset( $env['HOME'] );
+			}
+
 			return $env;
+		}
+
+		/**
+		 * Whether the inherited (process) HOME is set and writable by us.
+		 *
+		 * @return bool
+		 */
+		private static function inherited_home_is_writable(): bool {
+			$home = getenv( 'HOME' );
+			return self::home_value_is_writable( is_string( $home ) ? $home : null );
+		}
+
+		/**
+		 * Whether a HOME value is a non-empty, existing, writable directory.
+		 *
+		 * @param string|null $home Candidate HOME path.
+		 * @return bool
+		 */
+		private static function home_value_is_writable( ?string $home ): bool {
+			if ( null === $home || '' === $home ) {
+				return false;
+			}
+			return is_dir( $home ) && is_writable( $home );
 		}
 
 		private static function truncate_output( string $output ): string {
