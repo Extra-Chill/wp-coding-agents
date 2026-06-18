@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.2] - 2026-06-18
+
+### Fixed
+- pin writable HOME for CLI dispatch so scheduled kimaki sends survive WP-cron
+
 ## [1.5.1] - 2026-06-16
 
 ### Changed
