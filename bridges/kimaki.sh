@@ -90,12 +90,31 @@ _kimaki_register_cli_channel() {
     cmd="$(_kimaki_find_native_binary)"
   fi
 
+  # Stamp the spawned kimaki's HOME + data-dir into the channel block so the
+  # CLI transport pins them at dispatch time instead of inheriting the caller's
+  # env. The transport is shelled from PHP-FPM / WP-cron (running as www-data,
+  # HOME=/var/www which is root-owned and unwritable), so an inherited HOME
+  # makes kimaki die with `EACCES mkdir /var/www/.kimaki`. This is the
+  # dispatch-config twin of the systemd unit's Environment=HOME/KIMAKI_DATA_DIR
+  # (see _kimaki_install_systemd). Derive from the already-resolved adopted
+  # service identity (SERVICE_HOME / KIMAKI_DATA_DIR), never a hardcoded path,
+  # so a RUN_AS_ROOT install pins /root and a non-root install pins the service
+  # user's home. See #228.
+  local service_home="${SERVICE_HOME:-}"
+  local data_dir="${KIMAKI_DATA_DIR:-}"
+  local env_json=""
+  if [ -n "$service_home" ]; then
+    [ -n "$data_dir" ] || data_dir="$service_home/.kimaki"
+    env_json="{\"HOME\":\"${service_home}\",\"KIMAKI_DATA_DIR\":\"${data_dir}\"}"
+  fi
+
   cli_channel_register \
     "kimaki" \
     "$cmd" \
     '["send","--channel","{recipient}","--prompt","{message}"]' \
     "true" \
-    "600"
+    "600" \
+    "$env_json"
 }
 
 _kimaki_is_legacy_adapter_file() {

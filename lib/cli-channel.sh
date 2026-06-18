@@ -40,13 +40,23 @@
 #   cli_channel_mu_plugin_path                 — echo resolved file path
 #   cli_channel_ensure_mu_plugin_file          — create stub if missing
 #   cli_channel_register <name> <command> \
-#       <args_json> [detach] [timeout]         — upsert a bridge's block
+#       <args_json> [detach] [timeout] \
+#       [env_json]                             — upsert a bridge's block
 #   cli_channel_unregister <name>              — remove a bridge's block
 #
 # `args_json` is a JSON array literal (e.g. '["send","--channel","{recipient}",
 # "--prompt","{message}"]'). Substitution tokens supported by the transport:
 #   {recipient}  — the bridge-specific target identifier (see per-bridge docs)
 #   {message}    — the message body to deliver
+#
+# `env_json` (optional) is a JSON object literal of environment variables to
+# stamp onto the spawned CLI's process env (e.g. '{"HOME":"/home/opencode"}').
+# The transport overlays these on top of the inherited env, so a bridge can
+# pin a writable HOME / data-dir regardless of the caller's environment. This
+# is the seam that fixes scheduled (WP-cron / PHP-FPM) dispatch, where the
+# caller HOME (www-data → /var/www) is not writable by the spawned CLI. Vendor-
+# specific paths live here in installer-written config, never in the generic
+# transport (layer purity).
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -123,12 +133,17 @@ cli_channel_ensure_mu_plugin_file() {
  *       'args'    => [ 'send', '--channel', '{recipient}', '--prompt', '{message}' ],
  *       'detach'  => true,
  *       'timeout' => 600,
+ *       'env'     => [ 'HOME' => '/home/<service-user>' ], // optional
  *   ];
  *   // END bridge:<name>
  *
  * Substitution tokens are resolved by the CLI transport at dispatch time:
  *   {recipient} — bridge-specific target identifier (see bridge docs).
  *   {message}   — the message body delivered by agents/dispatch-message.
+ *
+ * The optional 'env' map is overlaid onto the spawned CLI's process env by the
+ * transport, so a bridge can pin a writable HOME / data-dir independent of the
+ * caller (e.g. WP-cron running as www-data with HOME=/var/www, unwritable).
  *
  * New filter contract: wp_coding_agents_cli_channels.
  * Legacy migration filter: datamachine_code_cli_channels.
@@ -167,16 +182,20 @@ PHP
 # Block render
 # ---------------------------------------------------------------------------
 
-# _cli_channel_render_block <name> <command> <args_json> <detach> <timeout>
+# _cli_channel_render_block <name> <command> <args_json> <detach> <timeout> [env_json]
 #
 # Print the marker-delimited PHP block for a single bridge, including
 # surrounding BEGIN/END markers, indented to match the scaffold's filter
 # body. Strings are escaped for PHP single-quoted literals (backslash, single
 # quote); args_json is emitted verbatim because it is a literal JSON array
 # the caller has already constructed.
+#
+# When env_json is a non-empty JSON object, an 'env' => [ ... ] line is added
+# after 'timeout'. Omitting it (empty arg) keeps the block byte-identical to
+# the historical four-key form, so existing channels without env are unchanged.
 _cli_channel_render_block() {
-  local name="$1" command="$2" args_json="$3" detach="$4" timeout="$5"
-  local esc_name esc_command esc_args
+  local name="$1" command="$2" args_json="$3" detach="$4" timeout="$5" env_json="${6:-}"
+  local esc_name esc_command esc_args env_line=""
   esc_name=$(_cli_channel_php_escape "$name")
   esc_command=$(_cli_channel_php_escape "$command")
   # Convert JSON array to PHP array literal: [...] is valid in both. Single
@@ -185,13 +204,20 @@ _cli_channel_render_block() {
   # PHP strings via sed (no embedded quotes expected in real argv tokens).
   esc_args=$(_cli_channel_json_to_php_array "$args_json")
 
+  if [ -n "$env_json" ] && [ "$env_json" != "{}" ]; then
+    local esc_env
+    esc_env=$(_cli_channel_json_object_to_php_array "$env_json")
+    env_line="
+        'env'     => ${esc_env},"
+  fi
+
   cat <<PHP
     // BEGIN bridge:${esc_name}
     \$channels['${esc_name}'] = [
         'command' => '${esc_command}',
         'args'    => ${esc_args},
         'detach'  => ${detach},
-        'timeout' => ${timeout},
+        'timeout' => ${timeout},${env_line}
     ];
     // END bridge:${esc_name}
 PHP
@@ -238,11 +264,42 @@ PY
   printf '%s' "$out"
 }
 
+# _cli_channel_json_object_to_php_array <json_object_literal>
+#
+# Convert a JSON object of string=>string pairs like {"HOME":"/home/opencode"}
+# into a PHP associative-array literal [ 'HOME' => '/home/opencode' ]. Uses
+# python3 when available (handles escaping properly); falls back to a naive
+# transform for the simple case (no embedded quotes), which is all we ship —
+# env values here are filesystem paths in installer-controlled config.
+_cli_channel_json_object_to_php_array() {
+  local json="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$json" <<'PY'
+import json, sys
+obj = json.loads(sys.argv[1])
+def esc(s):
+    return str(s).replace("\\", "\\\\").replace("'", "\\'")
+parts = ", ".join("'" + esc(k) + "' => '" + esc(v) + "'" for k, v in obj.items())
+print("[ " + parts + " ]")
+PY
+    return $?
+  fi
+  # Fallback: naive substitution. Works for plain ASCII keys/paths with no
+  # embedded single quotes — the only shape any bridge emits.
+  local out="$json"
+  out="${out//\":\"/\' => \'}"
+  out="${out//\",\"/\', \'}"
+  out="${out//\"/\'}"
+  out="${out//\{/[ }"
+  out="${out//\}/ ]}"
+  printf '%s' "$out"
+}
+
 # ---------------------------------------------------------------------------
 # Register / unregister
 # ---------------------------------------------------------------------------
 
-# cli_channel_register <name> <command> <args_json> [detach] [timeout]
+# cli_channel_register <name> <command> <args_json> [detach] [timeout] [env_json]
 #
 # Upsert <name>'s block in the mu-plugin file. Idempotent: re-running with the
 # same arguments leaves the file unchanged; re-running with different
@@ -251,10 +308,12 @@ PY
 # Defaults:
 #   detach   — "true"  (CLI bridges dispatch fire-and-forget by default)
 #   timeout  — "600"   (10 minutes; matches DMC's default per #412)
+#   env_json — ""      (no 'env' key emitted; the four-key block is unchanged)
 cli_channel_register() {
   local name="$1" command="$2" args_json="$3"
   local detach="${4:-true}"
   local timeout="${5:-600}"
+  local env_json="${6:-}"
 
   if [ -z "$name" ] || [ -z "$command" ] || [ -z "$args_json" ]; then
     warn "  cli_channel_register: missing required args (name=$name command=$command args=$args_json)"
@@ -270,7 +329,7 @@ cli_channel_register() {
   cli_channel_ensure_mu_plugin_file || return 1
 
   local new_block
-  new_block=$(_cli_channel_render_block "$name" "$command" "$args_json" "$detach" "$timeout")
+  new_block=$(_cli_channel_render_block "$name" "$command" "$args_json" "$detach" "$timeout" "$env_json")
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would register CLI channel '$name' in $file"
