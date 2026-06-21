@@ -64,9 +64,11 @@ bridge_install() {
 # channel ID (numeric string) the message is delivered to. `message` is the
 # message body.
 #
-# Register the native Kimaki binary. Kimaki 0.13 validates requested agents and
-# falls back to the default/build agent when a requested agent is unavailable,
-# so wp-coding-agents must not rewrite `--agent` itself.
+# Register the native Kimaki binary on local installs. On VPS installs, register
+# a stable dispatch wrapper that sudo-hops to the adopted service user before it
+# execs Kimaki. Kimaki 0.13 validates requested agents and falls back to the
+# default/build agent when a requested agent is unavailable, so wp-coding-agents
+# must not rewrite `--agent` itself.
 #
 # The command we register here is shelled by the Data Machine Code CLI transport
 # from the `agents/dispatch-message` ability, which runs inside PHP-FPM as the
@@ -81,7 +83,9 @@ bridge_install() {
 # npm-global symlink) over any private-home wrapper. See #198 / #93.
 _kimaki_register_cli_channel() {
   local cmd
-  if [ -n "${KIMAKI_BIN:-}" ] \
+  if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != "root" ]; then
+    cmd="/usr/local/bin/wp-coding-agents-kimaki-dispatch"
+  elif [ -n "${KIMAKI_BIN:-}" ] \
     && [ -x "$KIMAKI_BIN" ] \
     && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN" \
     && _kimaki_path_is_web_traversable "$KIMAKI_BIN"; then
@@ -90,16 +94,11 @@ _kimaki_register_cli_channel() {
     cmd="$(_kimaki_find_native_binary)"
   fi
 
-  # Stamp the spawned kimaki's HOME + data-dir into the channel block so the
-  # CLI transport pins them at dispatch time instead of inheriting the caller's
-  # env. The transport is shelled from PHP-FPM / WP-cron (running as www-data,
-  # HOME=/var/www which is root-owned and unwritable), so an inherited HOME
-  # makes kimaki die with `EACCES mkdir /var/www/.kimaki`. This is the
-  # dispatch-config twin of the systemd unit's Environment=HOME/KIMAKI_DATA_DIR
-  # (see _kimaki_install_systemd). Derive from the already-resolved adopted
-  # service identity (SERVICE_HOME / KIMAKI_DATA_DIR), never a hardcoded path,
-  # so a RUN_AS_ROOT install pins /root and a non-root install pins the service
-  # user's home. See #228.
+  # Stamp the spawned kimaki's HOME + data-dir into the channel block so local
+  # dispatch does not inherit an unwritable caller HOME. VPS dispatch uses the
+  # wrapper installed by _kimaki_install_dispatch_helpers, which sudo-hops to
+  # SERVICE_USER before applying the same HOME/KIMAKI_DATA_DIR values; keeping
+  # them here is harmless defense-in-depth and preserves operator visibility.
   local service_home="${SERVICE_HOME:-}"
   local data_dir="${KIMAKI_DATA_DIR:-}"
   local env_json=""
@@ -235,6 +234,81 @@ _kimaki_sync_bin_helpers() {
 
   _kimaki_remove_legacy_session_helper "$HELPER_DIR"
   _kimaki_remove_legacy_command_shims "$HELPER_DIR"
+  _kimaki_install_dispatch_helpers
+}
+
+_kimaki_install_dispatch_helpers() {
+  if [ "${LOCAL_MODE:-false}" = true ] || [ -z "${SERVICE_USER:-}" ] || [ "$SERVICE_USER" = "root" ]; then
+    return 0
+  fi
+
+  local dispatch_wrapper="/usr/local/bin/wp-coding-agents-kimaki-dispatch"
+  local target_helper="/usr/local/lib/wp-coding-agents/kimaki-dispatch-target"
+  local sudoers_file="/etc/sudoers.d/wp-coding-agents-kimaki-dispatch"
+  local service_home="${SERVICE_HOME:-}"
+  local data_dir="${KIMAKI_DATA_DIR:-}"
+  local kimaki_bin="${KIMAKI_BIN:-}"
+  local path_value="${PATH:-/usr/local/bin:/usr/bin:/bin}"
+
+  [ -n "$service_home" ] || service_home="/home/$SERVICE_USER"
+  [ -n "$data_dir" ] || data_dir="$service_home/.kimaki"
+  if [ -z "$kimaki_bin" ] || [ "$kimaki_bin" = "$dispatch_wrapper" ]; then
+    kimaki_bin="$(_kimaki_find_native_binary)"
+  fi
+
+  local service_home_q data_dir_q kimaki_bin_q path_q target_helper_q service_user_q
+  service_home_q=$(_kimaki_shell_quote "$service_home")
+  data_dir_q=$(_kimaki_shell_quote "$data_dir")
+  kimaki_bin_q=$(_kimaki_shell_quote "$kimaki_bin")
+  path_q=$(_kimaki_shell_quote "$path_value")
+  target_helper_q=$(_kimaki_shell_quote "$target_helper")
+  service_user_q=$(_kimaki_shell_quote "$SERVICE_USER")
+
+  local target_content wrapper_content sudoers_content
+  target_content="#!/bin/sh
+set -eu
+export HOME=$service_home_q
+export KIMAKI_DATA_DIR=$data_dir_q
+export PATH=$path_q
+exec $kimaki_bin_q \"\$@\""
+
+  wrapper_content="#!/bin/sh
+set -eu
+exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
+
+  sudoers_content="www-data ALL=($SERVICE_USER) NOPASSWD: $target_helper *"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install $target_helper"
+    echo -e "${BLUE}[dry-run]${NC} Would install $dispatch_wrapper"
+    echo -e "${BLUE}[dry-run]${NC} Would install $sudoers_file"
+    return 0
+  fi
+
+  install -d -m 0755 "$(dirname "$target_helper")"
+  printf '%s\n' "$target_content" > "$target_helper"
+  chown root:root "$target_helper"
+  chmod 0755 "$target_helper"
+
+  printf '%s\n' "$wrapper_content" > "$dispatch_wrapper"
+  chown root:root "$dispatch_wrapper"
+  chmod 0755 "$dispatch_wrapper"
+
+  printf '%s\n' "$sudoers_content" > "$sudoers_file"
+  chown root:root "$sudoers_file"
+  chmod 0440 "$sudoers_file"
+  if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "$sudoers_file" >/dev/null
+  fi
+
+  log "  Installed Kimaki dispatch wrapper: $dispatch_wrapper → $SERVICE_USER"
+  UPDATED_ITEMS+=("Kimaki dispatch wrapper")
+}
+
+_kimaki_shell_quote() {
+  local value="$1"
+  value=${value//\'/\'\\\'\'}
+  printf "'%s'" "$value"
 }
 
 _kimaki_remove_legacy_session_helper() {

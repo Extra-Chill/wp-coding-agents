@@ -25,13 +25,15 @@
 #      entry (private-home wrapper) in favor of a later reachable one.
 #   3. _kimaki_register_cli_channel ignores a KIMAKI_BIN that is executable but
 #      trapped under a non-traversable home, falling back to the reachable
-#      PATH binary.
-#   4. The registered command is never a path under a non-traversable home.
+#      PATH binary on local installs.
+#   4. A VPS service-user install registers the sudo dispatch wrapper, not the
+#      private-home binary that www-data cannot traverse.
+#   5. The registered command is never under a non-traversable home.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d /tmp/wpca-cli-channel.XXXXXX)"
 trap 'chmod -R u+rwx "$TMP" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 # mktemp -d creates the dir at 0700 by design. This test simulates a WEB-
@@ -123,12 +125,12 @@ else
   fail "expected $reachable_dir/kimaki, got '$resolved'"
 fi
 
-# --- 3. register ignores trapped KIMAKI_BIN, falls back to reachable PATH ----
-echo "==> _kimaki_register_cli_channel ignores trapped KIMAKI_BIN"
+# --- 3. local register ignores trapped KIMAKI_BIN, falls back to reachable PATH
+echo "==> _kimaki_register_cli_channel ignores trapped KIMAKI_BIN on local installs"
 
 rm -f "$TMP/cli-channel.args"
 KIMAKI_BIN="$root_trap/.kimaki/bin/kimaki"   # executable but trapped under 0700
-PATH="$reachable_dir:/usr/bin:/bin" _kimaki_register_cli_channel
+LOCAL_MODE=true PATH="$reachable_dir:/usr/bin:/bin" _kimaki_register_cli_channel
 got="$(registered_command)"
 if [ "$got" = "$reachable_dir/kimaki" ]; then
   ok "trapped KIMAKI_BIN ignored; registered reachable $got"
@@ -136,7 +138,20 @@ else
   fail "expected reachable $reachable_dir/kimaki, got '$got'"
 fi
 
-# --- 4. registered command is never under a non-traversable home ------------
+# --- 4. VPS service-user register uses the sudo dispatch wrapper -------------
+echo "==> _kimaki_register_cli_channel uses wrapper for service-user VPS installs"
+
+rm -f "$TMP/cli-channel.args"
+LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME="$home_trap" KIMAKI_DATA_DIR="$home_trap/.kimaki" \
+  KIMAKI_BIN="$root_trap/.kimaki/bin/kimaki" PATH="$reachable_dir:/usr/bin:/bin" _kimaki_register_cli_channel
+got_vps="$(registered_command)"
+if [ "$got_vps" = "/usr/local/bin/wp-coding-agents-kimaki-dispatch" ]; then
+  ok "VPS channel registers sudo dispatch wrapper"
+else
+  fail "expected /usr/local/bin/wp-coding-agents-kimaki-dispatch, got '$got_vps'"
+fi
+
+# --- 5. registered command is never under a non-traversable home ------------
 echo "==> registered command is web-traversable"
 
 if _kimaki_path_is_web_traversable "$got"; then
@@ -150,7 +165,7 @@ rm -f "$TMP/cli-channel.args"
 reachable_bin_dir="$TMP/reachable2/bin"
 make_kimaki "$reachable_bin_dir"
 KIMAKI_BIN="$reachable_bin_dir/kimaki"
-PATH="/usr/bin:/bin" _kimaki_register_cli_channel
+LOCAL_MODE=true PATH="/usr/bin:/bin" _kimaki_register_cli_channel
 got2="$(registered_command)"
 if [ "$got2" = "$reachable_bin_dir/kimaki" ]; then
   ok "reachable KIMAKI_BIN still honored (no regression)"
