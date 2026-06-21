@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.3] - 2026-06-21
+
+### Fixed
+- run scheduled Kimaki dispatch as the adopted service user
+
 ## [1.5.2] - 2026-06-18
 
 ### Fixed
