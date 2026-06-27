@@ -221,7 +221,7 @@ RESOLVED_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
 assert "resolved bin is under adopted SERVICE_HOME" \
   "$([ "$RESOLVED_BIN" = "$ADOPTED_HOME/.kimaki/bin/kimaki" ]; echo $?)"
 assert "resolved bin is NOT under /root" \
-  "$(case "$RESOLVED_BIN" in /root/*) echo 1 ;; *) echo 0 ;; esac)"
+  "$([[ "$RESOLVED_BIN" != /root/* ]]; echo $?)"
 
 # A real system-prefix binary wins over the per-user home (issue option 1).
 printf '#!/bin/sh\n' > "$BIN232/usr-bin-kimaki"
@@ -255,6 +255,24 @@ assert "guard silent on consistent opencode identity" \
 GUARD_SYS=$(_kimaki_assert_bin_identity "/usr/bin/kimaki" "/usr/bin:/bin" 2>&1)
 assert "guard silent on system-prefix binary" \
   "$([ -z "$GUARD_SYS" ]; echo $?)"
+
+# Issue #243: the dispatch wrapper can be invoked by WP-cron as www-data or by
+# Kimaki/session-triggered jobs as the adopted service user. Both callers need
+# the narrow same target grant because the wrapper always sudo -u SERVICE_USER.
+echo "==> #243: dispatch sudoers covers cron and service-user callers"
+SUDOERS=$(_kimaki_dispatch_sudoers_content \
+  "opencode" \
+  "/usr/local/lib/wp-coding-agents/kimaki-dispatch-target")
+assert "sudoers grants www-data -> opencode" \
+  "$(echo "$SUDOERS" | grep -q '^www-data ALL=(opencode) NOPASSWD: /usr/local/lib/wp-coding-agents/kimaki-dispatch-target \*$'; echo $?)"
+assert "sudoers grants opencode -> opencode" \
+  "$(echo "$SUDOERS" | grep -q '^opencode ALL=(opencode) NOPASSWD: /usr/local/lib/wp-coding-agents/kimaki-dispatch-target \*$'; echo $?)"
+
+SUDOERS_DEDUPED=$(_kimaki_dispatch_sudoers_content \
+  "www-data" \
+  "/usr/local/lib/wp-coding-agents/kimaki-dispatch-target")
+assert "sudoers dedupes www-data service user" \
+  "$([ "$(echo "$SUDOERS_DEDUPED" | grep -c '^www-data ALL=')" = "1" ]; echo $?)"
 
 # ---------------------------------------------------------------------------
 echo ""
