@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.4] - 2026-06-26
+
+### Fixed
+- grant kimaki dispatch to service user
+
 ## [1.5.3] - 2026-06-21
 
 ### Fixed
