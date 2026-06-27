@@ -715,6 +715,123 @@ regenerate_agents_md() {
 }
 
 # ============================================================================
+# Phase 5b: Sync Claude Code runtime (SessionStart hook + CLAUDE.md)
+#   Claude Code installs aren't covered by the chat-bridge phases: opencode.json
+#   drift, kimaki plugins, and systemd units don't apply to them. Their managed
+#   surface is the SessionStart hook (.claude/hooks/dm-agent-sync.sh), its
+#   agent-scope sidecar, the settings.json hook registration, and the
+#   template-generated CLAUDE.md. Without this phase those silently rot: a stale
+#   hook keeps exit 0-ing and CLAUDE.md never gets its Data Machine memory
+#   block, so the agent boots with no personality/memory. This mirrors what
+#   setup.sh installs and keeps claude-code a first-class upgrade target
+#   alongside opencode.
+# ============================================================================
+
+# Resolve AGENT_SLUG for the claude-code runtime sync. Leaves AGENT_SLUG empty
+# when no single agent can be confidently resolved — the hook then falls back
+# to discovering all active agents.
+_resolve_claude_code_agent_slug() {
+  # 1. Explicit override (env / --agent-slug) wins.
+  [ -n "${AGENT_SLUG:-}" ] && return 0
+
+  # 2. Existing sidecar from a prior setup/upgrade.
+  local env_file="$SITE_PATH/.claude/hooks/dm-agent-sync.env"
+  if [ -f "$env_file" ]; then
+    AGENT_SLUG=$(sed -n 's/^DM_AGENT_SLUG=//p' "$env_file" | head -1)
+    [ -n "$AGENT_SLUG" ] && return 0
+  fi
+
+  # 3. Derive candidates and validate each against the DM agent list. Only
+  #    adopt a slug when an agent with that name actually exists, so we never
+  #    scope the hook to a non-existent agent. Two candidates, in order:
+  #      a. domain-derived (correct for VPS installs with a real siteurl)
+  #      b. directory-basename-derived (correct for Studio, where siteurl is
+  #         http://localhost:PORT and the agent is named after the site folder)
+  #    In dry-run, surface the first non-empty candidate without hitting the DB.
+  local candidate
+  for candidate in \
+    "$(derive_agent_slug "$SITE_DOMAIN")" \
+    "$(derive_agent_slug "$(basename "$SITE_PATH")")"; do
+    [ -n "$candidate" ] || continue
+    if [ "$DRY_RUN" = true ]; then
+      AGENT_SLUG="$candidate"
+      return 0
+    fi
+    if _dm_agent_slug_exists "$candidate"; then
+      AGENT_SLUG="$candidate"
+      return 0
+    fi
+  done
+}
+
+# Return 0 if a Data Machine agent with the given slug exists.
+_dm_agent_slug_exists() {
+  local slug="$1" json
+  # shellcheck disable=SC2086
+  json=$($WP_CMD datamachine agents list --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null) || return 1
+  echo "$json" | python3 -c "
+import sys, json, re
+raw = sys.stdin.read()
+m = re.search(r'\[.*\]', raw, re.DOTALL)
+if not m:
+    sys.exit(1)
+slug = sys.argv[1]
+data = json.loads(m.group())
+sys.exit(0 if any(a.get('agent_slug') == slug for a in data) else 1)
+" "$slug" >/dev/null 2>&1
+}
+
+sync_claude_code_runtime() {
+  _run_filter_active agents-md || return 0
+  [ "$RUNTIME" = "claude-code" ] || return 0
+
+  if ! declare -F runtime_install_hooks >/dev/null; then
+    return 0
+  fi
+
+  log "Phase 5b: Syncing Claude Code runtime (hook + CLAUDE.md)..."
+
+  _resolve_claude_code_agent_slug
+  if [ -n "${AGENT_SLUG:-}" ]; then
+    log "  Agent scope: $AGENT_SLUG (single-agent, OpenCode parity)"
+  else
+    log "  Agent scope: all active agents (no single agent resolved)"
+  fi
+
+  # Regenerate a degenerate CLAUDE.md. A healthy CLAUDE.md carries the
+  # DM_AGENT_SYNC sentinel block; if it's missing (truncated to @AGENTS.md by an
+  # older/legacy install) or the file is absent, rebuild from the template so
+  # the memory block and Studio context return. Only do this when a slug is
+  # resolved — regenerating with no agent would write an empty memory block.
+  local claude_md="$SITE_PATH/CLAUDE.md"
+  local need_regen=false
+  if [ ! -f "$claude_md" ]; then
+    need_regen=true
+  elif ! grep -q 'DM_AGENT_SYNC_START' "$claude_md"; then
+    need_regen=true
+  fi
+
+  if [ "$need_regen" = true ] && [ -n "${AGENT_SLUG:-}" ]; then
+    runtime_discover_dm_paths
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would (back up and) regenerate CLAUDE.md from template"
+    elif [ -f "$claude_md" ]; then
+      cp "$claude_md" "$claude_md.backup.$TIMESTAMP"
+      rm -f "$claude_md"
+      log "  CLAUDE.md was missing the DM memory block — backed up to $claude_md.backup.$TIMESTAMP"
+      UPDATED_ITEMS+=("CLAUDE.md regenerated")
+    fi
+    runtime_generate_config
+  elif [ "$need_regen" = true ]; then
+    warn "  CLAUDE.md needs regeneration but no agent slug resolved — leaving as-is"
+  fi
+
+  # Recopy the SessionStart hook, refresh the agent-scope sidecar, and ensure
+  # settings.json registers the hook + workspace permissions. Idempotent.
+  runtime_install_hooks
+}
+
+# ============================================================================
 # Phase 6: Smart systemd update (merges host-specific Environment= lines)
 #   Dispatches to the active bridge's bridge_update_systemd hook (and
 #   bridge_update_launchd on macOS). Each bridge regenerates its unit file(s)
@@ -914,6 +1031,7 @@ check_opencode_json_drift
 ai_gateway_configure_opencode
 sync_skills
 regenerate_agents_md
+sync_claude_code_runtime
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 remove_legacy_opencode_wrapper_phase

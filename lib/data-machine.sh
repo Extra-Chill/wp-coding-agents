@@ -67,12 +67,19 @@ upgrade_data_machine_plugins() {
   set_compose_agents_md_constant
 }
 
+# Derive a Data Machine agent slug from a site domain. Shared by setup
+# (create_dm_agent) and upgrade (claude-code runtime sync) so both compute the
+# same canonical slug: first domain label, lowercased, underscores → hyphens.
+derive_agent_slug() {
+  echo "$1" | sed 's/\..*//' | tr '[:upper:]' '[:lower:]' | tr '_' '-'
+}
+
 create_dm_agent() {
   log "Phase 4.5: Creating Data Machine agent..."
 
   # Derive agent slug from domain
   if [ -z "${AGENT_SLUG:-}" ]; then
-    AGENT_SLUG=$(echo "$SITE_DOMAIN" | sed 's/\..*//' | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    AGENT_SLUG=$(derive_agent_slug "$SITE_DOMAIN")
   fi
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then

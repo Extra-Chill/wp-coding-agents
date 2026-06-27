@@ -151,6 +151,9 @@ runtime_install_hooks() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would copy dm-agent-sync.sh to $hooks_dir"
+    if [ -n "${AGENT_SLUG:-}" ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would write dm-agent-sync.env (DM_AGENT_SLUG=$AGENT_SLUG)"
+    fi
     echo -e "${BLUE}[dry-run]${NC} Would configure SessionStart hook in $settings_file"
     return
   fi
@@ -159,6 +162,16 @@ runtime_install_hooks() {
   cp "$hook_src" "$hook_dst"
   chmod +x "$hook_dst"
   log "Installed hook: $hook_dst"
+
+  # Persist the configured agent slug so the SessionStart hook scopes its @
+  # includes to just this install's agent — matching the OpenCode runtime,
+  # which loads only the configured agent's files. Without this sidecar the
+  # hook falls back to discovering all active agents.
+  local hook_env="$hooks_dir/dm-agent-sync.env"
+  if [ -n "${AGENT_SLUG:-}" ]; then
+    printf 'DM_AGENT_SLUG=%s\n' "$AGENT_SLUG" > "$hook_env"
+    log "Wrote hook agent scope: $hook_env (DM_AGENT_SLUG=$AGENT_SLUG)"
+  fi
 
   # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json.
   # additionalDirectories alone is not enough: the Bash tool is gated by explicit

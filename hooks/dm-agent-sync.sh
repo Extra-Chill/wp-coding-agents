@@ -55,6 +55,20 @@ detect_wp_cmd() {
 WP_CMD=$(detect_wp_cmd) || exit 0
 
 # ---------------------------------------------------------------------------
+# Optional single-agent scope (OpenCode parity)
+# ---------------------------------------------------------------------------
+# setup.sh / upgrade.sh write dm-agent-sync.env next to this hook with the
+# install's configured agent slug. When present, the hook injects only that
+# agent's files — exactly like the OpenCode runtime, which loads only the
+# configured agent's instructions. Absent the sidecar, the hook falls back to
+# discovering all active agents (legacy multi-agent behavior).
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$HOOK_DIR/dm-agent-sync.env" ]; then
+  # shellcheck disable=SC1090,SC1091
+  . "$HOOK_DIR/dm-agent-sync.env"
+fi
+
+# ---------------------------------------------------------------------------
 # Refresh composable files before computing @ includes
 # ---------------------------------------------------------------------------
 # SectionRegistry callbacks can read live state (Intelligence sources, skill
@@ -68,14 +82,19 @@ WP_CMD=$(detect_wp_cmd) || exit 0
 $WP_CMD datamachine memory compose >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
-# Query active agents from Data Machine
+# Resolve which agents to inject
 # ---------------------------------------------------------------------------
+# Single-agent scope (OpenCode parity) when DM_AGENT_SLUG is configured;
+# otherwise discover every active agent from Data Machine.
 
-AGENTS_RAW=$($WP_CMD datamachine agents list --format=json 2>/dev/null) || exit 0
+if [ -n "${DM_AGENT_SLUG:-}" ]; then
+  ACTIVE_SLUGS="$DM_AGENT_SLUG"
+else
+  AGENTS_RAW=$($WP_CMD datamachine agents list --format=json 2>/dev/null) || exit 0
 
-# Extract JSON array. WP-CLI may append summary text (e.g. "Total: 2 agent(s).")
-# on the same line as the closing bracket. Use Python to safely extract the array.
-ACTIVE_SLUGS=$(echo "$AGENTS_RAW" | python3 -c "
+  # Extract JSON array. WP-CLI may append summary text (e.g. "Total: 2 agent(s).")
+  # on the same line as the closing bracket. Use Python to safely extract the array.
+  ACTIVE_SLUGS=$(echo "$AGENTS_RAW" | python3 -c "
 import sys, json, re
 raw = sys.stdin.read()
 # Extract the JSON array — everything from first [ to its matching ]
@@ -92,6 +111,7 @@ for a in data:
     if status == 'active':
         print(a['agent_slug'])
 " 2>/dev/null) || exit 0
+fi
 
 if [ -z "$ACTIVE_SLUGS" ]; then
   exit 0
