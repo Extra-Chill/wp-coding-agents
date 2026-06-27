@@ -276,7 +276,7 @@ exec $kimaki_bin_q \"\$@\""
 set -eu
 exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
 
-  sudoers_content="www-data ALL=($SERVICE_USER) NOPASSWD: $target_helper *"
+  sudoers_content=$(_kimaki_dispatch_sudoers_content "$SERVICE_USER" "$target_helper")
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would install $target_helper"
@@ -303,6 +303,27 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
 
   log "  Installed Kimaki dispatch wrapper: $dispatch_wrapper → $SERVICE_USER"
   UPDATED_ITEMS+=("Kimaki dispatch wrapper")
+}
+
+_kimaki_dispatch_sudoers_content() {
+  local service_user="$1"
+  local target_helper="$2"
+  local caller
+  local seen_callers=""
+
+  for caller in www-data "$service_user"; do
+    [ -n "$caller" ] || continue
+    case "
+$seen_callers
+" in
+      *"
+$caller
+"*) continue ;;
+    esac
+    seen_callers="${seen_callers:-}
+$caller"
+    printf '%s ALL=(%s) NOPASSWD: %s *\n' "$caller" "$service_user" "$target_helper"
+  done
 }
 
 _kimaki_shell_quote() {
