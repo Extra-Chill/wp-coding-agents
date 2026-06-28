@@ -113,3 +113,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/homeboy-agents-md.sh
         run: ./tests/homeboy-agents-md.sh
+
+  claude-code-hook-scope:
+    name: Claude Code hook agent scoping
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/claude-code-hook-scope.sh
+        run: ./tests/claude-code-hook-scope.sh
