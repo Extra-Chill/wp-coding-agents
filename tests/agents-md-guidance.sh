@@ -189,7 +189,9 @@ namespace {
         'freshness' => \$call[4]['freshness'] ?? null,
         'conditions' => \$call[4]['conditions'] ?? null,
         'starts_with_homeboy_style_category' => str_starts_with( \$content, '**Agent tasks:**' ),
-        'has_agent_task_verbs' => str_contains( \$content, 'homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote' ),
+        'has_agent_task_map' => str_contains( \$content, 'homeboy agent-task --help' ) && str_contains( \$content, 'durable agent workflow' ),
+        'has_homeboy_workspace_shape' => str_contains( \$content, 'homeboy worktree' ) && str_contains( \$content, 'workspace providers are implementation details' ),
+        'omits_dmc_workspace_shape' => ! str_contains( \$content, 'Data Machine Code worktree' ),
         'has_sandbox_mode' => str_contains( \$content, 'use sandbox mode for Codebox coding tasks' ),
         'has_operator_boundary' => str_contains( \$content, 'homeboy release' ) && str_contains( \$content, 'Use them only when the user explicitly asks' ),
         'has_old_workflow_comparison' => str_contains( \$content, 'instead of' ) || str_contains( \$content, 'manual chat-session fleets' ),
@@ -198,7 +200,7 @@ namespace {
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-codebox-agent-tasks","priority":36,"label":"Homeboy Codebox agent tasks","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.","starts_with_homeboy_style_category":true,"has_agent_task_verbs":true,"has_sandbox_mode":true,"has_operator_boundary":true,"has_old_workflow_comparison":false}'
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-codebox-agent-tasks","priority":36,"label":"Homeboy Codebox agent tasks","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.","starts_with_homeboy_style_category":true,"has_agent_task_map":true,"has_homeboy_workspace_shape":true,"omits_dmc_workspace_shape":true,"has_sandbox_mode":true,"has_operator_boundary":true,"has_old_workflow_comparison":false}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives Homeboy Codebox guidance section"
 
 echo "==> unregister Homeboy Codebox guidance"

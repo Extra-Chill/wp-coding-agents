@@ -201,11 +201,11 @@ agents_md_guidance_unregister_homeboy_codebox() {
 
 agents_md_guidance_homeboy_codebox_content() {
   cat <<'MD'
-**Agent tasks:** `homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote`; use `homeboy agent-task providers` to inspect registered executor providers. Homeboy owns task plans, durable run state, queueing, concurrency, retries, logs, artifacts, and promotion back into the review workflow.
+**Agent tasks:** use `homeboy agent-task --help` to choose the durable agent workflow: cook, fanout, loop, lifecycle, evidence, diagnosis, promotion, and review-finalization surfaces live there when available. Use `homeboy agent-task providers` to inspect registered executor providers. Homeboy owns task plans, durable run state, queueing, concurrency, retries, logs, artifacts, and promotion back into the review workflow.
 
 **Codebox executor:** use the `codebox` backend for disposable WP Codebox WordPress sandboxes. WP Codebox owns sandbox recipes, plugin/runtime overlays, agent invocation, and artifact bundles; Homeboy owns orchestration around those recipes.
 
-**Workspace shape:** pass an explicit workspace root for code edits, usually a Data Machine Code worktree under `<workspace>/<repo>@<slug>` locally or the equivalent mounted path inside a sandbox. Keep primary checkouts read-only.
+**Workspace shape:** use the workspace selected by Homeboy: a component checkout, `homeboy worktree` task workspace, adopted `@workspace:<handle>` path, or sandbox mount supplied by an agent-task executor. Homeboy owns the task/workspace record and safety gates; workspace providers are implementation details.
 
 **WP Codebox agent mode:** use sandbox mode for Codebox coding tasks. Sandbox mode exposes the bounded workspace tools needed to read, edit, and verify files.
 
@@ -325,13 +325,32 @@ commands = [(n, s) for (n, s) in commands if n not in SKIP]
 if not commands:
     sys.exit(1)
 
+command_summaries = {name: summary for name, summary in commands}
+common_order = [
+    "status",
+    "triage",
+    "worktree",
+    "review",
+    "build",
+    "test",
+    "agent-task",
+    "runs",
+]
+
 lines = []
 lines.append(
-    "Homeboy is the host orchestrator binary — build, deploy, release, triage, "
-    "test, and inspect components from the CLI. It is detected on this host, so "
-    "the command map below is generated from `homeboy --help` and refreshes "
-    "whenever homeboy is upgraded."
+    "Homeboy is the SRE and developer orchestration CLI for projects, "
+    "components, task worktrees, lab/offload routing, gates, durable runs, "
+    "artifacts, releases, and deploy workflows. Use this map to choose the "
+    "Homeboy command surface, then run `homeboy <command> --help` for exact "
+    "flags."
 )
+common_entrypoints = [name for name in common_order if name in command_summaries]
+if common_entrypoints:
+    lines.append("")
+    lines.append("Common entrypoints:")
+    for name in common_entrypoints:
+        lines.append(f"- `homeboy {name}` — {command_summaries[name]}")
 lines.append("")
 for name, summary in commands:
     lines.append(f"- `homeboy {name}` — {summary}")
@@ -341,6 +360,13 @@ lines.append(
     "`homeboy <command> --help`. Releases (`homeboy release`) and deploys "
     "(`homeboy deploy`) are operator actions — run them only when the user "
     "explicitly asks."
+)
+lines.append("")
+lines.append(
+    "For component-aware work, prefer Homeboy entrypoints because they preserve "
+    "project context, workspace records, lab routing, gates, logs, artifacts, "
+    "and promotion evidence. Direct shell commands are still appropriate for "
+    "narrow inspection or edits inside the selected workspace."
 )
 
 sys.stdout.write("\n".join(lines))
