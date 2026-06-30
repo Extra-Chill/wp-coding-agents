@@ -72,6 +72,10 @@ HOMEBOY_CONFIG_LOG="$TMP/homeboy-config.log"
 STUDIO_LOG="$TMP/studio.log"
 export HOMEBOY_CONFIG_LOG STUDIO_LOG
 
+# macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
+# when the test runs under newer Bash so this path stays portable.
+enable -n mapfile 2>/dev/null || true
+
 DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 

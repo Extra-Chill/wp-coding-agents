@@ -97,8 +97,15 @@ homeboy_dmc_command_json() {
   local action="$1"
   local wp_argv=()
   local wp_flags=()
-  mapfile -t wp_argv < <(homeboy_dmc_wp_argv)
-  mapfile -t wp_flags < <(homeboy_dmc_wp_flags)
+  local value
+
+  while IFS= read -r value; do
+    wp_argv+=("$value")
+  done < <(homeboy_dmc_wp_argv)
+
+  while IFS= read -r value; do
+    wp_flags+=("$value")
+  done < <(homeboy_dmc_wp_flags)
 
   case "$action" in
     list)
@@ -516,7 +523,7 @@ configure_homeboy_wordpress_extension() {
     echo -e "${BLUE}[dry-run]${NC} homeboy extension setup wordpress"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension list"
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
-    echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy Codebox AGENTS.md guidance mu-plugin"
+    echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     print_homeboy_verification_commands
     return 0
   fi
