@@ -51,6 +51,75 @@ homeboy_server_json() {
   printf '{"host":"localhost","user":"%s","port":%s}' "$user" "$port"
 }
 
+homeboy_json_array() {
+  local first=true value
+  printf '['
+  for value in "$@"; do
+    if [ "$first" = true ]; then
+      first=false
+    else
+      printf ','
+    fi
+    printf '"%s"' "$(homeboy_json_escape "$value")"
+  done
+  printf ']'
+}
+
+homeboy_dmc_wp_argv() {
+  local argv=()
+  if [ "${IS_STUDIO:-false}" = true ]; then
+    argv=(studio wp)
+  else
+    # WP_CMD is intentionally a command string in setup profiles (e.g. "wp" or
+    # "studio wp"). Split it the same way the existing wp_cmd helper invokes it.
+    # shellcheck disable=SC2206
+    argv=(${WP_CMD:-wp})
+  fi
+
+  printf '%s\n' "${argv[@]}"
+}
+
+homeboy_dmc_wp_flags() {
+  local argv=()
+
+  if [ -n "${SITE_PATH:-}" ]; then
+    argv+=(--path="$SITE_PATH")
+  fi
+
+  # shellcheck disable=SC2206
+  local root_flags=(${WP_ROOT_FLAG:-})
+  argv+=("${root_flags[@]}")
+
+  printf '%s\n' "${argv[@]}"
+}
+
+homeboy_dmc_command_json() {
+  local action="$1"
+  local wp_argv=()
+  local wp_flags=()
+  mapfile -t wp_argv < <(homeboy_dmc_wp_argv)
+  mapfile -t wp_flags < <(homeboy_dmc_wp_flags)
+
+  case "$action" in
+    list)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --format=json "${wp_flags[@]}"
+      ;;
+    cleanup_preview)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
+      ;;
+    cleanup_apply)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --format=json "${wp_flags[@]}"
+      ;;
+  esac
+}
+
+homeboy_dmc_worktree_provider_json() {
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"list":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+    "$(homeboy_dmc_command_json list)" \
+    "$(homeboy_dmc_command_json cleanup_preview)" \
+    "$(homeboy_dmc_command_json cleanup_apply)"
+}
+
 homeboy_project_id() {
   # 1. Explicit override.
   if [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
@@ -383,6 +452,37 @@ setup_homeboy_project() {
     fi
     log "Created Homeboy project '$project_id'"
   fi
+}
+
+configure_homeboy_dmc_worktree_provider() {
+  if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
+    log "Skipping Homeboy DMC worktree provider setup (--no-homeboy)"
+    return 0
+  fi
+
+  if ! command -v homeboy >/dev/null 2>&1; then
+    homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping DMC worktree provider setup."
+    return 0
+  fi
+
+  local provider_json
+  provider_json="$(homeboy_dmc_worktree_provider_json)"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} homeboy config set /worktree_providers/dmc '$provider_json'"
+    return 0
+  fi
+
+  if [ -n "${SITE_PATH:-}" ] && { [ -f "$SITE_PATH/wp-config.php" ] || [ -f "$SITE_PATH/wp-load.php" ]; }; then
+    if ! wp_cmd datamachine-code workspace worktree list --format=json >/dev/null 2>&1; then
+      homeboy_handle_failure "Data Machine Code WP-CLI commands are not available; skipping Homeboy DMC worktree provider setup."
+      return 0
+    fi
+  fi
+
+  log "Configuring Homeboy DMC worktree provider."
+  homeboy_run config set /worktree_providers/dmc "$provider_json" >/dev/null || \
+    homeboy_handle_failure "Homeboy DMC worktree provider config failed."
 }
 
 configure_homeboy_wordpress_extension() {
