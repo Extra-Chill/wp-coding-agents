@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.2] - 2026-06-30
+
+### Fixed
+- support macOS bash in Homeboy provider config
+
 ## [1.6.1] - 2026-06-30
 
 ### Changed
