@@ -368,6 +368,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
   sync_carried_plugins
   install_extra_plugins
   setup_homeboy_project
+  configure_homeboy_dmc_worktree_provider
   setup_nginx
   setup_ssl
   setup_service_permissions

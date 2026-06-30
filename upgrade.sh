@@ -113,6 +113,8 @@ RUNTIME=""
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
 CHAT_BRIDGE=""
+HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
+WITH_HOMEBOY="${WITH_HOMEBOY:-false}"
 # True when the operator forced the identity via --root / --non-root.
 # Suppresses adopt_service_identity_from_units (existing-unit adoption).
 SERVICE_USER_FORCED=false
@@ -369,6 +371,11 @@ update_data_machine_plugins() {
   upgrade_data_machine_plugins
   sync_carried_plugins
   update_wp_codebox_plugin_subtree
+}
+
+configure_homeboy_dmc_worktree_provider_phase() {
+  _run_filter_active plugins || return 0
+  configure_homeboy_dmc_worktree_provider
 }
 
 sync_cli_transport_runtime() {
@@ -1024,6 +1031,7 @@ _print_verify_block() {
 # ============================================================================
 
 update_data_machine_plugins
+configure_homeboy_dmc_worktree_provider_phase
 sync_cli_transport_runtime
 update_ai_gateway
 sync_chat_bridge_config
