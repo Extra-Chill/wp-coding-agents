@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0] - 2026-06-30
+
+### Added
+- configure homeboy DMC worktree provider
+
+### Fixed
+- make upgrade cover the Claude Code runtime + single-agent scoping
+
 ## [1.5.4] - 2026-06-26
 
 ### Fixed
