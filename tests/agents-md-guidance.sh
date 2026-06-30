@@ -96,32 +96,31 @@ assert_fails() {
   fi
 }
 
-echo "==> register Homeboy Codebox guidance"
+echo "==> register generic guidance"
 (
   umask 077
-  agents_md_guidance_sync_homeboy_codebox true
+  agents_md_guidance_register "sample-guidance" 36 "Sample guidance" "Sample generated guidance." "## Sample guidance"
 )
 
 assert_php_lint "$MU_FILE" "guidance mu-plugin parses with php -l"
 assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after fresh write under umask 077"
 
-if grep -q "BEGIN agents-md-guidance:homeboy-codebox-agent-tasks" "$MU_FILE"; then
-  echo "  ok   Homeboy Codebox block present"
+if grep -q "BEGIN agents-md-guidance:sample-guidance" "$MU_FILE"; then
+  echo "  ok   sample guidance block present"
 else
-  echo "  FAIL Homeboy Codebox block missing"
+  echo "  FAIL sample guidance block missing"
   FAILED=$((FAILED + 1))
 fi
 
-echo "==> re-register Homeboy Codebox guidance (idempotent)"
+echo "==> re-register generic guidance (idempotent)"
 HASH_BEFORE=$(file_hash "$MU_FILE")
-agents_md_guidance_sync_homeboy_codebox true
+agents_md_guidance_register "sample-guidance" 36 "Sample guidance" "Sample generated guidance." "## Sample guidance"
 HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
 
 echo "==> invalid public API inputs fail before writing broken PHP"
 assert_fails "invalid section id rejected" agents_md_guidance_register "bad section" 36 "Bad" "Bad" "## Bad"
 assert_fails "invalid priority rejected" agents_md_guidance_register "bad-priority" "later" "Bad" "Bad" "## Bad"
-assert_fails "invalid sync availability rejected" agents_md_guidance_sync_homeboy_codebox maybe
 
 echo "==> skip registration when Data Machine core gate is unavailable"
 SHIM_DISABLED="$TMP/section-shim-disabled.php"
@@ -188,28 +187,24 @@ namespace {
         'owner' => \$call[4]['owner'] ?? null,
         'freshness' => \$call[4]['freshness'] ?? null,
         'conditions' => \$call[4]['conditions'] ?? null,
-        'starts_with_homeboy_style_category' => str_starts_with( \$content, '**Agent tasks:**' ),
-        'has_agent_task_verbs' => str_contains( \$content, 'homeboy agent-task submit|run|run-plan|status|logs|artifacts|promote' ),
-        'has_sandbox_mode' => str_contains( \$content, 'use sandbox mode for Codebox coding tasks' ),
-        'has_operator_boundary' => str_contains( \$content, 'homeboy release' ) && str_contains( \$content, 'Use them only when the user explicitly asks' ),
-        'has_old_workflow_comparison' => str_contains( \$content, 'instead of' ) || str_contains( \$content, 'manual chat-session fleets' ),
+        'content' => \$content,
     ]);
 }
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-codebox-agent-tasks","priority":36,"label":"Homeboy Codebox agent tasks","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.","starts_with_homeboy_style_category":true,"has_agent_task_verbs":true,"has_sandbox_mode":true,"has_operator_boundary":true,"has_old_workflow_comparison":false}'
-assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives Homeboy Codebox guidance section"
+EXPECTED='{"filename":"AGENTS.md","slug":"sample-guidance","priority":36,"label":"Sample guidance","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered by wp-coding-agents when the integration is available; removed when unavailable.","content":"## Sample guidance"}'
+assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generic guidance section"
 
-echo "==> unregister Homeboy Codebox guidance"
+echo "==> unregister generic guidance"
 chmod 0600 "$MU_FILE"
-agents_md_guidance_sync_homeboy_codebox false
+agents_md_guidance_unregister "sample-guidance"
 assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after unregister"
-if grep -q "BEGIN agents-md-guidance:homeboy-codebox-agent-tasks" "$MU_FILE"; then
-  echo "  FAIL Homeboy Codebox block still present after unregister"
+if grep -q "BEGIN agents-md-guidance:sample-guidance" "$MU_FILE"; then
+  echo "  FAIL sample guidance block still present after unregister"
   FAILED=$((FAILED + 1))
 else
-  echo "  ok   Homeboy Codebox block removed"
+  echo "  ok   sample guidance block removed"
 fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
 

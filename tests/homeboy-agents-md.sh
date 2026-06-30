@@ -149,17 +149,18 @@ namespace {
         'has_release' => str_contains( \$content, '- \`homeboy release\` — Plan release workflows' ),
         'has_triage' => str_contains( \$content, '- \`homeboy triage\` — Read-only attention report' ),
         'has_status' => str_contains( \$content, '- \`homeboy status\` — Actionable component status overview' ),
+        'has_orchestrator_intro' => str_contains( \$content, 'Homeboy is the SRE and developer orchestration CLI' ),
+        'has_common_entrypoints' => str_contains( \$content, 'Common entrypoints:' ),
         'drops_help_meta' => ! str_contains( \$content, 'homeboy help' ),
         'drops_list_meta' => ! str_contains( \$content, 'homeboy list' ),
         'has_discover_footer' => str_contains( \$content, 'Discover everything: \`homeboy --help\`' ),
         'has_per_command_footer' => str_contains( \$content, 'homeboy <command> --help' ),
-        'has_operator_boundary' => str_contains( \$content, 'operator actions' ),
     ]);
 }
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"conditional","has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true,"has_operator_boundary":true}'
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"conditional","has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generated Homeboy CLI map"
 
 echo "==> re-sync with homeboy present (idempotent)"
