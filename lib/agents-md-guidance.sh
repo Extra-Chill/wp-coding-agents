@@ -14,9 +14,6 @@
 #   agents_md_guidance_ensure_mu_plugin_file
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
-#   agents_md_guidance_sync_homeboy_codebox <available:true|false>
-#   agents_md_guidance_register_homeboy_codebox
-#   agents_md_guidance_unregister_homeboy_codebox
 #   agents_md_guidance_sync_homeboy_cli          # presence-gated on `command -v homeboy`
 #   agents_md_guidance_register_homeboy_cli
 #   agents_md_guidance_unregister_homeboy_cli
@@ -174,51 +171,6 @@ agents_md_guidance_unregister() {
   fi
 }
 
-agents_md_guidance_sync_homeboy_codebox() {
-  local available="${1:-false}"
-  case "$available" in
-    true) agents_md_guidance_register_homeboy_codebox ;;
-    false) agents_md_guidance_unregister_homeboy_codebox ;;
-    *)
-      warn "  agents_md_guidance_sync_homeboy_codebox: expected true or false, got '$available'"
-      return 1
-      ;;
-  esac
-}
-
-agents_md_guidance_register_homeboy_codebox() {
-  agents_md_guidance_register \
-    "homeboy-codebox-agent-tasks" \
-    36 \
-    "Homeboy Codebox agent tasks" \
-    "Homeboy-owned async coding-agent fan-out through WP Codebox sandboxes." \
-    "$(agents_md_guidance_homeboy_codebox_content)"
-}
-
-agents_md_guidance_unregister_homeboy_codebox() {
-  agents_md_guidance_unregister "homeboy-codebox-agent-tasks"
-}
-
-agents_md_guidance_homeboy_codebox_content() {
-  cat <<'MD'
-**Agent tasks:** use `homeboy agent-task --help` to choose the durable agent workflow: cook, fanout, loop, lifecycle, evidence, diagnosis, promotion, and review-finalization surfaces live there when available. Use `homeboy agent-task providers` to inspect registered executor providers. Homeboy owns task plans, durable run state, queueing, concurrency, retries, logs, artifacts, and promotion back into the review workflow.
-
-**Codebox executor:** use the `codebox` backend for disposable WP Codebox WordPress sandboxes. WP Codebox owns sandbox recipes, plugin/runtime overlays, agent invocation, and artifact bundles; Homeboy owns orchestration around those recipes.
-
-**Workspace shape:** use the workspace selected by Homeboy: a component checkout, `homeboy worktree` task workspace, adopted `@workspace:<handle>` path, or sandbox mount supplied by an agent-task executor. Homeboy owns the task/workspace record and safety gates; workspace providers are implementation details.
-
-**WP Codebox agent mode:** use sandbox mode for Codebox coding tasks. Sandbox mode exposes the bounded workspace tools needed to read, edit, and verify files.
-
-**Codex provider:** Codebox Codex tasks need the OpenAI Codex provider plugin/runtime overlay and `AI_PROVIDER_OPENAI_CODEX_*` secrets passed via `secret_env`. Never print token values in logs or task instructions.
-
-**Claude Code provider:** Codebox Claude Code tasks use the `ai-provider-for-claude-code` plugin carried by wp-coding-agents. It is backed by Claude Code OAuth credentials through WP AI Client / PHP AI Client, not the `claude` binary, not an Anthropic API key, and not WP AI Gateway. Provider id: `claude-code`. Provide credentials through `AI_PROVIDER_CLAUDE_CODE_REFRESH_TOKEN` and optional `AI_PROVIDER_CLAUDE_CODE_ACCESS_TOKEN` / `AI_PROVIDER_CLAUDE_CODE_EXPIRES_AT`; never pass Claude subscription/session material through task prompts or logs.
-
-**Operator verbs:** `homeboy release`, `homeboy deploy`, and `homeboy ssh` are operator actions. Use them only when the user explicitly asks for that action.
-
-**Chat bridges:** Kimaki, Discord, and other chat bridges display task status and results while Homeboy remains the source of truth for task state and artifacts.
-MD
-}
-
 # ---------------------------------------------------------------------------
 # Homeboy CLI command map (issue #208)
 #
@@ -357,16 +309,7 @@ for name, summary in commands:
 lines.append("")
 lines.append(
     "Discover everything: `homeboy --help`. Drill into any command with "
-    "`homeboy <command> --help`. Releases (`homeboy release`) and deploys "
-    "(`homeboy deploy`) are operator actions — run them only when the user "
-    "explicitly asks."
-)
-lines.append("")
-lines.append(
-    "For component-aware work, prefer Homeboy entrypoints because they preserve "
-    "project context, workspace records, lab routing, gates, logs, artifacts, "
-    "and promotion evidence. Direct shell commands are still appropriate for "
-    "narrow inspection or edits inside the selected workspace."
+    "`homeboy <command> --help`."
 )
 
 sys.stdout.write("\n".join(lines))
@@ -381,7 +324,7 @@ _agents_md_guidance_render_block() {
   AGENTS_MD_GUIDANCE_DESCRIPTION="$description" \
   AGENTS_MD_GUIDANCE_CONTENT="$content" \
   AGENTS_MD_GUIDANCE_FRESHNESS="${AGENTS_MD_GUIDANCE_FRESHNESS:-conditional}" \
-  AGENTS_MD_GUIDANCE_CONDITIONS="${AGENTS_MD_GUIDANCE_CONDITIONS:-Registered when Homeboy Codebox agent-task tooling is available; removed when unavailable.}" \
+  AGENTS_MD_GUIDANCE_CONDITIONS="${AGENTS_MD_GUIDANCE_CONDITIONS:-Registered by wp-coding-agents when the integration is available; removed when unavailable.}" \
   python3 <<'PY'
 import os
 import re

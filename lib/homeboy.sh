@@ -392,16 +392,6 @@ sync_homeboy_agents_md_guidance() {
   if declare -F agents_md_guidance_sync_homeboy_cli >/dev/null; then
     agents_md_guidance_sync_homeboy_cli
   fi
-
-  if ! declare -F agents_md_guidance_sync_homeboy_codebox >/dev/null; then
-    return 0
-  fi
-
-  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-    agents_md_guidance_sync_homeboy_codebox true
-  else
-    agents_md_guidance_sync_homeboy_codebox false
-  fi
 }
 
 setup_homeboy_project() {
