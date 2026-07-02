@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.0] - 2026-07-02
+
+### Added
+- add OpenCode Claude Code auth
+
 ## [1.7.0] - 2026-07-02
 
 ### Added
