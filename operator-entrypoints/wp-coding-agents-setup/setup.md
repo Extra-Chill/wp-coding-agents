@@ -78,7 +78,7 @@ Use when the operator says things like:
 
 - "Help me install wp-coding-agents on my server"
 - "Set up a coding agent on this VPS"
-- "Add Claude Code / OpenCode to my existing WordPress site"
+- "Add Claude Code / OpenCode / Codex to my existing WordPress site"
 - "Set up a local AI agent on my machine"
 - "Install wp-coding-agents with WordPress Studio"
 - "Set it up with Homeboy"

@@ -29,7 +29,8 @@ Human
         ▼
 Coding runtime
   ├─ OpenCode
-  └─ Claude Code
+  ├─ Claude Code
+  └─ Codex
         │
         ▼
 WordPress + Data Machine
@@ -47,7 +48,7 @@ Data Machine is the always-present composition layer. It owns the persistent age
 The agent should know only what it can use.
 
 - **Data Machine** is always present and composes `AGENTS.md`, `SOUL.md`, `MEMORY.md`, `USER.md`, and shared site guidance.
-- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions or Claude Code `@` includes.
+- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions, Claude Code `@` includes, or Codex's managed `AGENTS.override.md`.
 - **Chat bridges** describe the human communication surface when that bridge is selected.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
@@ -63,6 +64,13 @@ Run an agent from an existing local WordPress site and keep its context grounded
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local
 cd ~/Studio/my-site && opencode
+```
+
+Use Codex as the terminal runtime when you want the site context in a Codex session without a chat bridge:
+
+```bash
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
+cd ~/Studio/my-site && codex
 ```
 
 ### Chat-Connected Agent
@@ -100,6 +108,7 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | Data Machine | Agent identity, memory, composed guidance, abilities, flows, jobs | Always installed |
 | OpenCode | Coding runtime | Selected or auto-detected |
 | Claude Code | Coding runtime | Selected or auto-detected |
+| Codex | Coding runtime | Selected or auto-detected |
 | Data Machine Code | Workspace, git, GitHub, and worktree integration | Installed with the Data Machine stack |
 | Kimaki | Discord bridge for OpenCode sessions | Optional chat bridge |
 | cc-connect | Multi-platform bridge, commonly used with Claude Code | Optional chat bridge |
@@ -125,6 +134,7 @@ Select a runtime explicitly when needed:
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
 ```
 
 ### VPS
@@ -148,12 +158,12 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 
 | Flag | Description |
 | --- | --- |
-| `--runtime <name>` | Coding runtime: `opencode` or `claude-code`. Auto-detected when omitted. |
+| `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
 | `--agent-slug <slug>` | Override the Data Machine agent slug. |
-| `--chat <bridge>` | Chat bridge: `kimaki`, `cc-connect`, or `telegram`. |
+| `--chat <bridge>` | Chat bridge: `kimaki`, `cc-connect`, or `telegram`. Codex currently runs without a managed chat bridge. |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
 | `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for OpenCode runtimes. |
@@ -187,6 +197,21 @@ Claude Code uses `CLAUDE.md` with generated `@` includes. A SessionStart hook re
 
 When Claude Code is selected or detected, `wp-coding-agents` installs the carried `ai-provider-for-claude-code` plugin so WordPress AI Client consumers can use the local Claude Code OAuth-backed provider when appropriate.
 
+### Codex
+
+Codex reads `AGENTS.override.md` from the WordPress site root when present, before falling back to `AGENTS.md`. Because Codex does not load arbitrary instruction files from an `instructions` array or Claude-style `@` includes, setup and upgrade generate a Codex-owned `AGENTS.override.md` from the shared `AGENTS.md` plus the local Data Machine memory files.
+
+Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that OpenCode also reads. On a site with both runtimes, OpenCode keeps using `AGENTS.md` plus `opencode.json` instructions, while Codex gets the same site guidance and memory through its generated override.
+
+Setup installs the managed upgrade skill into `.agents/skills`, registers Codex thread attribution for Data Machine Code when available, and leaves global Codex config and auth state alone.
+
+Codex does not currently have a managed chat bridge in this repo, so setup defaults to terminal/manual operation:
+
+```bash
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
+cd ~/Studio/my-site && codex
+```
+
 ### Kimaki
 
 Kimaki is the Discord surface for OpenCode. Managed installs replace Kimaki's generic runtime prompt with a small bridge prompt so orchestration, workspace, tunnel, and preview guidance can come from the installed components that own those capabilities.
@@ -217,7 +242,7 @@ Data Machine manages the agent's persistent files:
 | `MEMORY.md` | Agent | Persistent project knowledge |
 | `USER.md` | User | Human profile and preferences |
 
-The selected runtime reads the composed files at session start. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
+The selected runtime reads this memory at session start. OpenCode references the files from `opencode.json`, Claude Code uses generated `@` includes, and Codex receives the same file contents through a generated site-root `AGENTS.override.md`. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
 
 ## Abilities And Dispatch
 

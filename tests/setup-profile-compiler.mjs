@@ -65,6 +65,22 @@ function compile(profile) {
 {
   const plan = compile({
     install_target: "local",
+    target: { wordpress_path: "/Users/chubes/Studio/site" },
+    runtime: { selection: "codex" },
+    chat_bridge: { selection: "auto" },
+    overlays: {},
+    agent: {},
+  })
+
+  assert.equal(plan.commands.dry_run, "EXISTING_WP=/Users/chubes/Studio/site ./setup.sh --local --runtime codex --dry-run")
+  assert.equal(plan.summary.bridge_axis, "none")
+  assert.ok(plan.verification.overlays.includes("verify-runtime-codex"))
+  assert.ok(plan.verification.overlays.includes("verify-bridge-none"))
+}
+
+{
+  const plan = compile({
+    install_target: "local",
     target: { wordpress_path: "/home/chris/site" },
     runtime: { selection: "multiple", runtimes: ["opencode", "claude-code"] },
     chat_bridge: { selection: "none" },

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- add Codex as a supported runtime with generated AGENTS.override.md loading, project-local skills, runtime attribution, and a managed Data Machine memory mirror
+
 ## [1.6.2] - 2026-06-30
 
 ### Fixed

@@ -158,6 +158,7 @@ function compile(profile) {
   } else if (bridge !== "auto") {
     addFlag(command, "--chat", bridge)
   }
+  const effectiveBridge = bridge === "auto" && runtime.primary === "codex" ? "none" : bridge
 
   if (overlays.homeboy) addFlag(command, "--with-homeboy")
   if (overlays.multisite || overlays.subdomain_multisite) addFlag(command, "--multisite")
@@ -194,11 +195,11 @@ function compile(profile) {
   }
   if (runtime.selection === "multiple") verification.add("verify-runtime-multiple")
 
-  if (bridge === "none") {
+  if (effectiveBridge === "none") {
     verification.add("verify-bridge-none")
-  } else if (bridge !== "auto") {
-    verification.add(`verify-bridge-${bridge}`)
-    if (bridge === "kimaki" && (runtimeNames.includes("opencode") || runtime.selection === "auto")) {
+  } else if (effectiveBridge !== "auto") {
+    verification.add(`verify-bridge-${effectiveBridge}`)
+    if (effectiveBridge === "kimaki" && (runtimeNames.includes("opencode") || runtime.selection === "auto")) {
       verification.add("verify-bridge-kimaki-opencode-plugins")
     }
   }
@@ -211,7 +212,7 @@ function compile(profile) {
     summary: {
       target: installTarget,
       runtime_axis: runtime.selection,
-      bridge_axis: bridge,
+      bridge_axis: effectiveBridge,
       overlays: Object.entries(overlays)
         .filter(([, value]) => value === true)
         .map(([key]) => key),

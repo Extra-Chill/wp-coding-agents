@@ -63,6 +63,16 @@ opencode --version
 claude --version
 ```
 
+### `verify-runtime-codex`
+
+```bash
+codex --version
+test -f /path/to/site/AGENTS.md
+test -f /path/to/site/AGENTS.override.md
+grep -q 'WP_CODING_AGENTS_CODEX_MEMORY_START' /path/to/site/AGENTS.override.md
+test -d /path/to/site/.agents/skills/upgrade-wp-coding-agents
+```
+
 ### `verify-runtime-multiple`
 
 Run the selected runtime checks for each runtime in the compiled profile. If the setup used auto-detection, compare the detected runtime list from setup output with installed runtime binaries.
