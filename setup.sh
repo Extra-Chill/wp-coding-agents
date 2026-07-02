@@ -60,6 +60,7 @@ SKILLS_ONLY=false
 RUNTIME_ONLY=false
 WITH_HOMEBOY=false
 WITH_AI_GATEWAY=false
+WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 RUNTIME=""
 CHAT_BRIDGE_EXPLICIT=false
@@ -140,6 +141,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-ai-gateway)
       WITH_AI_GATEWAY=true
+      shift
+      ;;
+    --with-claude-code-auth)
+      WITH_CLAUDE_CODE_AUTH=true
+      shift
+      ;;
+    --no-claude-code-auth)
+      WITH_CLAUDE_CODE_AUTH=false
       shift
       ;;
     --ai-gateway-provider)
@@ -243,8 +252,11 @@ OPTIONS:
                      OpenCode model ID exposed by the gateway provider
                      (default: site-default)
   --rotate-ai-gateway-token
-                     Mint a new gateway token instead of reusing the existing
-                     .opencode/wp-ai-gateway.env value
+                      Mint a new gateway token instead of reusing the existing
+                      .opencode/wp-ai-gateway.env value
+  --no-claude-code-auth
+                      Skip the managed direct OpenCode Claude Pro/Max OAuth
+                      auth plugin. Installed by default for OpenCode runtimes.
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
@@ -274,6 +286,7 @@ ENVIRONMENT VARIABLES:
   AI_GATEWAY_ROUTE_MODEL     Backend model used by --with-ai-gateway
   AI_GATEWAY_MODEL_ID        OpenCode gateway model id (default: site-default)
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
+  WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
   TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
   TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
