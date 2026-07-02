@@ -44,6 +44,7 @@ CLI usage:
     --runtime <opencode|claude-code> \
     --chat-bridge <kimaki|cc-connect|telegram|none> \
     [--kimaki-plugins-dir <path>] \
+    [--claude-code-auth-plugin <path>] \
     [--additive | --apply] \
     [--backup-suffix <timestamp>]
 
@@ -77,6 +78,7 @@ def expected_plugins(
     runtime: str,
     chat_bridge: str,
     kimaki_plugins_dir: str,
+    claude_code_auth_plugin: str = "",
 ) -> List[str]:
     """Return the `plugin` array wp-coding-agents setup would produce today.
 
@@ -100,6 +102,9 @@ def expected_plugins(
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
+
+    if claude_code_auth_plugin:
+        plugins.append(claude_code_auth_plugin)
 
     return plugins
 
@@ -361,6 +366,11 @@ def main() -> int:
         default="/opt/kimaki-config/plugins",
         help="Directory where DM plugins live (VPS default: /opt/kimaki-config/plugins)",
     )
+    parser.add_argument(
+        "--claude-code-auth-plugin",
+        default="",
+        help="Optional managed OpenCode Claude Code OAuth auth plugin path",
+    )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--apply",
@@ -426,6 +436,7 @@ def main() -> int:
         runtime=args.runtime,
         chat_bridge=args.chat_bridge,
         kimaki_plugins_dir=args.kimaki_plugins_dir.rstrip("/"),
+        claude_code_auth_plugin=args.claude_code_auth_plugin,
     )
 
     current: List[str] = list(data.get("plugin", []))

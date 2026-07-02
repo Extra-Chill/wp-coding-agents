@@ -95,6 +95,7 @@ AGENTS_MD_ONLY=false
 REPAIR_OPENCODE_JSON=false
 SKIP_PLUGINS=false
 WITH_AI_GATEWAY=false
+WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
 
@@ -129,6 +130,8 @@ while [[ $# -gt 0 ]]; do
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
     --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
+    --with-claude-code-auth) WITH_CLAUDE_CODE_AUTH=true; shift ;;
+    --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
     --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
@@ -185,6 +188,10 @@ USAGE:
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
                                 Configure the WordPress gateway backend route.
+  ./upgrade.sh --no-claude-code-auth
+                                Skip direct OpenCode Claude Pro/Max auth.
+                                The managed auth plugin is installed by default
+                                for OpenCode runtimes.
 
 SERVICE IDENTITY:
   By default the upgrade adopts the service user from the EXISTING
@@ -227,6 +234,9 @@ OPT-IN TOUCHES:
     .opencode/wp-ai-gateway.env, and additively merges provider.wp-ai-gateway
     into opencode.json. Existing gateway tokens are reused unless
     --rotate-ai-gateway-token is also passed.
+  - OpenCode Claude Code auth — installs a managed OpenCode plugin under
+    .opencode/plugins and adds it to opencode.json so direct OpenCode can
+    authenticate with Claude Pro/Max OAuth. Use --no-claude-code-auth to skip.
 HELP
   exit 0
 fi
@@ -484,6 +494,15 @@ check_opencode_json_drift() {
 
   # Kimaki plugins dir — match what bridges/kimaki.sh::bridge_sync_config resolved.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  if declare -F opencode_install_claude_code_auth_plugin >/dev/null; then
+    opencode_install_claude_code_auth_plugin
+  fi
+  local CLAUDE_CODE_AUTH_PLUGIN=""
+  local claude_code_auth_args=()
+  if declare -F opencode_claude_code_auth_enabled >/dev/null && opencode_claude_code_auth_enabled; then
+    CLAUDE_CODE_AUTH_PLUGIN="$(opencode_claude_code_auth_plugin_path)"
+    claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
+  fi
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
   # exists. The primary RUNTIME may be `claude-code`, but the presence of
@@ -543,7 +562,11 @@ for item in data:
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
       managed_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
     fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR$managed_arg_display $MODE_FLAG"
+    local claude_auth_arg_display=""
+    if [ -n "$CLAUDE_CODE_AUTH_PLUGIN" ]; then
+      claude_auth_arg_display=" --claude-code-auth-plugin $CLAUDE_CODE_AUTH_PLUGIN"
+    fi
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$managed_arg_display $MODE_FLAG"
     local dry_out
     local managed_args=()
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
@@ -554,6 +577,7 @@ for item in data:
       --runtime "$RUNTIME_ARG" \
       --chat-bridge "$BRIDGE_ARG" \
       --kimaki-plugins-dir "$PLUGINS_DIR" \
+      "${claude_code_auth_args[@]}" \
       "${managed_args[@]}" 2>&1 || true)
     echo "$dry_out" | sed 's/^/    /'
     [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
@@ -570,6 +594,7 @@ for item in data:
     --runtime "$RUNTIME_ARG" \
     --chat-bridge "$BRIDGE_ARG" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
+    "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     "$MODE_FLAG" \
     --backup-suffix "$TIMESTAMP" 2>&1) && repair_rc=0 || repair_rc=$?

@@ -14,6 +14,44 @@ runtime_install() {
   _opencode_register_runtime_signature
 }
 
+opencode_claude_code_auth_enabled() {
+  [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 1
+  [ "${RUNTIME:-}" = "opencode" ] && return 0
+
+  local runtime
+  for runtime in "${DETECTED_RUNTIMES[@]:-}"; do
+    [ "$runtime" = "opencode" ] && return 0
+  done
+  return 1
+}
+
+opencode_claude_code_auth_plugins_dir() {
+  printf '%s/.opencode/plugins' "$SITE_PATH"
+}
+
+opencode_claude_code_auth_plugin_path() {
+  printf '%s/claude-code-auth.ts' "$(opencode_claude_code_auth_plugins_dir)"
+}
+
+opencode_install_claude_code_auth_plugin() {
+  opencode_claude_code_auth_enabled || return 0
+
+  local plugins_dir plugin_path source_path
+  plugins_dir="$(opencode_claude_code_auth_plugins_dir)"
+  plugin_path="$(opencode_claude_code_auth_plugin_path)"
+  source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install Claude Code auth OpenCode plugin at $plugin_path"
+    return 0
+  fi
+
+  mkdir -p "$plugins_dir"
+  cp "$source_path" "$plugin_path"
+  chmod 644 "$plugin_path"
+  UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
+}
+
 # _opencode_register_runtime_signature
 #
 # Publish opencode's worktree session-attribution env-var contract for the
@@ -169,6 +207,8 @@ runtime_generate_config() {
     fi
   fi
 
+  opencode_install_claude_code_auth_plugin
+
   # On existing opencode.json, delegate to the repair helper in --additive
   # mode. This adds managed plugin entries the user is missing and applies
   # the prompt → instructions migration (fixes Anthropic Claude Max OAuth,
@@ -191,17 +231,16 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
   fi
 
-  # OpenCode plugins. wp-coding-agents only manages plugins it owns end to
-  # end: dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges. The sync
-  # plugin refreshes composed memory files without mutating config.agent slots.
-  # opencode-claude-auth plugin is intentionally NOT installed on any bridge:
-  # Kimaki ships a built-in AnthropicAuthPlugin and non-kimaki bridges use
-  # opencode's native auth flow (`opencode auth login anthropic`). See
-  # Extra-Chill/wp-coding-agents#117.
+  # OpenCode plugins. The Data Machine prompt/memory plugins are managed on
+  # Kimaki bridges. Claude Code OAuth auth is an explicit OpenCode runtime
+  # opt-in so direct opencode sessions can use Claude Pro/Max subscription auth.
   OPENCODE_PLUGINS=""
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
+  fi
+  if opencode_claude_code_auth_enabled; then
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"$(opencode_claude_code_auth_plugin_path)\","
   fi
 
   if [ -n "$OPENCODE_PLUGINS" ]; then
@@ -273,6 +312,8 @@ _runtime_repair_opencode_json_additive() {
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
   local PLUGINS_DIR="${KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local CLAUDE_CODE_AUTH_PLUGIN=""
+  local claude_code_auth_args=()
   local SUFFIX
   SUFFIX="$(date +%Y%m%d-%H%M%S)"
   local MANAGED_INSTRUCTIONS_FILE=""
@@ -281,6 +322,10 @@ _runtime_repair_opencode_json_additive() {
     MANAGED_INSTRUCTIONS_FILE=$(mktemp)
     printf '%s\n' "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
     managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+  fi
+  if opencode_claude_code_auth_enabled; then
+    CLAUDE_CODE_AUTH_PLUGIN="$(opencode_claude_code_auth_plugin_path)"
+    claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
 
   log "opencode.json already exists — running additive repair..."
@@ -291,6 +336,7 @@ _runtime_repair_opencode_json_additive() {
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
+    "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     --additive \
     --backup-suffix "$SUFFIX" 2>&1) && repair_rc=0 || repair_rc=$?

@@ -182,4 +182,31 @@ if data.get("instructions") != expected:
 PY
 grep -q '"instruction_sync": "synced"' "$TMP/managed-instructions.out"
 
+cat > "$TMP/claude-code-auth-plugin.json" <<'JSON'
+{
+  "plugin": []
+}
+JSON
+
+python3 "$REPAIR" \
+  --file "$TMP/claude-code-auth-plugin.json" \
+  --runtime opencode \
+  --chat-bridge none \
+  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --claude-code-auth-plugin /srv/site/.opencode/plugins/claude-code-auth.ts \
+  --additive > "$TMP/claude-code-auth-plugin.out"
+
+python3 - "$TMP/claude-code-auth-plugin.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+expected = ["/srv/site/.opencode/plugins/claude-code-auth.ts"]
+if data.get("plugin") != expected:
+    raise SystemExit(f"unexpected claude code auth plugin paths: {data.get('plugin')}")
+PY
+grep -q '"status": "additive_repaired"' "$TMP/claude-code-auth-plugin.out"
+
 echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"
