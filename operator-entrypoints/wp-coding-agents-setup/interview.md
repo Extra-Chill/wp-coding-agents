@@ -22,6 +22,7 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    Ask which runtime or runtimes the user wants:
    - `opencode`
    - `claude-code`
+   - `codex`
    - `multiple`
 
    If they choose multiple, collect the desired runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
@@ -34,10 +35,12 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - `none` — terminal/SSH/manual only.
    - `auto` — let setup choose the default bridge for the runtime.
 
+   Codex currently has no managed chat bridge in wp-coding-agents; use `none` or `auto` for Codex unless the setup script grows a Codex bridge.
+
    For Telegram, collect whether `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are available.
 
-5. **Codex / gateway path**
-   Ask this only when the user mentions Codex, Codebox minions, OpenCode/Kimaki external clients, or WP AI Gateway.
+5. **Codebox / gateway path**
+   Ask this only when the user mentions Codebox minions, OpenCode/Kimaki external clients, or WP AI Gateway. Plain Codex runtime selection is handled by the runtime axis above and does not require a provider/gateway path.
 
    Record one of:
    - `codebox-minions` — provider auth is inherited inside Codebox; WP AI Gateway is not required.
@@ -73,7 +76,7 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "migration_backups_ready": false
   },
   "runtime": {
-    "selection": "auto | opencode | claude-code | multiple",
+    "selection": "auto | opencode | claude-code | codex | multiple",
     "runtimes": []
   },
   "chat_bridge": {

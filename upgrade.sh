@@ -264,7 +264,8 @@ fi
 
 # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
 # full list (drives multi-runtime skills install); RUNTIME is the primary
-# (first-match cascade). Explicit --runtime narrows to a single runtime.
+# (first-match cascade: claude-code > opencode > codex). Explicit --runtime
+# narrows to a single runtime.
 if [ -n "$RUNTIME" ]; then
   DETECTED_RUNTIMES=("$RUNTIME")
 else
@@ -273,6 +274,9 @@ else
   fi
   if command -v opencode &>/dev/null; then
     DETECTED_RUNTIMES+=("opencode")
+  fi
+  if command -v codex &>/dev/null; then
+    DETECTED_RUNTIMES+=("codex")
   fi
   if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
     warn "No runtime binary found — defaulting to opencode"
@@ -296,7 +300,13 @@ detect_environment
 # bridge_detect_vps for the full probe order (launchd plists + command -v
 # on local; systemd unit files on VPS). Priority order is set by
 # BRIDGE_DETECTION_ORDER in _dispatch.sh: kimaki > cc-connect > telegram.
-if [ "$LOCAL_MODE" = true ]; then
+#
+# Codex has no managed bridge in wp-coding-agents today. An explicit
+# `--runtime codex` upgrade should sync Codex-owned files only, not pick up an
+# unrelated local Kimaki/cc-connect install and rewrite its config.
+if [ "$RUNTIME" = "codex" ]; then
+  CHAT_BRIDGE=""
+elif [ "$LOCAL_MODE" = true ]; then
   CHAT_BRIDGE=$(bridge_detect_local)
 else
   CHAT_BRIDGE=$(bridge_detect_vps)
@@ -666,7 +676,9 @@ regenerate_agents_md() {
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
-    echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
+    if _runtime_detected opencode; then
+      echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
+    fi
     return 0
   fi
 
@@ -703,13 +715,13 @@ regenerate_agents_md() {
     fi
   fi
 
-  # Symlink CLAUDE.md → AGENTS.md so Claude-model sessions get the same DM context.
+  # Symlink CLAUDE.md → AGENTS.md so Claude-model OpenCode sessions get the same DM context.
   # OpenCode reads both filenames from the cwd glob (AGENTS.md, CLAUDE.md, CONTEXT.md),
   # Claude Code reads only CLAUDE.md. Symlink keeps both runtimes covered without
   # duplicating content or risking drift on AGENTS.md regeneration. Relative target
   # ensures the symlink survives directory moves.
   # See: Extra-Chill/wp-coding-agents#108
-  if [ -f "$AGENTS_MD" ]; then
+  if [ -f "$AGENTS_MD" ] && _runtime_detected opencode; then
     # Skip if CLAUDE.md exists as a regular file (e.g. claude-code runtime
     # generates its own CLAUDE.md from a template — don't clobber it).
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
@@ -719,6 +731,15 @@ regenerate_agents_md() {
       log "  CLAUDE.md exists as a regular file — leaving it alone (runtime-managed)"
     fi
   fi
+}
+
+_runtime_detected() {
+  local candidate="$1"
+  local runtime
+  for runtime in "${DETECTED_RUNTIMES[@]:-}"; do
+    [ "$runtime" = "$candidate" ] && return 0
+  done
+  [ "${RUNTIME:-}" = "$candidate" ]
 }
 
 # ============================================================================
@@ -838,6 +859,54 @@ sync_claude_code_runtime() {
   runtime_install_hooks
 }
 
+sync_runtime_signature() {
+  _run_filter_active patch || return 0
+
+  _runtime_detected codex || return 0
+
+  local codex_runtime_file="$SCRIPT_DIR/runtimes/codex.sh"
+  if ! declare -F _codex_register_runtime_signature >/dev/null; then
+    # shellcheck disable=SC1090
+    source "$codex_runtime_file"
+  fi
+
+  if declare -F _codex_register_runtime_signature >/dev/null; then
+    log "Phase 5c: Syncing Codex runtime signature..."
+    _codex_register_runtime_signature
+  fi
+
+  if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$RUNTIME_FILE"
+  fi
+}
+
+sync_runtime_instructions() {
+  _run_filter_active agents-md || return 0
+
+  if _runtime_detected codex; then
+    local codex_runtime_file="$SCRIPT_DIR/runtimes/codex.sh"
+    if [ "$RUNTIME" != "codex" ]; then
+      # shellcheck disable=SC1090
+      source "$codex_runtime_file"
+    fi
+    if declare -F runtime_sync_instructions >/dev/null; then
+      log "Phase 5d: Syncing Codex runtime instructions..."
+      runtime_sync_instructions
+    fi
+    if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
+      # shellcheck disable=SC1090
+      source "$RUNTIME_FILE"
+    fi
+    return 0
+  fi
+
+  if declare -F runtime_sync_instructions >/dev/null; then
+    log "Phase 5d: Syncing $RUNTIME runtime instructions..."
+    runtime_sync_instructions
+  fi
+}
+
 # ============================================================================
 # Phase 6: Smart systemd update (merges host-specific Environment= lines)
 #   Dispatches to the active bridge's bridge_update_systemd hook (and
@@ -896,7 +965,7 @@ remove_legacy_opencode_wrapper_phase() {
   _run_filter_active patch || return 0
 
   if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "kimaki" ]; then
-    log "Phase 7: Skipping (runtime is $RUNTIME and chat bridge is $CHAT_BRIDGE)"
+    log "Phase 7: Skipping (runtime is $RUNTIME and chat bridge is ${CHAT_BRIDGE:-none})"
     return 0
   fi
 
@@ -916,6 +985,14 @@ remove_legacy_opencode_wrapper_phase() {
   # actually differs from what is already on disk.
   if declare -F _opencode_register_runtime_signature >/dev/null; then
     _opencode_register_runtime_signature
+  fi
+
+  # This phase may source runtimes/opencode.sh for helper access even when the
+  # primary runtime is something else. Restore the selected runtime functions
+  # so summary/verification paths still come from the active runtime.
+  if [ "$RUNTIME" != "opencode" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$RUNTIME_FILE"
   fi
 }
 
@@ -1040,6 +1117,8 @@ ai_gateway_configure_opencode
 sync_skills
 regenerate_agents_md
 sync_claude_code_runtime
+sync_runtime_signature
+sync_runtime_instructions
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 remove_legacy_opencode_wrapper_phase

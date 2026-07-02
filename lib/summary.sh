@@ -254,6 +254,11 @@ _print_bare_runtime_start() {
   echo ""
 }
 _print_bare_runtime_cmd() {
+  if declare -F runtime_start_cmd >/dev/null; then
+    echo "    $(runtime_start_cmd)"
+    return
+  fi
+
   if [ "$RUNTIME" = "claude-code" ]; then
     echo "    cd $SITE_PATH && claude"
   else

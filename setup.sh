@@ -62,6 +62,7 @@ WITH_HOMEBOY=false
 WITH_AI_GATEWAY=false
 ROTATE_AI_GATEWAY_TOKEN=false
 RUNTIME=""
+CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
@@ -101,6 +102,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --chat)
       CHAT_BRIDGE="$2"
+      CHAT_BRIDGE_EXPLICIT=true
       shift 2
       ;;
     --skip-ssl)
@@ -205,6 +207,7 @@ USAGE:
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
   Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
   With Claude Code:   ./setup.sh --runtime claude-code --existing
+  With Codex:         ./setup.sh --runtime codex --existing --no-chat
 
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
@@ -218,7 +221,7 @@ OPTIONS:
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki for opencode,
-                     cc-connect for claude-code)
+                     cc-connect for claude-code, none for codex)
                      Supported: kimaki (Discord), cc-connect, telegram
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
@@ -303,10 +306,10 @@ fi
 #
 # RUNTIME is the "primary" runtime — the one that drives runtime_install,
 # runtime_generate_config, runtime_install_hooks, and the chat-bridge default.
-# First-match cascade: claude-code > opencode.
+# First-match cascade: claude-code > opencode > codex.
 #
 # DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
-# machine with both claude and opencode installed, the upgrade skill gets
+# machine with claude, opencode, and codex installed, the upgrade skill gets
 # installed into every detected runtime's skills dir (see install_skills in lib/skills.sh).
 # Explicit --runtime <name> narrows both lists to that single runtime.
 if [ -n "$RUNTIME" ]; then
@@ -318,6 +321,9 @@ else
   fi
   if command -v opencode &>/dev/null; then
     DETECTED_RUNTIMES+=("opencode")
+  fi
+  if command -v codex &>/dev/null; then
+    DETECTED_RUNTIMES+=("codex")
   fi
   if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
     # Nothing installed yet — default to opencode (will be installed).
@@ -338,8 +344,17 @@ source "$RUNTIME_FILE"
 if [ -z "$CHAT_BRIDGE" ]; then
   case "$RUNTIME" in
     claude-code) CHAT_BRIDGE="cc-connect" ;;
+    codex)       INSTALL_CHAT=false ;;
     *)                       CHAT_BRIDGE="kimaki" ;;
   esac
+fi
+
+if [ "$RUNTIME" = "codex" ] && [ "$INSTALL_CHAT" = true ]; then
+  if [ "$CHAT_BRIDGE_EXPLICIT" = true ]; then
+    error "Codex runtime does not currently support chat bridges; use --no-chat or omit --chat."
+  fi
+  INSTALL_CHAT=false
+  CHAT_BRIDGE=""
 fi
 
 # ============================================================================
