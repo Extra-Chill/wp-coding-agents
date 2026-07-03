@@ -458,6 +458,38 @@ sync_chat_bridge_config() {
 # All other keys are preserved. A .backup.<ts> is written alongside.
 # ============================================================================
 
+upgrade_opencode_claude_code_auth_plugin_path() {
+  printf '%s/.opencode/plugins/claude-code-auth.ts' "$SITE_PATH"
+}
+
+upgrade_install_opencode_claude_code_auth_plugin() {
+  [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 0
+
+  local plugin_path plugins_dir source_path
+  plugin_path="$(upgrade_opencode_claude_code_auth_plugin_path)"
+  plugins_dir="$(dirname "$plugin_path")"
+  source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"
+
+  if [ ! -f "$source_path" ]; then
+    warn "Phase 3b: $source_path not found — skipping Claude Code auth OpenCode plugin sync"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install Claude Code auth OpenCode plugin at $plugin_path"
+    return 0
+  fi
+
+  mkdir -p "$plugins_dir"
+  if [ -f "$plugin_path" ] && cmp -s "$source_path" "$plugin_path"; then
+    return 0
+  fi
+
+  cp "$source_path" "$plugin_path"
+  chmod 644 "$plugin_path"
+  UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
+}
+
 check_opencode_json_drift() {
   _run_filter_active opencode-json || return 0
 
@@ -494,13 +526,11 @@ check_opencode_json_drift() {
 
   # Kimaki plugins dir — match what bridges/kimaki.sh::bridge_sync_config resolved.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  if declare -F opencode_install_claude_code_auth_plugin >/dev/null; then
-    opencode_install_claude_code_auth_plugin
-  fi
+  upgrade_install_opencode_claude_code_auth_plugin
   local CLAUDE_CODE_AUTH_PLUGIN=""
   local claude_code_auth_args=()
-  if declare -F opencode_claude_code_auth_enabled >/dev/null && opencode_claude_code_auth_enabled; then
-    CLAUDE_CODE_AUTH_PLUGIN="$(opencode_claude_code_auth_plugin_path)"
+  if [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ]; then
+    CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
 
