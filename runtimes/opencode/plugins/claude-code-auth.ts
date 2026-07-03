@@ -15,6 +15,7 @@ type OAuthSuccess = { type: "success"; refresh: string; access: string; expires:
 type CallbackResult = { code: string; state: string };
 type AccountRecord = OAuthStored & { addedAt: number; lastUsed: number };
 type AccountStore = { version: number; activeIndex: number; accounts: AccountRecord[] };
+type RefreshFailure = { auth: OAuthStored; error: unknown };
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
@@ -23,6 +24,8 @@ const CALLBACK_PATH = "/callback";
 const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const REFRESH_LOCK_TIMEOUT_MS = 15_000;
+const REFRESH_LOCK_STALE_MS = 2 * 60 * 1000;
 const CLAUDE_CODE_VERSION = "2.1.75";
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OPENCODE_IDENTITY = "You are OpenCode, the best coding agent on the planet.";
@@ -59,6 +62,10 @@ function accountsFilePath() {
   return path.join(homedir(), ".local", "share", "opencode", "anthropic-oauth-accounts.json");
 }
 
+function refreshLockPath() {
+  return `${authFilePath()}.anthropic-refresh.lock`;
+}
+
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
   try { return JSON.parse(await fs.readFile(filePath, "utf8")) as T; } catch { return fallback; }
 }
@@ -74,6 +81,15 @@ async function writeAnthropicAuth(auth: OAuthStored) {
   const data = await readJson<Record<string, unknown>>(file, {});
   data.anthropic = auth;
   await writeJson(file, data);
+}
+
+async function readAnthropicAuth() {
+  const data = await readJson<Record<string, unknown>>(authFilePath(), {});
+  const auth = data.anthropic;
+  if (!auth || typeof auth !== "object") return undefined;
+  const candidate = auth as Partial<OAuthStored>;
+  if (candidate.type !== "oauth" || typeof candidate.refresh !== "string" || typeof candidate.access !== "string" || typeof candidate.expires !== "number") return undefined;
+  return candidate as OAuthStored;
 }
 
 function normalizeAccountStore(input: Partial<AccountStore> | null | undefined): AccountStore {
@@ -95,6 +111,38 @@ async function saveAccountStore(store: AccountStore) {
   await writeJson(accountsFilePath(), normalizeAccountStore(store));
 }
 
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRefreshLock<T>(action: () => Promise<T>): Promise<T> {
+  const lockPath = refreshLockPath();
+  const started = Date.now();
+  while (true) {
+    try {
+      await fs.mkdir(lockPath, { recursive: false });
+      await fs.writeFile(path.join(lockPath, "owner"), `${process.pid}\n${new Date().toISOString()}\n`, "utf8");
+      break;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== "EEXIST") throw error;
+      const stat = await fs.stat(lockPath).catch(() => undefined);
+      if (stat && Date.now() - stat.mtimeMs > REFRESH_LOCK_STALE_MS) {
+        await fs.rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() - started > REFRESH_LOCK_TIMEOUT_MS) throw new Error("Timed out waiting for Anthropic OAuth refresh lock");
+      await sleep(100);
+    }
+  }
+
+  try {
+    return await action();
+  } finally {
+    await fs.rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
+  }
+}
+
 function findCurrentAccountIndex(store: AccountStore, auth: OAuthStored) {
   if (!store.accounts.length) return 0;
   const byRefresh = store.accounts.findIndex((account) => account.refresh === auth.refresh);
@@ -102,6 +150,25 @@ function findCurrentAccountIndex(store: AccountStore, auth: OAuthStored) {
   const byAccess = store.accounts.findIndex((account) => account.access === auth.access);
   if (byAccess >= 0) return byAccess;
   return store.activeIndex;
+}
+
+function sameOAuth(a: OAuthStored | undefined, b: OAuthStored | undefined) {
+  return !!a && !!b && a.refresh === b.refresh && a.access === b.access;
+}
+
+function usableAccessToken(auth: OAuthStored | undefined) {
+  return !!auth?.access && auth.expires > Date.now();
+}
+
+function dedupeOAuthCandidates(candidates: Array<OAuthStored | undefined>) {
+  const seen = new Set<string>();
+  return candidates.filter((candidate): candidate is OAuthStored => {
+    if (!candidate) return false;
+    const key = `${candidate.refresh}\n${candidate.access}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function upsertAccount(store: AccountStore, auth: OAuthStored, now = Date.now()) {
@@ -149,6 +216,22 @@ function shouldRotateAuth(status: number, bodyText: string) {
   const haystack = bodyText.toLowerCase();
   if (status === 429 || status === 401 || status === 403) return true;
   return haystack.includes("rate_limit") || haystack.includes("rate limit") || haystack.includes("usage limit") || haystack.includes("usage_limit") || haystack.includes("usage_limit_reached") || haystack.includes("usage_not_included") || haystack.includes("invalid api key") || haystack.includes("authentication_error") || haystack.includes("permission_error");
+}
+
+function refreshFailureText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isInvalidGrantFailure(error: unknown) {
+  const haystack = refreshFailureText(error).toLowerCase();
+  return haystack.includes("invalid_grant") || haystack.includes("invalid refresh") || haystack.includes("refresh token") || (haystack.includes("http 400") && haystack.includes(TOKEN_URL));
+}
+
+function summarizeRefreshFailures(failures: RefreshFailure[]) {
+  const last = failures[failures.length - 1];
+  const detail = last ? refreshFailureText(last.error).replace(/sk-ant-[A-Za-z0-9_.\-]+/g, "sk-ant-[redacted]").replace(/rt\.1\.[A-Za-z0-9_.\-]+/g, "rt.1.[redacted]") : "unknown error";
+  const invalid = failures.some((failure) => isInvalidGrantFailure(failure.error));
+  return `Anthropic OAuth refresh failed for ${failures.length} stored credential${failures.length === 1 ? "" : "s"}${invalid ? " (invalid_grant detected)" : ""}. Re-run OpenCode auth if no other account can refresh. Last error: ${detail}`;
 }
 
 function base64urlEncode(bytes: Uint8Array): string {
@@ -513,15 +596,49 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
   const auth = await getAuth();
   if (auth.type !== "oauth") return undefined;
   const oauth = auth as OAuthStored;
-  if (oauth.access && oauth.expires > Date.now()) return oauth;
-  const refreshed = await refreshAnthropicToken(oauth.refresh);
-  await writeAnthropicAuth(refreshed);
-  const store = await loadAccountStore();
-  if (store.accounts.length > 0) {
-    upsertAccount(store, refreshed);
-    await saveAccountStore(store);
+  if (usableAccessToken(oauth)) return oauth;
+
+  return withRefreshLock(async () => {
+    const latest = await readAnthropicAuth();
+    if (usableAccessToken(latest)) return latest;
+
+    const store = await loadAccountStore();
+    const active = store.accounts[store.activeIndex];
+    const candidates = dedupeOAuthCandidates([latest, oauth, active, ...store.accounts]);
+    const failures: RefreshFailure[] = [];
+
+    for (const candidate of candidates) {
+      try {
+        const refreshed = await refreshAnthropicToken(candidate.refresh);
+        await writeAnthropicAuth(refreshed);
+        upsertAccount(store, refreshed);
+        await saveAccountStore(store);
+        return refreshed;
+      } catch (error) {
+        failures.push({ auth: candidate, error });
+        if (!isInvalidGrantFailure(error)) break;
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(summarizeRefreshFailures(failures));
+    }
+
+    throw new Error("Anthropic OAuth refresh failed: no stored OAuth credentials were available");
+  });
+}
+
+async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type: string }>) {
+  try {
+    return await getFreshOAuth(getAuth);
+  } catch (error) {
+    const auth = await readAnthropicAuth();
+    if (auth) {
+      const rotated = await rotateAnthropicAccount(auth);
+      if (rotated && !sameOAuth(rotated, auth)) return rotated;
+    }
+    throw error;
   }
-  return refreshed;
 }
 
 const claudeCodeAuthPlugin: Plugin = async () => ({
@@ -538,7 +655,7 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
           if (!url || !ANTHROPIC_HOSTS.has(url.hostname)) return fetch(input, init);
           const originalBody = typeof init?.body === "string" ? init.body : input instanceof Request ? await input.clone().text().catch(() => undefined) : undefined;
           const rewritten = rewriteRequestPayload(originalBody);
-          const freshAuth = await getFreshOAuth(getAuth);
+          const freshAuth = await getFreshOAuthOrRotate(getAuth);
           if (!freshAuth) return fetch(input, init);
           const headers = new Headers(init?.headers);
           if (input instanceof Request) input.headers.forEach((value, key) => { if (!headers.has(key)) headers.set(key, value); });
