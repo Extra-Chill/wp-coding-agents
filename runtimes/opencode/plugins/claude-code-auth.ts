@@ -16,6 +16,7 @@ type CallbackResult = { code: string; state: string };
 type AccountRecord = OAuthStored & { addedAt: number; lastUsed: number };
 type AccountStore = { version: number; activeIndex: number; accounts: AccountRecord[] };
 type RefreshFailure = { auth: OAuthStored; error: unknown };
+type AuthSyncClient = { auth?: { set?: (input: { providerID: string; auth: OAuthStored }) => Promise<unknown> } };
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
@@ -81,6 +82,11 @@ async function writeAnthropicAuth(auth: OAuthStored) {
   const data = await readJson<Record<string, unknown>>(file, {});
   data.anthropic = auth;
   await writeJson(file, data);
+}
+
+async function setAnthropicAuth(auth: OAuthStored, client?: AuthSyncClient) {
+  await writeAnthropicAuth(auth);
+  await client?.auth?.set?.({ providerID: "anthropic", auth }).catch(() => undefined);
 }
 
 async function readAnthropicAuth() {
@@ -201,7 +207,7 @@ async function rememberAnthropicOAuth(auth: OAuthStored) {
   await saveAccountStore(store);
 }
 
-async function rotateAnthropicAccount(auth: OAuthStored) {
+async function rotateAnthropicAccount(auth: OAuthStored, client?: AuthSyncClient) {
   const store = await loadAccountStore();
   if (store.accounts.length < 2) return undefined;
 
@@ -219,7 +225,7 @@ async function rotateAnthropicAccount(auth: OAuthStored) {
     access: nextAccount.access,
     expires: nextAccount.expires,
   };
-  await writeAnthropicAuth(nextAuth);
+  await setAnthropicAuth(nextAuth, client);
   return nextAuth;
 }
 
@@ -603,7 +609,7 @@ function mergeBetas(existing: string | null, required: string[]) {
   return [...new Set([...required, ...(existing || "").split(",").map((s) => s.trim()).filter(Boolean)])].join(",");
 }
 
-async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string }>) {
+async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string }>, client?: AuthSyncClient) {
   const auth = await getAuth();
   if (auth.type !== "oauth") return undefined;
   const oauth = auth as OAuthStored;
@@ -621,7 +627,7 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
     for (const candidate of candidates) {
       try {
         const refreshed = await refreshAnthropicToken(candidate.refresh);
-        await writeAnthropicAuth(refreshed);
+        await setAnthropicAuth(refreshed, client);
         replaceAccount(store, candidate, refreshed);
         await saveAccountStore(store);
         return refreshed;
@@ -639,44 +645,46 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
   });
 }
 
-async function refreshOAuthAfterAuthFailure(auth: OAuthStored) {
+async function refreshOAuthAfterAuthFailure(auth: OAuthStored, client?: AuthSyncClient) {
   return withRefreshLock(async () => {
     const latest = await readAnthropicAuth();
     if (latest && !sameOAuth(latest, auth) && usableAccessToken(latest)) return latest;
 
     const store = await loadAccountStore();
     const refreshed = await refreshAnthropicToken(auth.refresh);
-    await writeAnthropicAuth(refreshed);
+    await setAnthropicAuth(refreshed, client);
     replaceAccount(store, auth, refreshed);
     await saveAccountStore(store);
     return refreshed;
   });
 }
 
-async function rotateAndRefreshAnthropicAccount(auth: OAuthStored) {
-  const rotated = await rotateAnthropicAccount(auth);
+async function rotateAndRefreshAnthropicAccount(auth: OAuthStored, client?: AuthSyncClient) {
+  const rotated = await rotateAnthropicAccount(auth, client);
   if (!rotated || sameOAuth(rotated, auth)) return undefined;
   try {
-    return await refreshOAuthAfterAuthFailure(rotated);
+    return await refreshOAuthAfterAuthFailure(rotated, client);
   } catch {
     return undefined;
   }
 }
 
-async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type: string }>) {
+async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type: string }>, client?: AuthSyncClient) {
   try {
-    return await getFreshOAuth(getAuth);
+    return await getFreshOAuth(getAuth, client);
   } catch (error) {
     const auth = await readAnthropicAuth();
     if (auth) {
-      const rotated = await rotateAndRefreshAnthropicAccount(auth);
+      const rotated = await rotateAndRefreshAnthropicAccount(auth, client);
       if (rotated && !sameOAuth(rotated, auth)) return rotated;
     }
     throw error;
   }
 }
 
-const claudeCodeAuthPlugin: Plugin = async () => ({
+const claudeCodeAuthPlugin: Plugin = async (input) => {
+  const client = input.client as AuthSyncClient | undefined;
+  return {
   auth: {
     provider: "anthropic",
     async loader(getAuth: () => Promise<OAuthStored | { type: string }>, provider: { models: Record<string, { cost?: unknown }> }) {
@@ -690,7 +698,7 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
           if (!url || !ANTHROPIC_HOSTS.has(url.hostname)) return fetch(input, init);
           const originalBody = typeof init?.body === "string" ? init.body : input instanceof Request ? await input.clone().text().catch(() => undefined) : undefined;
           const rewritten = rewriteRequestPayload(originalBody);
-          const freshAuth = await getFreshOAuthOrRotate(getAuth);
+          const freshAuth = await getFreshOAuthOrRotate(getAuth, client);
           if (!freshAuth) return fetch(input, init);
           const headers = new Headers(init?.headers);
           if (input instanceof Request) input.headers.forEach((value, key) => { if (!headers.has(key)) headers.set(key, value); });
@@ -705,7 +713,7 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
           if (!response.ok) {
             const bodyText = await response.clone().text().catch(() => "");
             if (shouldRotateAuth(response.status, bodyText)) {
-              const refreshed = await refreshOAuthAfterAuthFailure(freshAuth).catch(() => undefined);
+              const refreshed = await refreshOAuthAfterAuthFailure(freshAuth, client).catch(() => undefined);
               if (refreshed) {
                 headers.set("authorization", `Bearer ${refreshed.access}`);
                 response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
@@ -715,7 +723,7 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
           if (!response.ok) {
             const bodyText = await response.clone().text().catch(() => "");
             if (shouldRotateAuth(response.status, bodyText)) {
-              const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth);
+              const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth, client);
               if (rotated) {
                 headers.set("authorization", `Bearer ${rotated.access}`);
                 response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
@@ -731,6 +739,7 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
       { provider: "anthropic", label: "Manually enter API Key", type: "api" },
     ],
   },
-});
+  };
+};
 
 export { claudeCodeAuthPlugin };
