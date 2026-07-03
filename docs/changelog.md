@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.4] - 2026-07-03
+
+### Fixed
+- sync OpenCode auth state on account rotation
+
 ## [1.8.3] - 2026-07-03
 
 ### Fixed
