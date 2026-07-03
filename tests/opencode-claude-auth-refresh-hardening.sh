@@ -23,5 +23,11 @@ require_source "function isInvalidGrantFailure" "invalid_grant refresh failure c
 require_source "const candidates = dedupeOAuthCandidates([latest, oauth, active, ...store.accounts])" "remembered account retry candidates"
 require_source "summarizeRefreshFailures" "redacted refresh failure diagnostics"
 require_source "getFreshOAuthOrRotate" "request path refresh fallback wrapper"
+require_source "function replaceAccount" "rotated refresh token replaces stale account entry"
+require_source "replaceAccount(store, candidate, refreshed)" "normal refresh replaces stale account entry"
+require_source "async function refreshOAuthAfterAuthFailure" "auth failure refresh retry helper"
+require_source "async function rotateAndRefreshAnthropicAccount" "rotated account refresh helper"
+require_source "const refreshed = await refreshOAuthAfterAuthFailure(freshAuth).catch(() => undefined)" "401 retry refreshes current credential"
+require_source "const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth)" "401 retry refreshes rotated credential"
 
 echo "PASS: tests/opencode-claude-auth-refresh-hardening.sh"

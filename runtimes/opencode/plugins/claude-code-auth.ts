@@ -184,6 +184,17 @@ function upsertAccount(store: AccountStore, auth: OAuthStored, now = Date.now())
   store.activeIndex = index;
 }
 
+function replaceAccount(store: AccountStore, previous: OAuthStored, next: OAuthStored, now = Date.now()) {
+  const index = store.accounts.findIndex((account) => account.refresh === previous.refresh || account.access === previous.access || account.refresh === next.refresh || account.access === next.access);
+  if (index < 0) {
+    upsertAccount(store, next, now);
+    return;
+  }
+  const existing = store.accounts[index];
+  store.accounts[index] = { ...next, addedAt: existing?.addedAt ?? now, lastUsed: now };
+  store.activeIndex = index;
+}
+
 async function rememberAnthropicOAuth(auth: OAuthStored) {
   const store = await loadAccountStore();
   upsertAccount(store, auth);
@@ -611,7 +622,7 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
       try {
         const refreshed = await refreshAnthropicToken(candidate.refresh);
         await writeAnthropicAuth(refreshed);
-        upsertAccount(store, refreshed);
+        replaceAccount(store, candidate, refreshed);
         await saveAccountStore(store);
         return refreshed;
       } catch (error) {
@@ -628,13 +639,37 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
   });
 }
 
+async function refreshOAuthAfterAuthFailure(auth: OAuthStored) {
+  return withRefreshLock(async () => {
+    const latest = await readAnthropicAuth();
+    if (latest && !sameOAuth(latest, auth) && usableAccessToken(latest)) return latest;
+
+    const store = await loadAccountStore();
+    const refreshed = await refreshAnthropicToken(auth.refresh);
+    await writeAnthropicAuth(refreshed);
+    replaceAccount(store, auth, refreshed);
+    await saveAccountStore(store);
+    return refreshed;
+  });
+}
+
+async function rotateAndRefreshAnthropicAccount(auth: OAuthStored) {
+  const rotated = await rotateAnthropicAccount(auth);
+  if (!rotated || sameOAuth(rotated, auth)) return undefined;
+  try {
+    return await refreshOAuthAfterAuthFailure(rotated);
+  } catch {
+    return undefined;
+  }
+}
+
 async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type: string }>) {
   try {
     return await getFreshOAuth(getAuth);
   } catch (error) {
     const auth = await readAnthropicAuth();
     if (auth) {
-      const rotated = await rotateAnthropicAccount(auth);
+      const rotated = await rotateAndRefreshAnthropicAccount(auth);
       if (rotated && !sameOAuth(rotated, auth)) return rotated;
     }
     throw error;
@@ -670,7 +705,17 @@ const claudeCodeAuthPlugin: Plugin = async () => ({
           if (!response.ok) {
             const bodyText = await response.clone().text().catch(() => "");
             if (shouldRotateAuth(response.status, bodyText)) {
-              const rotated = await rotateAnthropicAccount(freshAuth);
+              const refreshed = await refreshOAuthAfterAuthFailure(freshAuth).catch(() => undefined);
+              if (refreshed) {
+                headers.set("authorization", `Bearer ${refreshed.access}`);
+                response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
+              }
+            }
+          }
+          if (!response.ok) {
+            const bodyText = await response.clone().text().catch(() => "");
+            if (shouldRotateAuth(response.status, bodyText)) {
+              const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth);
               if (rotated) {
                 headers.set("authorization", `Bearer ${rotated.access}`);
                 response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
