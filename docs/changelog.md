@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.1] - 2026-07-03
+
+### Fixed
+- harden OpenCode Anthropic OAuth refresh
+
 ## [1.8.0] - 2026-07-02
 
 ### Added
