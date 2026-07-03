@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.3] - 2026-07-03
+
+### Fixed
+- refresh Anthropic OAuth after auth failures
+
 ## [1.8.2] - 2026-07-03
 
 ### Fixed
