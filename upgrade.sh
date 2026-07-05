@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -225,6 +225,10 @@ DEFAULT TOUCHES:
     bridges) and migrates "agent.build.prompt" to top-level "instructions"
     (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
     Preserves all other keys. Writes a .backup.<ts> alongside.
+  - AGENTS.md.backup.* — prunes old generated backups after successful
+    AGENTS.md regeneration. Defaults: keep latest 5 and remove older extras
+    after 30 days. Override with AGENTS_MD_BACKUP_KEEP and
+    AGENTS_MD_BACKUP_MAX_AGE_DAYS.
 
 OPT-IN TOUCHES:
   - opencode.json (--repair-opencode-json) — full reconcile. In addition
@@ -766,6 +770,7 @@ regenerate_agents_md() {
       fi
       UPDATED_ITEMS+=("AGENTS.md")
     fi
+    agents_md_prune_backups "$SITE_PATH"
   else
     warn "  datamachine memory compose failed — AGENTS.md unchanged"
     # Restore from backup if compose wrote a partial file
