@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.5] - 2026-07-05
+
+### Fixed
+- allow non-root upgrade identity adoption
+
 ## [1.8.4] - 2026-07-03
 
 ### Fixed
