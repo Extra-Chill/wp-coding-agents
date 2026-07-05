@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.6] - 2026-07-05
+
+### Fixed
+- prune AGENTS.md upgrade backups
+
 ## [1.8.5] - 2026-07-05
 
 ### Fixed
