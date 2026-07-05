@@ -107,7 +107,7 @@ jobs:
         run: ./tests/agents-md-guidance.sh
 
   homeboy-agents-md:
-    name: Homeboy CLI command map (#208)
+    name: Homeboy CLI command map (#208, #254)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

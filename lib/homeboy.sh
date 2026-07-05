@@ -391,11 +391,14 @@ homeboy_handle_failure() {
 }
 
 sync_homeboy_agents_md_guidance() {
-  # The Homeboy CLI command map is presence-gated on `command -v homeboy` and
-  # regenerated from `homeboy --help` every sync, so a homeboy version bump
-  # auto-refreshes the map. When homeboy is absent it is a complete no-op
-  # (any stale section is removed) — the section's presence is itself the
-  # signal that homeboy is callable on this host.
+  # The Homeboy CLI command map is presence-gated on `command -v homeboy`.
+  # Since #254 the section is registered as a LIVE-enumeration block: its
+  # mu-plugin callback shells out to `homeboy --help` at AGENTS.md compose
+  # time and parses the Commands: block in PHP (cached briefly on the binary
+  # mtime + version). A `homeboy upgrade` therefore converges on the next
+  # compose WITHOUT a wp-coding-agents sync — this function just keeps the
+  # section block registered (or removes it when homeboy is absent, which
+  # is itself the signal that homeboy is not callable on this host).
   if declare -F agents_md_guidance_sync_homeboy_cli >/dev/null; then
     agents_md_guidance_sync_homeboy_cli
   fi

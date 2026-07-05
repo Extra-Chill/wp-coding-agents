@@ -1,14 +1,28 @@
 #!/bin/bash
 # tests/homeboy-agents-md.sh — Regression coverage for the presence-gated
-# Homeboy CLI command map (issue #208).
+# Homeboy CLI command map (issues #208, #254).
 #
-# The map is generated from `homeboy --help` and is strictly presence-gated:
-#   - homeboy present  -> a `homeboy-cli` section is emitted with the real
-#                         top-level commands + summaries parsed from --help.
-#   - homeboy absent    -> complete no-op: no section, no stub, no warning.
+# Since #254 the section is registered as a LIVE-enumeration PHP block: the
+# mu-plugin callback shells out to `homeboy --help` at AGENTS.md compose
+# time and parses the Commands: block in PHP. The command list is therefore
+# never baked into the mu-plugin at setup time.
 #
-# We mock `homeboy` on PATH so the test never depends on a real install and the
-# command list is deterministic.
+# Invariants covered:
+#   - homeboy present  -> the `homeboy-cli` section is registered with a
+#                         callback that ENUMERATES `homeboy --help` live;
+#                         the rendered markdown matches the live binary.
+#   - homeboy absent   -> complete no-op: no section, no stub, no warning.
+#   - live refresh     -> after a `homeboy upgrade` (simulated by swapping
+#                         the stub binary's --help output and bumping its
+#                         mtime + --version), re-invoking the SAME mu-plugin
+#                         callback picks up the new command surface WITHOUT
+#                         re-running the wp-coding-agents setup/sync path.
+#                         This is the #254 regression: previously the section
+#                         was a frozen string and the trigger gap meant the
+#                         map desynced until the next `./upgrade.sh`.
+#
+# We mock `homeboy` on PATH so the test never depends on a real install and
+# the command list is deterministic.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -132,6 +146,11 @@ namespace {
     function add_action( \$tag, \$callback, \$priority = 10 ) {
         \$GLOBALS['actions'][\$tag][] = \$callback;
     }
+    // The live enumerator uses the WP transient API for its cache. Provide
+    // no-op stubs so each invocation re-shells-out (the cache path itself is
+    // exercised separately by the cache-hit unit below).
+    function get_transient( \$k ) { return false; }
+    function set_transient( \$k, \$v, \$t ) { return true; }
     require '$MU_FILE';
     foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
         \$callback();
@@ -145,11 +164,14 @@ namespace {
         'label' => \$call[4]['label'] ?? null,
         'owner' => \$call[4]['owner'] ?? null,
         'freshness' => \$call[4]['freshness'] ?? null,
+        'has_live_freshness' => ( \$call[4]['freshness'] ?? '' ) === 'live',
+        'has_live_intro' => str_contains( \$content, 'generated live from \`homeboy --help\` at AGENTS.md compose time' ),
+        'no_false_refresh_prose' => ! str_contains( \$content, 'refreshes whenever homeboy is upgraded' ),
         'has_deploy' => str_contains( \$content, '- \`homeboy deploy\` — Deploy components to remote server' ),
         'has_release' => str_contains( \$content, '- \`homeboy release\` — Plan release workflows' ),
         'has_triage' => str_contains( \$content, '- \`homeboy triage\` — Read-only attention report' ),
         'has_status' => str_contains( \$content, '- \`homeboy status\` — Actionable component status overview' ),
-        'has_orchestrator_intro' => str_contains( \$content, 'Homeboy is the SRE and developer orchestration CLI' ),
+        'has_orchestrator_intro' => str_contains( \$content, 'Homeboy is the host orchestrator binary' ),
         'has_common_entrypoints' => str_contains( \$content, 'Common entrypoints:' ),
         'drops_help_meta' => ! str_contains( \$content, 'homeboy help' ),
         'drops_list_meta' => ! str_contains( \$content, 'homeboy list' ),
@@ -159,9 +181,9 @@ namespace {
 }
 PHP
 
-RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"conditional","has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true}'
-assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generated Homeboy CLI map"
+RESULT=$(PATH="$MOCKBIN:$PATH" php "$SHIM")
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"live","has_live_freshness":true,"has_live_intro":true,"no_false_refresh_prose":true,"has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true}'
+assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives live Homeboy CLI map"
 
 echo "==> re-sync with homeboy present (idempotent)"
 HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
@@ -171,6 +193,125 @@ HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
 )
 HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-sync"
+
+# --- Live refresh (issue #254 regression) --------------------------------
+# The defining property of the live-at-compose fix: a `homeboy upgrade` that
+# changes the command surface is picked up by re-invoking the SAME mu-plugin
+# section callback — NO second wp-coding-agents sync required. The previous
+# static-bake design failed this exact scenario.
+echo "==> live refresh: simulate homeboy upgrade, re-invoke callback, no setup re-run"
+
+# Swap the stub binary to a "newer" homeboy that adds a `fuzz` command and
+# drops `triage`, and bump its version string. Also bump mtime by touching
+# the file with a future timestamp so the cache key flips even if the
+# version-keyed path were ever removed.
+cat > "$MOCKBIN/homeboy" <<'SH'
+#!/bin/bash
+if [ "$1" = "--version" ]; then
+  echo "homeboy 0.900.1+upgraded"
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  cat <<'HELP'
+Headless automation for agentic software engineering workflows
+
+Usage: homeboy [OPTIONS] <COMMAND>
+
+Commands:
+  deploy    Deploy components to remote server
+  release   Plan release workflows
+  status    Actionable component status overview
+  fuzz      Fuzz test components
+  list      List available commands (alias for --help)
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+HELP
+  exit 0
+fi
+exit 0
+SH
+chmod +x "$MOCKBIN/homeboy"
+touch -d '+2 seconds' "$MOCKBIN/homeboy"
+
+LIVE_SHIM="$TMP/live-shim.php"
+cat > "$LIVE_SHIM" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$calls = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$calls[ \$slug ] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+namespace {
+    define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][] = \$callback;
+    }
+    function get_transient( \$k ) { return false; }
+    function set_transient( \$k, \$v, \$t ) { return true; }
+    require '$MU_FILE';
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
+        \$callback();
+    }
+    \$call = \DataMachine\Engine\AI\SectionRegistry::\$calls['homeboy-cli'] ?? null;
+    \$content = \$call ? (string) call_user_func( \$call[3] ) : '';
+    echo json_encode([
+        'has_fuzz'        => str_contains( \$content, '- \`homeboy fuzz\` — Fuzz test components' ),
+        'has_deploy'      => str_contains( \$content, '- \`homeboy deploy\` — Deploy components to remote server' ),
+        'dropped_triage'  => ! str_contains( \$content, 'homeboy triage' ),
+        'version_reflected' => str_contains( \$content, 'homeboy fuzz' ),
+    ]);
+}
+PHP
+
+LIVE_RESULT=$(PATH="$MOCKBIN:$PATH" php "$LIVE_SHIM")
+LIVE_EXPECTED='{"has_fuzz":true,"has_deploy":true,"dropped_triage":true,"version_reflected":true}'
+assert_eq "$LIVE_RESULT" "$LIVE_EXPECTED" "live refresh picks up homeboy upgrade without setup re-run"
+
+# --- Cache hit path ------------------------------------------------------
+# The transient cache must short-circuit the shell-out when a cached render
+# is present. Verify by returning a marker string from get_transient and
+# asserting the callback returns it verbatim.
+echo "==> cache hit: get_transient short-circuits the shell-out"
+CACHE_SHIM="$TMP/cache-shim.php"
+cat > "$CACHE_SHIM" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$calls = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$calls[ \$slug ] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+namespace {
+    define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][] = \$callback;
+    }
+    function get_transient( \$k ) { return 'CACHED_MARKER_VALUE'; }
+    function set_transient( \$k, \$v, \$t ) { return true; }
+    require '$MU_FILE';
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
+        \$callback();
+    }
+    \$call = \DataMachine\Engine\AI\SectionRegistry::\$calls['homeboy-cli'] ?? null;
+    \$content = \$call ? (string) call_user_func( \$call[3] ) : '';
+    echo json_encode([ 'returned_cached' => \$content === 'CACHED_MARKER_VALUE' ]);
+}
+PHP
+CACHE_RESULT=$(PATH="$MOCKBIN:$PATH" php "$CACHE_SHIM")
+CACHE_EXPECTED='{"returned_cached":true}'
+assert_eq "$CACHE_RESULT" "$CACHE_EXPECTED" "transient cache short-circuits live enumeration"
 
 # --- Absent case ---------------------------------------------------------
 echo "==> homeboy absent: complete no-op (section removed, no stub)"
