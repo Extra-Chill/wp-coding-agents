@@ -12,12 +12,14 @@
 #   1. adopt_service_identity_from_units reads User= from the existing unit
 #      and re-derives SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR /
 #      RUN_AS_ROOT to match (root-default script + opencode unit → opencode).
-#   2. Adoption is a no-op when the unit already matches the script default.
-#   3. Adoption is skipped when SERVICE_USER_FORCED=true (--root/--non-root).
-#   4. Adoption is skipped in LOCAL_MODE (no systemd).
-#   5. _preserve_systemd_umask carries an existing UMask= line into the
+#   2. upgrade.sh can defer the root check until after adoption, while setup.sh
+#      keeps the root check during detection.
+#   3. Adoption is a no-op when the unit already matches the script default.
+#   4. Adoption is skipped when SERVICE_USER_FORCED=true (--root/--non-root).
+#   5. Adoption is skipped in LOCAL_MODE (no systemd).
+#   6. _preserve_systemd_umask carries an existing UMask= line into the
 #      re-rendered env block, and is a no-op when the unit has none.
-#   6. End-to-end: a re-render after adoption keeps User=opencode and
+#   7. End-to-end: a re-render after adoption keeps User=opencode and
 #      UMask=0002 — the exact production diff from #204 must NOT appear.
 set -eu
 
@@ -50,6 +52,8 @@ export PLATFORM="linux"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/detect.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 
@@ -95,6 +99,22 @@ assert "SERVICE_USER adopted from unit"        "$([ "$SERVICE_USER" = "opencode"
 assert "RUN_AS_ROOT flipped to false"          "$([ "$RUN_AS_ROOT" = "false" ]; echo $?)"
 assert "SERVICE_HOME re-derived"               "$([ "$SERVICE_HOME" != "/root" ]; echo $?)"
 assert "KIMAKI_DATA_DIR re-derived"            "$([ "$KIMAKI_DATA_DIR" != "/root/.kimaki" ]; echo $?)"
+
+# ---------------------------------------------------------------------------
+echo "==> root gate: upgrade can defer detection-time root requirement"
+DRY_RUN=false
+LOCAL_MODE=false
+REQUIRE_ROOT_DURING_DETECT=false
+if [ "$EUID" -ne 0 ]; then
+  assert "non-root upgrade detection gate deferred" "$(detect_root_requirement; echo $?)"
+  if (REQUIRE_ROOT_DURING_DETECT=true detect_root_requirement) >/dev/null 2>&1; then
+    assert "non-root setup detection gate enforced" 1
+  else
+    assert "non-root setup detection gate enforced" 0
+  fi
+else
+  assert "root upgrade detection gate deferred" "$(detect_root_requirement; echo $?)"
+fi
 
 # ---------------------------------------------------------------------------
 echo "==> adoption: no-op when unit matches script default"

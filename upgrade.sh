@@ -107,6 +107,7 @@ INSTALL_DATA_MACHINE=true
 INSTALL_CHAT=true
 INSTALL_SKILLS=true
 RUN_AS_ROOT=true
+REQUIRE_ROOT_DURING_DETECT=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 MODE="existing"
@@ -337,6 +338,10 @@ fi
 # the root-homed-path dispatch trap (#198/#93) all over again. See #204.
 # --root / --non-root force an explicit identity and skip adoption.
 adopt_service_identity_from_units
+
+if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = true ] && [ "$EUID" -ne 0 ]; then
+  error "Please run as root (sudo ./upgrade.sh), or use --non-root for installs whose service and WordPress files are writable by the current user."
+fi
 
 log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
@@ -981,6 +986,12 @@ update_chat_bridge_systemd() {
 
   if [ -z "$CHAT_BRIDGE" ]; then
     log "Phase 6: Skipping (no chat bridge detected)"
+    return 0
+  fi
+
+  if [ "$EUID" -ne 0 ]; then
+    warn "Phase 6: Skipping systemd unit refresh because upgrade is running non-root"
+    warn "  Re-run as root when unit templates need refreshing; the service will not be restarted automatically."
     return 0
   fi
 

@@ -31,6 +31,20 @@ detect_php_version() {
   fi
 }
 
+detect_root_requirement() {
+  if [ "${DRY_RUN:-false}" = true ] || [ "${LOCAL_MODE:-false}" = true ]; then
+    return 0
+  fi
+
+  if [ "${REQUIRE_ROOT_DURING_DETECT:-true}" != true ]; then
+    return 0
+  fi
+
+  if [ "$EUID" -ne 0 ]; then
+    error "Please run as root (sudo ./setup.sh). Use --local for local installs."
+  fi
+}
+
 detect_environment() {
   # Detect OS and platform
   PLATFORM="linux"
@@ -74,10 +88,10 @@ detect_environment() {
     fi
   fi
 
-  # Check root (not required in local mode)
-  if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
-    error "Please run as root (sudo ./setup.sh). Use --local for local installs."
-  fi
+  # Check root when the caller requires root during detection. setup.sh uses
+  # the default. upgrade.sh defers this until after it can adopt the installed
+  # service identity from existing systemd units.
+  detect_root_requirement
 
   # WP-CLI flag: --allow-root on VPS, omit on local
   if [ "$LOCAL_MODE" = true ]; then
