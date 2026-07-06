@@ -15,9 +15,13 @@
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
 #   agents_md_guidance_sync_homeboy_cli          # presence-gated on `command -v homeboy`
-#   agents_md_guidance_register_homeboy_cli
+#   agents_md_guidance_register_homeboy_cli      # writes a LIVE-enumeration PHP block
 #   agents_md_guidance_unregister_homeboy_cli
-#   agents_md_guidance_homeboy_cli_content       # renders section body from `homeboy --help`
+#
+# The homeboy-cli section is generated LIVE at AGENTS.md compose time: the
+# mu-plugin callback shells out to `homeboy --help` on every compose (cached
+# briefly on the binary mtime + version), so a `homeboy upgrade` converges on
+# the next compose without requiring a wp-coding-agents sync. See issue #254.
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -172,23 +176,29 @@ agents_md_guidance_unregister() {
 }
 
 # ---------------------------------------------------------------------------
-# Homeboy CLI command map (issue #208)
+# Homeboy CLI command map (issues #208, #254)
 #
 # homeboy is an OPTIONAL host binary. The map is strictly presence-gated:
 #   - present (`command -v homeboy` succeeds) -> emit a first-class section
-#     generated from `homeboy --help`, refreshed every setup/upgrade so a
-#     homeboy version bump auto-refreshes the command list.
+#     whose callback ENUMERATES `homeboy --help` LIVE at AGENTS.md compose
+#     time. A `homeboy upgrade` therefore converges on the next compose,
+#     with no wp-coding-agents sync required (the #254 trigger gap).
 #   - absent -> complete no-op (unregister any stale section, emit nothing).
 #
-# The command list is NEVER hardcoded; it is parsed from `homeboy --help` at
-# sync time. A hardcoded list is precisely the drift bug #208 fixes.
+# The command list is NEVER baked into the mu-plugin as a frozen string;
+# the previous static-bake design was the #254 defect. The PHP helper that
+# performs the live enumeration is shipped inline in the homeboy-cli
+# section block (see _agents_md_guidance_render_homeboy_live_block), with
+# a WP transient cache keyed on the homeboy binary path + mtime + version
+# so steady-state compiles are free and the cache self-heals on upgrade.
 # ---------------------------------------------------------------------------
 
 # agents_md_guidance_sync_homeboy_cli
 #
 # Presence-gated entry point. Reuses the same `command -v homeboy` detection
 # the rest of the homeboy integration uses so the section and the integration
-# agree on presence.
+# agree on presence. When homeboy is present, registers a LIVE-enumeration
+# section block (no content is baked at setup time).
 agents_md_guidance_sync_homeboy_cli() {
   if command -v homeboy >/dev/null 2>&1; then
     agents_md_guidance_register_homeboy_cli
@@ -197,123 +207,278 @@ agents_md_guidance_sync_homeboy_cli() {
   fi
 }
 
+# agents_md_guidance_register_homeboy_cli
+#
+# Writes a self-contained PHP block whose SectionRegistry callback shells
+# out to `homeboy --help` at compose time and parses the Commands: block in
+# PHP. The block is marker-delimited (BEGIN/END agents-md-guidance:homeboy-cli)
+# so it is idempotent and removable by the standard unregister path.
+#
+# No homeboy output is captured at setup time — that was the #254 bug. The
+# callback is the only thing that touches homeboy, and it runs on every
+# `wp datamachine memory compose AGENTS.md`.
 agents_md_guidance_register_homeboy_cli() {
-  local content
-  content="$(agents_md_guidance_homeboy_cli_content)" || {
-    warn "  agents_md_guidance_register_homeboy_cli: could not enumerate homeboy commands — skipping"
+  local file
+  file="$(agents_md_guidance_mu_plugin_path)" || {
+    warn "  agents_md_guidance_register_homeboy_cli: SITE_PATH not set — skipping"
     return 1
   }
 
-  if [ -z "$content" ]; then
-    warn "  agents_md_guidance_register_homeboy_cli: homeboy --help produced no commands — skipping"
+  agents_md_guidance_ensure_mu_plugin_file || return 1
+
+  local new_block
+  new_block="$(_agents_md_guidance_render_homeboy_live_block)" || {
+    warn "  agents_md_guidance_register_homeboy_cli: could not render live block — skipping"
     return 1
+  }
+
+  agents_md_guidance_ensure_mu_plugin_file || return 1
+
+  local new_block
+  new_block="$(_agents_md_guidance_render_homeboy_live_block)" || {
+    warn "  agents_md_guidance_register_homeboy_cli: could not render live block — skipping"
+    return 1
+  }
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would register live AGENTS.md guidance section 'homeboy-cli' in $file"
+    echo -e "${BLUE}[dry-run]${NC} Block:"
+    echo "$new_block" | sed 's/^/    /'
+    return 0
   fi
 
-  AGENTS_MD_GUIDANCE_FRESHNESS="conditional" \
-  AGENTS_MD_GUIDANCE_CONDITIONS="Generated from 'homeboy --help' on hosts where the homeboy binary is installed; removed when homeboy is absent." \
-  agents_md_guidance_register \
-    "homeboy-cli" \
-    34 \
-    "Homeboy CLI" \
-    "Host orchestrator command map, generated from 'homeboy --help'." \
-    "$content"
+  if _agents_md_guidance_block_matches "$file" "homeboy-cli" "$new_block"; then
+    return 0
+  fi
+
+  local tmp
+  tmp=$(mktemp "${file}.XXXXXX")
+  _agents_md_guidance_rewrite "$file" "homeboy-cli" "$new_block" > "$tmp"
+
+  if cmp -s "$file" "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+
+  mv "$tmp" "$file"
+  chmod 0644 "$file"
+  log "  Registered live AGENTS.md guidance section 'homeboy-cli' in $file"
+  if [ -n "${UPDATED_ITEMS+x}" ]; then
+    UPDATED_ITEMS+=("AGENTS.md guidance: homeboy-cli (live)")
+  fi
 }
 
 agents_md_guidance_unregister_homeboy_cli() {
   agents_md_guidance_unregister "homeboy-cli"
 }
 
-# agents_md_guidance_homeboy_cli_content
+# _agents_md_guidance_render_homeboy_live_block
 #
-# Renders the Homeboy CLI AGENTS.md section body from live `homeboy --help`
-# output. Prints nothing and returns non-zero when homeboy is unavailable or
-# emits no parseable command table.
-agents_md_guidance_homeboy_cli_content() {
-  command -v homeboy >/dev/null 2>&1 || return 1
+# Emits the PHP for the homeboy-cli section block. The block is
+# self-contained: it defines two helper functions (guarded by
+# `function_exists` so re-firing the datamachine_sections action does not
+# fatally redeclare them) and then registers a SectionRegistry section
+# whose callback invokes the live enumerator.
+#
+# The helpers:
+#   wp_coding_agents_render_homeboy_cli_section()
+#       Top-level orchestrator. Resolves `homeboy` on PATH, reads
+#       `--version` and the binary mtime for the cache key, checks the WP
+#       transient cache, shells out to `homeboy --help`, hands the help
+#       text to the parser, caches the rendered markdown, and returns it.
+#       Returns '' (section contributes nothing) when homeboy is absent,
+#       shell_exec is unavailable, the binary fails, or the help text has
+#       no parseable Commands: block.
+#   wp_coding_agents_parse_homeboy_cli_help( $help )
+#       Pure parser. Faithful PHP port of the original python parser:
+#       recognizes the `Commands:` block, ends at blank line / Options:,
+#       drops the `help`/`list` meta commands, renders the same markdown
+#       shape (intro, optional "Common entrypoints", full list, footer).
+#
+# Quoted heredoc ('PHP_BLOCK') so PHP $variables, backticks, and ${...}
+# are emitted verbatim — bash never touches them.
+_agents_md_guidance_render_homeboy_live_block() {
+  cat <<'PHP_BLOCK'
+    // BEGIN agents-md-guidance:homeboy-cli
+    if ( ! function_exists( 'wp_coding_agents_render_homeboy_cli_section' ) ) {
+        function wp_coding_agents_render_homeboy_cli_section() {
+            // Homeboy is optional. The section is a clean no-op when the
+            // binary is not on PATH, matching the presence-gating the bash
+            // setup path applies.
+            $homeboy = null;
+            $path_env = ( is_callable( 'getenv' ) ) ? getenv( 'PATH' ) : false;
+            if ( is_string( $path_env ) && $path_env !== '' ) {
+                foreach ( explode( PATH_SEPARATOR, $path_env ) as $dir ) {
+                    if ( $dir === '' ) {
+                        continue;
+                    }
+                    $candidate = rtrim( $dir, '/' ) . '/homeboy';
+                    if ( @is_executable( $candidate ) ) {
+                        $homeboy = $candidate;
+                        break;
+                    }
+                }
+            }
+            if ( $homeboy === null ) {
+                return '';
+            }
 
-  local help_text
-  help_text="$(homeboy --help 2>/dev/null)" || return 1
-  [ -n "$help_text" ] || return 1
+            // shell_exec is the safe argv form here (hard-coded `homeboy`
+            // subcommands, no user input). It can be disabled in php.ini —
+            // in that case we degrade to a no-op rather than emit a broken
+            // section.
+            if ( ! is_callable( 'shell_exec' ) ) {
+                return '';
+            }
 
-  HOMEBOY_HELP_TEXT="$help_text" python3 <<'PY'
-import os
-import re
-import sys
+            // Cache key on path + mtime + version. A `homeboy upgrade`
+            // changes both mtime and version output, so the key flips and
+            // the next compose re-enumerates. Short TTL is just a safety
+            // net for the unlikely case where the binary changes without
+            // either signal moving.
+            $version_out = @shell_exec( escapeshellarg( $homeboy ) . ' --version 2>/dev/null' );
+            $version     = ( is_string( $version_out ) ) ? trim( $version_out ) : '';
+            $mtime       = @filemtime( $homeboy );
+            $cache_key   = 'wca_homeboy_cli_agents_md_' . md5( $homeboy . '|' . $version . '|' . ( $mtime ?: '0' ) );
 
-help_text = os.environ.get("HOMEBOY_HELP_TEXT", "")
+            if ( is_callable( 'get_transient' ) ) {
+                $cached = get_transient( $cache_key );
+                if ( is_string( $cached ) && $cached !== '' ) {
+                    return $cached;
+                }
+            }
 
-# Parse the "Commands:" block of `homeboy --help`. Each command line looks like
-#   "  agent-task      Run generic agent task plans"
-# i.e. leading whitespace, a command token, run of spaces, then the summary.
-commands = []
-in_commands = False
-for raw in help_text.splitlines():
-    stripped = raw.strip()
-    if not in_commands:
-        if stripped == "Commands:":
-            in_commands = True
-        continue
+            $help = @shell_exec( escapeshellarg( $homeboy ) . ' --help 2>/dev/null' );
+            if ( ! is_string( $help ) || $help === '' ) {
+                return '';
+            }
 
-    # The commands block ends at the first blank line or the Options: header.
-    if stripped == "" or stripped == "Options:" or raw.startswith("Options:"):
-        break
+            $content = wp_coding_agents_parse_homeboy_cli_help( $help );
+            if ( $content === '' ) {
+                return '';
+            }
 
-    m = re.match(r"^\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s{2,}(.+?)\s*$", raw)
-    if not m:
-        # Continuation / wrapped summary lines have no command token; ignore.
-        continue
+            if ( is_callable( 'set_transient' ) ) {
+                set_transient( $cache_key, $content, 3600 );
+            }
 
-    name, summary = m.group(1), m.group(2).strip()
-    commands.append((name, summary))
+            return $content;
+        }
+    }
 
-if not commands:
-    sys.exit(1)
+    if ( ! function_exists( 'wp_coding_agents_parse_homeboy_cli_help' ) ) {
+        function wp_coding_agents_parse_homeboy_cli_help( $help ) {
+            // Faithful PHP port of the original python parser. See
+            // lib/agents-md-guidance.sh history.
+            $commands = array();
+            $in_commands = false;
+            foreach ( preg_split( '/\r\n|\r|\n/', (string) $help ) as $raw ) {
+                $stripped = trim( $raw );
+                if ( ! $in_commands ) {
+                    if ( $stripped === 'Commands:' ) {
+                        $in_commands = true;
+                    }
+                    continue;
+                }
 
-# `help` / `list` are meta commands; drop them from the map (the footer already
-# tells the agent how to discover everything).
-SKIP = {"help", "list"}
-commands = [(n, s) for (n, s) in commands if n not in SKIP]
+                // The commands block ends at the first blank line or the
+                // Options: header.
+                if ( $stripped === '' || $stripped === 'Options:' || strpos( $raw, 'Options:' ) === 0 ) {
+                    break;
+                }
 
-if not commands:
-    sys.exit(1)
+                if ( ! preg_match( '/^\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s{2,}(.+?)\s*$/', $raw, $matches ) ) {
+                    // Continuation / wrapped summary lines have no command
+                    // token; ignore them.
+                    continue;
+                }
 
-command_summaries = {name: summary for name, summary in commands}
-common_order = [
-    "status",
-    "triage",
-    "worktree",
-    "review",
-    "build",
-    "test",
-    "agent-task",
-    "runs",
-]
+                $commands[] = array( $matches[1], trim( $matches[2] ) );
+            }
 
-lines = []
-lines.append(
-    "Homeboy is the SRE and developer orchestration CLI for projects, "
-    "components, task worktrees, lab/offload routing, gates, durable runs, "
-    "artifacts, releases, and deploy workflows. Use this map to choose the "
-    "Homeboy command surface, then run `homeboy <command> --help` for exact "
-    "flags."
-)
-common_entrypoints = [name for name in common_order if name in command_summaries]
-if common_entrypoints:
-    lines.append("")
-    lines.append("Common entrypoints:")
-    for name in common_entrypoints:
-        lines.append(f"- `homeboy {name}` — {command_summaries[name]}")
-lines.append("")
-for name, summary in commands:
-    lines.append(f"- `homeboy {name}` — {summary}")
-lines.append("")
-lines.append(
-    "Discover everything: `homeboy --help`. Drill into any command with "
-    "`homeboy <command> --help`."
-)
+            if ( ! $commands ) {
+                return '';
+            }
 
-sys.stdout.write("\n".join(lines))
-PY
+            // `help` / `list` are meta commands; drop them from the map.
+            // The footer already tells the agent how to discover
+            // everything.
+            $skip = array( 'help' => true, 'list' => true );
+            $commands = array_values(
+                array_filter(
+                    $commands,
+                    static function ( $c ) use ( $skip ) {
+                        return ! isset( $skip[ $c[0] ] );
+                    }
+                )
+            );
+
+            if ( ! $commands ) {
+                return '';
+            }
+
+            $summaries = array();
+            foreach ( $commands as $c ) {
+                $summaries[ $c[0] ] = $c[1];
+            }
+
+            $common_order = array(
+                'status',
+                'triage',
+                'worktree',
+                'review',
+                'build',
+                'test',
+                'agent-task',
+                'runs',
+            );
+
+            $lines = array();
+            $lines[] = 'Homeboy is the host orchestrator binary — build, deploy, release, triage, test, and inspect components from the CLI. The command map below is generated live from `homeboy --help` at AGENTS.md compose time, so it always reflects the currently-installed homeboy binary.';
+
+            $common_entrypoints = array();
+            foreach ( $common_order as $name ) {
+                if ( isset( $summaries[ $name ] ) ) {
+                    $common_entrypoints[] = $name;
+                }
+            }
+            if ( $common_entrypoints ) {
+                $lines[] = '';
+                $lines[] = 'Common entrypoints:';
+                foreach ( $common_entrypoints as $name ) {
+                    $lines[] = '- `homeboy ' . $name . '` — ' . $summaries[ $name ];
+                }
+            }
+
+            $lines[] = '';
+            foreach ( $commands as $c ) {
+                $lines[] = '- `homeboy ' . $c[0] . '` — ' . $c[1];
+            }
+
+            $lines[] = '';
+            $lines[] = 'Discover everything: `homeboy --help`. Drill into any command with `homeboy <command> --help`. Releases (`homeboy release`) and deploys (`homeboy deploy`) are operator actions — run them only when the user explicitly asks.';
+
+            return implode( "\n", $lines );
+        }
+    }
+
+    \DataMachine\Engine\AI\SectionRegistry::register(
+        'AGENTS.md',
+        'homeboy-cli',
+        34,
+        static function () {
+            return wp_coding_agents_render_homeboy_cli_section();
+        },
+        array(
+            'label'       => 'Homeboy CLI',
+            'description' => 'Host orchestrator command map, enumerated live from \'homeboy --help\' at AGENTS.md compose time.',
+            'owner'       => 'wp-coding-agents',
+            'freshness'   => 'live',
+            'conditions'  => 'Generated live from \'homeboy --help\' at AGENTS.md compose time on hosts where the homeboy binary is installed; removed when homeboy is absent. Cached briefly via WP transient keyed on the homeboy binary mtime and version, so a `homeboy upgrade` converges on the next compose without a wp-coding-agents sync.',
+        )
+    );
+    // END agents-md-guidance:homeboy-cli
+PHP_BLOCK
 }
 
 _agents_md_guidance_render_block() {
