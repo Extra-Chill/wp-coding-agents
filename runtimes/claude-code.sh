@@ -133,6 +133,7 @@ print(content[:si] + block + content[ei:], end='')
   CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/^$/N;/^\n$/d')
 
   write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_MD"
+  service_file_normalize_perms "$SITE_PATH/CLAUDE.md"
   log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md"
 }
 
@@ -161,6 +162,7 @@ runtime_install_hooks() {
   mkdir -p "$hooks_dir"
   cp "$hook_src" "$hook_dst"
   chmod +x "$hook_dst"
+  service_file_normalize_perms "$hook_dst"
   log "Installed hook: $hook_dst"
 
   # Persist the configured agent slug so the SessionStart hook scopes its @
@@ -170,6 +172,7 @@ runtime_install_hooks() {
   local hook_env="$hooks_dir/dm-agent-sync.env"
   if [ -n "${AGENT_SLUG:-}" ]; then
     printf 'DM_AGENT_SLUG=%s\n' "$AGENT_SLUG" > "$hook_env"
+    service_file_normalize_perms "$hook_env"
     log "Wrote hook agent scope: $hook_env (DM_AGENT_SLUG=$AGENT_SLUG)"
   fi
 
@@ -229,6 +232,7 @@ runtime_install_hooks() {
     ')
 
   echo "$settings" | jq . > "$settings_file"
+  service_file_normalize_perms "$settings_file"
 
   log "Configured settings.json: SessionStart hook, workspace permissions (dir + allow rules), autoMemoryEnabled=false"
 }
@@ -246,6 +250,7 @@ runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ]; then
     sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
+      service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       return
     fi
@@ -269,6 +274,7 @@ runtime_generate_instructions() {
   agents_md=$(sed "s|{{WP_CLI_CMD}}|$WP_CLI_DISPLAY|g" "$agents_tmpl")
 
   write_file "$SITE_PATH/AGENTS.md" "$agents_md"
+  service_file_normalize_perms "$SITE_PATH/AGENTS.md"
   log "Generated AGENTS.md at $SITE_PATH/AGENTS.md"
 }
 

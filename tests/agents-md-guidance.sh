@@ -71,15 +71,29 @@ file_mode() {
   fi
 }
 
-assert_mode_0644() {
+assert_mode_0664() {
   local file="$1" name="$2" got
   got=$(file_mode "$file")
-  if [ "$got" = "644" ]; then
+  if [ "$got" = "664" ]; then
     echo "  ok   $name"
   else
     echo "  FAIL $name"
     echo "    got:  $got"
-    echo "    want: 644"
+    echo "    want: 664"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+assert_group() {
+  local file="$1" name="$2" got want
+  got=$(stat -c %G "$file" 2>/dev/null || stat -f %Sg "$file")
+  want=$(stat -c %G "$(dirname "$file")" 2>/dev/null || stat -f %Sg "$(dirname "$file")")
+  if [ "$got" = "$want" ]; then
+    echo "  ok   $name"
+  else
+    echo "  FAIL $name"
+    echo "    got:  $got"
+    echo "    want: $want (parent dir's group)"
     FAILED=$((FAILED + 1))
   fi
 }
@@ -103,7 +117,8 @@ echo "==> register generic guidance"
 )
 
 assert_php_lint "$MU_FILE" "guidance mu-plugin parses with php -l"
-assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after fresh write under umask 077"
+assert_mode_0664 "$MU_FILE" "mu-plugin mode 0664 after fresh write under umask 077"
+assert_group "$MU_FILE" "mu-plugin group after fresh write"
 
 if grep -q "BEGIN agents-md-guidance:sample-guidance" "$MU_FILE"; then
   echo "  ok   sample guidance block present"
@@ -199,7 +214,8 @@ assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generic guidance secti
 echo "==> unregister generic guidance"
 chmod 0600 "$MU_FILE"
 agents_md_guidance_unregister "sample-guidance"
-assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after unregister"
+assert_mode_0664 "$MU_FILE" "mu-plugin mode 0664 after unregister"
+assert_group "$MU_FILE" "mu-plugin group after unregister"
 if grep -q "BEGIN agents-md-guidance:sample-guidance" "$MU_FILE"; then
   echo "  FAIL sample guidance block still present after unregister"
   FAILED=$((FAILED + 1))

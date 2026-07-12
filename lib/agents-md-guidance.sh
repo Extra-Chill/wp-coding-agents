@@ -85,7 +85,7 @@ add_action( 'datamachine_sections', function () {
 } );
 PHP
 
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Wrote AGENTS.md guidance mu-plugin scaffold: $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("created $file")
@@ -135,7 +135,7 @@ agents_md_guidance_register() {
   fi
 
   mv "$tmp" "$file"
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Registered AGENTS.md guidance section '$section_id' in $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("AGENTS.md guidance: $section_id")
@@ -168,7 +168,7 @@ agents_md_guidance_unregister() {
   tmp=$(mktemp "${file}.XXXXXX")
   _agents_md_guidance_rewrite "$file" "$section_id" "" > "$tmp"
   mv "$tmp" "$file"
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Unregistered AGENTS.md guidance section '$section_id' from $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("AGENTS.md guidance removed: $section_id")
@@ -261,7 +261,7 @@ agents_md_guidance_register_homeboy_cli() {
   fi
 
   mv "$tmp" "$file"
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Registered live AGENTS.md guidance section 'homeboy-cli' in $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("AGENTS.md guidance: homeboy-cli (live)")

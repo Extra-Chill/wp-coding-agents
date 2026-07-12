@@ -29,12 +29,12 @@ cli_transport_install() {
 
   mkdir -p "$dir"
   if [ -f "$file" ] && cmp -s "$template" "$file"; then
-    chmod 0644 "$file"
+    service_file_normalize_perms "$file"
     return 0
   fi
 
   cp "$template" "$file"
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Synced CLI transport mu-plugin: $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("CLI transport runtime")

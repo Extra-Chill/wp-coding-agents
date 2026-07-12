@@ -48,7 +48,7 @@ opencode_install_claude_code_auth_plugin() {
 
   mkdir -p "$plugins_dir"
   cp "$source_path" "$plugin_path"
-  chmod 644 "$plugin_path"
+  service_file_normalize_perms "$plugin_path"
   UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
 }
 
@@ -295,6 +295,7 @@ runtime_generate_config() {
     echo -e "${BLUE}[dry-run]${NC} Would write to $SITE_PATH/opencode.json"
   else
     echo -e "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
+    service_file_normalize_perms "$SITE_PATH/opencode.json"
   fi
 }
 
@@ -380,6 +381,7 @@ runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ]; then
     sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
+      service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       _opencode_symlink_claude_md
       return
@@ -405,6 +407,7 @@ runtime_generate_instructions() {
     echo -e "${BLUE}[dry-run]${NC} Would symlink CLAUDE.md → AGENTS.md (Claude-model context)"
   else
     sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
+    service_file_normalize_perms "$SITE_PATH/AGENTS.md"
     _opencode_symlink_claude_md
   fi
 }
@@ -440,6 +443,7 @@ runtime_merge_mcp_servers() {
   jq --argjson mcp "$MCP_SERVERS" '.mcp = $mcp' "$SITE_PATH/opencode.json" \
     > "$SITE_PATH/opencode.json.tmp" \
     && mv "$SITE_PATH/opencode.json.tmp" "$SITE_PATH/opencode.json"
+  service_file_normalize_perms "$SITE_PATH/opencode.json"
 }
 
 runtime_install_hooks() {

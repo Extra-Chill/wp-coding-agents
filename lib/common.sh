@@ -30,6 +30,60 @@ write_file() {
   fi
 }
 
+# service_file_normalize_perms <file>
+#
+# Normalize ownership/mode of a service file wp-coding-agents just wrote
+# under the web tree (mu-plugins, AGENTS.md + backups, runtime plugins,
+# installed skills). These files are written by whichever identity ran
+# setup/upgrade — root (cron/systemd, VPS upgrades), the service user
+# (opencode, local dev), or www-data (WP-CLI fallback) — and then need to
+# be *rewritten* by a different one of those identities on the next sync.
+# Forcing 0644 (see issue #133) fixed the world-read bit PHP-FPM needs, but
+# left files non-group-writable, so the next writer (a different uid than
+# the last one) hits EACCES instead of relying on group membership.
+#
+# Fix: force 0664 (rw for owner+group, r for other) and chgrp to the
+# webroot group, derived from the file's parent directory rather than
+# hardcoded — sites vary in which group owns the web tree, and this stays
+# correct without wp-coding-agents needing to know or assume "www-data".
+# Failures are swallowed (non-root callers who aren't in the target group
+# can't chgrp; that's fine, the mode fix alone still helps).
+service_file_normalize_perms() {
+  local file="$1"
+  [ -n "$file" ] && [ -e "$file" ] || return 0
+
+  local dir group
+  dir="$(dirname -- "$file")"
+  # GNU stat first (Linux); BSD/macOS stat as fallback for local dev mode.
+  group="$(stat -c '%G' "$dir" 2>/dev/null || stat -f '%Sg' "$dir" 2>/dev/null || true)"
+
+  chmod 0664 "$file" 2>/dev/null || true
+  if [ -n "$group" ]; then
+    chgrp "$group" "$file" 2>/dev/null || true
+  fi
+}
+
+# service_dir_normalize_perms <dir>
+#
+# Recursive counterpart to service_file_normalize_perms, for directory
+# trees wp-coding-agents copies into the web tree wholesale (installed
+# skills). Normalizes every file and dir under <dir> to the group owning
+# <dir>'s parent, with dirs getting the execute bit (0775) files 0664.
+service_dir_normalize_perms() {
+  local target="$1"
+  [ -n "$target" ] && [ -d "$target" ] || return 0
+
+  local parent group
+  parent="$(dirname -- "$target")"
+  group="$(stat -c '%G' "$parent" 2>/dev/null || stat -f '%Sg' "$parent" 2>/dev/null || true)"
+
+  find "$target" -type d -exec chmod 0775 {} + 2>/dev/null || true
+  find "$target" -type f -exec chmod 0664 {} + 2>/dev/null || true
+  if [ -n "$group" ]; then
+    chgrp -R "$group" "$target" 2>/dev/null || true
+  fi
+}
+
 # Robust git clone for setup-time plugin/skill deps:
 #   - Pins HTTP/1.1 to dodge intermittent GitHub HTTP/2 500s seen during
 #     fresh setup runs.

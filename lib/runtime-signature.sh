@@ -107,9 +107,12 @@ runtime_signature_ensure_mu_plugin_file() {
 
   mkdir -p "$dir"
 
-  # Write the scaffold, then force mode 0644 regardless of the caller's
-  # umask (root cron/systemd contexts default to 0077 which strips the
-  # world-read bit PHP-FPM needs — see issue #133).
+  # Write the scaffold, then normalize mode/group regardless of the
+  # caller's umask or identity (root cron/systemd contexts default to
+  # umask 0077, which strips the world-read bit PHP-FPM needs — issue
+  # #133 — and root/opencode/www-data writers each leave a different
+  # owner, which without a shared group-writable mode breaks the next
+  # writer — issue #258).
   cat > "$file" <<'PHP'
 <?php
 /**
@@ -157,7 +160,7 @@ add_filter( 'datamachine_code_worktree_runtime_signatures', function ( $signatur
 } );
 PHP
 
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
 
   log "  Wrote runtime-signature mu-plugin scaffold: $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
@@ -278,9 +281,10 @@ runtime_signature_register() {
   fi
 
   mv "$tmp" "$file"
-  # Self-heal legacy 0600 files written before the umask fix in #133.
-  # mktemp creates with mode 0600 so mv preserves that — force 0644.
-  chmod 0644 "$file"
+  # mktemp creates the tmp file at mode 0600, so mv preserves that, and mv
+  # also preserves the tmp file's own owner rather than the destination's —
+  # self-heal both mode and group on every write (issue #133, issue #258).
+  service_file_normalize_perms "$file"
   log "  Registered runtime signature '$runtime_id' in $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("runtime signature: $runtime_id")
@@ -318,7 +322,7 @@ runtime_signature_unregister() {
   tmp=$(mktemp "${file}.XXXXXX")
   _runtime_signature_rewrite "$file" "$runtime_id" "" > "$tmp"
   mv "$tmp" "$file"
-  chmod 0644 "$file"
+  service_file_normalize_perms "$file"
   log "  Unregistered runtime signature '$runtime_id' from $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("runtime signature removed: $runtime_id")

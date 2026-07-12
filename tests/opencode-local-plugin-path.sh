@@ -28,6 +28,8 @@ log() { :; }
 warn() { printf '%s\n' "$*" >&2; }
 
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/opencode.sh"
 
 runtime_generate_config
