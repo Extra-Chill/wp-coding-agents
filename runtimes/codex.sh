@@ -104,6 +104,7 @@ runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ]; then
     sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
+      service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       _codex_sync_override
       return
@@ -130,6 +131,7 @@ runtime_generate_instructions() {
     local agents_md
     agents_md=$(sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl")
     write_file "$SITE_PATH/AGENTS.md" "$agents_md"
+    service_file_normalize_perms "$SITE_PATH/AGENTS.md"
     _codex_sync_override
   fi
 }

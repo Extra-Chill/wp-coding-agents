@@ -99,23 +99,39 @@ file_mode() {
   fi
 }
 
-assert_mode_0644() {
+assert_mode_0664() {
   local file="$1" name="$2"
   local got
   got=$(file_mode "$file")
-  if [ "$got" = "644" ]; then
+  if [ "$got" = "664" ]; then
     echo "  ok   $name"
   else
     echo "  FAIL $name"
     echo "    got:  $got"
-    echo "    want: 644"
+    echo "    want: 664"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+assert_group() {
+  local file="$1" name="$2"
+  local got want
+  got=$(stat -c %G "$file" 2>/dev/null || stat -f %Sg "$file")
+  want=$(stat -c %G "$(dirname "$file")" 2>/dev/null || stat -f %Sg "$(dirname "$file")")
+  if [ "$got" = "$want" ]; then
+    echo "  ok   $name"
+  else
+    echo "  FAIL $name"
+    echo "    got:  $got"
+    echo "    want: $want (parent dir's group)"
     FAILED=$((FAILED + 1))
   fi
 }
 
 # --- 1. Fresh scaffold + register opencode ---------------------------------
 # Use a hostile umask (matches root cron/systemd default 0077) to prove the
-# helper forces 0644 regardless of caller umask — see issue #133.
+# helper forces 0664 + the parent dir's group regardless of caller umask —
+# see issue #133 (world-read) and issue #258 (group-write / multi-writer).
 echo "==> register opencode (fresh scaffold, umask 077)"
 (
   umask 077
@@ -124,7 +140,8 @@ echo "==> register opencode (fresh scaffold, umask 077)"
 )
 assert_file_exists "$MU_FILE" "mu-plugin created"
 assert_php_lint "$MU_FILE" "scaffold parses with php -l"
-assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after fresh write under umask 077"
+assert_mode_0664 "$MU_FILE" "mu-plugin mode 0664 after fresh write under umask 077"
+assert_group "$MU_FILE" "mu-plugin group after fresh write"
 
 if grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
   echo "  ok   opencode block present"
@@ -149,7 +166,8 @@ chmod 0600 "$MU_FILE"
 runtime_signature_register "kimaki" \
   '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
 assert_php_lint "$MU_FILE" "two-runtime file parses with php -l"
-assert_mode_0644 "$MU_FILE" "mu-plugin mode self-healed to 0644 after sibling register"
+assert_mode_0664 "$MU_FILE" "mu-plugin mode self-healed to 0664 after sibling register"
+assert_group "$MU_FILE" "mu-plugin group self-healed after sibling register"
 
 if grep -q "BEGIN runtime:kimaki" "$MU_FILE" && grep -q "BEGIN runtime:opencode" "$MU_FILE"; then
   echo "  ok   both runtime blocks present"
@@ -191,7 +209,8 @@ else
   FAILED=$((FAILED + 1))
 fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
-assert_mode_0644 "$MU_FILE" "mu-plugin mode 0644 after unregister"
+assert_mode_0664 "$MU_FILE" "mu-plugin mode 0664 after unregister"
+assert_group "$MU_FILE" "mu-plugin group after unregister"
 
 # --- 6. Filter-shape end-to-end (php execution) ----------------------------
 echo "==> apply_filters returns the expected shape"

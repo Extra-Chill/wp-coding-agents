@@ -495,7 +495,7 @@ upgrade_install_opencode_claude_code_auth_plugin() {
   fi
 
   cp "$source_path" "$plugin_path"
-  chmod 644 "$plugin_path"
+  service_file_normalize_perms "$plugin_path"
   UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
 }
 
@@ -639,6 +639,12 @@ for item in data:
     --backup-suffix "$TIMESTAMP" 2>&1) && repair_rc=0 || repair_rc=$?
   [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
 
+  # repair-opencode-json.py writes both the target file and its own backup
+  # via plain Python open() — inherits the caller's umask/identity same as
+  # every other service-file writer in this repo. Normalize both.
+  service_file_normalize_perms "$OPENCODE_JSON_FILE"
+  service_file_normalize_perms "${OPENCODE_JSON_FILE}.backup.$TIMESTAMP"
+
   local repair_status prompt_migration instruction_sync
   repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
   prompt_migration=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('prompt_migration','?'))" 2>/dev/null || echo "?")
@@ -752,13 +758,19 @@ regenerate_agents_md() {
   # Backup existing (compose writes in-place to the registered location)
   if [ -f "$AGENTS_MD" ]; then
     cp "$AGENTS_MD" "$BACKUP"
+    service_file_normalize_perms "$BACKUP"
     log "  Backup: $BACKUP"
   fi
 
   # `datamachine memory compose AGENTS.md` writes in-place to the registered
   # composable file path. It does NOT accept an arbitrary output path —
-  # the filename must be a registered MemoryFileRegistry entry.
+  # the filename must be a registered MemoryFileRegistry entry. Compose runs
+  # as the wp-coding-agents caller's identity (root during upgrade, opencode
+  # during local dev), so normalize afterward the same way every other
+  # service-file writer does — otherwise the identity that ran this upgrade
+  # is the only one that can write AGENTS.md until the next normalize.
   if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+    service_file_normalize_perms "$AGENTS_MD"
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -776,6 +788,7 @@ regenerate_agents_md() {
     # Restore from backup if compose wrote a partial file
     if [ -f "$BACKUP" ] && [ -f "$AGENTS_MD" ] && ! cmp -s "$BACKUP" "$AGENTS_MD"; then
       cp "$BACKUP" "$AGENTS_MD"
+      service_file_normalize_perms "$AGENTS_MD"
       warn "  Restored AGENTS.md from backup"
     fi
   fi
@@ -910,6 +923,7 @@ sync_claude_code_runtime() {
       echo -e "${BLUE}[dry-run]${NC} Would (back up and) regenerate CLAUDE.md from template"
     elif [ -f "$claude_md" ]; then
       cp "$claude_md" "$claude_md.backup.$TIMESTAMP"
+      service_file_normalize_perms "$claude_md.backup.$TIMESTAMP"
       rm -f "$claude_md"
       log "  CLAUDE.md was missing the DM memory block — backed up to $claude_md.backup.$TIMESTAMP"
       UPDATED_ITEMS+=("CLAUDE.md regenerated")

@@ -70,6 +70,8 @@ TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TEST"' EXIT
 
 # shellcheck disable=SC1091
+source lib/common.sh
+# shellcheck disable=SC1091
 source runtimes/opencode.sh
 UPDATED_ITEMS=()
 

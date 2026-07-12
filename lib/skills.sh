@@ -42,6 +42,12 @@ install_skills_from_local_repo() {
     if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
       rm -rf "$SKILLS_DIR/$skill_name"
       cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
+      # Skills dirs live under the web tree (.claude/skills, .opencode/skills,
+      # .agents/skills) and get rewritten across setup/upgrade runs that may
+      # each run as a different identity (root, opencode, www-data) — same
+      # multi-writer problem as the mu-plugins, just for a directory tree
+      # instead of a single file.
+      service_dir_normalize_perms "$SKILLS_DIR/$skill_name"
       log "  Installed upgrade skill: $skill_name"
       copied=$((copied + 1))
     fi
