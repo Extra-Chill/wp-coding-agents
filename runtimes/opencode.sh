@@ -187,7 +187,7 @@ runtime_generate_config() {
   # Resolve Kimaki plugin dir + copy plugin files FIRST, unconditionally.
   # Setup.sh must be idempotent: whether this site has a fresh install or an
   # existing opencode.json, the kimaki plugins dir on disk must end up with
-  # the current dm-context-filter.ts + dm-agent-sync.ts. dm-agent-sync only
+  # the current managed Kimaki plugins. dm-agent-sync only
   # recomposes Data Machine memory; it must not write config.agent.* prompts.
   # Previously this only ran on fresh installs because the whole function
   # early-returned on an existing file, which left upgraded installs missing
@@ -201,6 +201,7 @@ runtime_generate_config() {
         mkdir -p "$KIMAKI_PLUGINS_DIR"
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/bridges/kimaki/plugins/homeboy-notification-context.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
       fi
     else
       KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
@@ -238,6 +239,7 @@ runtime_generate_config() {
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/homeboy-notification-context.ts\","
   fi
   if opencode_claude_code_auth_enabled; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"$(opencode_claude_code_auth_plugin_path)\","

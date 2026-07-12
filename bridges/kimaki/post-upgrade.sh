@@ -67,7 +67,7 @@ else
   SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
 fi
 
-REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
+REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts homeboy-notification-context.ts)
 WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
 
 if [[ -n "${KIMAKI_DIST_DIR:-}" ]]; then
@@ -274,7 +274,7 @@ if [[ -d "$PLUGIN_SOURCE_DIR" ]]; then
     fi
   fi
 else
-  echo "kimaki-config: WARNING: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR; dm-context-filter.ts and dm-agent-sync.ts cannot be loaded"
+  echo "kimaki-config: WARNING: persistent plugin source dir not found at $PLUGIN_SOURCE_DIR; managed OpenCode plugins cannot be loaded"
 fi
 
 missing_required_plugins=0

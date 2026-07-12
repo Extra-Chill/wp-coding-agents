@@ -32,6 +32,7 @@ chmod +x "$TMP/bin/kimaki"
 TEST_TMP="$TMP" \
 PATH="$TMP/bin:/usr/bin:/bin" \
 KIMAKI_DATA_DIR="$TMP/data" \
+KIMAKI_CONFIG_DIR="$TMP/data/kimaki-config" \
   "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$TMP/bin/kimaki" --data-dir "$TMP/data" --auto-restart
 
 if ! grep -q -- '-TERM -f opencode-ai/bin/.*serve' "$TMP/pkill.log"; then

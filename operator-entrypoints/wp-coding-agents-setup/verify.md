@@ -101,13 +101,13 @@ Local Kimaki plugin paths:
 
 ```bash
 KIMAKI_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
-test -f "$KIMAKI_PLUGINS_DIR/dm-context-filter.ts" && test -f "$KIMAKI_PLUGINS_DIR/dm-agent-sync.ts"
+test -f "$KIMAKI_PLUGINS_DIR/dm-context-filter.ts" && test -f "$KIMAKI_PLUGINS_DIR/dm-agent-sync.ts" && test -f "$KIMAKI_PLUGINS_DIR/homeboy-notification-context.ts"
 ```
 
 VPS Kimaki plugin paths:
 
 ```bash
-test -f /opt/kimaki-config/plugins/dm-context-filter.ts && test -f /opt/kimaki-config/plugins/dm-agent-sync.ts
+test -f /opt/kimaki-config/plugins/dm-context-filter.ts && test -f /opt/kimaki-config/plugins/dm-agent-sync.ts && test -f /opt/kimaki-config/plugins/homeboy-notification-context.ts
 ```
 
 If either plugin file is missing, rerun setup or upgrade before trusting a new OpenCode session. OpenCode silently skips missing plugin files.

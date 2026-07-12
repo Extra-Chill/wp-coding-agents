@@ -7,7 +7,7 @@
 // cycles, and proves the OpenCode plugin hooks execute against Kimaki's live
 // installed prompt renderer.
 
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync, execSync, spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -34,10 +34,12 @@ const stagedSkillsDir = path.join(kimakiConfigDir, 'skills')
 const npmSkillsDir = path.join(tempRoot, 'npm-kimaki-skills')
 const siteDir = path.join(tempRoot, 'site')
 const homeDir = path.join(tempRoot, 'home')
+const binDir = path.join(tempRoot, 'bin')
 
 const repoKimakiDir = path.join(repoRoot, 'bridges', 'kimaki')
 const repoPluginsDir = path.join(repoKimakiDir, 'plugins')
 const postUpgradePath = path.join(kimakiConfigDir, 'post-upgrade.sh')
+const stagedNotificationWrapper = path.join(binDir, 'wp-coding-agents-homeboy-notification')
 
 const artifacts = {
   schema: 'wp-coding-agents/kimaki-managed-plugin-rig/v1',
@@ -84,9 +86,13 @@ function stageManagedConfig() {
   mkdirp(npmSkillsDir)
   mkdirp(siteDir)
   mkdirp(homeDir)
+  mkdirp(binDir)
 
   copyFile(path.join(repoPluginsDir, 'dm-context-filter.ts'), path.join(stagedPluginsDir, 'dm-context-filter.ts'))
   copyFile(path.join(repoPluginsDir, 'dm-agent-sync.ts'), path.join(stagedPluginsDir, 'dm-agent-sync.ts'))
+  copyFile(path.join(repoPluginsDir, 'homeboy-notification-context.ts'), path.join(stagedPluginsDir, 'homeboy-notification-context.ts'))
+  copyFile(path.join(repoKimakiDir, 'homeboy-notification-context.sh'), stagedNotificationWrapper)
+  fs.chmodSync(stagedNotificationWrapper, 0o755)
   copyFile(path.join(repoKimakiDir, 'post-upgrade.sh'), postUpgradePath)
   fs.chmodSync(postUpgradePath, 0o755)
 
@@ -110,6 +116,7 @@ function writeOpencodeConfig() {
     plugin: [
       path.join(stagedPluginsDir, 'dm-context-filter.ts'),
       path.join(stagedPluginsDir, 'dm-agent-sync.ts'),
+      path.join(stagedPluginsDir, 'homeboy-notification-context.ts'),
     ],
     instructions: [],
   }
@@ -121,6 +128,8 @@ function recordStaticEvidence() {
   artifacts.files['site/opencode.json'] = fileRecord(path.join(siteDir, 'opencode.json'))
   artifacts.files['kimaki-config/plugins/dm-context-filter.ts'] = fileRecord(path.join(stagedPluginsDir, 'dm-context-filter.ts'))
   artifacts.files['kimaki-config/plugins/dm-agent-sync.ts'] = fileRecord(path.join(stagedPluginsDir, 'dm-agent-sync.ts'))
+  artifacts.files['kimaki-config/plugins/homeboy-notification-context.ts'] = fileRecord(path.join(stagedPluginsDir, 'homeboy-notification-context.ts'))
+  artifacts.files['bin/wp-coding-agents-homeboy-notification'] = fileRecord(stagedNotificationWrapper)
   artifacts.files['kimaki-config/post-upgrade.sh'] = fileRecord(postUpgradePath)
   for (const candidate of ['skills-enable-list.txt', 'skills-disable-list.txt']) {
     const file = path.join(kimakiConfigDir, candidate)
@@ -405,6 +414,8 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(fs.existsSync(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: persistent upgrade skill source remains present`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-context-filter.ts')), `${name}: context filter present after restart`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-agent-sync.ts')), `${name}: agent sync present after restart`, cycle)
+  assert(fs.existsSync(path.join(stagedPluginsDir, 'homeboy-notification-context.ts')), `${name}: notification adapter present after restart`, cycle)
+  assert(fs.existsSync(stagedNotificationWrapper), `${name}: notification wrapper survives package wipe`, cycle)
 
   const permission = expectedSkillPermission()
   assert(permission?.['*'] === 'deny', `${name}: generated skill permission denies unlisted skills`, cycle)
@@ -424,6 +435,56 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(promptEvidence.joinedSystemStaleOrchestrationLeaks.length === 0, `${name}: final system transform strips Kimaki promptAsync system field`, cycle)
   assert(promptEvidence.systemAndMessageTransformsAgree, `${name}: system and message transforms agree`, cycle)
   assert(promptEvidence.agentSyncLoaded, `${name}: dm-agent-sync module loads`, cycle)
+  await assertNotificationAdapter(name, cycle)
+}
+
+async function assertNotificationAdapter(name, cycle) {
+  const module = await import(pathToFileURL(path.join(stagedPluginsDir, 'homeboy-notification-context.ts')).href)
+  const plugin = await module.default({})
+  const before = plugin['tool.execute.before']
+  if (typeof before !== 'function') {
+    throw new Error('homeboy-notification-context did not expose tool.execute.before')
+  }
+
+  const output = { args: { command: 'homeboy status' } }
+  await before({}, output)
+  assert(output.args.command === 'wp-coding-agents-homeboy-notification status', `${name}: Homeboy command is routed through invocation wrapper`, cycle)
+
+  const absent = await runNotificationWrapper({ HOMEBOY_NOTIFICATION_ROUTE: 'discord:v1:thread:11111111111111111' })
+  assert(absent.transport === '' && absent.route === '', `${name}: absent Kimaki attribution omits notification context`, cycle)
+
+  const [first, second] = await Promise.all([
+    runNotificationWrapper({ KIMAKI_THREAD_ID: '11111111111111111' }),
+    runNotificationWrapper({ KIMAKI_THREAD_ID: '22222222222222222' }),
+  ])
+  assert(first.route === 'discord:v1:thread:11111111111111111' && second.route === 'discord:v1:thread:22222222222222222', `${name}: concurrent thread invocations retain distinct notification routes`, cycle)
+}
+
+function runNotificationWrapper(extraEnv) {
+  const fakeHomeboy = path.join(binDir, 'homeboy')
+  if (!fs.existsSync(fakeHomeboy)) {
+    fs.writeFileSync(fakeHomeboy, '#!/bin/sh\nprintf "%s\\n%s\\n" "${HOMEBOY_NOTIFICATION_TRANSPORT:-}" "${HOMEBOY_NOTIFICATION_ROUTE:-}"\n', 'utf8')
+    fs.chmodSync(fakeHomeboy, 0o755)
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(stagedNotificationWrapper, ['status'], {
+      env: { ...process.env, ...extraEnv, PATH: `${binDir}:${process.env.PATH || ''}` },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`notification wrapper failed (${code}): ${stderr}`))
+        return
+      }
+      const [transport = '', route = ''] = stdout.trimEnd().split('\n')
+      resolve({ transport, route })
+    })
+  })
 }
 
 function runPostUpgrade(name) {
