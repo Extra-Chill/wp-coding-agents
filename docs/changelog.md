@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.2] - 2026-07-13
+
+### Fixed
+- omit directory times during carried sync
+
 ## [1.9.1] - 2026-07-13
 
 ### Fixed
