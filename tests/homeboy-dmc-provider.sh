@@ -105,6 +105,7 @@ DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
+assert_contains "\"resolve\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
