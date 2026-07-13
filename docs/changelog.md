@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.3] - 2026-07-13
+
+### Fixed
+- preserve web directory permissions during sync
+
 ## [1.9.2] - 2026-07-13
 
 ### Fixed
