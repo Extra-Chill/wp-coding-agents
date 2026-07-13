@@ -95,6 +95,7 @@ runtime_signature_ensure_mu_plugin_file() {
   }
 
   if [ -f "$file" ]; then
+    runtime_context_projection_upgrade_mu_plugin "$file"
     return 0
   fi
 
@@ -116,8 +117,108 @@ runtime_signature_ensure_mu_plugin_file() {
   cat > "$file" <<'PHP'
 <?php
 /**
- * Plugin Name: wp-coding-agents — Worktree runtime signature registry
- * Description: Registers per-coding-agent-runtime env-var signatures that
+ * Plugin Name: wp-coding-agents — Worktree runtime registry
+ * Description: Registers per-coding-agent-runtime env-var signatures and
+ *              worktree context projections that Data Machine Code consumes.
+ *              Runtime paths, config schemas, markers, and cleanup remain in
+ *              this integration layer. Managed by wp-coding-agents.
+ *
+ * @package wp-coding-agents
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+if ( ! class_exists( 'WpCodingAgents_Worktree_Context_Projections', false ) ) {
+	class WpCodingAgents_Worktree_Context_Projections {
+		private const LOCAL_CONTEXT = '.claude/CLAUDE.local.md';
+		private const LEGACY_CONTEXT = '.opencode/AGENTS.local.md';
+		private const AGENTS_PATH = 'AGENTS.md';
+		private const AGENTS_MARKER = '.datamachine/AGENTS.md.source';
+		private const CONFIG_PATH = '.opencode/opencode.json';
+		private const CONFIG_MARKER = '.datamachine/opencode-config.json.previous';
+
+		public static function register(): void {
+			add_filter( 'datamachine_code_worktree_context_projection_targets', array( self::class, 'targets' ), 10, 2 );
+			add_filter( 'datamachine_code_worktree_context_projection_cleanup', array( self::class, 'cleanup' ) );
+		}
+
+		public static function targets( $targets, array $payload = array() ): array {
+			$targets = is_array( $targets ) ? $targets : array();
+			$targets['claude_local_context'] = array( 'path' => self::LOCAL_CONTEXT, 'exclude' => true );
+			$targets['site_agents_md'] = array(
+				'projector' => array( self::class, 'project_agents' ),
+				'exclude_paths' => array( self::AGENTS_PATH, self::AGENTS_MARKER, self::CONFIG_PATH, self::CONFIG_MARKER ),
+			);
+			return $targets;
+		}
+
+		public static function cleanup( $cleanup ): array {
+			$cleanup = is_array( $cleanup ) ? $cleanup : array();
+			$cleanup['site_agents_md'] = array( 'cleanup' => array( self::class, 'cleanup_agents' ) );
+			$cleanup['opencode_config'] = array( 'cleanup' => array( self::class, 'cleanup_config' ) );
+			$cleanup['claude_local_context'] = array( 'paths' => array( self::LOCAL_CONTEXT ) );
+			$cleanup['legacy_opencode'] = array( 'paths' => array( self::LEGACY_CONTEXT ) );
+			return $cleanup;
+		}
+
+		public static function project_agents( string $worktree, array $payload ): array|WP_Error {
+			$source = (string) ( $payload['agents_md_path'] ?? '' );
+			if ( '' === $source || ! is_file( $source ) ) { return array(); }
+			if ( str_starts_with( $source, '/wordpress/' ) || file_exists( $worktree . '/' . self::AGENTS_PATH ) || is_link( $worktree . '/' . self::AGENTS_PATH ) ) {
+				return self::project_config( $worktree, str_starts_with( $source, '/wordpress/' ) ? $worktree . '/' . self::LOCAL_CONTEXT : $source );
+			}
+			$target = $worktree . '/' . self::AGENTS_PATH;
+			$marker = $worktree . '/' . self::AGENTS_MARKER;
+			if ( ! self::mkdir( dirname( $marker ) ) || ! symlink( $source, $target ) || false === file_put_contents( $marker, "symlink\n" . $source . "\n" ) ) {
+				if ( is_link( $target ) ) { unlink( $target ); }
+				return new WP_Error( 'agents_md_projection_failed', 'Failed to project site AGENTS.md.' );
+			}
+			return array( $target, $marker );
+		}
+
+		private static function project_config( string $worktree, string $source ): array|WP_Error {
+			if ( ! is_file( $source ) ) { return array(); }
+			$config = $worktree . '/' . self::CONFIG_PATH;
+			$marker = $worktree . '/' . self::CONFIG_MARKER;
+			$previous = is_file( $config ) ? (string) file_get_contents( $config ) : '';
+			$data = '' === trim( $previous ) ? array( '$schema' => 'https://opencode.ai/config.json', 'instructions' => array() ) : json_decode( $previous, true );
+			if ( ! is_array( $data ) ) { return new WP_Error( 'opencode_config_invalid', 'Cannot add site AGENTS.md to invalid OpenCode config.' ); }
+			$instructions = is_array( $data['instructions'] ?? null ) ? $data['instructions'] : array();
+			if ( ! in_array( $source, $instructions, true ) ) { $instructions[] = $source; }
+			$data['instructions'] = array_values( $instructions );
+			if ( ! self::mkdir( dirname( $config ) ) || ! self::mkdir( dirname( $marker ) ) || false === file_put_contents( $marker, json_encode( array( 'existed' => is_file( $config ), 'content' => $previous ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n" ) || false === file_put_contents( $config, json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n" ) ) {
+				return new WP_Error( 'opencode_config_projection_failed', 'Failed to project OpenCode config.' );
+			}
+			return array( $marker, $config );
+		}
+
+		public static function cleanup_agents( string $worktree ): array {
+			$removed = array(); $target = $worktree . '/' . self::AGENTS_PATH; $marker = $worktree . '/' . self::AGENTS_MARKER;
+			$lines = is_file( $marker ) ? preg_split( '/\r\n|\r|\n/', trim( (string) file_get_contents( $marker ) ) ) : array();
+			if ( is_link( $target ) && isset( $lines[1] ) && readlink( $target ) === $lines[1] ) { unlink( $target ); $removed[] = $target; }
+			elseif ( 'inline' === ( $lines[0] ?? '' ) && is_file( $target ) ) { unlink( $target ); $removed[] = $target; }
+			if ( is_file( $marker ) ) { unlink( $marker ); $removed[] = $marker; }
+			return $removed;
+		}
+
+		public static function cleanup_config( string $worktree ): array {
+			$removed = array(); $config = $worktree . '/' . self::CONFIG_PATH; $marker = $worktree . '/' . self::CONFIG_MARKER;
+			if ( ! is_file( $marker ) ) { return $removed; }
+			$data = json_decode( (string) file_get_contents( $marker ), true );
+			if ( is_array( $data ) && ! empty( $data['existed'] ) ) { file_put_contents( $config, (string) ( $data['content'] ?? '' ) ); }
+			elseif ( is_file( $config ) ) { unlink( $config ); $removed[] = $config; }
+			unlink( $marker ); $removed[] = $marker;
+			return $removed;
+		}
+
+		private static function mkdir( string $path ): bool { return is_dir( $path ) || wp_mkdir_p( $path ); }
+	}
+}
+
+WpCodingAgents_Worktree_Context_Projections::register();
+
+/**
+ * Registers per-coding-agent-runtime env-var signatures that
  *              Data Machine Code reads when capturing origin-session
  *              metadata for spawned worktrees. wp-coding-agents installs
  *              kimaki and opencode and is the only layer that legitimately
@@ -146,8 +247,6 @@ runtime_signature_ensure_mu_plugin_file() {
  * @package wp-coding-agents
  */
 
-defined( 'ABSPATH' ) || exit;
-
 add_filter( 'datamachine_code_worktree_runtime_signatures', function ( $signatures ) {
     if ( ! is_array( $signatures ) ) {
         $signatures = [];
@@ -166,6 +265,38 @@ PHP
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("created $file")
   fi
+}
+
+# Upgrade existing runtime-registry mu-plugins in place without disturbing the
+# marker-delimited runtime signature blocks that individual installers own.
+runtime_context_projection_upgrade_mu_plugin() {
+  local file="$1"
+  grep -q "datamachine_code_worktree_context_projection_targets" "$file" && return 0
+  [ "${DRY_RUN:-false}" = true ] && { echo -e "${BLUE}[dry-run]${NC} Would add worktree context projections to $file"; return 0; }
+
+  local tmp
+  tmp=$(mktemp "${file}.XXXXXX")
+  # Render the current scaffold in an isolated temporary site, then retain the
+  # existing runtime blocks while replacing the old signature-only wrapper.
+  local old_site="${SITE_PATH:-}"
+  local scaffold_root
+  scaffold_root=$(mktemp -d)
+  SITE_PATH="$scaffold_root"
+  mkdir -p "$SITE_PATH/wp-content/mu-plugins"
+  local generated="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
+  DRY_RUN=false runtime_signature_ensure_mu_plugin_file
+  python3 - "$file" "$generated" > "$tmp" <<'PY'
+import re, sys
+old, generated = (open(path, encoding='utf-8').read() for path in sys.argv[1:])
+blocks = '\n'.join(re.findall(r'    // BEGIN runtime:.*?\n.*?\n    // END runtime:.*?(?=\n|$)', old, re.S))
+generated = re.sub(r'    // BEGIN runtimes\n    // END runtimes', '    // BEGIN runtimes\n' + (blocks + '\n' if blocks else '') + '    // END runtimes', generated)
+print(generated, end='')
+PY
+  mv "$tmp" "$file"
+  rm -rf "$scaffold_root"
+  SITE_PATH="$old_site"
+  service_file_normalize_perms "$file"
+  log "  Added worktree context projections to $file"
 }
 
 # ---------------------------------------------------------------------------
