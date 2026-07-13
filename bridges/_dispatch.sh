@@ -255,11 +255,16 @@ _preserve_systemd_umask() {
 adopt_service_identity_from_units() {
   [ "${LOCAL_MODE:-false}" = true ] && return 0
   [ "${SERVICE_USER_FORCED:-false}" = true ] && return 0
-  declare -F bridge_systemd_units >/dev/null 2>&1 || return 0
-
   local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
   local unit unit_user unit_home
-  for unit in $(bridge_systemd_units); do
+  local units=""
+  if declare -F bridge_systemd_units >/dev/null 2>&1; then
+    units="$(bridge_systemd_units)"
+  fi
+  if declare -F datamachine_worker_systemd_units >/dev/null 2>&1; then
+    units="$units $(datamachine_worker_systemd_units)"
+  fi
+  for unit in $units; do
     [ -f "$unit_dir/$unit" ] || continue
     unit_user=$(_systemd_unit_user "$unit_dir/$unit") || continue
 

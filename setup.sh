@@ -31,6 +31,7 @@ done
 # "drop a file in bridges/" — no edit here.
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
+source "$SCRIPT_DIR/services/datamachine-worker.sh"
 
 # Discover available runtimes from runtimes/ directory
 AVAILABLE_RUNTIMES=()
@@ -415,4 +416,5 @@ runtime_merge_mcp_servers
 install_skills
 cli_transport_install
 install_chat_bridge
+datamachine_worker_install
 print_summary
