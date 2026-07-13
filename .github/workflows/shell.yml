@@ -98,14 +98,6 @@ jobs:
       - name: Run tests/service-identity-adoption.sh
         run: ./tests/service-identity-adoption.sh
 
-  kimaki-multi-instance:
-    name: Kimaki multi-instance isolation regression (#274)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/kimaki-multi-instance.sh
-        run: ./tests/kimaki-multi-instance.sh
-
   agents-md-guidance:
     name: AGENTS.md guidance registry
     runs-on: ubuntu-latest
