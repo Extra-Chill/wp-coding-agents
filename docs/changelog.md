@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.4] - 2026-07-13
+
+### Fixed
+- back up Kimaki config in writable state
+
 ## [1.9.3] - 2026-07-13
 
 ### Fixed
