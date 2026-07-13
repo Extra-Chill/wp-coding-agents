@@ -15,6 +15,7 @@ diff -u "$snapshot_dir/systemd-timer" <(printf '%s\n' "$timer")
 diff -u "$snapshot_dir/launchd" <(printf '%s\n' "$plist")
 
 grep -q '^User=chubes$' <<< "$service"
+grep -q 'wp cron event run --due-now' <<< "$service"
 grep -q 'wp datamachine worker run --once' <<< "$service"
 grep -q '^OnUnitActiveSec=2min$' <<< "$timer"
 grep -q '<integer>120</integer>' <<< "$plist"
@@ -47,5 +48,5 @@ studio_plist="$(datamachine_worker_render_launchd com.wp.datamachine-worker)"
 PATH="$saved_path"
 
 diff -u "$snapshot_dir/launchd-studio-absolute-path" <(printf '%s\n' "$studio_plist")
-grep -Fq "'$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
+grep -Fq "'$studio_bin' wp cron event run --due-now && '$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
 echo "PASS: tests/datamachine-worker.sh"

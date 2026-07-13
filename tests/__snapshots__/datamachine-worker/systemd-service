@@ -8,4 +8,4 @@ User=chubes
 WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/bin/sh -lc 'cd "/var/www/site" && wp datamachine worker run --once'
+ExecStart=/bin/sh -lc 'cd "/var/www/site" && wp cron event run --due-now && wp datamachine worker run --once'
