@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.9.0] - 2026-07-13
+
+### Added
+- support multiple service instances
+- configure targeted DMC worktree resolution
+- add Data Machine worker heartbeat (#262)
+
+### Changed
+- register runtime context projections
+- Install worker heartbeat during upgrades
+
+### Fixed
+- drive cron from worker heartbeat (#270)
+- resolve Studio CLI for Data Machine worker (#267)
+- map DMC worktree safety output for Homeboy
+- normalize ownership + group-write on service files written into the web tree
+- enumerate homeboy CLI command map live at AGENTS.md compose time (#254)
+
 ## [1.8.6] - 2026-07-05
 
 ### Fixed
