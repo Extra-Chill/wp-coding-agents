@@ -54,6 +54,7 @@ CHAT_BRIDGE=""
 SHOW_HELP=false
 DRY_RUN=false
 RUN_AS_ROOT=true
+SERVICE_USER_FORCED=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 INSTALL_SKILLS=true
@@ -69,6 +70,7 @@ HOMEBOY_MODE="auto"
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
+initialize_kimaki_overrides
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -113,10 +115,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --root)
       RUN_AS_ROOT=true
+      SERVICE_USER_FORCED=true
       shift
       ;;
     --non-root)
       RUN_AS_ROOT=false
+      SERVICE_USER_FORCED=true
       shift
       ;;
     --dry-run)
@@ -187,10 +191,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --agent-slug)
       AGENT_SLUG="$2"
+      AGENT_SLUG_EXPLICIT=true
       shift 2
       ;;
     --agent-name)
       AGENT_NAME="$2"
+      shift 2
+      ;;
+    --kimaki-unit)
+      KIMAKI_UNIT="$2"
+      KIMAKI_UNIT_EXPLICIT=true
+      shift 2
+      ;;
+    --kimaki-data-dir)
+      KIMAKI_DATA_DIR="$2"
+      KIMAKI_DATA_DIR_EXPLICIT=true
+      shift 2
+      ;;
+    --kimaki-lock-port)
+      KIMAKI_LOCK_PORT="$2"
+      KIMAKI_LOCK_PORT_EXPLICIT=true
       shift 2
       ;;
     --help|-h)
@@ -229,6 +249,11 @@ OPTIONS:
                      Available: ${AVAILABLE_RUNTIMES[*]}
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
+  --kimaki-unit <u>  Kimaki systemd unit (default: kimaki.service)
+  --kimaki-data-dir <path>
+                     Kimaki state directory (default: <service-home>/.kimaki)
+  --kimaki-lock-port <port>
+                     Kimaki lock port (default: Kimaki's built-in default)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki for opencode,
                      cc-connect for claude-code, none for codex)
@@ -289,6 +314,9 @@ ENVIRONMENT VARIABLES:
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
   WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
+  KIMAKI_UNIT               Kimaki systemd unit (default: kimaki.service)
+  KIMAKI_DATA_DIR           Kimaki state directory
+  KIMAKI_LOCK_PORT          Kimaki lock port
   TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
   TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
   OPENCODE_MODEL_PROVIDER   Default model provider for Telegram bot (default: opencode)
@@ -376,6 +404,11 @@ fi
 # ============================================================================
 
 detect_environment
+
+if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
+  bridge_load kimaki
+  _kimaki_resolve_instance
+fi
 
 # --skills-only early exit
 if [ "$SKILLS_ONLY" = true ]; then
