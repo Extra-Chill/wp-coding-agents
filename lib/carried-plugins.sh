@@ -37,7 +37,7 @@ sync_carried_plugins() {
 
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} mkdir -p $target_dir"
-      echo -e "${BLUE}[dry-run]${NC} rsync -a --no-owner --no-group --delete $source_dir/ $target_dir/"
+      echo -e "${BLUE}[dry-run]${NC} rsync -a --no-owner --no-group --omit-dir-times --delete $source_dir/ $target_dir/"
       echo -e "${BLUE}[dry-run]${NC} $WP_CMD plugin activate $slug --path=$SITE_PATH $WP_ROOT_FLAG"
       continue
     fi
@@ -48,7 +48,7 @@ sync_carried_plugins() {
     fi
 
     mkdir -p "$target_dir"
-    rsync -a --no-owner --no-group --delete "$source_dir/" "$target_dir/"
+    rsync -a --no-owner --no-group --omit-dir-times --delete "$source_dir/" "$target_dir/"
     activate_plugin "$slug"
     fix_ownership "$target_dir"
 
