@@ -19,4 +19,33 @@ grep -q 'wp datamachine worker run --once' <<< "$service"
 grep -q '^OnUnitActiveSec=2min$' <<< "$timer"
 grep -q '<integer>120</integer>' <<< "$plist"
 grep -q 'com.wp.datamachine-worker' <<< "$plist"
+
+# launchd has a minimal PATH. Resolve a Studio CLI from a directory outside
+# that PATH and assert the command embeds its absolute, shell-quoted path.
+studio_root="/tmp/datamachine-worker-studio-path"
+studio_bin="$studio_root/studio tools/studio"
+[ ! -e "$studio_root" ] || {
+  echo "FAIL: test directory already exists: $studio_root" >&2
+  exit 1
+}
+mkdir -p "$(dirname "$studio_bin")"
+printf '#!/bin/sh\n' > "$studio_bin"
+chmod +x "$studio_bin"
+trap 'rm -r "$studio_root"' EXIT
+
+saved_path="$PATH"
+PATH="$(dirname "$studio_bin"):$saved_path"
+WP_CMD="studio wp"
+STUDIO_BIN="$studio_root/missing-studio"
+if datamachine_worker_prepare_command; then
+  echo "FAIL: missing Studio executable was accepted" >&2
+  exit 1
+fi
+unset STUDIO_BIN
+datamachine_worker_prepare_command
+studio_plist="$(datamachine_worker_render_launchd com.wp.datamachine-worker)"
+PATH="$saved_path"
+
+diff -u "$snapshot_dir/launchd-studio-absolute-path" <(printf '%s\n' "$studio_plist")
+grep -Fq "'$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
 echo "PASS: tests/datamachine-worker.sh"

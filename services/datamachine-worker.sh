@@ -5,7 +5,51 @@
 datamachine_worker_systemd_units() { echo "datamachine-worker.service datamachine-worker.timer"; }
 datamachine_worker_launchd_label() { echo "com.wp.datamachine-worker"; }
 
+_datamachine_worker_shell_quote() {
+  local value="$1"
+  value=${value//\'/\'\\\'\'}
+  printf "'%s'" "$value"
+}
+
+_datamachine_worker_uses_studio() {
+  [ "${WP_CMD:-wp}" = "studio wp" ]
+}
+
+_datamachine_worker_resolve_studio_bin() {
+  local candidate="${STUDIO_BIN:-}"
+  local directory
+
+  if [ -z "$candidate" ]; then
+    candidate="$(command -v studio 2>/dev/null || true)"
+  fi
+
+  if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ ! -x "$candidate" ]; then
+    printf 'Data Machine worker requires an executable Studio CLI; install it or ensure studio is on PATH during setup/upgrade.\n' >&2
+    return 1
+  fi
+
+  case "$candidate" in
+    /*) printf '%s\n' "$candidate" ;;
+    *)
+      directory="$(cd "$(dirname "$candidate")" && pwd)" || return 1
+      printf '%s/%s\n' "$directory" "$(basename "$candidate")"
+      ;;
+  esac
+}
+
+datamachine_worker_prepare_command() {
+  _datamachine_worker_uses_studio || return 0
+  STUDIO_BIN="$(_datamachine_worker_resolve_studio_bin)" || return 1
+  export STUDIO_BIN
+}
+
 _datamachine_worker_command() {
+  if _datamachine_worker_uses_studio; then
+    [ -n "${STUDIO_BIN:-}" ] || datamachine_worker_prepare_command || return 1
+    printf 'cd "%s" && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
+    return
+  fi
+
   printf '%s' "cd \"$SITE_PATH\" && $WP_CMD datamachine worker run --once"
 }
 
@@ -78,6 +122,8 @@ EOF
 }
 
 datamachine_worker_install() {
+  datamachine_worker_prepare_command || return 1
+
   if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
     local label plist_dir plist
     label="$(datamachine_worker_launchd_label)"
@@ -107,6 +153,8 @@ datamachine_worker_install() {
 }
 
 datamachine_worker_update() {
+  datamachine_worker_prepare_command || return 1
+
   if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
     local label plist
     label="$(datamachine_worker_launchd_label)"
