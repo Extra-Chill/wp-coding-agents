@@ -413,6 +413,16 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
     return 0
   fi
 
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ -x "$target_helper" ] \
+      && [ -x "$dispatch_wrapper" ] \
+      && sudo -n -H -u "$SERVICE_USER" "$target_helper" --version >/dev/null 2>&1; then
+      log "  Keeping functional root-owned Kimaki dispatch wrapper for $SERVICE_USER"
+      return 0
+    fi
+    error "Kimaki dispatch wrapper requires root privileges to install or update"
+  fi
+
   install -d -m 0755 "$(dirname "$target_helper")"
   printf '%s\n' "$target_content" > "$target_helper"
   chown root:root "$target_helper"

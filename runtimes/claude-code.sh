@@ -160,8 +160,12 @@ runtime_install_hooks() {
   fi
 
   mkdir -p "$hooks_dir"
-  cp "$hook_src" "$hook_dst"
-  chmod +x "$hook_dst"
+  if ! cmp -s "$hook_src" "$hook_dst"; then
+    cp "$hook_src" "$hook_dst"
+  fi
+  if [ ! -x "$hook_dst" ]; then
+    chmod +x "$hook_dst"
+  fi
   service_file_normalize_perms "$hook_dst"
   log "Installed hook: $hook_dst"
 

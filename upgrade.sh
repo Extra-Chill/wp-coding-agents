@@ -1063,6 +1063,10 @@ update_chat_bridge_launchd() {
 
 update_datamachine_worker_service() {
   _run_filter_active systemd || return 0
+  if [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
+    warn "Skipping Data Machine worker unit refresh because upgrade is running non-root"
+    return 0
+  fi
   datamachine_worker_update
 }
 

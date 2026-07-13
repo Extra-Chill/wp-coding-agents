@@ -59,9 +59,8 @@ install_skills_from_local_repo() {
 
 # Mirror wp-coding-agents-owned upgrade skill into the persistent
 # kimaki-config/skills/ dir. This is the durable source of
-# truth that survives `npm update -g kimaki` wipes — kimaki/post-upgrade.sh
-# reads from this path on every kimaki restart to restore the mirror copy
-# at $(npm root -g)/kimaki/skills/.
+# truth that survives `npm update -g kimaki` wipes. Kimaki discovers this
+# managed source without a package-local duplicate.
 #
 # Path resolution matches the plugin-persistence pattern used elsewhere:
 #   Local: $KIMAKI_DATA_DIR/kimaki-config/skills/ (defaults to ~/.kimaki/kimaki-config/skills/)
@@ -77,6 +76,22 @@ install_skills_to_persistent_source() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would mirror skills to persistent source: $persistent_dir/"
+    return
+  fi
+
+  if [ "$(id -u)" -ne 0 ] && [ ! -w "$persistent_dir" ]; then
+    local skill_dir skill_name
+    for skill_dir in "$SCRIPT_DIR/skills"/*/; do
+      [ -d "$skill_dir" ] || continue
+      skill_name=$(basename "$skill_dir")
+      if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
+        if [ ! -d "$persistent_dir/$skill_name" ] \
+          || ! diff -qr "$skill_dir" "$persistent_dir/$skill_name" >/dev/null 2>&1; then
+          error "Persistent Kimaki skill source requires root privileges to install or update"
+        fi
+      fi
+    done
+    log "Keeping current root-owned persistent Kimaki skill source"
     return
   fi
 
@@ -174,24 +189,9 @@ install_skills() {
   # (kimaki mirror source, print_skills_summary, summary.sh).
   SKILLS_DIR="$(runtime_skills_dir)"
 
-  # Copy the upgrade skill to Kimaki's directory if Kimaki is the chat bridge.
-  # Kimaki overrides OpenCode's skill discovery to only look in its
-  # own bundled skills dir, so the runtime skills dir alone isn't enough.
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$DRY_RUN" = true ]; then
-      KIMAKI_SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
-      echo -e "${BLUE}[dry-run]${NC} Would copy upgrade skill to $KIMAKI_SKILLS_DIR/ (if Kimaki installed)"
-    elif command -v kimaki &> /dev/null; then
-      KIMAKI_SKILLS_DIR="$(npm root -g 2>/dev/null)/kimaki/skills"
-      if [ -d "$KIMAKI_SKILLS_DIR" ]; then
-        for skill_dir in "$SCRIPT_DIR/skills"/*/; do
-          skill_name=$(basename "$skill_dir")
-          if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
-            cp -r "$skill_dir" "$KIMAKI_SKILLS_DIR/$skill_name"
-          fi
-        done
-        log "Upgrade skill also copied to Kimaki: $KIMAKI_SKILLS_DIR/"
-      fi
+      echo -e "${BLUE}[dry-run]${NC} Would sync Kimaki's persistent skill source"
     fi
 
     # Mirror the upgrade skill into the persistent kimaki-config/skills/ dir so
