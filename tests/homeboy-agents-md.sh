@@ -234,7 +234,9 @@ fi
 exit 0
 SH
 chmod +x "$MOCKBIN/homeboy"
-touch -d '+2 seconds' "$MOCKBIN/homeboy"
+# BSD/macOS touch does not support GNU's `-d`; a fixed future timestamp is
+# sufficient to make the binary mtime cache key differ on every platform.
+touch -t 203001010000 "$MOCKBIN/homeboy"
 
 LIVE_SHIM="$TMP/live-shim.php"
 cat > "$LIVE_SHIM" <<PHP

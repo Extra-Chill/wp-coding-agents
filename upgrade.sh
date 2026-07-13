@@ -75,6 +75,7 @@ done
 # render templates, sync, systemd/launchd update, and summary blocks.
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
+source "$SCRIPT_DIR/services/datamachine-worker.sh"
 
 # Discover available runtimes
 AVAILABLE_RUNTIMES=()
@@ -1034,6 +1035,11 @@ update_chat_bridge_launchd() {
   bridge_update_launchd
 }
 
+update_datamachine_worker_service() {
+  _run_filter_active systemd || return 0
+  datamachine_worker_update
+}
+
 # ============================================================================
 # Phase 7: Remove legacy opencode-claude-auth wrapper, if any
 #
@@ -1206,5 +1212,6 @@ sync_runtime_signature
 sync_runtime_instructions
 update_chat_bridge_systemd
 update_chat_bridge_launchd
+update_datamachine_worker_service
 remove_legacy_opencode_wrapper_phase
 print_summary

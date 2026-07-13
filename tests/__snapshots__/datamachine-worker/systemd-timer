@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Data Machine queue worker heartbeat every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=datamachine-worker.service
+
+[Install]
+WantedBy=timers.target
