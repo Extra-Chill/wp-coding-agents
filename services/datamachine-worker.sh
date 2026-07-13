@@ -46,11 +46,11 @@ datamachine_worker_prepare_command() {
 _datamachine_worker_command() {
   if _datamachine_worker_uses_studio; then
     [ -n "${STUDIO_BIN:-}" ] || datamachine_worker_prepare_command || return 1
-    printf 'cd "%s" && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
+    printf 'cd "%s" && %s wp cron event run --due-now && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
     return
   fi
 
-  printf '%s' "cd \"$SITE_PATH\" && $WP_CMD datamachine worker run --once"
+  printf '%s' "cd \"$SITE_PATH\" && $WP_CMD cron event run --due-now && $WP_CMD datamachine worker run --once"
 }
 
 datamachine_worker_render_systemd_service() {
