@@ -57,6 +57,7 @@ export RUN_AS_ROOT=false
 export IS_STUDIO=false
 export WP_CMD="wp"
 export AGENT_SLUG="intelligence-chubes4"
+export KIMAKI_LOCK_PORT=""
 
 # kimaki
 export KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
@@ -83,6 +84,10 @@ export OPENCODE_MODEL=""
 # build, so systemd snapshots stay byte-identical to pre-refactor output.
 # ---------------------------------------------------------------------------
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
+
+# Keep snapshots independent of whether the host happens to ship node in
+# /usr/bin; node-path resolution has dedicated coverage in path-helpers.sh.
+_resolve_node_bin_dir() { printf ''; }
 
 REDACTED_DIFF=$(printf '%s\n' ' Environment=KIMAKI_BOT_TOKEN=secret-token' '         <key>KIMAKI_BOT_TOKEN</key>' '         <string>secret-token</string>' | _redact_secret_diff)
 if echo "$REDACTED_DIFF" | grep -q 'secret-token'; then

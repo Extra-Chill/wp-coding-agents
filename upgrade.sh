@@ -121,6 +121,7 @@ WITH_HOMEBOY="${WITH_HOMEBOY:-false}"
 # True when the operator forced the identity via --root / --non-root.
 # Suppresses adopt_service_identity_from_units (existing-unit adoption).
 SERVICE_USER_FORCED=false
+initialize_kimaki_overrides
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -140,6 +141,10 @@ while [[ $# -gt 0 ]]; do
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
+    --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
+    --kimaki-unit)   KIMAKI_UNIT="$2"; KIMAKI_UNIT_EXPLICIT=true; shift 2 ;;
+    --kimaki-data-dir) KIMAKI_DATA_DIR="$2"; KIMAKI_DATA_DIR_EXPLICIT=true; shift 2 ;;
+    --kimaki-lock-port) KIMAKI_LOCK_PORT="$2"; KIMAKI_LOCK_PORT_EXPLICIT=true; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
     --root)          RUN_AS_ROOT=true;  SERVICE_USER_FORCED=true; shift ;;
     --non-root)      RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
@@ -176,6 +181,12 @@ USAGE:
                                 removes user-added plugins.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
+  ./upgrade.sh --agent-slug <s> Override Data Machine agent slug
+  ./upgrade.sh --kimaki-unit <u> Target Kimaki systemd unit
+  ./upgrade.sh --kimaki-data-dir <path>
+                                 Override the selected Kimaki state directory
+  ./upgrade.sh --kimaki-lock-port <port>
+                                 Override the selected Kimaki lock port
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
                                 of the existing unit's User=)
@@ -264,14 +275,20 @@ if [ -z "$EXISTING_WP" ]; then
     error "Local mode requires --wp-path <path> or EXISTING_WP env var"
   fi
 
-  # Scan /var/www for the first WordPress install
+  # A host may serve several sites. Selecting the first glob result is unsafe.
+  wp_candidates=()
   for candidate in /var/www/*/; do
     if [ -f "$candidate/wp-config.php" ]; then
-      EXISTING_WP="${candidate%/}"
-      log "Auto-detected WordPress at: $EXISTING_WP"
-      break
+      wp_candidates+=("${candidate%/}")
     fi
   done
+
+  if [ ${#wp_candidates[@]} -eq 1 ]; then
+    EXISTING_WP="${wp_candidates[0]}"
+    log "Auto-detected WordPress at: $EXISTING_WP"
+  elif [ ${#wp_candidates[@]} -gt 1 ]; then
+    error "Multiple WordPress installs found under /var/www. Pass --wp-path <path>: ${wp_candidates[*]}"
+  fi
 
   if [ -z "$EXISTING_WP" ]; then
     error "Could not auto-detect WordPress path. Pass --wp-path <path> or set EXISTING_WP."
@@ -336,6 +353,10 @@ if [ -n "$CHAT_BRIDGE" ] && bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1; then
   bridge_load "$CHAT_BRIDGE"
 fi
 
+if [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
+  _kimaki_resolve_instance
+fi
+
 # On upgrade, the installed unit's User= is the source of truth for the
 # service identity. upgrade.sh defaults RUN_AS_ROOT=true, which on a
 # non-root install (User=opencode) made Phase 5 silently rewrite the unit
@@ -352,6 +373,11 @@ log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
 log "Site path:   $SITE_PATH"
 log "Service:     $SERVICE_USER"
+if [ "$CHAT_BRIDGE" = "kimaki" ]; then
+  log "Kimaki unit: $KIMAKI_UNIT"
+  log "Kimaki data: $KIMAKI_DATA_DIR"
+  [ -z "$KIMAKI_LOCK_PORT" ] || log "Kimaki lock: $KIMAKI_LOCK_PORT"
+fi
 if [ "$DRY_RUN" = true ]; then
   log "Dry-run mode: no changes will be made"
 fi
