@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.1] - 2026-07-13
+
+### Fixed
+- support non-root carried plugin sync
+
 ## [1.9.0] - 2026-07-13
 
 ### Added
