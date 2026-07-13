@@ -741,7 +741,11 @@ bridge_sync_config() {
   else
     KIMAKI_CONFIG_DIR="/opt/kimaki-config"
     KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
-    BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
+    if [ "$(id -u)" -eq 0 ]; then
+      BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
+    else
+      BACKUP_DIR="${KIMAKI_DATA_DIR}/backups/kimaki-config.$TIMESTAMP"
+    fi
     log "Phase 2: Syncing /opt/kimaki-config..."
   fi
 
