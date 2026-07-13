@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.5] - 2026-07-13
+
+### Fixed
+- make non-root upgrades idempotent
+
 ## [1.9.4] - 2026-07-13
 
 ### Fixed
