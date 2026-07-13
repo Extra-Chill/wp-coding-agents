@@ -47,7 +47,7 @@ RUNTIME=claude-code
 output="$(sync_carried_plugins)"
 
 case "$output" in
-  *"Syncing carried plugin: ai-provider-for-claude-code"*"rsync -a --no-owner --no-group --delete"*"wp plugin activate ai-provider-for-claude-code"*) ;;
+  *"Syncing carried plugin: ai-provider-for-claude-code"*"rsync -a --no-owner --no-group --omit-dir-times --delete"*"wp plugin activate ai-provider-for-claude-code"*) ;;
   *)
     printf 'Expected Claude Code carried plugin sync, got:\n%s\n' "$output" >&2
     exit 1
