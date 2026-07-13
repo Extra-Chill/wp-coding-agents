@@ -111,7 +111,10 @@ datamachine_worker_update() {
     local label plist
     label="$(datamachine_worker_launchd_label)"
     plist="$HOME/Library/LaunchAgents/$label.plist"
-    [ -f "$plist" ] || return 0
+    if [ ! -f "$plist" ]; then
+      datamachine_worker_install
+      return
+    fi
     write_file "$plist" "$(datamachine_worker_render_launchd "$label")"
     if [ "$DRY_RUN" = false ]; then
       launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -120,6 +123,10 @@ datamachine_worker_update() {
     return
   fi
   [ "$LOCAL_MODE" = true ] && return 0
+  if [ ! -f /etc/systemd/system/datamachine-worker.service ] || [ ! -f /etc/systemd/system/datamachine-worker.timer ]; then
+    datamachine_worker_install
+    return
+  fi
   _smart_update_systemd_unit /etc/systemd/system/datamachine-worker.service "$(datamachine_worker_render_systemd_service)" datamachine-worker.service
   _smart_update_systemd_unit /etc/systemd/system/datamachine-worker.timer "$(datamachine_worker_render_systemd_timer)" datamachine-worker.timer
   if [ "$DRY_RUN" = false ]; then
