@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.6] - 2026-07-16
+
+### Fixed
+- support evolving Kimaki prompt signatures
+
 ## [1.9.5] - 2026-07-13
 
 ### Fixed
