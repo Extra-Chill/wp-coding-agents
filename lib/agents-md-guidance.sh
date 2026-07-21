@@ -456,7 +456,8 @@ _agents_md_guidance_render_homeboy_live_block() {
             }
 
             $lines[] = '';
-            $lines[] = 'Discover everything: `homeboy --help`. Drill into any command with `homeboy <command> --help`. Releases (`homeboy release`) and deploys (`homeboy deploy`) are operator actions — run them only when the user explicitly asks.';
+            $lines[] = 'Inspect live configuration with `homeboy config show`. Discover current agent-task providers with `homeboy agent-task providers`.';
+            $lines[] = 'Discover everything: `homeboy --help`. Drill into a command with `homeboy <command> --help`, including `homeboy config --help` and `homeboy agent-task --help`. Releases (`homeboy release`) and deploys (`homeboy deploy`) are operator actions — run them only when the user explicitly asks.';
 
             return implode( "\n", $lines );
         }

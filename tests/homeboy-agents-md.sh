@@ -86,6 +86,10 @@ MOCKBIN="$TMP/bin"
 mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/homeboy" <<'SH'
 #!/bin/bash
+if [ "$1" = "agent-task" ] && [ "$2" = "providers" ]; then
+  echo "codebox-provider-snapshot"
+  exit 0
+fi
 if [ "$1" = "--help" ]; then
   cat <<'HELP'
 Headless automation for agentic software engineering workflows
@@ -175,14 +179,19 @@ namespace {
         'has_common_entrypoints' => str_contains( \$content, 'Common entrypoints:' ),
         'drops_help_meta' => ! str_contains( \$content, 'homeboy help' ),
         'drops_list_meta' => ! str_contains( \$content, 'homeboy list' ),
+        'has_config_show' => str_contains( \$content, 'Inspect live configuration with \`homeboy config show\`' ),
+        'has_agent_task_providers' => str_contains( \$content, '\`homeboy agent-task providers\`' ),
+        'does_not_render_provider_snapshot' => ! str_contains( \$content, 'codebox-provider-snapshot' ),
         'has_discover_footer' => str_contains( \$content, 'Discover everything: \`homeboy --help\`' ),
         'has_per_command_footer' => str_contains( \$content, 'homeboy <command> --help' ),
+        'has_config_help' => str_contains( \$content, '\`homeboy config --help\`' ),
+        'has_agent_task_help' => str_contains( \$content, '\`homeboy agent-task --help\`' ),
     ]);
 }
 PHP
 
 RESULT=$(PATH="$MOCKBIN:$PATH" php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"live","has_live_freshness":true,"has_live_intro":true,"no_false_refresh_prose":true,"has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true}'
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"live","has_live_freshness":true,"has_live_intro":true,"no_false_refresh_prose":true,"has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_config_show":true,"has_agent_task_providers":true,"does_not_render_provider_snapshot":true,"has_discover_footer":true,"has_per_command_footer":true,"has_config_help":true,"has_agent_task_help":true}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives live Homeboy CLI map"
 
 echo "==> re-sync with homeboy present (idempotent)"
