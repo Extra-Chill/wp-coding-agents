@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.8] - 2026-07-22
+
+### Changed
+- Invalidate cached Homeboy guidance on upgrades ([#289](https://github.com/Extra-Chill/wp-coding-agents/pull/289)) (by Chris Huber)
+
 ## [1.9.7] - 2026-07-21
 
 ### Changed
