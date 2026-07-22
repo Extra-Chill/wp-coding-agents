@@ -158,13 +158,13 @@ runtime_signature_register "opencode" \
 HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-register"
 
-# --- 3. Add legacy kimaki without disturbing opencode -----------------------
+# --- 3. Add Kimaki contract without disturbing opencode ---------------------
 # Simulate a legacy 0600 file from a pre-#133 install. The next register call
 # must self-heal it back to 0644 via the mktemp+mv path.
-echo "==> simulate legacy 0600 file and verify self-heal on next register"
+echo "==> register Kimaki attribution contract and verify self-heal"
 chmod 0600 "$MU_FILE"
-runtime_signature_register "kimaki" \
-  '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","thread_url":"KIMAKI_THREAD_URL"}'
+source "$SCRIPT_DIR/bridges/kimaki.sh"
+_kimaki_register_runtime_signature
 assert_php_lint "$MU_FILE" "two-runtime file parses with php -l"
 assert_mode_0664 "$MU_FILE" "mu-plugin mode self-healed to 0664 after sibling register"
 assert_group "$MU_FILE" "mu-plugin group self-healed after sibling register"
@@ -186,10 +186,10 @@ else
   echo "  FAIL opencode block did not pick up new subkey"
   FAILED=$((FAILED + 1))
 fi
-if grep -q "KIMAKI_SESSION_ID" "$MU_FILE"; then
-  echo "  ok   kimaki block preserved across opencode mutation"
+if grep -q "KIMAKI_SESSION_ID" "$MU_FILE" && grep -q "KIMAKI_THREAD_ID" "$MU_FILE" && grep -q "KIMAKI_CHANNEL_ID" "$MU_FILE"; then
+  echo "  ok   Kimaki attribution contract preserved across opencode mutation"
 else
-  echo "  FAIL kimaki block clobbered by opencode re-register"
+  echo "  FAIL Kimaki attribution contract clobbered by opencode re-register"
   FAILED=$((FAILED + 1))
 fi
 

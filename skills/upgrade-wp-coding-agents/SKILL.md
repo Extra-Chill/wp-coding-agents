@@ -40,7 +40,7 @@ The user says something like:
 
 3. **Restart the detected chat bridge.** The script prints the exact restart command for the detected bridge × environment. Run that command after a successful upgrade so the new bridge config, OpenCode plugins, skills, and prompt patches take effect immediately. If the restart command is unavailable or fails, report that as incomplete work.
 
-4. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block includes a `test -f .../dm-context-filter.ts && test -f .../dm-agent-sync.ts` command. Run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
+4. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block checks the managed plugin files. Run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
 
 5. **Verify the filter behavior from the repo when available.** Run:
    ```bash

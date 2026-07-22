@@ -337,17 +337,20 @@ _kimaki_find_native_binary() {
 
 # _kimaki_register_runtime_signature
 #
-# Kimaki 0.13 does not currently export stable session/thread attribution env
-# vars to OpenCode/tool subprocesses. Keep this hook so upgrades remove stale
-# Kimaki runtime-signature blocks from previous wp-coding-agents releases.
-# Rich Discord thread attribution needs upstream Kimaki support first:
+# Kimaki does not currently export stable session/thread/channel attribution env
+# vars to OpenCode/tool subprocesses. Register the documented upstream #137
+# contract now so the DMC worktree signature and the invocation-scoped Homeboy
+# notification adapter consume the same values when Kimaki starts exporting them.
+# Until then both consumers remain fail-closed.
 # https://github.com/remorses/kimaki/issues/137
 _kimaki_register_runtime_signature() {
-  if ! declare -F runtime_signature_unregister >/dev/null; then
+  if ! declare -F runtime_signature_register >/dev/null; then
     return 0
   fi
 
-  runtime_signature_unregister "kimaki"
+  runtime_signature_register \
+    "kimaki" \
+    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","channel_id":"KIMAKI_CHANNEL_ID"}'
 }
 
 _kimaki_sync_bin_helpers() {
@@ -360,7 +363,30 @@ _kimaki_sync_bin_helpers() {
 
   _kimaki_remove_legacy_session_helper "$HELPER_DIR"
   _kimaki_remove_legacy_command_shims "$HELPER_DIR"
+  _kimaki_install_homeboy_notification_context_helper "$HELPER_DIR"
   _kimaki_install_dispatch_helpers
+}
+
+_kimaki_install_homeboy_notification_context_helper() {
+  local helper_dir="$1"
+  local source="$SCRIPT_DIR/bridges/kimaki/homeboy-notification-context.sh"
+  local target="$helper_dir/wp-coding-agents-homeboy-notification"
+
+  [ -f "$source" ] || return 0
+  if [ "${DRY_RUN:-false}" = true ]; then
+    if ! cmp -s "$source" "$target" 2>/dev/null; then
+      echo -e "${BLUE}[dry-run]${NC} Would update $target"
+    fi
+    return 0
+  fi
+
+  mkdir -p "$helper_dir"
+  if ! cmp -s "$source" "$target" 2>/dev/null; then
+    cp "$source" "$target"
+    chmod 0755 "$target"
+    log "  Updated $target"
+    UPDATED_ITEMS+=("Kimaki Homeboy notification wrapper")
+  fi
 }
 
 _kimaki_install_dispatch_helpers() {
@@ -1377,6 +1403,6 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # DM OpenCode plugins installed"
+  echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts && test -f $PLUGINS_DIR/homeboy-notification-context.ts   # managed OpenCode plugins installed"
   echo "command -v kimaki >/dev/null   # native Kimaki binary available"
 }

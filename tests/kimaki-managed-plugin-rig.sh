@@ -139,6 +139,11 @@ for (const cycle of manifest.cycles) {
     `${cycle.name}: dm-context-filter hook executed`,
     `${cycle.name}: system and message transforms agree`,
     `${cycle.name}: dm-agent-sync module loads`,
+    `${cycle.name}: notification adapter present after restart`,
+    `${cycle.name}: notification wrapper survives package wipe`,
+    `${cycle.name}: Homeboy command is routed through invocation wrapper`,
+    `${cycle.name}: absent Kimaki attribution omits notification context`,
+    `${cycle.name}: concurrent thread invocations retain distinct notification routes`,
   ]) {
     if (!labels.includes(expected)) {
       throw new Error(`missing check: ${expected}`);

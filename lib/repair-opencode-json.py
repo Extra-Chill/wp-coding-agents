@@ -70,7 +70,7 @@ import sys
 from typing import List, Tuple
 
 
-MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
+MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
 
 
@@ -102,6 +102,7 @@ def expected_plugins(
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
+        plugins.append(f"{kimaki_plugins_dir}/homeboy-notification-context.ts")
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)

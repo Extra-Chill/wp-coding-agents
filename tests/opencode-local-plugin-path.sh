@@ -45,6 +45,7 @@ with open(opencode_json, encoding="utf-8") as handle:
 expected = [
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
+    f"{kimaki_data_dir}/kimaki-config/plugins/homeboy-notification-context.ts",
     f"{opencode_json.rsplit('/', 1)[0]}/.opencode/plugins/claude-code-auth.ts",
 ]
 actual = data.get("plugin")
@@ -75,6 +76,7 @@ with open(opencode_json, encoding="utf-8") as handle:
 expected = [
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
+    f"{kimaki_data_dir}/kimaki-config/plugins/homeboy-notification-context.ts",
 ]
 actual = data.get("plugin")
 if actual != expected:
