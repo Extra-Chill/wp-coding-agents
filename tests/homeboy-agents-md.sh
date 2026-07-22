@@ -287,6 +287,53 @@ LIVE_RESULT=$(PATH="$MOCKBIN:$PATH" php "$LIVE_SHIM")
 LIVE_EXPECTED='{"has_fuzz":true,"has_deploy":true,"dropped_triage":true,"version_reflected":true}'
 assert_eq "$LIVE_RESULT" "$LIVE_EXPECTED" "live refresh picks up homeboy upgrade without setup re-run"
 
+# --- Renderer refresh (issue #288 regression) ----------------------------
+# A previous renderer cached the complete markdown using only the Homeboy
+# identity. Newly installed static guidance must not reuse that stale entry.
+echo "==> renderer refresh: stale pre-upgrade cache cannot mask new guidance"
+RENDERER_SHIM="$TMP/renderer-shim.php"
+cat > "$RENDERER_SHIM" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$calls = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$calls[ \$slug ] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+namespace {
+    define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][] = \$callback;
+    }
+    function get_transient( \$k ) {
+        \$GLOBALS['requested_cache_key'] = \$k;
+        return false;
+    }
+    function set_transient( \$k, \$v, \$t ) { return true; }
+    require '$MU_FILE';
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
+        \$callback();
+    }
+    \$call = \DataMachine\Engine\AI\SectionRegistry::\$calls['homeboy-cli'] ?? null;
+    \$content = \$call ? (string) call_user_func( \$call[3] ) : '';
+    \$homeboy = '$MOCKBIN/homeboy';
+    \$version = trim( (string) shell_exec( escapeshellarg( \$homeboy ) . ' --version 2>/dev/null' ) );
+    \$mtime = filemtime( \$homeboy );
+    \$legacy_cache_key = 'wca_homeboy_cli_agents_md_' . md5( \$homeboy . '|' . \$version . '|' . ( \$mtime ?: '0' ) );
+    echo json_encode([
+        'ignored_stale_render' => ( \$GLOBALS['requested_cache_key'] ?? '' ) !== \$legacy_cache_key,
+        'has_current_guidance' => str_contains( \$content, 'homeboy agent-task cook' ),
+    ]);
+}
+PHP
+RENDERER_RESULT=$(PATH="$MOCKBIN:$PATH" php "$RENDERER_SHIM")
+RENDERER_EXPECTED='{"ignored_stale_render":true,"has_current_guidance":true}'
+assert_eq "$RENDERER_RESULT" "$RENDERER_EXPECTED" "renderer revision invalidates pre-upgrade cached markdown"
+
 # --- Cache hit path ------------------------------------------------------
 # The transient cache must short-circuit the shell-out when a cached render
 # is present. Verify by returning a marker string from get_transient and
@@ -334,7 +381,7 @@ echo "==> homeboy absent: complete no-op (section removed, no stub)"
 # crash, even on a host where homeboy happens to be installed elsewhere.
 SANDBIN="$TMP/sandbin"
 mkdir -p "$SANDBIN"
-for tool in grep mktemp mv cmp chmod python3 md5sum cat sed awk rm cut stat; do
+for tool in grep mktemp mv cmp chmod python3 md5sum cat sed awk rm cut stat dirname; do
   resolved="$(command -v "$tool" 2>/dev/null || true)"
   [ -n "$resolved" ] && ln -sf "$resolved" "$SANDBIN/$tool"
 done

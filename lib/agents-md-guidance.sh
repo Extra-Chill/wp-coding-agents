@@ -331,15 +331,16 @@ _agents_md_guidance_render_homeboy_live_block() {
                 return '';
             }
 
-            // Cache key on path + mtime + version. A `homeboy upgrade`
-            // changes both mtime and version output, so the key flips and
-            // the next compose re-enumerates. Short TTL is just a safety
-            // net for the unlikely case where the binary changes without
-            // either signal moving.
+            // Cache key on the Homeboy identity and this installed renderer.
+            // Homeboy upgrades change the binary signals; wp-coding-agents
+            // upgrades change the generated MU-plugin hash. Either change
+            // must re-render the complete section because the cached value
+            // includes both command output and static guidance prose.
             $version_out = @shell_exec( escapeshellarg( $homeboy ) . ' --version 2>/dev/null' );
-            $version     = ( is_string( $version_out ) ) ? trim( $version_out ) : '';
-            $mtime       = @filemtime( $homeboy );
-            $cache_key   = 'wca_homeboy_cli_agents_md_' . md5( $homeboy . '|' . $version . '|' . ( $mtime ?: '0' ) );
+            $version      = ( is_string( $version_out ) ) ? trim( $version_out ) : '';
+            $mtime        = @filemtime( $homeboy );
+            $renderer_rev = @md5_file( __FILE__ );
+            $cache_key    = 'wca_homeboy_cli_agents_md_' . md5( $homeboy . '|' . $version . '|' . ( $mtime ?: '0' ) . '|' . ( $renderer_rev ?: 'unknown' ) );
 
             if ( is_callable( 'get_transient' ) ) {
                 $cached = get_transient( $cache_key );
