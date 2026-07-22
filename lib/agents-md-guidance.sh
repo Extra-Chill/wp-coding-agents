@@ -456,6 +456,7 @@ _agents_md_guidance_render_homeboy_live_block() {
             }
 
             $lines[] = '';
+            $lines[] = 'For agent work, use `homeboy agent-task cook` for one issue or reviewable PR, `homeboy agent-task fanout cook-batch` for multiple independent issues, `homeboy agent-task loop` for a named repeating workflow, and `homeboy agent-task controller` for workflows with explicit actions, events, waits, or policy state.';
             $lines[] = 'Inspect live configuration with `homeboy config show`. Discover current agent-task providers with `homeboy agent-task providers`.';
             $lines[] = 'Discover everything: `homeboy --help`. Drill into a command with `homeboy <command> --help`, including `homeboy config --help` and `homeboy agent-task --help`. Releases (`homeboy release`) and deploys (`homeboy deploy`) are operator actions — run them only when the user explicitly asks.';
 
