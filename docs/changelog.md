@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.7] - 2026-07-21
+
+### Changed
+- Generate live Homeboy configuration pointers in AGENTS.md ([#287](https://github.com/Extra-Chill/wp-coding-agents/pull/287)) (by Chris Huber)
+
 ## [1.9.6] - 2026-07-16
 
 ### Fixed
