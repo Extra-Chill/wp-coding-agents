@@ -43,8 +43,8 @@ assert_not_contains() {
   fi
 }
 
-assert_provider_mapping() {
-  python3 - "$1" <<'PY'
+assert_provider_contract() {
+  python3 - "$1" "$SITE_PATH" <<'PY'
 import json
 import sys
 
@@ -54,6 +54,19 @@ try:
     provider = json.loads(payload)
 except json.JSONDecodeError as error:
     raise SystemExit(f"FAIL: provider config is not valid JSON: {error}: {payload!r}")
+site_path = sys.argv[2]
+prefix = ["studio", "wp", "datamachine-code", "workspace"]
+expected_commands = {
+    "resolve": prefix + ["worktree", "get", "{handle}", "--format=json", f"--path={site_path}"],
+    "apply": prefix + ["promotion-apply", "{handle}", f"--path={site_path}"],
+    "list": prefix + ["worktree", "list", "--with-status", "--format=json", f"--path={site_path}"],
+    "cleanup_preview": prefix + ["cleanup", "safe", "--dry-run", "--format=json", f"--path={site_path}"],
+    "cleanup_apply": prefix + ["cleanup", "safe", "--format=json", f"--path={site_path}"],
+}
+if provider.get("enabled") is not True or provider.get("kind") != "command" or provider.get("apply_enabled") is not True:
+    raise SystemExit("FAIL: provider enablement fields changed")
+if provider.get("commands") != expected_commands:
+    raise SystemExit(f"FAIL: provider commands changed: {provider.get('commands')!r}")
 expected = {
     "items": "$",
     "handle": "$.handle",
@@ -101,11 +114,18 @@ export HOMEBOY_CONFIG_LOG STUDIO_LOG
 # when the test runs under newer Bash so this path stays portable.
 enable -n mapfile 2>/dev/null || true
 
+NO_FLAG_COMMAND="$(SITE_PATH= WP_ROOT_FLAG= homeboy_dmc_command_json apply)"
+if [ "$NO_FLAG_COMMAND" != '["studio","wp","datamachine-code","workspace","promotion-apply","{handle}"]' ]; then
+  echo "FAIL: empty optional WP flags changed the apply argv: $NO_FLAG_COMMAND"
+  exit 1
+fi
+
 DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
 assert_contains "\"resolve\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"promotion-apply\",\"{handle}\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -120,8 +140,7 @@ configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 
 assert_contains "wp datamachine-code workspace worktree list --format=json --path=$SITE_PATH" "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
-assert_provider_mapping "$HOMEBOY_CONFIG_LOG"
-assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
+assert_provider_contract "$HOMEBOY_CONFIG_LOG"
 
 HOMEBOY_MODE="disabled"
 HOMEBOY_CONFIG_LOG="$TMP/disabled-homeboy-config.log"

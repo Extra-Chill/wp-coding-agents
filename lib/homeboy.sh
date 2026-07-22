@@ -76,7 +76,9 @@ homeboy_dmc_wp_argv() {
     argv=(${WP_CMD:-wp})
   fi
 
-  printf '%s\n' "${argv[@]}"
+  if [ "${#argv[@]}" -gt 0 ]; then
+    printf '%s\n' "${argv[@]}"
+  fi
 }
 
 homeboy_dmc_wp_flags() {
@@ -86,17 +88,22 @@ homeboy_dmc_wp_flags() {
     argv+=(--path="$SITE_PATH")
   fi
 
-  # shellcheck disable=SC2206
-  local root_flags=(${WP_ROOT_FLAG:-})
-  argv+=("${root_flags[@]}")
+  if [ -n "${WP_ROOT_FLAG:-}" ]; then
+    # shellcheck disable=SC2206
+    local root_flags=(${WP_ROOT_FLAG})
+    argv+=("${root_flags[@]}")
+  fi
 
-  printf '%s\n' "${argv[@]}"
+  if [ "${#argv[@]}" -gt 0 ]; then
+    printf '%s\n' "${argv[@]}"
+  fi
 }
 
 homeboy_dmc_command_json() {
   local action="$1"
   local wp_argv=()
   local wp_flags=()
+  local command=()
   local value
 
   while IFS= read -r value; do
@@ -109,23 +116,32 @@ homeboy_dmc_command_json() {
 
   case "$action" in
     resolve)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
+      command=("${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json)
+      ;;
+    apply)
+      command=("${wp_argv[@]}" datamachine-code workspace promotion-apply '{handle}')
       ;;
     list)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --with-status --format=json "${wp_flags[@]}"
+      command=("${wp_argv[@]}" datamachine-code workspace worktree list --with-status --format=json)
       ;;
     cleanup_preview)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
+      command=("${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json)
       ;;
     cleanup_apply)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --format=json "${wp_flags[@]}"
+      command=("${wp_argv[@]}" datamachine-code workspace cleanup safe --format=json)
       ;;
   esac
+
+  if [ "${#wp_flags[@]}" -gt 0 ]; then
+    command+=("${wp_flags[@]}")
+  fi
+  homeboy_json_array "${command[@]}"
 }
 
 homeboy_dmc_worktree_provider_json() {
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"resolve":%s,"list":%s,"cleanup_preview":%s,"cleanup_apply":%s},"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"resolve":%s,"apply":%s,"list":%s,"cleanup_preview":%s,"cleanup_apply":%s},"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"}}' \
     "$(homeboy_dmc_command_json resolve)" \
+    "$(homeboy_dmc_command_json apply)" \
     "$(homeboy_dmc_command_json list)" \
     "$(homeboy_dmc_command_json cleanup_preview)" \
     "$(homeboy_dmc_command_json cleanup_apply)"
