@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.0] - 2026-07-22
+
+### Added
+- Bridge Kimaki context to Homeboy notifications: map validated Kimaki thread/channel snowflakes to a generic Homeboy notification route (`HOMEBOY_NOTIFICATION_ROUTE`) at the OpenCode-to-wrapper boundary, with concurrent-thread isolation, so a cook reports run completion back to its originating Discord thread without hardcoding launcher assumptions in Homeboy core ([#261](https://github.com/Extra-Chill/wp-coding-agents/pull/261)) (by Chris Huber)
+
 ## [1.9.8] - 2026-07-22
 
 ### Changed
