@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wp.datamachine-worker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-lc</string>
+        <string>cd "/var/www/site" && '/tmp/datamachine-worker-studio-path/studio tools/studio' wp cron event run --due-now && '/tmp/datamachine-worker-studio-path/studio tools/studio' wp datamachine worker run --once</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/var/www/site</string>
+    <key>StartInterval</key>
+    <integer>120</integer>
+    <key>StandardOutPath</key>
+    <string>/home/chubes/.datamachine/datamachine-worker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/home/chubes/.datamachine/datamachine-worker.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/home/chubes</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

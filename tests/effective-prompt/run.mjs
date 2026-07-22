@@ -213,6 +213,10 @@ function normalizeHome(text) {
   return out
 }
 
+function normalizeSnapshotEnd(text) {
+  return typeof text === "string" ? `${text.trimEnd()}\n` : text
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot + diff.
 // ---------------------------------------------------------------------------
@@ -268,9 +272,9 @@ async function runScenario(name, scenario) {
   // on the normalized prompt too — they only strip content sections, never
   // home paths, so normalizing first keeps filter behavior identical while
   // making the recorded raw snapshot host-independent.
-  raw = normalizeHome(raw)
-  const baselineOut = normalizeHome(await baselineFn(raw))
-  const filteredOut = normalizeHome(await filterFn(raw))
+  raw = normalizeSnapshotEnd(normalizeHome(raw))
+  const baselineOut = normalizeSnapshotEnd(normalizeHome(await baselineFn(raw)))
+  const filteredOut = normalizeSnapshotEnd(normalizeHome(await filterFn(raw)))
 
   const baselineLeaks = detectLeaks(baselineOut, scenario.triggers, scenario.allowLeakInSection)
   const filteredLeaks = detectLeaks(filteredOut, scenario.triggers, scenario.allowLeakInSection)

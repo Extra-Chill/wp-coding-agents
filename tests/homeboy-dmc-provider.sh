@@ -43,6 +43,31 @@ assert_not_contains() {
   fi
 }
 
+assert_provider_mapping() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+line = open(sys.argv[1], encoding="utf-8").read().strip()
+_, payload = line.split("|", 1)
+try:
+    provider = json.loads(payload)
+except json.JSONDecodeError as error:
+    raise SystemExit(f"FAIL: provider config is not valid JSON: {error}: {payload!r}")
+expected = {
+    "items": "$",
+    "handle": "$.handle",
+    "path": "$.path",
+    "branch": "$.branch",
+    "dirty": "$.safety.dirty",
+    "unpushed": "$.safety.unpushed",
+    "primary": "$.safety.primary",
+}
+if provider.get("list_result_mapping") != expected:
+    raise SystemExit("FAIL: provider list_result_mapping does not match the DMC safety output")
+PY
+}
+
 FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
 
@@ -80,7 +105,8 @@ DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
-assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 if [ -f "$HOMEBOY_CONFIG_LOG" ]; then
@@ -94,6 +120,7 @@ configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 
 assert_contains "wp datamachine-code workspace worktree list --format=json --path=$SITE_PATH" "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
+assert_provider_mapping "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 
 HOMEBOY_MODE="disabled"

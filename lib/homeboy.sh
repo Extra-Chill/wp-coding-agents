@@ -108,8 +108,11 @@ homeboy_dmc_command_json() {
   done < <(homeboy_dmc_wp_flags)
 
   case "$action" in
+    resolve)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
+      ;;
     list)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --format=json "${wp_flags[@]}"
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --with-status --format=json "${wp_flags[@]}"
       ;;
     cleanup_preview)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
@@ -121,7 +124,8 @@ homeboy_dmc_command_json() {
 }
 
 homeboy_dmc_worktree_provider_json() {
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"list":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"resolve":%s,"list":%s,"cleanup_preview":%s,"cleanup_apply":%s},"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"}}' \
+    "$(homeboy_dmc_command_json resolve)" \
     "$(homeboy_dmc_command_json list)" \
     "$(homeboy_dmc_command_json cleanup_preview)" \
     "$(homeboy_dmc_command_json cleanup_apply)"

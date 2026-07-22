@@ -138,10 +138,16 @@ update_plugin_to_latest_tag() {
   fix_ownership "$plugin_dir"
 }
 
-# Set file ownership to www-data (no-op in local mode).
+# Normalize web-tree ownership or group permissions (no-op in local mode).
 fix_ownership() {
   if [ "$LOCAL_MODE" = false ]; then
-    run_cmd chown -R www-data:www-data "$1"
+    if [ "$(id -u)" -eq 0 ]; then
+      run_cmd chown -R www-data:www-data "$1"
+    elif [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} normalize group-writable permissions for $1"
+    else
+      service_dir_normalize_perms "$1"
+    fi
   fi
 }
 

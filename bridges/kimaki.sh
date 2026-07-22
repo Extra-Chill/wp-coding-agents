@@ -21,7 +21,7 @@
 # Identity
 # ============================================================================
 
-bridge_systemd_units()  { echo "kimaki.service"; }
+bridge_systemd_units()  { echo "${KIMAKI_UNIT:-kimaki.service}"; }
 bridge_launchd_labels() { echo "com.wp.kimaki"; }
 bridge_binaries()       { echo "kimaki"; }
 bridge_display_name()   { echo "kimaki"; }
@@ -29,6 +29,132 @@ bridge_display_title()  { echo "Kimaki"; }
 
 bridge_is_ready() {
   [ -n "${KIMAKI_BOT_TOKEN:-}" ]
+}
+
+_kimaki_unit_env_value() {
+  local unit_file="$1" key="$2"
+  sed -n "s/^Environment=${key}=//p" "$unit_file" | head -1
+}
+
+_kimaki_unit_exec_arg() {
+  local unit_file="$1" flag="$2" line rest
+  line=$(grep '^ExecStart=' "$unit_file" | head -1 || true)
+  rest="${line#* $flag }"
+  [ "$rest" != "$line" ] || return 0
+  printf '%s\n' "${rest%% *}"
+}
+
+_kimaki_validate_lock_port() {
+  [ -z "${KIMAKI_LOCK_PORT:-}" ] && return 0
+  case "$KIMAKI_LOCK_PORT" in *[!0-9]*) error "Invalid Kimaki lock port '$KIMAKI_LOCK_PORT'" ;; esac
+  if [ "$KIMAKI_LOCK_PORT" -lt 1 ] || [ "$KIMAKI_LOCK_PORT" -gt 65535 ]; then
+    error "Invalid Kimaki lock port '$KIMAKI_LOCK_PORT' (expected 1-65535)"
+  fi
+}
+
+_kimaki_normalize_unit_name() {
+  local unit="$1" stem
+  [ -n "$unit" ] || error "Invalid Kimaki unit: name cannot be empty"
+  case "$unit" in
+    *.service) ;;
+    *) unit="$unit.service" ;;
+  esac
+  case "$unit" in
+    */*|*\\*|*..*|*[!A-Za-z0-9_.@-]*)
+      error "Invalid Kimaki unit '$unit' (expected a traversal-safe unit basename)"
+      ;;
+  esac
+  stem="${unit%.service}"
+  case "$stem" in
+    kimaki|kimaki-?*) ;;
+    *) error "Invalid Kimaki unit '$unit' (expected kimaki.service or kimaki-<name>.service)" ;;
+  esac
+  printf '%s\n' "$unit"
+}
+
+_kimaki_remove_systemd_env_key() {
+  local env_block="$1" key="$2"
+  printf '%s\n' "$env_block" | grep -v "^Environment=${key}=" || true
+}
+
+# Select an installed Kimaki instance by exact WordPress WorkingDirectory.
+# Explicit inputs win; otherwise zero matches keeps the legacy default only
+# when no Kimaki unit exists, one match is adopted, and ambiguity is fatal.
+_kimaki_resolve_instance() {
+  local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+  local requested
+  requested=$(_kimaki_normalize_unit_name "${KIMAKI_UNIT-}")
+  KIMAKI_UNIT="$requested"
+
+  local unit working normalized_site="$SITE_PATH" matches=() installed=()
+  if [ -d "$SITE_PATH" ]; then
+    normalized_site=$(cd "$SITE_PATH" 2>/dev/null && pwd -P || printf '%s' "$SITE_PATH")
+  fi
+
+  if [ "${KIMAKI_UNIT_EXPLICIT:-false}" != true ]; then
+    for unit in "$unit_dir"/kimaki*.service; do
+      [ -f "$unit" ] || continue
+      installed+=("$unit")
+      working=$(sed -n 's/^WorkingDirectory=//p' "$unit" | head -1)
+      [ -n "$working" ] || continue
+      if [ -d "$working" ]; then
+        working=$(cd "$working" 2>/dev/null && pwd -P || printf '%s' "$working")
+      fi
+      [ "$working" = "$normalized_site" ] && matches+=("$unit")
+    done
+    if [ ${#matches[@]} -eq 1 ]; then
+      KIMAKI_UNIT=$(basename "${matches[0]}")
+      log "  Selected $KIMAKI_UNIT for WorkingDirectory=$SITE_PATH"
+    elif [ ${#matches[@]} -gt 1 ]; then
+      error "Multiple Kimaki units target $SITE_PATH: ${matches[*]}. Pass --kimaki-unit <unit>."
+    elif [ ${#installed[@]} -gt 0 ]; then
+      error "No Kimaki unit targets $SITE_PATH. Pass --kimaki-unit <unit> to select or create one. Installed: ${installed[*]}"
+    fi
+  fi
+
+  local unit_file="$unit_dir/$KIMAKI_UNIT"
+  if [ ! -f "$unit_file" ]; then
+    _kimaki_validate_lock_port
+    return 0
+  fi
+
+  local value unit_user unit_home
+  unit_user=$(_systemd_unit_user "$unit_file" || true)
+  unit_home=$(_kimaki_unit_env_value "$unit_file" HOME)
+  if [ "${SERVICE_USER_FORCED:-false}" != true ] && [ -n "$unit_user" ]; then
+    SERVICE_USER="$unit_user"
+    [ -n "$unit_home" ] || unit_home=$(getent passwd "$unit_user" 2>/dev/null | cut -d: -f6)
+    [ -n "$unit_home" ] || { [ "$unit_user" = root ] && unit_home=/root || unit_home="/home/$unit_user"; }
+    SERVICE_HOME="$unit_home"
+    [ "$unit_user" = root ] && RUN_AS_ROOT=true || RUN_AS_ROOT=false
+  fi
+
+  if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
+    value=$(_kimaki_unit_env_value "$unit_file" KIMAKI_DATA_DIR)
+    [ -n "$value" ] || value=$(_kimaki_unit_exec_arg "$unit_file" --data-dir)
+    if [ -n "$value" ]; then
+      KIMAKI_DATA_DIR="$value"
+    else
+      KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
+    fi
+  fi
+  if [ "${KIMAKI_LOCK_PORT_EXPLICIT:-false}" != true ]; then
+    value=$(_kimaki_unit_env_value "$unit_file" KIMAKI_LOCK_PORT)
+    [ -n "$value" ] || value=$(_kimaki_unit_exec_arg "$unit_file" --lock-port)
+    KIMAKI_LOCK_PORT="$value"
+  fi
+  if [ -z "${AGENT_SLUG:-}" ]; then
+    AGENT_SLUG=$(_kimaki_unit_env_value "$unit_file" DATAMACHINE_AGENT_SLUG)
+  fi
+  _kimaki_validate_lock_port
+}
+
+_kimaki_instance_suffix() {
+  local unit="${KIMAKI_UNIT:-kimaki.service}"
+  [ "$unit" = "kimaki.service" ] && return 0
+  unit="${unit%.service}"
+  unit="${unit#kimaki-}"
+  printf -- '-%s' "$unit"
 }
 
 # ============================================================================
@@ -84,7 +210,7 @@ bridge_install() {
 _kimaki_register_cli_channel() {
   local cmd
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != "root" ]; then
-    cmd="/usr/local/bin/wp-coding-agents-kimaki-dispatch"
+    cmd="/usr/local/bin/wp-coding-agents-kimaki$(_kimaki_instance_suffix)-dispatch"
   elif [ -n "${KIMAKI_BIN:-}" ] \
     && [ -x "$KIMAKI_BIN" ] \
     && ! _kimaki_is_legacy_adapter_file "$KIMAKI_BIN" \
@@ -268,9 +394,11 @@ _kimaki_install_dispatch_helpers() {
     return 0
   fi
 
-  local dispatch_wrapper="/usr/local/bin/wp-coding-agents-kimaki-dispatch"
-  local target_helper="/usr/local/lib/wp-coding-agents/kimaki-dispatch-target"
-  local sudoers_file="/etc/sudoers.d/wp-coding-agents-kimaki-dispatch"
+  local suffix
+  suffix=$(_kimaki_instance_suffix)
+  local dispatch_wrapper="/usr/local/bin/wp-coding-agents-kimaki${suffix}-dispatch"
+  local target_helper="/usr/local/lib/wp-coding-agents/kimaki${suffix}-dispatch-target"
+  local sudoers_file="/etc/sudoers.d/wp-coding-agents-kimaki${suffix}-dispatch"
   local service_home="${SERVICE_HOME:-}"
   local data_dir="${KIMAKI_DATA_DIR:-}"
   local kimaki_bin="${KIMAKI_BIN:-}"
@@ -309,6 +437,16 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
     echo -e "${BLUE}[dry-run]${NC} Would install $dispatch_wrapper"
     echo -e "${BLUE}[dry-run]${NC} Would install $sudoers_file"
     return 0
+  fi
+
+  if [ "$(id -u)" -ne 0 ]; then
+    if [ -x "$target_helper" ] \
+      && [ -x "$dispatch_wrapper" ] \
+      && sudo -n -H -u "$SERVICE_USER" "$target_helper" --version >/dev/null 2>&1; then
+      log "  Keeping functional root-owned Kimaki dispatch wrapper for $SERVICE_USER"
+      return 0
+    fi
+    error "Kimaki dispatch wrapper requires root privileges to install or update"
   fi
 
   install -d -m 0755 "$(dirname "$target_helper")"
@@ -597,15 +735,20 @@ Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
     ENV_BLOCK="$ENV_BLOCK
 Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
   fi
+  if [ -n "${KIMAKI_LOCK_PORT:-}" ]; then
+    ENV_BLOCK="$ENV_BLOCK
+Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
+  fi
   if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
     ENV_BLOCK="$ENV_BLOCK
 EnvironmentFile=-$(ai_gateway_env_file)"
   fi
 
-  write_file "/etc/systemd/system/kimaki.service" \
-    "$(bridge_render_systemd kimaki.service "$ENV_BLOCK")"
+  local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+  write_file "$unit_dir/$KIMAKI_UNIT" \
+    "$(bridge_render_systemd "$KIMAKI_UNIT" "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
-  run_cmd systemctl enable kimaki
+  run_cmd systemctl enable "$KIMAKI_UNIT"
 }
 
 # ============================================================================
@@ -634,7 +777,11 @@ bridge_sync_config() {
   else
     KIMAKI_CONFIG_DIR="/opt/kimaki-config"
     KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
-    BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
+    if [ "$(id -u)" -eq 0 ]; then
+      BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
+    else
+      BACKUP_DIR="${KIMAKI_DATA_DIR}/backups/kimaki-config.$TIMESTAMP"
+    fi
     log "Phase 2: Syncing /opt/kimaki-config..."
   fi
 
@@ -830,13 +977,22 @@ bridge_sync_config() {
 # ============================================================================
 
 bridge_update_systemd() {
-  log "Phase 5: Checking kimaki.service template..."
+  log "Phase 5: Checking $KIMAKI_UNIT template..."
 
-  local UNIT_FILE="/etc/systemd/system/kimaki.service"
+  local UNIT_FILE="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}/$KIMAKI_UNIT"
   [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
 
   local CURRENT_ENV
   CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
+  if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" = true ]; then
+    CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" KIMAKI_DATA_DIR)
+  fi
+  if [ "${KIMAKI_LOCK_PORT_EXPLICIT:-false}" = true ]; then
+    CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" KIMAKI_LOCK_PORT)
+  fi
+  if [ "${AGENT_SLUG_EXPLICIT:-false}" = true ]; then
+    CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" DATAMACHINE_AGENT_SLUG)
+  fi
 
   local KIMAKI_BIN
   KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
@@ -856,6 +1012,10 @@ Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 Environment=DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)"
+  if [ -n "${KIMAKI_LOCK_PORT:-}" ]; then
+    TEMPLATE_ENV="$TEMPLATE_ENV
+Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
+  fi
   if [ -n "${AGENT_SLUG:-}" ]; then
     TEMPLATE_ENV="$TEMPLATE_ENV
 Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
@@ -873,9 +1033,9 @@ $gateway_env_line"
   fi
 
   local NEW_UNIT
-  NEW_UNIT=$(bridge_render_systemd kimaki.service "$MERGED_ENV")
+  NEW_UNIT=$(bridge_render_systemd "$KIMAKI_UNIT" "$MERGED_ENV")
 
-  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "kimaki.service"
+  _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "$KIMAKI_UNIT"
 }
 
 bridge_update_launchd() {
@@ -930,9 +1090,18 @@ bridge_update_launchd() {
 
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
-  [ "$unit" = "kimaki.service" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
+  local normalized_unit
+  normalized_unit=$(_kimaki_normalize_unit_name "$unit")
+  [ "$normalized_unit" = "$unit" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
   local skill_filter_args
   skill_filter_args="$(_kimaki_skill_filter_args_shell)"
+  local lock_port_arg=""
+  _kimaki_validate_lock_port
+  [ -z "${KIMAKI_LOCK_PORT:-}" ] || lock_port_arg=" --lock-port $KIMAKI_LOCK_PORT"
+  local stale_worker_cleanup="# User-wide stale-worker cleanup omitted for instance isolation."
+  if [ "$unit" = "kimaki.service" ]; then
+    stale_worker_cleanup='ExecStartPre=-/usr/bin/pkill -TERM -u '$SERVICE_USER' -f "opencode-ai/bin/.*serve"'
+  fi
   cat <<EOF
 [Unit]
 Description=Kimaki Discord Bot (wp-coding-agents)
@@ -953,9 +1122,9 @@ $env_block
 # request. \`pkill -u $SERVICE_USER\` scopes the kill to this service's
 # user so multi-tenant hosts aren't sniped. The \`-\` prefix makes systemd
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
-ExecStartPre=-/usr/bin/pkill -TERM -u $SERVICE_USER -f "opencode-ai/bin/.*serve"
+$stale_worker_cleanup
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$skill_filter_args
+ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR$lock_port_arg --auto-restart --no-critique$skill_filter_args
 Restart=always
 RestartSec=10
 
@@ -1145,7 +1314,7 @@ bridge_restart_cmd() {
       echo "cd $SITE_PATH && kimaki"
       ;;
     vps)
-      echo "systemctl restart kimaki"
+      echo "systemctl restart ${KIMAKI_UNIT:-kimaki.service}"
       ;;
     *)
       echo "bridge_restart_cmd: unknown env '$env'" >&2
@@ -1159,7 +1328,7 @@ bridge_verify_cmd() {
   case "$env" in
     local-launchd) echo "launchctl print gui/${uid}/com.wp.kimaki | head -20" ;;
     local-manual)  echo "pgrep -fl kimaki" ;;
-    vps)           echo "systemctl status kimaki" ;;
+    vps)           echo "systemctl status ${KIMAKI_UNIT:-kimaki.service}" ;;
     *)
       echo "bridge_verify_cmd: unknown env '$env'" >&2
       return 1 ;;
@@ -1176,7 +1345,7 @@ bridge_start_hint() {
   case "$env" in
     local-launchd) echo "launchctl kickstart gui/${uid}/com.wp.kimaki" ;;
     local-manual)  bridge_restart_cmd local-manual ;;
-    vps)           echo "systemctl start kimaki" ;;
+    vps)           echo "systemctl start ${KIMAKI_UNIT:-kimaki.service}" ;;
     *)
       echo "bridge_start_hint: unknown env '$env'" >&2
       return 1 ;;
@@ -1188,7 +1357,7 @@ bridge_stop_hint() {
   uid=$(id -u)
   case "$env" in
     local-launchd) echo "launchctl kill SIGTERM gui/${uid}/com.wp.kimaki" ;;
-    vps)           echo "systemctl stop kimaki" ;;
+    vps)           echo "systemctl stop ${KIMAKI_UNIT:-kimaki.service}" ;;
     local-manual)  ;;
     *)
       echo "bridge_stop_hint: unknown env '$env'" >&2
@@ -1210,11 +1379,11 @@ bridge_vps_setup_block() {
     echo "       cd $SITE_PATH && kimaki"
   fi
   echo "     Option B: Set KIMAKI_BOT_TOKEN in the systemd service"
-  echo "       systemctl edit kimaki"
+  echo "       systemctl edit ${KIMAKI_UNIT:-kimaki.service}"
   echo "       [Service]"
   echo "       Environment=KIMAKI_BOT_TOKEN=your-token-here"
   echo ""
-  echo "  2. Start the agent:  systemctl start kimaki"
+  echo "  2. Start the agent:  systemctl start ${KIMAKI_UNIT:-kimaki.service}"
 }
 
 # Onboarding prose for macOS launchd when KIMAKI_BOT_TOKEN is missing.

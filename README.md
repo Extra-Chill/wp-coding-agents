@@ -163,6 +163,9 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
 | `--agent-slug <slug>` | Override the Data Machine agent slug. |
+| `--kimaki-unit <unit>` | Target a Kimaki systemd instance, such as `kimaki-example.service`. |
+| `--kimaki-data-dir <path>` | Override that Kimaki instance's state directory. |
+| `--kimaki-lock-port <port>` | Override that Kimaki instance's lock port. |
 | `--chat <bridge>` | Chat bridge: `kimaki`, `cc-connect`, or `telegram`. Codex currently runs without a managed chat bridge. |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
@@ -177,6 +180,12 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--dry-run` | Print planned actions without applying them. |
 
 Run `./setup.sh --help` for the complete setup surface.
+
+On VPS hosts with multiple Kimaki services, setup and upgrade select the unit
+whose `WorkingDirectory=` exactly matches the WordPress site path. Ambiguous or
+unmatched installed units fail safely; pass `--kimaki-unit` to select or create
+an instance explicitly. The traditional single-instance defaults remain
+`kimaki.service` and `<service-home>/.kimaki`.
 
 ## Runtime And Bridge Notes
 

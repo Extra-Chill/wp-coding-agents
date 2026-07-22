@@ -86,6 +86,10 @@ MOCKBIN="$TMP/bin"
 mkdir -p "$MOCKBIN"
 cat > "$MOCKBIN/homeboy" <<'SH'
 #!/bin/bash
+if [ "$1" = "agent-task" ] && [ "$2" = "providers" ]; then
+  echo "codebox-provider-snapshot"
+  exit 0
+fi
 if [ "$1" = "--help" ]; then
   cat <<'HELP'
 Headless automation for agentic software engineering workflows
@@ -175,14 +179,20 @@ namespace {
         'has_common_entrypoints' => str_contains( \$content, 'Common entrypoints:' ),
         'drops_help_meta' => ! str_contains( \$content, 'homeboy help' ),
         'drops_list_meta' => ! str_contains( \$content, 'homeboy list' ),
+        'has_agent_task_workflow_selection' => str_contains( \$content, 'use \`homeboy agent-task cook\` for one issue or reviewable PR, \`homeboy agent-task fanout cook-batch\` for multiple independent issues, \`homeboy agent-task loop\` for a named repeating workflow, and \`homeboy agent-task controller\` for workflows with explicit actions, events, waits, or policy state' ),
+        'has_config_show' => str_contains( \$content, 'Inspect live configuration with \`homeboy config show\`' ),
+        'has_agent_task_providers' => str_contains( \$content, '\`homeboy agent-task providers\`' ),
+        'does_not_render_provider_snapshot' => ! str_contains( \$content, 'codebox-provider-snapshot' ),
         'has_discover_footer' => str_contains( \$content, 'Discover everything: \`homeboy --help\`' ),
         'has_per_command_footer' => str_contains( \$content, 'homeboy <command> --help' ),
+        'has_config_help' => str_contains( \$content, '\`homeboy config --help\`' ),
+        'has_agent_task_help' => str_contains( \$content, '\`homeboy agent-task --help\`' ),
     ]);
 }
 PHP
 
 RESULT=$(PATH="$MOCKBIN:$PATH" php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"live","has_live_freshness":true,"has_live_intro":true,"no_false_refresh_prose":true,"has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_discover_footer":true,"has_per_command_footer":true}'
+EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":34,"label":"Homeboy CLI","owner":"wp-coding-agents","freshness":"live","has_live_freshness":true,"has_live_intro":true,"no_false_refresh_prose":true,"has_deploy":true,"has_release":true,"has_triage":true,"has_status":true,"has_orchestrator_intro":true,"has_common_entrypoints":true,"drops_help_meta":true,"drops_list_meta":true,"has_agent_task_workflow_selection":true,"has_config_show":true,"has_agent_task_providers":true,"does_not_render_provider_snapshot":true,"has_discover_footer":true,"has_per_command_footer":true,"has_config_help":true,"has_agent_task_help":true}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives live Homeboy CLI map"
 
 echo "==> re-sync with homeboy present (idempotent)"
@@ -234,7 +244,9 @@ fi
 exit 0
 SH
 chmod +x "$MOCKBIN/homeboy"
-touch -d '+2 seconds' "$MOCKBIN/homeboy"
+# BSD/macOS touch does not support GNU's `-d`; a fixed future timestamp is
+# sufficient to make the binary mtime cache key differ on every platform.
+touch -t 203001010000 "$MOCKBIN/homeboy"
 
 LIVE_SHIM="$TMP/live-shim.php"
 cat > "$LIVE_SHIM" <<PHP
@@ -274,6 +286,53 @@ PHP
 LIVE_RESULT=$(PATH="$MOCKBIN:$PATH" php "$LIVE_SHIM")
 LIVE_EXPECTED='{"has_fuzz":true,"has_deploy":true,"dropped_triage":true,"version_reflected":true}'
 assert_eq "$LIVE_RESULT" "$LIVE_EXPECTED" "live refresh picks up homeboy upgrade without setup re-run"
+
+# --- Renderer refresh (issue #288 regression) ----------------------------
+# A previous renderer cached the complete markdown using only the Homeboy
+# identity. Newly installed static guidance must not reuse that stale entry.
+echo "==> renderer refresh: stale pre-upgrade cache cannot mask new guidance"
+RENDERER_SHIM="$TMP/renderer-shim.php"
+cat > "$RENDERER_SHIM" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$calls = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$calls[ \$slug ] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+namespace {
+    define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][] = \$callback;
+    }
+    function get_transient( \$k ) {
+        \$GLOBALS['requested_cache_key'] = \$k;
+        return false;
+    }
+    function set_transient( \$k, \$v, \$t ) { return true; }
+    require '$MU_FILE';
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) {
+        \$callback();
+    }
+    \$call = \DataMachine\Engine\AI\SectionRegistry::\$calls['homeboy-cli'] ?? null;
+    \$content = \$call ? (string) call_user_func( \$call[3] ) : '';
+    \$homeboy = '$MOCKBIN/homeboy';
+    \$version = trim( (string) shell_exec( escapeshellarg( \$homeboy ) . ' --version 2>/dev/null' ) );
+    \$mtime = filemtime( \$homeboy );
+    \$legacy_cache_key = 'wca_homeboy_cli_agents_md_' . md5( \$homeboy . '|' . \$version . '|' . ( \$mtime ?: '0' ) );
+    echo json_encode([
+        'ignored_stale_render' => ( \$GLOBALS['requested_cache_key'] ?? '' ) !== \$legacy_cache_key,
+        'has_current_guidance' => str_contains( \$content, 'homeboy agent-task cook' ),
+    ]);
+}
+PHP
+RENDERER_RESULT=$(PATH="$MOCKBIN:$PATH" php "$RENDERER_SHIM")
+RENDERER_EXPECTED='{"ignored_stale_render":true,"has_current_guidance":true}'
+assert_eq "$RENDERER_RESULT" "$RENDERER_EXPECTED" "renderer revision invalidates pre-upgrade cached markdown"
 
 # --- Cache hit path ------------------------------------------------------
 # The transient cache must short-circuit the shell-out when a cached render
@@ -322,7 +381,7 @@ echo "==> homeboy absent: complete no-op (section removed, no stub)"
 # crash, even on a host where homeboy happens to be installed elsewhere.
 SANDBIN="$TMP/sandbin"
 mkdir -p "$SANDBIN"
-for tool in grep mktemp mv cmp chmod python3 md5sum cat sed awk rm cut stat; do
+for tool in grep mktemp mv cmp chmod python3 md5sum cat sed awk rm cut stat dirname; do
   resolved="$(command -v "$tool" 2>/dev/null || true)"
   [ -n "$resolved" ] && ln -sf "$resolved" "$SANDBIN/$tool"
 done

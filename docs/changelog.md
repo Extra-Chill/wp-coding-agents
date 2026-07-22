@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.9.8] - 2026-07-22
+
+### Changed
+- Invalidate cached Homeboy guidance on upgrades ([#289](https://github.com/Extra-Chill/wp-coding-agents/pull/289)) (by Chris Huber)
+
+## [1.9.7] - 2026-07-21
+
+### Changed
+- Generate live Homeboy configuration pointers in AGENTS.md ([#287](https://github.com/Extra-Chill/wp-coding-agents/pull/287)) (by Chris Huber)
+
+## [1.9.6] - 2026-07-16
+
+### Fixed
+- support evolving Kimaki prompt signatures
+
+## [1.9.5] - 2026-07-13
+
+### Fixed
+- make non-root upgrades idempotent
+
+## [1.9.4] - 2026-07-13
+
+### Fixed
+- back up Kimaki config in writable state
+
+## [1.9.3] - 2026-07-13
+
+### Fixed
+- preserve web directory permissions during sync
+
+## [1.9.2] - 2026-07-13
+
+### Fixed
+- omit directory times during carried sync
+
+## [1.9.1] - 2026-07-13
+
+### Fixed
+- support non-root carried plugin sync
+
+## [1.9.0] - 2026-07-13
+
+### Added
+- support multiple service instances
+- configure targeted DMC worktree resolution
+- add Data Machine worker heartbeat (#262)
+
+### Changed
+- register runtime context projections
+- Install worker heartbeat during upgrades
+
+### Fixed
+- drive cron from worker heartbeat (#270)
+- resolve Studio CLI for Data Machine worker (#267)
+- map DMC worktree safety output for Homeboy
+- normalize ownership + group-write on service files written into the web tree
+- enumerate homeboy CLI command map live at AGENTS.md compose time (#254)
+
 ## [1.8.6] - 2026-07-05
 
 ### Fixed

@@ -181,17 +181,17 @@ detect_environment() {
   if [ "$LOCAL_MODE" = true ]; then
     SERVICE_USER="$(whoami)"
     SERVICE_HOME="$HOME"
-    KIMAKI_DATA_DIR="$HOME/.kimaki"
+    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-$HOME/.datamachine/workspace}"
   elif [ "$RUN_AS_ROOT" = true ]; then
     SERVICE_USER="root"
     SERVICE_HOME="/root"
-    KIMAKI_DATA_DIR="/root/.kimaki"
+    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-/root/.kimaki}"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   else
     SERVICE_USER="opencode"
     SERVICE_HOME="/home/opencode"
-    KIMAKI_DATA_DIR="/home/opencode/.kimaki"
+    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-/home/opencode/.kimaki}"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   fi
 }

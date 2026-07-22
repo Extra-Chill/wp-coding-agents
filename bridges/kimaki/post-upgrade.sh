@@ -190,9 +190,9 @@ if (source.includes(marker)) {
   process.exit(0)
 }
 
-const needle = 'export function getOpencodeSystemMessage({ sessionId, channelId, guildId, threadId, channelTopic, agents, userId, }) {\n'
-const managedReturn = `export function getOpencodeSystemMessage({ sessionId, channelId, guildId, threadId, channelTopic, agents, userId, }) {
-    // ${marker}. Keep this small; Data Machine AGENTS.md owns managed runtime policy.
+const signature = /^export function getOpencodeSystemMessage\(\{[^\n]*\}\) \{\n/m
+const match = source.match(signature)
+const managedReturn = `${match?.[0] ?? ''}    // ${marker}. Keep this small; Data Machine AGENTS.md owns managed runtime policy.
     return \`## Kimaki Discord Bridge
 
 Kimaki connects this OpenCode session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
@@ -207,12 +207,12 @@ For Kimaki bridge failures, inspect $HOME/.kimaki/kimaki.log. The log is reset e
 \`;
 `
 
-if (!source.includes(needle)) {
+if (!match) {
   console.error(`function signature not found in ${file}`)
   process.exit(2)
 }
 
-fs.writeFileSync(file, source.replace(needle, managedReturn), 'utf8')
+fs.writeFileSync(file, source.replace(signature, managedReturn), 'utf8')
 NODE
   local patch_exit=$?
   if [[ "$patch_exit" -eq 0 ]]; then

@@ -255,11 +255,16 @@ _preserve_systemd_umask() {
 adopt_service_identity_from_units() {
   [ "${LOCAL_MODE:-false}" = true ] && return 0
   [ "${SERVICE_USER_FORCED:-false}" = true ] && return 0
-  declare -F bridge_systemd_units >/dev/null 2>&1 || return 0
-
   local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
   local unit unit_user unit_home
-  for unit in $(bridge_systemd_units); do
+  local units=""
+  if declare -F bridge_systemd_units >/dev/null 2>&1; then
+    units="$(bridge_systemd_units)"
+  fi
+  if declare -F datamachine_worker_systemd_units >/dev/null 2>&1; then
+    units="$units $(datamachine_worker_systemd_units)"
+  fi
+  for unit in $units; do
     [ -f "$unit_dir/$unit" ] || continue
     unit_user=$(_systemd_unit_user "$unit_dir/$unit") || continue
 
@@ -275,7 +280,9 @@ adopt_service_identity_from_units() {
       log "  Adopting service identity from $unit: User=$unit_user (script default was $SERVICE_USER)"
       SERVICE_USER="$unit_user"
       SERVICE_HOME="$unit_home"
-      KIMAKI_DATA_DIR="$unit_home/.kimaki"
+      if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
+        KIMAKI_DATA_DIR="$unit_home/.kimaki"
+      fi
       if [ "$unit_user" = "root" ]; then
         RUN_AS_ROOT=true
       else
@@ -517,14 +524,22 @@ bridge_detect_local() {
 
 # bridge_detect_vps — print the first bridge with installed systemd units.
 bridge_detect_vps() {
-  local bridge unit
+  local bridge unit unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
   for bridge in $(bridge_names_for_detection); do
     for unit in $(bridge_call "$bridge" systemd_units 2>/dev/null); do
-      if [ -f "/etc/systemd/system/${unit}" ]; then
+      if [ -f "$unit_dir/${unit}" ]; then
         echo "$bridge"
         return 0
       fi
     done
+    if [ "$bridge" = "kimaki" ]; then
+      for unit in "$unit_dir"/kimaki*.service; do
+        if [ -f "$unit" ]; then
+          echo "$bridge"
+          return 0
+        fi
+      done
+    fi
   done
   return 0
 }
