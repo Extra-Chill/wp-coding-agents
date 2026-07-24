@@ -14,6 +14,8 @@ Checks two independent drift vectors:
   3. Data Machine managed instruction paths — when supplied by upgrade/setup,
       keep top-level `instructions` aligned to Data Machine's injectable memory
       files while preserving non-Data-Machine user entries.
+  4. OpenCode edit permissions — preserve user rules and append managed denies
+      for installed WordPress source paths.
 
 Modes:
   default          diagnose drift; exit 1 on drift, 0 on clean
@@ -72,6 +74,11 @@ from typing import List, Tuple
 
 MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
+MANAGED_EDIT_RULES = (
+    "wp-content/plugins/**",
+    "wp-content/themes/**",
+    "wp-includes/**",
+)
 
 
 def expected_plugins(
@@ -349,6 +356,56 @@ def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
     return result
 
 
+def expected_edit_permission(data: dict) -> dict:
+    """Return user edit rules followed by wp-coding-agents deny rules."""
+    permission = data.get("permission", {})
+    if isinstance(permission, str):
+        current: object = permission
+    elif isinstance(permission, dict):
+        current = permission.get("edit", {})
+    else:
+        current = {}
+
+    if isinstance(current, str):
+        rules = {"*": current}
+    elif isinstance(current, dict):
+        rules = {
+            pattern: action
+            for pattern, action in current.items()
+            if pattern not in MANAGED_EDIT_RULES
+        }
+    else:
+        rules = {}
+
+    for pattern in MANAGED_EDIT_RULES:
+        rules[pattern] = "deny"
+    return rules
+
+
+def check_edit_permission(data: dict, runtime: str) -> dict:
+    if runtime != "opencode":
+        return {"status": "ok"}
+
+    permission = data.get("permission", {})
+    current = permission.get("edit") if isinstance(permission, dict) else None
+    expected = expected_edit_permission(data)
+    return {
+        "status": "ok" if current == expected else "needed",
+        "expected": expected,
+    }
+
+
+def apply_edit_permission(data: dict) -> None:
+    expected = expected_edit_permission(data)
+    permission = data.get("permission", {})
+    if isinstance(permission, str):
+        permission = {"*": permission}
+    elif not isinstance(permission, dict):
+        permission = {}
+    permission["edit"] = expected
+    data["permission"] = permission
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", required=True, help="Path to opencode.json")
@@ -431,6 +488,7 @@ def main() -> int:
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
+    edit_permission_result = check_edit_permission(data, args.runtime)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -471,7 +529,14 @@ def main() -> int:
     has_prompt_drift = prompt_result["status"] == "needed"
     has_agent_cleanup_drift = agent_cleanup_result["status"] == "needed"
     has_instruction_drift = instruction_sync_result["status"] == "needed"
-    has_any_drift = has_plugin_drift or has_prompt_drift or has_agent_cleanup_drift or has_instruction_drift
+    has_edit_permission_drift = edit_permission_result["status"] == "needed"
+    has_any_drift = (
+        has_plugin_drift
+        or has_prompt_drift
+        or has_agent_cleanup_drift
+        or has_instruction_drift
+        or has_edit_permission_drift
+    )
 
     if not has_any_drift:
         result: dict = {
@@ -480,6 +545,7 @@ def main() -> int:
             "prompt_migration": "ok",
             "agent_cleanup": "ok",
             "instruction_sync": "ok",
+            "edit_permission": "ok",
         }
         if plugin_skipped:
             result["plugins_skipped"] = (
@@ -497,6 +563,7 @@ def main() -> int:
             "prompt_migration": prompt_result["status"],
             "agent_cleanup": agent_cleanup_result["status"],
             "instruction_sync": instruction_sync_result["status"],
+            "edit_permission": edit_permission_result["status"],
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
@@ -511,6 +578,8 @@ def main() -> int:
         if has_instruction_drift:
             result["instruction_sync_desired"] = instruction_sync_result.get("desired", [])
             result["instruction_sync_current"] = instruction_sync_result.get("current_managed", [])
+        if has_edit_permission_drift:
+            result["edit_permission_expected"] = edit_permission_result["expected"]
         if plugin_skipped:
             result["plugins_skipped"] = (
                 f"runtime {args.runtime} does not use opencode.json plugin array"
@@ -544,6 +613,11 @@ def main() -> int:
         apply_instruction_sync(data, managed_instructions)
         instruction_sync_status = "synced"
 
+    edit_permission_status = "ok"
+    if has_edit_permission_drift:
+        apply_edit_permission(data)
+        edit_permission_status = "synced"
+
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
@@ -565,6 +639,7 @@ def main() -> int:
             "prompt_migration": prompt_migration_status,
             "agent_cleanup": "removed" if removed_agent_blocks else "ok",
             "instruction_sync": instruction_sync_status,
+            "edit_permission": edit_permission_status,
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
@@ -585,6 +660,7 @@ def main() -> int:
         "prompt_migration": prompt_migration_status,
         "agent_cleanup": "removed" if removed_agent_blocks else "ok",
         "instruction_sync": instruction_sync_status,
+        "edit_permission": edit_permission_status,
     }
     if plugin_rewrites:
         result["rewritten"] = plugin_rewrites

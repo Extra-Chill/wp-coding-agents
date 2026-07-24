@@ -14,14 +14,6 @@ runtime_install() {
   _opencode_register_runtime_signature
 }
 
-runtime_start_cmd() {
-  if declare -F runtime_boundary_start_command >/dev/null; then
-    runtime_boundary_start_command opencode
-  else
-    echo "cd $SITE_PATH && opencode"
-  fi
-}
-
 opencode_claude_code_auth_enabled() {
   [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 1
   [ "${RUNTIME:-}" = "opencode" ] && return 0
@@ -292,10 +284,16 @@ runtime_generate_config() {
     fi
   fi
 
-  # Permission: allow DM workspace as external directory
+  # Permission: allow the DM workspace while keeping installed WordPress
+  # source outside OpenCode's shared edit/write/apply_patch mutation surface.
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
   OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
   OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+  OPENCODE_JSON="$OPENCODE_JSON\n    },"
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"edit\": {"
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-content/plugins/**\": \"deny\","
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-content/themes/**\": \"deny\","
+  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-includes/**\": \"deny\""
   OPENCODE_JSON="$OPENCODE_JSON\n    }"
   OPENCODE_JSON="$OPENCODE_JSON\n  }"
 

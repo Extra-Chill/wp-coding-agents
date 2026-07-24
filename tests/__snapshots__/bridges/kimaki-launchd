@@ -6,7 +6,6 @@
     <string>com.wp.kimaki</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/private/var/www/site/.wp-coding-agents/run-protected</string>
         <string>/home/chubes/.kimaki/kimaki-config/launchd-start.sh</string>
         <string>/opt/homebrew/bin/kimaki</string>
         <string>--data-dir</string>

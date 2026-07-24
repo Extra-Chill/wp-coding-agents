@@ -302,15 +302,16 @@ namespace {
         'abilities_owner' => \$abilities[4]['owner'] ?? null,
         'source_static' => ( \$source[4]['freshness'] ?? null ) === 'static',
         'abilities_static' => ( \$abilities[4]['freshness'] ?? null ) === 'static',
-        'source_has_core' => str_contains( \$source_content, '\`wp-admin/\`' ) && str_contains( \$source_content, '\`wp-includes/\`' ),
+        'source_has_core' => str_contains( \$source_content, '\`wp-includes/\`' ),
         'source_has_code' => str_contains( \$source_content, '\`wp-content/plugins/\`' ) && str_contains( \$source_content, '\`wp-content/themes/\`' ),
+        'source_has_original_intro' => str_contains( \$source_content, 'grep and read them to understand code, but never edit them directly' ),
         'abilities_has_tools' => str_contains( \$abilities_content, 'active runtime tool listings' ),
     ]);
 }
 PHP
 
 RESULT=$(php "$MIXED_SHIM")
-EXPECTED='{"source_priority":1,"abilities_priority":2,"source_owner":"wp-coding-agents","abilities_owner":"wp-coding-agents","source_static":true,"abilities_static":true,"source_has_core":true,"source_has_code":true,"abilities_has_tools":true}'
+EXPECTED='{"source_priority":1,"abilities_priority":2,"source_owner":"wp-coding-agents","abilities_owner":"wp-coding-agents","source_static":true,"abilities_static":true,"source_has_core":true,"source_has_code":true,"source_has_original_intro":true,"abilities_has_tools":true}'
 assert_eq "$RESULT" "$EXPECTED" "wp-coding-agents owns ordered guidance after mixed-version registration"
 
 echo

@@ -51,6 +51,14 @@ expected = [
 actual = data.get("plugin")
 if actual != expected:
     raise SystemExit(f"unexpected local plugin paths: {actual}")
+
+expected_edit = {
+    "wp-content/plugins/**": "deny",
+    "wp-content/themes/**": "deny",
+    "wp-includes/**": "deny",
+}
+if data.get("permission", {}).get("edit") != expected_edit:
+    raise SystemExit(f"unexpected edit permissions: {data.get('permission')}")
 PY
 
 if [ ! -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then
@@ -81,6 +89,14 @@ expected = [
 actual = data.get("plugin")
 if actual != expected:
     raise SystemExit(f"unexpected opt-out plugin paths: {actual}")
+
+expected_edit = {
+    "wp-content/plugins/**": "deny",
+    "wp-content/themes/**": "deny",
+    "wp-includes/**": "deny",
+}
+if data.get("permission", {}).get("edit") != expected_edit:
+    raise SystemExit(f"unexpected edit permissions: {data.get('permission')}")
 PY
 
 if [ -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then

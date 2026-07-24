@@ -8,18 +8,6 @@ User=chubes
 WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-NoNewPrivileges=true
-PrivateMounts=true
-PrivateDevices=true
-CapabilityBoundingSet=
-AmbientCapabilities=
-ProtectProc=invisible
-ProcSubset=pid
-ExecStartPre=/usr/bin/python3 "/var/www/site/.wp-coding-agents/validate-runtime-boundary.py" "/var/www/site"
-ReadOnlyPaths=/var/www/site/wp-admin
-ReadOnlyPaths=/var/www/site/wp-includes
-ReadOnlyPaths=/var/www/site/wp-content/plugins
-ReadOnlyPaths=/var/www/site/wp-content/themes
 ExecStart=/usr/bin/cc-connect
 Restart=always
 RestartSec=10

@@ -11,14 +11,6 @@ runtime_install() {
   fi
 }
 
-runtime_start_cmd() {
-  if declare -F runtime_boundary_start_command >/dev/null; then
-    runtime_boundary_start_command claude
-  else
-    echo "cd $SITE_PATH && claude"
-  fi
-}
-
 runtime_discover_dm_paths() {
   log "Phase 7: Configuring Claude Code..."
 

@@ -26,7 +26,6 @@ install_data_machine() {
   fi
 
   set_compose_agents_md_constant
-  agents_md_guidance_sync_wordpress_agent_boundaries
 }
 
 # Write the DATAMACHINE_COMPOSE_AGENTS_MD gate to wp-config.php.

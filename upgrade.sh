@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-boundary agents-md-guidance agents-md-backups; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -477,9 +477,10 @@ sync_chat_bridge_config() {
 # ============================================================================
 # Phase 3b: Detect + optionally repair opencode.json drift
 #
-# opencode.json is user-owned (model settings, agent prompt files, permissions,
-# etc.), so this phase is read-only by default. It compares the file against
-# what current setup would produce and surfaces drift.
+# opencode.json is user-owned. Additive repair preserves user entries while
+# synchronizing wp-coding-agents-owned plugins, instructions, migrations, and
+# protected WordPress edit rules; full repair additionally removes unexpected
+# managed-array entries.
 #
 # Drift vectors checked:
 #   1. `plugin` array — matches expected plugins for the detected runtime
@@ -489,8 +490,10 @@ sync_chat_bridge_config() {
 #      to a top-level `instructions` array. This check runs for ALL runtimes
 #      because opencode.json can exist even when the primary runtime is
 #      claude-code (e.g. kimaki spawns opencode sessions).
+#   3. Data Machine instruction paths.
+#   4. OpenCode edit denies for installed WordPress source.
 #
-# With --repair-opencode-json, both drift vectors are repaired surgically.
+# With --repair-opencode-json, all drift vectors are repaired surgically.
 # All other keys are preserved. A .backup.<ts> is written alongside.
 # ============================================================================
 
@@ -1052,8 +1055,6 @@ update_chat_bridge_systemd() {
 }
 
 update_chat_bridge_launchd() {
-  _run_filter_active systemd || return 0
-
   if [ "$LOCAL_MODE" != true ] || [ "$PLATFORM" != "mac" ]; then
     return 0
   fi
@@ -1244,9 +1245,6 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
-if _run_filter_active systemd; then
-  runtime_boundary_install
-fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 update_datamachine_worker_service

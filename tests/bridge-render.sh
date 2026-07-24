@@ -79,8 +79,6 @@ export TELEGRAM_BOT_TOKEN=""
 export TELEGRAM_ALLOWED_USER_ID=""
 export OPENCODE_MODEL=""
 
-source "$SCRIPT_DIR/lib/runtime-boundary.sh"
-
 # ---------------------------------------------------------------------------
 # Helpers — env blocks identical to what the legacy install functions used to
 # build, so systemd snapshots stay byte-identical to pre-refactor output.

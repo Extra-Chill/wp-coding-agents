@@ -223,14 +223,11 @@ agents_md_guidance_sync_wordpress_agent_boundaries() {
 
   source_content='## WordPress Source (Read-Only Reference)
 
-These directories are **read-only reference material**. Read and search them to understand the installed site; make code changes in the selected runtime'
-  source_content+="'s managed workspace."
-  source_content+='
+These directories are **read-only reference material** — grep and read them to understand code, but never edit them directly.
 
-- `wp-admin/` - WordPress core (read-only)
-- `wp-includes/` - WordPress core (read-only)
-- `wp-content/plugins/` - plugin source (read-only)
-- `wp-content/themes/` - theme source (read-only)'
+- `wp-content/plugins/` — plugin source (read-only)
+- `wp-content/themes/` — theme source (read-only)
+- `wp-includes/` — WordPress core (read-only)'
 
   abilities_content='## Abilities
 
