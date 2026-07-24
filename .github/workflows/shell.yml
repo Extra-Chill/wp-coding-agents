@@ -109,6 +109,10 @@ jobs:
         run: ./tests/opencode-local-plugin-path.sh
       - name: Run tests/repair-opencode-json.sh
         run: ./tests/repair-opencode-json.sh
+      - name: Run tests/claude-code-permissions.sh
+        run: ./tests/claude-code-permissions.sh
+      - name: Run tests/codex-permissions.sh
+        run: ./tests/codex-permissions.sh
 
   homeboy-agents-md:
     name: Homeboy CLI command map (#208, #254)

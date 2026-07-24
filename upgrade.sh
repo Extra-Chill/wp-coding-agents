@@ -1005,6 +1005,10 @@ sync_runtime_instructions() {
       log "Phase 5d: Syncing Codex runtime instructions..."
       runtime_sync_instructions
     fi
+    if declare -F runtime_generate_config >/dev/null; then
+      log "Phase 5d: Syncing Codex WordPress permissions..."
+      runtime_generate_config
+    fi
     if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
       # shellcheck disable=SC1090
       source "$RUNTIME_FILE"

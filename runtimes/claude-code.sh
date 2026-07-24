@@ -207,6 +207,13 @@ runtime_install_hooks() {
       "Bash(\($wp) datamachine-code gitsync:*)"
     ]')
 
+  local wordpress_deny_rules
+  wordpress_deny_rules=$(jq -n '[
+    "Edit(/wp-content/plugins/**)",
+    "Edit(/wp-content/themes/**)",
+    "Edit(/wp-includes/**)"
+  ]')
+
   local settings='{}'
   if [ -f "$settings_file" ]; then
     settings=$(cat "$settings_file")
@@ -217,6 +224,7 @@ runtime_install_hooks() {
     --argjson hook "$hook_entry" \
     --arg cmd "$hook_cmd" \
     --argjson allow_rules "$workspace_allow_rules" \
+    --argjson deny_rules "$wordpress_deny_rules" \
     '
     .autoMemoryEnabled = false
 
@@ -229,6 +237,10 @@ runtime_install_hooks() {
         ((.permissions.allow // []) + $allow_rules) | unique
       )
 
+    | .permissions.deny = (
+        ((.permissions.deny // []) + $deny_rules) | unique
+      )
+
     | .hooks.SessionStart = (
         (.hooks.SessionStart // [])
         | if any(.hooks[]?.command? == $cmd) then . else . + [$hook] end
@@ -238,7 +250,7 @@ runtime_install_hooks() {
   echo "$settings" | jq . > "$settings_file"
   service_file_normalize_perms "$settings_file"
 
-  log "Configured settings.json: SessionStart hook, workspace permissions (dir + allow rules), autoMemoryEnabled=false"
+  log "Configured settings.json: SessionStart hook, workspace permissions, installed-source edit denies, autoMemoryEnabled=false"
 }
 
 runtime_generate_instructions() {
