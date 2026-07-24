@@ -363,30 +363,23 @@ _kimaki_sync_bin_helpers() {
 
   _kimaki_remove_legacy_session_helper "$HELPER_DIR"
   _kimaki_remove_legacy_command_shims "$HELPER_DIR"
-  _kimaki_install_homeboy_notification_context_helper "$HELPER_DIR"
+  _kimaki_remove_obsolete_homeboy_notification_helper "$HELPER_DIR"
   _kimaki_install_dispatch_helpers
 }
 
-_kimaki_install_homeboy_notification_context_helper() {
+_kimaki_remove_obsolete_homeboy_notification_helper() {
   local helper_dir="$1"
-  local source="$SCRIPT_DIR/bridges/kimaki/homeboy-notification-context.sh"
   local target="$helper_dir/wp-coding-agents-homeboy-notification"
 
-  [ -f "$source" ] || return 0
+  [ -e "$target" ] || return 0
   if [ "${DRY_RUN:-false}" = true ]; then
-    if ! cmp -s "$source" "$target" 2>/dev/null; then
-      echo -e "${BLUE}[dry-run]${NC} Would update $target"
-    fi
+    echo -e "${BLUE}[dry-run]${NC} Would remove obsolete $target"
     return 0
   fi
 
-  mkdir -p "$helper_dir"
-  if ! cmp -s "$source" "$target" 2>/dev/null; then
-    cp "$source" "$target"
-    chmod 0755 "$target"
-    log "  Updated $target"
-    UPDATED_ITEMS+=("Kimaki Homeboy notification wrapper")
-  fi
+  rm -f "$target"
+  log "  Removed obsolete $target"
+  UPDATED_ITEMS+=("removed obsolete wp-coding-agents-homeboy-notification helper")
 }
 
 _kimaki_install_dispatch_helpers() {
@@ -819,6 +812,17 @@ bridge_sync_config() {
   fi
 
   # Copy plugins to the durable target that opencode.json loads.
+  local obsolete_notification_plugin="$KIMAKI_PLUGINS_DIR/homeboy-notification-context.ts"
+  if [ -e "$obsolete_notification_plugin" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove obsolete $obsolete_notification_plugin"
+    else
+      rm -f "$obsolete_notification_plugin"
+      log "  Removed obsolete $obsolete_notification_plugin"
+      UPDATED_ITEMS+=("removed obsolete kimaki-config/plugins/homeboy-notification-context.ts")
+    fi
+  fi
+
   if [ -d "$SCRIPT_DIR/bridges/kimaki/plugins" ]; then
     if [ "$DRY_RUN" = false ]; then
       mkdir -p "$KIMAKI_CONFIG_DIR/plugins" 2>/dev/null || true
@@ -1403,6 +1407,6 @@ bridge_vps_start_preamble() {
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-  echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts && test -f $PLUGINS_DIR/homeboy-notification-context.ts   # managed OpenCode plugins installed"
+  echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # managed OpenCode plugins installed"
   echo "command -v kimaki >/dev/null   # native Kimaki binary available"
 }

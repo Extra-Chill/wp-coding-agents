@@ -89,10 +89,7 @@ cat > "$SRC_PLUGINS/dm-agent-sync.ts" <<'EOF'
 // dm-agent-sync.ts
 export default async () => ({})
 EOF
-cat > "$SRC_PLUGINS/homeboy-notification-context.ts" <<'EOF'
-// homeboy-notification-context.ts
-export default async () => ({})
-EOF
+echo "obsolete" > "$SRC_PLUGINS/homeboy-notification-context.ts"
 
 TEST_SCRIPT_DIR="$TMP/kimaki-config-dir"
 mkdir -p "$TEST_SCRIPT_DIR"
@@ -141,6 +138,21 @@ assert_log_contains_file() {
   fi
 }
 
+# Setup/upgrade removes the obsolete command shim from both local and service
+# helper locations. The cleanup helper is location-agnostic; bridge setup passes
+# ~/.local/bin locally and /usr/local/bin for service installs.
+for helper_dir in "$TMP/local-bin" "$TMP/service-bin"; do
+  mkdir -p "$helper_dir"
+  echo "obsolete" > "$helper_dir/wp-coding-agents-homeboy-notification"
+  DRY_RUN=false
+  UPDATED_ITEMS=()
+  log() { :; }
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/bridges/kimaki.sh"
+  _kimaki_remove_obsolete_homeboy_notification_helper "$helper_dir"
+  assert_missing "$helper_dir/wp-coding-agents-homeboy-notification"
+done
+
 # Pass 1: package-local skills are scrubbed; persistent source remains.
 assert_missing "$LIVE_SKILLS/critique/SKILL.md"
 assert_missing "$LIVE_SKILLS/upgrade-wp-coding-agents/SKILL.md"
@@ -153,6 +165,7 @@ assert_log_contains "persistent skill source available at $SRC_SKILLS"
 # Pass 3: default plugin restore is a no-op because opencode loads the
 # persistent source directly.
 assert_missing "$LIVE_PLUGINS"
+assert_missing "$SRC_PLUGINS/homeboy-notification-context.ts"
 assert_log_contains "plugin restore not needed; opencode loads persistent plugins at $SRC_PLUGINS"
 
 # Explicit compatibility override still restores plugins into the requested dir.
@@ -165,10 +178,9 @@ KIMAKI_PLUGIN_SOURCE_DIR="$SRC_PLUGINS" \
 
 assert_present "$LIVE_PLUGINS/dm-context-filter.ts"
 assert_present "$LIVE_PLUGINS/dm-agent-sync.ts"
-assert_present "$LIVE_PLUGINS/homeboy-notification-context.ts"
+assert_missing "$LIVE_PLUGINS/homeboy-notification-context.ts"
 assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-context-filter.ts"
 assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-agent-sync.ts"
-assert_log_contains_file "$TMP/run-override.log" "restored plugin homeboy-notification-context.ts"
 
 # Idempotency: second run with the same state should restore zero plugins.
 KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
@@ -204,8 +216,8 @@ if [[ ! -f "$LIVE_PLUGINS/dm-context-filter.ts" ]]; then
   cat "$TMP/run3.log"
   exit 1
 fi
-if ! grep -q "3 plugins restored" "$TMP/run3.log"; then
-  echo "FAIL: rehydration run should report 3 plugins restored"
+if ! grep -q "2 plugins restored" "$TMP/run3.log"; then
+  echo "FAIL: rehydration run should report 2 plugins restored"
   cat "$TMP/run3.log"
   exit 1
 fi
@@ -276,6 +288,6 @@ KIMAKI_PLUGIN_SOURCE_DIR="$MISSING_SRC" \
 
 assert_log_contains_file "$TMP/missing.log" "WARNING: persistent plugin source dir not found at $MISSING_SRC; managed OpenCode plugins cannot be loaded"
 assert_log_contains_file "$TMP/missing.log" "WARNING: plugins dir not found at $MISSING_LIVE_PLUGINS; opencode.json plugin paths will be skipped by OpenCode"
-assert_log_contains_file "$TMP/missing.log" "3 required plugins missing"
+assert_log_contains_file "$TMP/missing.log" "2 required plugins missing"
 
 echo "PASS: tests/post-upgrade-restore.sh ($(grep -c '' "$TMP/run1.log" || true) lines run1, $(grep -c '' "$TMP/run3.log" || true) lines run3)"

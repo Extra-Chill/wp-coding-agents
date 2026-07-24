@@ -67,7 +67,7 @@ else
   SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
 fi
 
-REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts homeboy-notification-context.ts)
+REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
 WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
 
 if [[ -n "${KIMAKI_DIST_DIR:-}" ]]; then
@@ -251,6 +251,16 @@ if [[ -n "${KIMAKI_PLUGINS_DIR:-}" ]]; then
 else
   PLUGINS_DIR="$PLUGIN_SOURCE_DIR"
 fi
+
+# Removed in wp-coding-agents#300. Scrub managed copies from both the durable
+# source and compatibility target during upgrades, including local and service installs.
+for obsolete_dir in "$PLUGIN_SOURCE_DIR" "$PLUGINS_DIR"; do
+  obsolete_plugin="$obsolete_dir/homeboy-notification-context.ts"
+  if [[ -e "$obsolete_plugin" ]]; then
+    rm -f "$obsolete_plugin"
+    echo "kimaki-config: removed obsolete plugin $obsolete_plugin"
+  fi
+done
 
 if [[ -d "$PLUGIN_SOURCE_DIR" ]]; then
   if [[ "$PLUGINS_DIR" == "$PLUGIN_SOURCE_DIR" ]]; then

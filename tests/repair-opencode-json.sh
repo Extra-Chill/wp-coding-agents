@@ -135,7 +135,6 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 expected = [
     "/Users/example/.kimaki/kimaki-config/plugins/dm-context-filter.ts",
     "/Users/example/.kimaki/kimaki-config/plugins/dm-agent-sync.ts",
-    "/Users/example/.kimaki/kimaki-config/plugins/homeboy-notification-context.ts",
 ]
 if data.get("plugin") != expected:
     raise SystemExit(f"unexpected plugin paths: {data.get('plugin')}")

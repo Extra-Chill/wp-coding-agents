@@ -54,9 +54,10 @@ Without --additive or --apply the tool is a pure diagnostic.
 
 --additive is the default mode called from setup.sh and upgrade.sh: it
 installs managed plugin entries the user is missing (dm-context-filter
-and dm-agent-sync on Kimaki bridges) and migrates legacy agent prompts
-to the top-level `instructions` array (fixes Anthropic Claude Max OAuth,
-see wp-coding-agents#60). It never removes user-added plugin entries.
+and dm-agent-sync on Kimaki bridges), removes retired managed plugin
+entries, and migrates legacy agent prompts to the top-level `instructions`
+array (fixes Anthropic Claude Max OAuth, see wp-coding-agents#60). It never
+removes user-added plugin entries.
 
 --apply is the opt-in full reconciliation, used by
 `upgrade.sh --repair-opencode-json`. It removes unexpected plugin
@@ -72,7 +73,8 @@ import sys
 from typing import List, Tuple
 
 
-MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "homeboy-notification-context.ts"}
+MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
+OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
 MANAGED_EDIT_RULES = (
     "wp-content/plugins/**",
@@ -109,7 +111,6 @@ def expected_plugins(
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
-        plugins.append(f"{kimaki_plugins_dir}/homeboy-notification-context.ts")
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)
@@ -152,6 +153,9 @@ def normalize_managed_kimaki_plugin_paths(
 
     for plugin in current:
         basename = os.path.basename(plugin)
+        if basename in OBSOLETE_KIMAKI_PLUGIN_NAMES:
+            rewrites.append({"from": plugin, "to": None})
+            continue
         replacement = plugin
         if basename in MANAGED_KIMAKI_PLUGIN_NAMES:
             expected = f"{plugins_dir}/{basename}"
