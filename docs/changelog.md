@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.5] - 2026-07-24
+
+### Fixed
+- remove Homeboy notification command shim
+
 ## [1.10.4] - 2026-07-24
 
 ### Changed
