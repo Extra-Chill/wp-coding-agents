@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.4] - 2026-07-24
+
+### Changed
+- Refine generated agent routing guidance
+
+### Fixed
+- Fix effective prompt contract drift
+
 ## [1.10.3] - 2026-07-23
 
 ### Fixed
