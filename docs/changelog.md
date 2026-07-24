@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.3] - 2026-07-23
+
+### Fixed
+- migrate legacy Claude edit denies
+
 ## [1.10.2] - 2026-07-23
 
 ### Fixed
