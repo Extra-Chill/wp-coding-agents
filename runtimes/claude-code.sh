@@ -208,11 +208,13 @@ runtime_install_hooks() {
     ]')
 
   local wordpress_deny_rules
-  wordpress_deny_rules=$(jq -n '[
-    "Edit(/wp-content/plugins/**)",
-    "Edit(/wp-content/themes/**)",
-    "Edit(/wp-includes/**)"
-  ]')
+  wordpress_deny_rules=$(jq -n \
+    --arg site "$SITE_PATH" \
+    '[
+      "Edit(\($site)/wp-content/plugins/**)",
+      "Edit(\($site)/wp-content/themes/**)",
+      "Edit(\($site)/wp-includes/**)"
+    ]')
 
   local settings='{}'
   if [ -f "$settings_file" ]; then
