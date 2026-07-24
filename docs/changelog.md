@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.1] - 2026-07-23
+
+### Changed
+- Own generic WordPress agent guidance and runtime permissions
+
 ## [1.10.0] - 2026-07-22
 
 ### Added
