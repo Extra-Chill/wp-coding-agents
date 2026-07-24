@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.2] - 2026-07-23
+
+### Fixed
+- anchor Claude WordPress edit denies
+
 ## [1.10.1] - 2026-07-23
 
 ### Changed
