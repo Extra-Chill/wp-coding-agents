@@ -224,6 +224,96 @@ else
 fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
 
+echo "==> sync WordPress coding-agent boundaries"
+# Emulate an existing installation created before wp-coding-agents registered
+# its sections at a deterministic late priority.
+python3 - "$MU_FILE" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+content = path.read_text().replace("\n}, 100 );\n", "\n} );\n")
+content += "\nadd_action( 'unrelated_action', static function () {}, 100 );\n"
+path.write_text(content)
+PY
+agents_md_guidance_sync_wordpress_agent_boundaries
+assert_php_lint "$MU_FILE" "WordPress boundary guidance parses with php -l"
+if grep -q '^}, 100 );$' "$MU_FILE"; then
+  echo "  ok   existing action wrapper normalized to priority 100"
+else
+  echo "  FAIL existing action wrapper priority was not normalized"
+  FAILED=$((FAILED + 1))
+fi
+if grep -q 'BEGIN agents-md-guidance:wordpress-source' "$MU_FILE" && grep -q 'BEGIN agents-md-guidance:abilities' "$MU_FILE"; then
+  echo "  ok   WordPress boundary guidance blocks present"
+else
+  echo "  FAIL WordPress boundary guidance blocks missing"
+  FAILED=$((FAILED + 1))
+fi
+if grep -q 'studio wp' "$MU_FILE"; then
+  echo "  FAIL static WordPress guidance hardcodes studio wp"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   static WordPress guidance has no environment-specific WP-CLI prefix"
+fi
+
+HASH_BEFORE=$(file_hash "$MU_FILE")
+agents_md_guidance_sync_wordpress_agent_boundaries
+HASH_AFTER=$(file_hash "$MU_FILE")
+assert_eq "$HASH_AFTER" "$HASH_BEFORE" "WordPress boundary sync is idempotent"
+
+echo "==> WordPress guidance wins mixed-version registration"
+MIXED_SHIM="$TMP/mixed-section-shim.php"
+cat > "$MIXED_SHIM" <<PHP
+<?php
+namespace DataMachine\Engine\AI {
+    class SectionRegistry {
+        public static array \$sections = [];
+        public static function register( string \$filename, string \$slug, int \$priority, callable \$callback, array \$args = [] ): void {
+            self::\$sections[\$slug] = [ \$filename, \$slug, \$priority, \$callback, \$args ];
+        }
+    }
+}
+
+namespace {
+    define( 'ABSPATH', '/' );
+    function datamachine_agents_md_enabled(): bool { return true; }
+    \$GLOBALS['actions'] = [];
+    function add_action( \$tag, \$callback, \$priority = 10 ) {
+        \$GLOBALS['actions'][\$tag][\$priority][] = \$callback;
+    }
+    add_action( 'datamachine_sections', static function () {
+        \DataMachine\Engine\AI\SectionRegistry::register( 'AGENTS.md', 'wordpress-source', 30, static fn() => 'old source', [ 'owner' => 'data-machine-code' ] );
+        \DataMachine\Engine\AI\SectionRegistry::register( 'AGENTS.md', 'abilities', 20, static fn() => 'old abilities', [ 'owner' => 'data-machine-code' ] );
+    } );
+    require '$MU_FILE';
+    ksort( \$GLOBALS['actions']['datamachine_sections'] );
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] as \$callbacks ) {
+        foreach ( \$callbacks as \$callback ) { \$callback(); }
+    }
+    \$source = \DataMachine\Engine\AI\SectionRegistry::\$sections['wordpress-source'];
+    \$abilities = \DataMachine\Engine\AI\SectionRegistry::\$sections['abilities'];
+    \$source_content = (string) call_user_func( \$source[3] );
+    \$abilities_content = (string) call_user_func( \$abilities[3] );
+    echo json_encode([
+        'source_priority' => \$source[2],
+        'abilities_priority' => \$abilities[2],
+        'source_owner' => \$source[4]['owner'] ?? null,
+        'abilities_owner' => \$abilities[4]['owner'] ?? null,
+        'source_static' => ( \$source[4]['freshness'] ?? null ) === 'static',
+        'abilities_static' => ( \$abilities[4]['freshness'] ?? null ) === 'static',
+        'source_has_core' => str_contains( \$source_content, '\`wp-includes/\`' ),
+        'source_has_code' => str_contains( \$source_content, '\`wp-content/plugins/\`' ) && str_contains( \$source_content, '\`wp-content/themes/\`' ),
+        'source_has_original_intro' => str_contains( \$source_content, 'grep and read them to understand code, but never edit them directly' ),
+        'abilities_has_tools' => str_contains( \$abilities_content, 'active runtime tool listings' ),
+    ]);
+}
+PHP
+
+RESULT=$(php "$MIXED_SHIM")
+EXPECTED='{"source_priority":1,"abilities_priority":2,"source_owner":"wp-coding-agents","abilities_owner":"wp-coding-agents","source_static":true,"abilities_static":true,"source_has_core":true,"source_has_code":true,"source_has_original_intro":true,"abilities_has_tools":true}'
+assert_eq "$RESULT" "$EXPECTED" "wp-coding-agents owns ordered guidance after mixed-version registration"
+
 echo
 if [ "$FAILED" -gt 0 ]; then
   echo "FAILED: $FAILED assertion(s)"

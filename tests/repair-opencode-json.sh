@@ -184,6 +184,48 @@ if data.get("instructions") != expected:
 PY
 grep -q '"instruction_sync": "synced"' "$TMP/managed-instructions.out"
 
+cat > "$TMP/edit-permissions.json" <<'JSON'
+{
+  "permission": {
+    "bash": "allow",
+    "edit": {
+      "*": "allow",
+      "docs/**": "ask",
+      "wp-includes/**": "allow"
+    }
+  }
+}
+JSON
+
+python3 "$REPAIR" \
+  --file "$TMP/edit-permissions.json" \
+  --runtime opencode \
+  --chat-bridge none \
+  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --additive > "$TMP/edit-permissions.out"
+
+python3 - "$TMP/edit-permissions.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+expected = {
+    "*": "allow",
+    "docs/**": "ask",
+    "wp-content/plugins/**": "deny",
+    "wp-content/themes/**": "deny",
+    "wp-includes/**": "deny",
+}
+permission = data.get("permission", {})
+if permission.get("edit") != expected:
+    raise SystemExit(f"unexpected managed edit rules: {permission.get('edit')}")
+if permission.get("bash") != "allow":
+    raise SystemExit(f"user bash permission was not preserved: {permission}")
+PY
+grep -q '"edit_permission": "synced"' "$TMP/edit-permissions.out"
+
 cat > "$TMP/claude-code-auth-plugin.json" <<'JSON'
 {
   "plugin": []

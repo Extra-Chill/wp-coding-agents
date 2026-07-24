@@ -477,9 +477,10 @@ sync_chat_bridge_config() {
 # ============================================================================
 # Phase 3b: Detect + optionally repair opencode.json drift
 #
-# opencode.json is user-owned (model settings, agent prompt files, permissions,
-# etc.), so this phase is read-only by default. It compares the file against
-# what current setup would produce and surfaces drift.
+# opencode.json is user-owned. Additive repair preserves user entries while
+# synchronizing wp-coding-agents-owned plugins, instructions, migrations, and
+# protected WordPress edit rules; full repair additionally removes unexpected
+# managed-array entries.
 #
 # Drift vectors checked:
 #   1. `plugin` array — matches expected plugins for the detected runtime
@@ -489,8 +490,10 @@ sync_chat_bridge_config() {
 #      to a top-level `instructions` array. This check runs for ALL runtimes
 #      because opencode.json can exist even when the primary runtime is
 #      claude-code (e.g. kimaki spawns opencode sessions).
+#   3. Data Machine instruction paths.
+#   4. OpenCode edit denies for installed WordPress source.
 #
-# With --repair-opencode-json, both drift vectors are repaired surgically.
+# With --repair-opencode-json, all drift vectors are repaired surgically.
 # All other keys are preserved. A .backup.<ts> is written alongside.
 # ============================================================================
 
@@ -771,6 +774,7 @@ regenerate_agents_md() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
+    echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
     if _runtime_detected opencode; then
@@ -779,6 +783,7 @@ regenerate_agents_md() {
     return 0
   fi
 
+  agents_md_guidance_sync_wordpress_agent_boundaries
   sync_homeboy_availability
   sync_homeboy_agents_md_guidance
 
@@ -999,6 +1004,10 @@ sync_runtime_instructions() {
     if declare -F runtime_sync_instructions >/dev/null; then
       log "Phase 5d: Syncing Codex runtime instructions..."
       runtime_sync_instructions
+    fi
+    if declare -F runtime_generate_config >/dev/null; then
+      log "Phase 5d: Syncing Codex WordPress permissions..."
+      runtime_generate_config
     fi
     if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
       # shellcheck disable=SC1090

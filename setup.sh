@@ -436,6 +436,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
   setup_service_permissions
 fi
 
+agents_md_guidance_sync_wordpress_agent_boundaries
 setup_ai_gateway
 
 runtime_install

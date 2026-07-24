@@ -5,6 +5,8 @@ CODEX_MANAGED_OVERRIDE_START="<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->"
 CODEX_MANAGED_OVERRIDE_END="<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_END -->"
 CODEX_DM_MEMORY_START="<!-- WP_CODING_AGENTS_CODEX_MEMORY_START -->"
 CODEX_DM_MEMORY_END="<!-- WP_CODING_AGENTS_CODEX_MEMORY_END -->"
+CODEX_PERMISSION_START="# BEGIN WP_CODING_AGENTS_WORDPRESS_PERMISSIONS"
+CODEX_PERMISSION_END="# END WP_CODING_AGENTS_WORDPRESS_PERMISSIONS"
 
 runtime_install() {
   log "Phase 7: Installing Codex..."
@@ -83,7 +85,63 @@ wp-content/uploads/datamachine-files/agents/${DM_DRY_SLUG}/MEMORY.md"
 }
 
 runtime_generate_config() {
-  log "Codex reads project instructions from AGENTS.md; no runtime config file required."
+  local config_dir="$SITE_PATH/.codex"
+  local config_file="$config_dir/config.toml"
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would configure Codex WordPress source permissions at $config_file"
+    return 0
+  fi
+
+  local version
+  version=$(codex --version 2>/dev/null | sed -nE 's/.* ([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/p' || true)
+  if [ -z "$version" ]; then
+    warn "Could not resolve the Codex version; keeping AGENTS.md guidance only"
+    return 0
+  fi
+  set -- $version
+  if [ "${1:-0}" -eq 0 ] && [ "${2:-0}" -lt 138 ]; then
+    warn "Codex 0.138.0+ is required for project permission profiles; keeping AGENTS.md guidance only"
+    return 0
+  fi
+
+  mkdir -p "$config_dir"
+  if ! python3 - "$config_file" "$CODEX_PERMISSION_START" "$CODEX_PERMISSION_END" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+start, end = sys.argv[2], sys.argv[3]
+content = path.read_text(encoding="utf-8") if path.exists() else ""
+pattern = re.compile(rf"^\s*{re.escape(start)}$.*?^\s*{re.escape(end)}\s*$", re.MULTILINE | re.DOTALL)
+unmanaged = pattern.sub("", content)
+if re.search(r"^\s*(default_permissions|sandbox_mode)\s*=", unmanaged, re.MULTILINE) or re.search(
+    r"^\s*\[sandbox_workspace_write(?:\.|\])", unmanaged, re.MULTILINE
+):
+    raise SystemExit("existing Codex default_permissions or sandbox_mode conflicts with managed WordPress permissions")
+
+block = f'''{start}
+default_permissions = "wp-coding-agents-wordpress"
+
+[permissions.wp-coding-agents-wordpress]
+extends = ":workspace"
+
+[permissions.wp-coding-agents-wordpress.filesystem.":workspace_roots"]
+"wp-content/plugins" = "read"
+"wp-content/themes" = "read"
+"wp-includes" = "read"
+{end}'''
+
+before = unmanaged.rstrip()
+path.write_text((before + "\n\n" if before else "") + block + "\n", encoding="utf-8")
+PY
+  then
+    warn "Existing Codex sandbox/default permissions conflict with managed WordPress permissions; keeping AGENTS.md guidance only"
+    return 0
+  fi
+  service_file_normalize_perms "$config_file"
+  log "Configured Codex permission profile: installed WordPress source is read-only"
 }
 
 runtime_install_hooks() {

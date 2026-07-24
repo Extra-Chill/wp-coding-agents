@@ -41,7 +41,7 @@ WordPress + Data Machine
   └─ optional developer/orchestration extensions
 ```
 
-Data Machine is the always-present composition layer. It owns the persistent agent files and generated guidance surface. `wp-coding-agents` installs the selected runtime and optional integrations, then registers only the guidance those integrations actually provide.
+Data Machine is the always-present composition layer. It owns the persistent agent files and generated guidance surface. `wp-coding-agents` installs the selected runtime, registers the concise generic WordPress coding contract, and adds guidance only for integrations that are actually available.
 
 ## The Prompt Model
 
