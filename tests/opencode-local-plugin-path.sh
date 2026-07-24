@@ -45,7 +45,6 @@ with open(opencode_json, encoding="utf-8") as handle:
 expected = [
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/homeboy-notification-context.ts",
     f"{opencode_json.rsplit('/', 1)[0]}/.opencode/plugins/claude-code-auth.ts",
 ]
 actual = data.get("plugin")
@@ -63,6 +62,10 @@ PY
 
 if [ ! -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then
   echo "FAIL: default Claude Code auth plugin was not installed"
+  exit 1
+fi
+if [ -e "$KIMAKI_DATA_DIR/kimaki-config/plugins/homeboy-notification-context.ts" ]; then
+  echo "FAIL: fresh config generation installed obsolete notification plugin"
   exit 1
 fi
 
@@ -84,7 +87,6 @@ with open(opencode_json, encoding="utf-8") as handle:
 expected = [
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
     f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/homeboy-notification-context.ts",
 ]
 actual = data.get("plugin")
 if actual != expected:
