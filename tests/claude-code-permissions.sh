@@ -36,14 +36,17 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
+site_path = sys.argv[1].removesuffix("/.claude/settings.json")
 expected = {
-    "Edit(/wp-content/plugins/**)",
-    "Edit(/wp-content/themes/**)",
-    "Edit(/wp-includes/**)",
+    f"Edit({site_path}/wp-content/plugins/**)",
+    f"Edit({site_path}/wp-content/themes/**)",
+    f"Edit({site_path}/wp-includes/**)",
 }
 denies = set(data.get("permissions", {}).get("deny", []))
 if not expected <= denies:
     raise SystemExit(f"missing WordPress mutation denies: {sorted(expected - denies)}")
+if any(rule.startswith("Edit(/wp-content/") for rule in denies):
+    raise SystemExit(f"WordPress mutation denies must be project-anchored: {sorted(denies)}")
 if "Read(./private/**)" not in denies:
     raise SystemExit(f"existing deny was not preserved: {sorted(denies)}")
 PY
