@@ -216,6 +216,13 @@ runtime_install_hooks() {
       "Edit(\($site)/wp-includes/**)"
     ]')
 
+  local legacy_wordpress_deny_rules
+  legacy_wordpress_deny_rules=$(jq -n '[
+    "Edit(/wp-content/plugins/**)",
+    "Edit(/wp-content/themes/**)",
+    "Edit(/wp-includes/**)"
+  ]')
+
   local settings='{}'
   if [ -f "$settings_file" ]; then
     settings=$(cat "$settings_file")
@@ -227,6 +234,7 @@ runtime_install_hooks() {
     --arg cmd "$hook_cmd" \
     --argjson allow_rules "$workspace_allow_rules" \
     --argjson deny_rules "$wordpress_deny_rules" \
+    --argjson legacy_deny_rules "$legacy_wordpress_deny_rules" \
     '
     .autoMemoryEnabled = false
 
@@ -240,7 +248,7 @@ runtime_install_hooks() {
       )
 
     | .permissions.deny = (
-        ((.permissions.deny // []) + $deny_rules) | unique
+        (((.permissions.deny // []) - $legacy_deny_rules + $deny_rules) | unique)
       )
 
     | .hooks.SessionStart = (
