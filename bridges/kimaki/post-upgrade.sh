@@ -184,6 +184,7 @@ const fs = require('node:fs')
 
 const file = process.env.SYSTEM_MESSAGE_FILE
 const marker = 'wp-coding-agents managed Kimaki system prompt patch'
+const literalDollar = '$'
 const source = fs.readFileSync(file, 'utf8')
 
 if (source.includes(marker)) {
@@ -203,7 +204,7 @@ Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspa
 
 ## Bridge Diagnostics
 
-For Kimaki bridge failures, inspect $HOME/.kimaki/kimaki.log. The log is reset every time Kimaki restarts, so it only covers the current run.
+For Kimaki bridge failures, inspect \\${literalDollar}HOME/.kimaki/kimaki.log. The log is reset every time Kimaki restarts, so it only covers the current run.
 \`;
 `
 

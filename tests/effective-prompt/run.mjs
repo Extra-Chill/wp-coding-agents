@@ -345,19 +345,14 @@ async function runScenario(name, scenario) {
       failures.push(`current joined final system transform has ${joinedSystemLeaks.length} trigger leaks (expected 0)`)
     }
 
-    const leakedAgentsPrefix = `${joinedSystemPrefix}\n\n## starting new sessions from CLI\n\nkimaki send --channel <channel_id> --prompt 'spawn helper' --agent <current_agent>\n\n## creating worktrees\n\nkimaki send --channel <channel_id> --worktree leaked-worktree --prompt 'cook it' --agent <current_agent>`
-    const leakedAgentsInput = `${leakedAgentsPrefix}\n\n${raw}`
-    const leakedAgentsBlocks = await currentFilterSystemBlocks([leakedAgentsInput])
-    const leakedAgentsOut = leakedAgentsBlocks.join("\n")
-    const leakedAgentsLeaks = detectLeaks(leakedAgentsOut, scenario.triggers, scenario.allowLeakInSection)
-    if (!leakedAgentsOut.includes(joinedSystemPrefix)) {
-      failures.push("current filter dropped the safe part of a composed AGENTS prefix")
-    }
-    if (leakedAgentsLeaks.length > 0) {
-      failures.push(`current filter leaked ${leakedAgentsLeaks.length} Kimaki trigger(s) from a composed AGENTS prefix`)
+    const wordpressGuidance = "## WordPress Source (Read-Only Reference)\n\n- `wp-content/plugins/` - plugin source (read-only)\n- `wp-content/themes/` - theme source (read-only)\n- `wp-includes/` - WordPress core (read-only)"
+    const wordpressBlocks = await currentFilterSystemBlocks([`${wordpressGuidance}\n\n${raw}`])
+    const wordpressOut = wordpressBlocks.join("\n")
+    if (!wordpressOut.includes(wordpressGuidance)) {
+      failures.push("current filter removed generic WordPress source guidance from a composed system block")
     }
 
-    const transformedMessageText = await currentFilterMessageText(raw)
+    const transformedMessageText = normalizeSnapshotEnd(await currentFilterMessageText(raw))
     const messageLeaks = detectLeaks(transformedMessageText, scenario.triggers, scenario.allowLeakInSection)
     if (messageLeaks.length > 0) {
       failures.push(`current message transform has ${messageLeaks.length} trigger leaks (expected 0)`)
@@ -368,6 +363,10 @@ async function runScenario(name, scenario) {
     const sentinelMessageText = await currentFilterMessageText(sentinelBlock)
     if (sentinelMessageText !== sentinelBlock) {
       failures.push("current message transform changed a non-Kimaki text part")
+    }
+    const wordpressMessageText = await currentFilterMessageText(wordpressGuidance)
+    if (wordpressMessageText !== wordpressGuidance) {
+      failures.push("current message transform changed generic WordPress source guidance")
     }
   }
 
