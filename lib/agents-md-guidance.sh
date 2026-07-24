@@ -14,6 +14,7 @@
 #   agents_md_guidance_ensure_mu_plugin_file
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
+#   agents_md_guidance_sync_wordpress_agent_boundaries
 #   agents_md_guidance_sync_homeboy_cli          # presence-gated on `command -v homeboy`
 #   agents_md_guidance_register_homeboy_cli      # writes a LIVE-enumeration PHP block
 #   agents_md_guidance_unregister_homeboy_cli
@@ -40,6 +41,7 @@ agents_md_guidance_ensure_mu_plugin_file() {
   }
 
   if [ -f "$file" ]; then
+    _agents_md_guidance_normalize_action_priority "$file"
     return 0
   fi
 
@@ -82,13 +84,51 @@ add_action( 'datamachine_sections', function () {
 
     // BEGIN agents-md-guidance-sections
     // END agents-md-guidance-sections
-} );
+}, 100 );
 PHP
 
   service_file_normalize_perms "$file"
   log "  Wrote AGENTS.md guidance mu-plugin scaffold: $file"
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("created $file")
+  fi
+}
+
+_agents_md_guidance_normalize_action_priority() {
+  local file="$1"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would normalize AGENTS.md guidance registration priority in $file"
+    return 0
+  fi
+
+  local tmp
+  tmp=$(mktemp "${file}.XXXXXX")
+  python3 - "$file" > "$tmp" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+content = path.read_text(encoding="utf-8")
+marker = "    // END agents-md-guidance-sections"
+current = marker + "\n}, 100 );"
+legacy = marker + "\n} );"
+if content.count(current) == 1:
+    sys.stdout.write(content)
+    raise SystemExit(0)
+if content.count(legacy) != 1:
+    raise SystemExit("AGENTS.md guidance mu-plugin has an unexpected action wrapper")
+sys.stdout.write(content.replace(legacy, current))
+PY
+  if cmp -s "$file" "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  mv "$tmp" "$file"
+  service_file_normalize_perms "$file"
+  log "  Normalized AGENTS.md guidance registration priority in $file"
+  if [ -n "${UPDATED_ITEMS+x}" ]; then
+    UPDATED_ITEMS+=("AGENTS.md guidance registration priority")
   fi
 }
 
@@ -173,6 +213,48 @@ agents_md_guidance_unregister() {
   if [ -n "${UPDATED_ITEMS+x}" ]; then
     UPDATED_ITEMS+=("AGENTS.md guidance removed: $section_id")
   fi
+}
+
+# Register the generic WordPress coding-agent contract before component maps.
+# The concrete WP-CLI command remains environment-owned and is intentionally
+# absent from this static guidance.
+agents_md_guidance_sync_wordpress_agent_boundaries() {
+  local source_content abilities_content
+
+  source_content='## WordPress Source (Read-Only Reference)
+
+These directories are **read-only reference material**. Read and search them to understand the installed site; make code changes in the selected runtime'
+  source_content+="'s managed workspace."
+  source_content+='
+
+- `wp-admin/` - WordPress core (read-only)
+- `wp-includes/` - WordPress core (read-only)
+- `wp-content/plugins/` - plugin source (read-only)
+- `wp-content/themes/` - theme source (read-only)'
+
+  abilities_content='## Abilities
+
+WordPress Abilities are the universal tool surface. Plugins expose abilities through the active runtime, REST API, MCP, and chat.
+
+Inspect the active runtime tool listings and plugin-specific `--help` output before assuming what is available.'
+
+  AGENTS_MD_GUIDANCE_FRESHNESS=static \
+    AGENTS_MD_GUIDANCE_CONDITIONS='Registered by wp-coding-agents on managed WordPress coding-agent installations.' \
+    agents_md_guidance_register \
+      'wordpress-source' \
+      1 \
+      'WordPress Source' \
+      'Generic boundaries for installed WordPress source.' \
+      "$source_content"
+
+  AGENTS_MD_GUIDANCE_FRESHNESS=static \
+    AGENTS_MD_GUIDANCE_CONDITIONS='Registered by wp-coding-agents on managed WordPress coding-agent installations.' \
+    agents_md_guidance_register \
+      'abilities' \
+      2 \
+      'Abilities' \
+      'Generic WordPress Abilities discovery guidance.' \
+      "$abilities_content"
 }
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,14 @@ jobs:
       - name: Run tests/bridge-render.sh
         run: ./tests/bridge-render.sh
 
+  runtime-boundary:
+    name: macOS runtime write boundary
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/runtime-boundary.sh
+        run: ./tests/runtime-boundary.sh
+
   opencode-wrapper-removal:
     name: opencode wrapper removal regression (#117)
     runs-on: ubuntu-latest

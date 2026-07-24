@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-boundary agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -53,7 +53,7 @@ INSTALL_CHAT=true
 CHAT_BRIDGE=""
 SHOW_HELP=false
 DRY_RUN=false
-RUN_AS_ROOT=true
+RUN_AS_ROOT=false
 SERVICE_USER_FORCED=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
@@ -290,8 +290,8 @@ OPTIONS:
   --runtime-only     Only run runtime setup on an existing agent install
                      (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
-  --root             Run agent as root (default)
-  --non-root         Run agent as dedicated service user (opencode)
+  --root             Run agent as root (explicit legacy mode)
+  --non-root         Run agent as dedicated service user (default: opencode)
   --dry-run          Print commands without executing
   --help, -h         Show this help
 
@@ -437,6 +437,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
 fi
 
 setup_ai_gateway
+runtime_boundary_install
 
 runtime_install
 runtime_discover_dm_paths

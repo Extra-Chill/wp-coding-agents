@@ -6,6 +6,7 @@
     <string>com.wp.opencode-serve</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/private/var/www/site/.wp-coding-agents/run-protected</string>
         <string>/opt/homebrew/bin/opencode</string>
         <string>serve</string>
     </array>

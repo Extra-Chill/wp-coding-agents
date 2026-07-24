@@ -5,6 +5,11 @@
 # config artifacts beyond the npm package + a user-owned config.toml. Token
 # is optional; the bridge runs without one.
 
+if ! declare -F runtime_boundary_systemd_directives >/dev/null; then
+  # shellcheck disable=SC1091
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/runtime-boundary.sh"
+fi
+
 # ============================================================================
 # Identity
 # ============================================================================
@@ -208,9 +213,34 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
   _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "cc-connect.service"
 }
 
-# bridge_update_launchd: cc-connect doesn't refresh its plist on upgrade
-# (no token-merge path to maintain). Leave undefined; the dispatcher's
-# bridge_has_hook gate handles the no-op.
+bridge_update_launchd() {
+  log "Phase 5a: Checking com.wp.cc-connect launchd template..."
+
+  local plist="$HOME/Library/LaunchAgents/com.wp.cc-connect.plist"
+  [ -f "$plist" ] || { warn "  $plist does not exist - skipping"; return 0; }
+
+  CC_DATA_DIR="${CC_DATA_DIR:-$SERVICE_HOME/.cc-connect}"
+  CC_BIN=$(command -v cc-connect 2>/dev/null || echo "/opt/homebrew/bin/cc-connect")
+
+  local new_plist
+  new_plist=$(bridge_render_launchd com.wp.cc-connect)
+  if echo "$new_plist" | cmp -s - "$plist"; then
+    log "  com.wp.cc-connect.plist: unchanged"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would update $plist with the runtime write boundary"
+    return 0
+  fi
+
+  local timestamp="${TIMESTAMP:-$(date +%Y%m%d-%H%M%S)}"
+  cp "$plist" "${plist}.backup.$timestamp"
+  printf '%s\n' "$new_plist" > "$plist"
+  log "  Updated $plist (backup: ${plist}.backup.$timestamp)"
+  log "  NOTE: com.wp.cc-connect NOT restarted - run the restart command in the summary when ready"
+  UPDATED_ITEMS+=("com.wp.cc-connect.plist (not restarted)")
+}
 
 # ============================================================================
 # Templates: systemd unit + launchd plist
@@ -218,6 +248,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
+  runtime_boundary_validate_protected_paths || return 1
   [ "$unit" = "cc-connect.service" ] || { echo "cc-connect has no unit '$unit'" >&2; return 1; }
   cat <<EOF
 [Unit]
@@ -229,6 +260,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 $env_block
+$(runtime_boundary_systemd_directives)
 ExecStart=$CC_BIN
 Restart=always
 RestartSec=10
@@ -240,6 +272,7 @@ EOF
 
 bridge_render_launchd() {
   local label="$1"
+  runtime_boundary_validate_protected_paths || return 1
   [ "$label" = "com.wp.cc-connect" ] || { echo "cc-connect has no label '$label'" >&2; return 1; }
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -250,6 +283,7 @@ bridge_render_launchd() {
     <string>$label</string>
     <key>ProgramArguments</key>
     <array>
+$(runtime_boundary_macos_plist_prefix)
         <string>$CC_BIN</string>
     </array>
     <key>WorkingDirectory</key>

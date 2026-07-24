@@ -41,7 +41,7 @@ WordPress + Data Machine
   └─ optional developer/orchestration extensions
 ```
 
-Data Machine is the always-present composition layer. It owns the persistent agent files and generated guidance surface. `wp-coding-agents` installs the selected runtime and optional integrations, then registers only the guidance those integrations actually provide.
+Data Machine is the always-present composition layer. It owns the persistent agent files and generated guidance surface. `wp-coding-agents` installs the selected runtime, registers the concise generic WordPress coding contract, and adds guidance only for integrations that are actually available.
 
 ## The Prompt Model
 
@@ -63,14 +63,14 @@ Run an agent from an existing local WordPress site and keep its context grounded
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local
-cd ~/Studio/my-site && opencode
+# Run the protected command printed under "Start your agent"
 ```
 
 Use Codex as the terminal runtime when you want the site context in a Codex session without a chat bridge:
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-cd ~/Studio/my-site && codex
+# Run the protected command printed under "Start your agent"
 ```
 
 ### Chat-Connected Agent
@@ -79,8 +79,19 @@ Connect the coding runtime to a human chat surface for planning, status, file up
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat kimaki
-cd ~/Studio/my-site && kimaki
+# Use the managed launchd service configured by setup
 ```
+
+### Runtime Write Boundary
+
+Managed macOS launchd/manual runtimes and Linux systemd chat services can read the installed WordPress source, but the operating system denies writes to `wp-admin`, `wp-includes`, `wp-content/plugins`, and `wp-content/themes`. Code changes belong in managed workspaces.
+
+- Linux chat services use systemd filesystem namespacing with `ReadOnlyPaths`.
+- macOS launchd services and setup-printed manual commands use a generated Seatbelt profile through `sandbox-exec`.
+- Data Machine state, uploads, and managed workspaces remain writable.
+- Fresh VPS installs use an unprivileged service account by default; explicit or legacy root services receive filesystem hardening but are not described as deterministic isolation.
+- Linux local-manual bridge commands do not currently have an OS sandbox and are reported as unprotected.
+- Invoking a runtime binary directly instead of the setup-managed command bypasses this boundary and is not a protected session.
 
 ### Always-On VPS Agent
 

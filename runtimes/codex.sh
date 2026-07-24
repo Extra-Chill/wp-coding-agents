@@ -270,7 +270,11 @@ runtime_skills_dir() {
 }
 
 runtime_start_cmd() {
-  echo "cd $SITE_PATH && codex"
+  if declare -F runtime_boundary_start_command >/dev/null; then
+    runtime_boundary_start_command codex
+  else
+    echo "cd $SITE_PATH && codex"
+  fi
 }
 
 runtime_print_summary() {

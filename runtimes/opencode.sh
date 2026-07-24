@@ -14,6 +14,14 @@ runtime_install() {
   _opencode_register_runtime_signature
 }
 
+runtime_start_cmd() {
+  if declare -F runtime_boundary_start_command >/dev/null; then
+    runtime_boundary_start_command opencode
+  else
+    echo "cd $SITE_PATH && opencode"
+  fi
+}
+
 opencode_claude_code_auth_enabled() {
   [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 1
   [ "${RUNTIME:-}" = "opencode" ] && return 0

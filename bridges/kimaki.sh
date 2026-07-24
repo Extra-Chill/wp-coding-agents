@@ -17,6 +17,11 @@
 #          files.
 #          + $HOME/Library/LaunchAgents/com.wp.kimaki.plist on macOS.
 
+if ! declare -F runtime_boundary_systemd_directives >/dev/null; then
+  # shellcheck disable=SC1091
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/runtime-boundary.sh"
+fi
+
 # ============================================================================
 # Identity
 # ============================================================================
@@ -1090,6 +1095,7 @@ bridge_update_launchd() {
 
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
+  runtime_boundary_validate_protected_paths || return 1
   local normalized_unit
   normalized_unit=$(_kimaki_normalize_unit_name "$unit")
   [ "$normalized_unit" = "$unit" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
@@ -1112,6 +1118,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 $env_block
+$(runtime_boundary_systemd_directives)
 # Reap stray opencode-serve children left behind by the previous kimaki
 # process before starting a fresh one. Each kimaki session spawns its own
 # opencode-serve worker; if kimaki exits uncleanly (crash, OOM, manual
@@ -1135,6 +1142,7 @@ EOF
 
 bridge_render_launchd() {
   local label="$1"
+  runtime_boundary_validate_protected_paths || return 1
   [ "$label" = "com.wp.kimaki" ] || { echo "kimaki has no label '$label'" >&2; return 1; }
   local kimaki_bin_dir node_bin_dir path_value
   kimaki_bin_dir="$(dirname "$KIMAKI_BIN")"
@@ -1155,6 +1163,7 @@ bridge_render_launchd() {
     <string>$label</string>
     <key>ProgramArguments</key>
     <array>
+$(runtime_boundary_macos_plist_prefix)
         <string>$launchd_start</string>
         <string>$KIMAKI_BIN</string>
         <string>--data-dir</string>

@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance agents-md-backups; do
+for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-boundary agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -771,6 +771,7 @@ regenerate_agents_md() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
+    echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
     if _runtime_detected opencode; then
@@ -779,6 +780,7 @@ regenerate_agents_md() {
     return 0
   fi
 
+  agents_md_guidance_sync_wordpress_agent_boundaries
   sync_homeboy_availability
   sync_homeboy_agents_md_guidance
 
@@ -1050,6 +1052,8 @@ update_chat_bridge_systemd() {
 }
 
 update_chat_bridge_launchd() {
+  _run_filter_active systemd || return 0
+
   if [ "$LOCAL_MODE" != true ] || [ "$PLATFORM" != "mac" ]; then
     return 0
   fi
@@ -1240,6 +1244,9 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
+if _run_filter_active systemd; then
+  runtime_boundary_install
+fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 update_datamachine_worker_service

@@ -6,6 +6,7 @@
     <string>com.wp.cc-connect</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/private/var/www/site/.wp-coding-agents/run-protected</string>
         <string>/opt/homebrew/bin/cc-connect</string>
     </array>
     <key>WorkingDirectory</key>

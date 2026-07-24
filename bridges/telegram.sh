@@ -6,6 +6,11 @@
 # Both services ship as systemd units (VPS) or launchd plists (macOS) and are
 # wired together via Requires= / startup ordering.
 
+if ! declare -F runtime_boundary_systemd_directives >/dev/null; then
+  # shellcheck disable=SC1091
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/runtime-boundary.sh"
+fi
+
 # ============================================================================
 # Identity
 # ============================================================================
@@ -281,8 +286,34 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
   fi
 }
 
-# bridge_update_launchd: telegram doesn't refresh its plists on upgrade
-# (no token-merge path comparable to kimaki's). Intentionally not defined.
+bridge_update_launchd() {
+  log "Phase 5a: Checking Telegram launchd templates..."
+
+  local label="com.wp.opencode-serve"
+  local plist="$HOME/Library/LaunchAgents/$label.plist"
+  local timestamp="${TIMESTAMP:-$(date +%Y%m%d-%H%M%S)}"
+  local rendered
+
+  [ -f "$plist" ] || { warn "  $plist does not exist - skipping"; return 0; }
+
+  OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "/opt/homebrew/bin/opencode")
+  TELEGRAM_CONFIG_DIR="${TELEGRAM_CONFIG_DIR:-$SERVICE_HOME/.config/opencode-telegram-bot}"
+
+  rendered=$(bridge_render_launchd "$label")
+  if echo "$rendered" | cmp -s - "$plist"; then
+    log "  $label.plist: unchanged"
+    return 0
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would update $plist with the runtime write boundary"
+    return 0
+  fi
+
+  cp "$plist" "${plist}.backup.$timestamp"
+  printf '%s\n' "$rendered" > "$plist"
+  log "  Updated $plist (backup: ${plist}.backup.$timestamp)"
+  UPDATED_ITEMS+=("$label.plist (not restarted)")
+}
 
 # ============================================================================
 # Templates: systemd unit + launchd plist
@@ -290,6 +321,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
 bridge_render_systemd() {
   local unit="$1" env_block="$2"
+  runtime_boundary_validate_protected_paths || return 1
   case "$unit" in
     opencode-serve.service)
       cat <<EOF
@@ -302,6 +334,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 $env_block
+$(runtime_boundary_systemd_directives)
 EnvironmentFile=-$SERVE_ENV_FILE
 ExecStart=$OPENCODE_BIN serve
 Restart=always
@@ -340,6 +373,7 @@ EOF
 
 bridge_render_launchd() {
   local label="$1"
+  runtime_boundary_validate_protected_paths || return 1
   local log_dir="$TELEGRAM_CONFIG_DIR"
   case "$label" in
     com.wp.opencode-serve)
@@ -352,6 +386,7 @@ bridge_render_launchd() {
     <string>$label</string>
     <key>ProgramArguments</key>
     <array>
+$(runtime_boundary_macos_plist_prefix)
         <string>$OPENCODE_BIN</string>
         <string>serve</string>
     </array>
