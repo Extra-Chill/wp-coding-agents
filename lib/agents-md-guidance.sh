@@ -15,14 +15,13 @@
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
 #   agents_md_guidance_sync_wordpress_agent_boundaries
-#   agents_md_guidance_sync_homeboy_cli          # presence-gated on `command -v homeboy`
-#   agents_md_guidance_register_homeboy_cli      # writes a LIVE-enumeration PHP block
+#   agents_md_guidance_sync_homeboy_cli          # presence-gated on an executable Homeboy binary
+#   agents_md_guidance_register_homeboy_cli      # writes a live presence-checked PHP block
 #   agents_md_guidance_unregister_homeboy_cli
 #
-# The homeboy-cli section is generated LIVE at AGENTS.md compose time: the
-# mu-plugin callback shells out to `homeboy --help` on every compose (cached
-# briefly on the binary mtime + version), so a `homeboy upgrade` converges on
-# the next compose without requiring a wp-coding-agents sync. See issue #254.
+# The homeboy-cli callback checks the current PATH at AGENTS.md compose time, so
+# an unavailable binary contributes no stale guidance. The live CLI help remains
+# authoritative for Homeboy's complete command surface.
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
@@ -221,19 +220,23 @@ agents_md_guidance_unregister() {
 agents_md_guidance_sync_wordpress_agent_boundaries() {
   local source_content abilities_content
 
-  source_content='## WordPress Source (Read-Only Reference)
+  source_content='## WordPress Source (Direct Reference, Read-Only)
 
-These directories are **read-only reference material** — grep and read them to understand code, but never edit them directly.
+Use the installed WordPress source to verify core APIs, hooks, conventions, and runtime behavior instead of relying on assumptions. Search and read these directories directly when working on WordPress:
 
 - `wp-content/plugins/` — plugin source (read-only)
 - `wp-content/themes/` — theme source (read-only)
-- `wp-includes/` — WordPress core (read-only)'
+- `wp-includes/` — WordPress core (read-only)
+
+These paths are **read-only references**. Make code changes in the configured managed workspace, not in the installed source tree.'
 
   abilities_content='## Abilities
 
 WordPress Abilities are the universal tool surface. Plugins expose abilities through the active runtime, REST API, MCP, and chat.
 
-Inspect the active runtime tool listings and plugin-specific `--help` output before assuming what is available.'
+**Default routing**
+- Use abilities exposed by the active runtime when they match the task.
+- Inspect the active runtime tool listings and plugin-specific `--help` before assuming a capability or argument is available.'
 
   AGENTS_MD_GUIDANCE_FRESHNESS=static \
     AGENTS_MD_GUIDANCE_CONDITIONS='Registered by wp-coding-agents on managed WordPress coding-agent installations.' \
@@ -241,7 +244,7 @@ Inspect the active runtime tool listings and plugin-specific `--help` output bef
       'wordpress-source' \
       1 \
       'WordPress Source' \
-      'Generic boundaries for installed WordPress source.' \
+      'Direct-reference and read-only boundaries for installed WordPress source.' \
       "$source_content"
 
   AGENTS_MD_GUIDANCE_FRESHNESS=static \
@@ -255,21 +258,16 @@ Inspect the active runtime tool listings and plugin-specific `--help` output bef
 }
 
 # ---------------------------------------------------------------------------
-# Homeboy CLI command map (issues #208, #254)
+# Homeboy routing guidance (issues #208, #254, #298)
 #
 # homeboy is an OPTIONAL host binary. The map is strictly presence-gated:
 #   - present (`command -v homeboy` succeeds) -> emit a first-class section
-#     whose callback ENUMERATES `homeboy --help` LIVE at AGENTS.md compose
-#     time. A `homeboy upgrade` therefore converges on the next compose,
-#     with no wp-coding-agents sync required (the #254 trigger gap).
+#     whose callback verifies Homeboy is still present at compose time.
 #   - absent -> complete no-op (unregister any stale section, emit nothing).
 #
-# The command list is NEVER baked into the mu-plugin as a frozen string;
-# the previous static-bake design was the #254 defect. The PHP helper that
-# performs the live enumeration is shipped inline in the homeboy-cli
-# section block (see _agents_md_guidance_render_homeboy_live_block), with
-# a WP transient cache keyed on the homeboy binary path + mtime + version
-# so steady-state compiles are free and the cache self-heals on upgrade.
+# The generated section intentionally contains routing, ownership, safety, and
+# discovery guidance rather than a copy of `homeboy --help`. The live CLI is the
+# authoritative command map.
 # ---------------------------------------------------------------------------
 
 # agents_md_guidance_sync_homeboy_cli
@@ -279,7 +277,9 @@ Inspect the active runtime tool listings and plugin-specific `--help` output bef
 # agree on presence. When homeboy is present, registers a LIVE-enumeration
 # section block (no content is baked at setup time).
 agents_md_guidance_sync_homeboy_cli() {
-  if command -v homeboy >/dev/null 2>&1; then
+  local homeboy_path
+  homeboy_path="$(type -P homeboy 2>/dev/null || true)"
+  if [ -n "$homeboy_path" ] && [ -f "$homeboy_path" ] && [ -x "$homeboy_path" ]; then
     agents_md_guidance_register_homeboy_cli
   else
     agents_md_guidance_unregister_homeboy_cli
@@ -288,14 +288,9 @@ agents_md_guidance_sync_homeboy_cli() {
 
 # agents_md_guidance_register_homeboy_cli
 #
-# Writes a self-contained PHP block whose SectionRegistry callback shells
-# out to `homeboy --help` at compose time and parses the Commands: block in
-# PHP. The block is marker-delimited (BEGIN/END agents-md-guidance:homeboy-cli)
+# Writes a self-contained PHP block whose SectionRegistry callback verifies the
+# Homeboy binary remains available at compose time. The block is marker-delimited
 # so it is idempotent and removable by the standard unregister path.
-#
-# No homeboy output is captured at setup time — that was the #254 bug. The
-# callback is the only thing that touches homeboy, and it runs on every
-# `wp datamachine memory compose AGENTS.md`.
 agents_md_guidance_register_homeboy_cli() {
   local file
   file="$(agents_md_guidance_mu_plugin_path)" || {
@@ -312,12 +307,6 @@ agents_md_guidance_register_homeboy_cli() {
   }
 
   agents_md_guidance_ensure_mu_plugin_file || return 1
-
-  local new_block
-  new_block="$(_agents_md_guidance_render_homeboy_live_block)" || {
-    warn "  agents_md_guidance_register_homeboy_cli: could not render live block — skipping"
-    return 1
-  }
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would register live AGENTS.md guidance section 'homeboy-cli' in $file"
@@ -354,25 +343,9 @@ agents_md_guidance_unregister_homeboy_cli() {
 # _agents_md_guidance_render_homeboy_live_block
 #
 # Emits the PHP for the homeboy-cli section block. The block is
-# self-contained: it defines two helper functions (guarded by
-# `function_exists` so re-firing the datamachine_sections action does not
-# fatally redeclare them) and then registers a SectionRegistry section
-# whose callback invokes the live enumerator.
-#
-# The helpers:
-#   wp_coding_agents_render_homeboy_cli_section()
-#       Top-level orchestrator. Resolves `homeboy` on PATH, reads
-#       `--version` and the binary mtime for the cache key, checks the WP
-#       transient cache, shells out to `homeboy --help`, hands the help
-#       text to the parser, caches the rendered markdown, and returns it.
-#       Returns '' (section contributes nothing) when homeboy is absent,
-#       shell_exec is unavailable, the binary fails, or the help text has
-#       no parseable Commands: block.
-#   wp_coding_agents_parse_homeboy_cli_help( $help )
-#       Pure parser. Faithful PHP port of the original python parser:
-#       recognizes the `Commands:` block, ends at blank line / Options:,
-#       drops the `help`/`list` meta commands, renders the same markdown
-#       shape (intro, optional "Common entrypoints", full list, footer).
+# self-contained: it defines one helper (guarded by `function_exists` so
+# re-firing the datamachine_sections action does not fatally redeclare it) and
+# registers a SectionRegistry section whose callback checks live presence.
 #
 # Quoted heredoc ('PHP_BLOCK') so PHP $variables, backticks, and ${...}
 # are emitted verbatim — bash never touches them.
@@ -402,161 +375,41 @@ _agents_md_guidance_render_homeboy_live_block() {
                 return '';
             }
 
-            // shell_exec is the safe argv form here (hard-coded `homeboy`
-            // subcommands, no user input). It can be disabled in php.ini —
-            // in that case we degrade to a no-op rather than emit a broken
-            // section.
-            if ( ! is_callable( 'shell_exec' ) ) {
-                return '';
-            }
+            return <<<'MD'
+## Homeboy
 
-            // Cache key on the Homeboy identity and this installed renderer.
-            // Homeboy upgrades change the binary signals; wp-coding-agents
-            // upgrades change the generated MU-plugin hash. Either change
-            // must re-render the complete section because the cached value
-            // includes both command output and static guidance prose.
-            $version_out = @shell_exec( escapeshellarg( $homeboy ) . ' --version 2>/dev/null' );
-            $version      = ( is_string( $version_out ) ) ? trim( $version_out ) : '';
-            $mtime        = @filemtime( $homeboy );
-            $renderer_rev = @md5_file( __FILE__ );
-            $cache_key    = 'wca_homeboy_cli_agents_md_' . md5( $homeboy . '|' . $version . '|' . ( $mtime ?: '0' ) . '|' . ( $renderer_rev ?: 'unknown' ) );
+Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Data Machine Code owns authoritative repository and worktree state; Homeboy consumes managed worktrees to execute and finalize work.
 
-            if ( is_callable( 'get_transient' ) ) {
-                $cached = get_transient( $cache_key );
-                if ( is_string( $cached ) && $cached !== '' ) {
-                    return $cached;
-                }
-            }
+**Default routing**
+- One tracked change: `homeboy agent-task cook`
+- Multiple independent changes: `homeboy agent-task fanout cook-batch`
+- Review a candidate: `homeboy review`
+- Inspect runs and evidence: `homeboy runs`
+- Repeating workflows: `homeboy agent-task loop`; explicitly stateful workflows: `homeboy agent-task controller`
+- Component and runner health: `homeboy status` and `homeboy runner status`
 
-            $help = @shell_exec( escapeshellarg( $homeboy ) . ' --help 2>/dev/null' );
-            if ( ! is_string( $help ) || $help === '' ) {
-                return '';
-            }
+**Operator boundary**
+Run `homeboy release` or `homeboy deploy` only when the user explicitly asks.
 
-            $content = wp_coding_agents_parse_homeboy_cli_help( $help );
-            if ( $content === '' ) {
-                return '';
-            }
-
-            if ( is_callable( 'set_transient' ) ) {
-                set_transient( $cache_key, $content, 3600 );
-            }
-
-            return $content;
-        }
-    }
-
-    if ( ! function_exists( 'wp_coding_agents_parse_homeboy_cli_help' ) ) {
-        function wp_coding_agents_parse_homeboy_cli_help( $help ) {
-            // Faithful PHP port of the original python parser. See
-            // lib/agents-md-guidance.sh history.
-            $commands = array();
-            $in_commands = false;
-            foreach ( preg_split( '/\r\n|\r|\n/', (string) $help ) as $raw ) {
-                $stripped = trim( $raw );
-                if ( ! $in_commands ) {
-                    if ( $stripped === 'Commands:' ) {
-                        $in_commands = true;
-                    }
-                    continue;
-                }
-
-                // The commands block ends at the first blank line or the
-                // Options: header.
-                if ( $stripped === '' || $stripped === 'Options:' || strpos( $raw, 'Options:' ) === 0 ) {
-                    break;
-                }
-
-                if ( ! preg_match( '/^\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s{2,}(.+?)\s*$/', $raw, $matches ) ) {
-                    // Continuation / wrapped summary lines have no command
-                    // token; ignore them.
-                    continue;
-                }
-
-                $commands[] = array( $matches[1], trim( $matches[2] ) );
-            }
-
-            if ( ! $commands ) {
-                return '';
-            }
-
-            // `help` / `list` are meta commands; drop them from the map.
-            // The footer already tells the agent how to discover
-            // everything.
-            $skip = array( 'help' => true, 'list' => true );
-            $commands = array_values(
-                array_filter(
-                    $commands,
-                    static function ( $c ) use ( $skip ) {
-                        return ! isset( $skip[ $c[0] ] );
-                    }
-                )
-            );
-
-            if ( ! $commands ) {
-                return '';
-            }
-
-            $summaries = array();
-            foreach ( $commands as $c ) {
-                $summaries[ $c[0] ] = $c[1];
-            }
-
-            $common_order = array(
-                'status',
-                'triage',
-                'worktree',
-                'review',
-                'build',
-                'test',
-                'agent-task',
-                'runs',
-            );
-
-            $lines = array();
-            $lines[] = 'Homeboy is the host orchestrator binary — build, deploy, release, triage, test, and inspect components from the CLI. The command map below is generated live from `homeboy --help` at AGENTS.md compose time, so it always reflects the currently-installed homeboy binary.';
-
-            $common_entrypoints = array();
-            foreach ( $common_order as $name ) {
-                if ( isset( $summaries[ $name ] ) ) {
-                    $common_entrypoints[] = $name;
-                }
-            }
-            if ( $common_entrypoints ) {
-                $lines[] = '';
-                $lines[] = 'Common entrypoints:';
-                foreach ( $common_entrypoints as $name ) {
-                    $lines[] = '- `homeboy ' . $name . '` — ' . $summaries[ $name ];
-                }
-            }
-
-            $lines[] = '';
-            foreach ( $commands as $c ) {
-                $lines[] = '- `homeboy ' . $c[0] . '` — ' . $c[1];
-            }
-
-            $lines[] = '';
-            $lines[] = 'For agent work, use `homeboy agent-task cook` for one issue or reviewable PR, `homeboy agent-task fanout cook-batch` for multiple independent issues, `homeboy agent-task loop` for a named repeating workflow, and `homeboy agent-task controller` for workflows with explicit actions, events, waits, or policy state.';
-            $lines[] = 'Inspect live configuration with `homeboy config show`. Discover current agent-task providers with `homeboy agent-task providers`.';
-            $lines[] = 'Discover everything: `homeboy --help`. Drill into a command with `homeboy <command> --help`, including `homeboy config --help` and `homeboy agent-task --help`. Releases (`homeboy release`) and deploys (`homeboy deploy`) are operator actions — run them only when the user explicitly asks.';
-
-            return implode( "\n", $lines );
+**Discovery**
+Use `homeboy --help` and `homeboy <command> --help` for the live command contract. Inspect active configuration with `homeboy config show` and provider readiness with `homeboy agent-task providers`.
+MD;
         }
     }
 
     \DataMachine\Engine\AI\SectionRegistry::register(
         'AGENTS.md',
         'homeboy-cli',
-        34,
+        30,
         static function () {
             return wp_coding_agents_render_homeboy_cli_section();
         },
         array(
-            'label'       => 'Homeboy CLI',
-            'description' => 'Host orchestrator command map, enumerated live from \'homeboy --help\' at AGENTS.md compose time.',
+            'label'       => 'Homeboy',
+            'description' => 'Host orchestration routing, safety, and discovery guidance.',
             'owner'       => 'wp-coding-agents',
             'freshness'   => 'live',
-            'conditions'  => 'Generated live from \'homeboy --help\' at AGENTS.md compose time on hosts where the homeboy binary is installed; removed when homeboy is absent. Cached briefly via WP transient keyed on the homeboy binary mtime and version, so a `homeboy upgrade` converges on the next compose without a wp-coding-agents sync.',
+            'conditions'  => 'Registered on hosts where the homeboy binary is installed and omitted at compose time when the binary is unavailable.',
         )
     );
     // END agents-md-guidance:homeboy-cli
