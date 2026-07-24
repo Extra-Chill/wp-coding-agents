@@ -15,7 +15,12 @@ mkdir -p "$SITE_PATH/.claude" "$DM_WORKSPACE_DIR"
 cat > "$SITE_PATH/.claude/settings.json" <<'JSON'
 {
   "permissions": {
-    "deny": ["Read(./private/**)"]
+    "deny": [
+      "Read(./private/**)",
+      "Edit(/wp-content/plugins/**)",
+      "Edit(/wp-content/themes/**)",
+      "Edit(/wp-includes/**)"
+    ]
   }
 }
 JSON
