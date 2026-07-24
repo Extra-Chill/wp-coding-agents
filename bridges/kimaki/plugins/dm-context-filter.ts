@@ -36,31 +36,8 @@ Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspa
 
 ## Bridge Diagnostics
 
-For Kimaki bridge failures, inspect \`$HOME/.kimaki/kimaki.log\`. The log is reset every time Kimaki restarts, so it only covers the current run.
+For Kimaki bridge failures, inspect \$HOME/.kimaki/kimaki.log. The log is reset every time Kimaki restarts, so it only covers the current run.
 `;
-
-const KIMAKI_GENERIC_SECTION_HEADINGS = [
-  "## permissions",
-  "## upgrading kimaki",
-  "## debugging kimaki issues",
-  "## uploading files to discord",
-  "## requesting files from the user",
-  "## archiving the current thread",
-  "## aborting a session",
-  "## discord user mentions",
-  "## starting new sessions from CLI",
-  "## running opencode commands via kimaki send",
-  "## switching agents in the current session",
-  "## scheduled sends and task management",
-  "## reading other sessions",
-  "## cross-project commands",
-  "## waiting for a session to finish",
-  "## creating worktrees",
-  "## generating audio from text",
-  "## running dev servers with tunnel access",
-  "## markdown formatting",
-  "## Callouts in Kimaki Discord",
-];
 
 const fleetContextFilter: Plugin = async () => {
   return {
@@ -122,85 +99,23 @@ const fleetContextFilter: Plugin = async () => {
   };
 };
 
-/**
- * Identify Kimaki's generated system prompt without matching composed AGENTS.md
- * or other OpenCode system blocks from the managed install.
- *
- * @param {string} block - System prompt block.
- * @return {boolean} Whether this block is Kimaki's generated bridge prompt.
- */
-function isKimakiSystemPrompt(block: string): boolean {
-  return (
-    block.includes("The user is reading your messages from inside Discord, via kimaki.dev") ||
-    block.includes("## debugging kimaki issues") ||
-    block.includes("## uploading files to discord") ||
-    block.includes("Your current OpenCode session ID is:")
-  );
-}
-
+// Replace only positively identified Kimaki prompt text. Both transforms use
+// this helper because message transforms also receive unrelated text.
 function replaceKimakiSystemPrompt(block: string): string {
-  const filteredBlock = stripKimakiGenericSections(block);
-  const kimakiStart = kimakiSystemPromptStart(filteredBlock);
+  const kimakiStart = kimakiSystemPromptStart(block);
   if (kimakiStart === -1) {
-    return filteredBlock;
-  }
-
-  const prefix = filteredBlock.slice(0, kimakiStart).trimEnd();
-  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
-}
-
-function stripKimakiGenericSections(block: string): string {
-  let result = block;
-  for (const heading of KIMAKI_GENERIC_SECTION_HEADINGS) {
-    result = stripMarkdownSection(result, heading);
-  }
-  return result.replace(/\n{3,}/g, "\n\n").trimEnd();
-}
-
-function stripMarkdownSection(block: string, heading: string): string {
-  const lines = block.split("\n");
-  const level = headingLevel(heading);
-  let start = -1;
-  let inFence = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (/^```/.test(lines[i])) {
-      inFence = !inFence;
-      continue;
-    }
-    if (!inFence && lines[i] === heading) {
-      start = i;
-      break;
-    }
-  }
-
-  if (start === -1) {
     return block;
   }
 
-  let end = lines.length;
-  inFence = false;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^```/.test(lines[i])) {
-      inFence = !inFence;
-      continue;
-    }
-    const match = !inFence ? lines[i].match(/^(#{1,6})\s+\S/) : null;
-    if (match && match[1].length <= level) {
-      end = i;
-      break;
-    }
-  }
-
-  return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
-}
-
-function headingLevel(heading: string): number {
-  return heading.match(/^#+/)?.[0].length ?? 2;
+  // Only replace a positively identified Kimaki prompt. Message transforms
+  // also see ordinary user and composed AGENTS.md text.
+  const prefix = block.slice(0, kimakiStart).trimEnd();
+  return [prefix, MANAGED_KIMAKI_SYSTEM_PROMPT].filter(Boolean).join("\n\n");
 }
 
 function kimakiSystemPromptStart(block: string): number {
   const markers = [
+    "## Kimaki Discord Bridge",
     "The user is reading your messages from inside Discord, via kimaki.dev",
     "Your current OpenCode session ID is:",
     "## debugging kimaki issues",
