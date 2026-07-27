@@ -97,7 +97,9 @@ async function runDatamachineCommand($: any, wpCli: WpCli, sitePath: string, age
   }
   args.push("--allow-root");
 
-  return $`sh -lc ${[wpCli, ...args.map(shellQuote)].join(" ")}`.quiet().nothrow();
+  // Do not start a login shell here. Service-user profiles are unrelated user
+  // state and may contain interactive, stale, or failing initialization.
+  return $`sh -c ${[wpCli, ...args.map(shellQuote)].join(" ")}`.quiet().nothrow();
 }
 
 /**

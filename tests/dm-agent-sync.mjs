@@ -78,7 +78,7 @@ async function withEnv(env, callback) {
 
 const commonResponses = [
   [/^command -v wp$/, output("/usr/local/bin/wp")],
-  [/^sh -lc wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
+  [/^sh -c wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
 ]
 
 {
@@ -126,7 +126,7 @@ const commonResponses = [
   const config = {}
   const warnings = await runConfig(config, [
     [/^command -v wp$/, output("/usr/local/bin/wp")],
-    [/^sh -lc wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("", 1, "db down")],
+    [/^sh -c wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("", 1, "db down")],
   ])
   assert.ok(warnings.some((line) => line.includes("memory compose failed")))
   assert.equal(config.agent, undefined)
@@ -135,8 +135,8 @@ const commonResponses = [
 await withEnv({ DATAMACHINE_WP_CMD: "custom-wp", DATAMACHINE_AGENT_SLUG: "intelligence-chubes4" }, async () => {
   const config = {}
   const warnings = await runConfig(config, [
-    [/^sh -lc custom-wp 'datamachine' 'memory' 'compose' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
-    [/^sh -lc custom-wp 'datamachine' 'memory' 'injectable-files' '--format=json' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output(JSON.stringify([
+    [/^sh -c custom-wp 'datamachine' 'memory' 'compose' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
+    [/^sh -c custom-wp 'datamachine' 'memory' 'injectable-files' '--format=json' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output(JSON.stringify([
       { path: "/tmp/datamachine-site/AGENTS.md" },
       { path: "/tmp/datamachine-site/MEMORY.md" },
     ]))],

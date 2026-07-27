@@ -48,6 +48,15 @@ jobs:
       - name: Run tests/managed-skill-targets.sh
         run: ./tests/managed-skill-targets.sh
 
+  dm-agent-sync:
+    name: Data Machine agent sync plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Run tests/dm-agent-sync.mjs
+        run: bun tests/dm-agent-sync.mjs
+
   cli-transport:
     name: CLI dispatch transport runtime
     runs-on: ubuntu-latest
