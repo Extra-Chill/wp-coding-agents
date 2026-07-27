@@ -68,7 +68,7 @@ print_summary() {
   if [ "$INSTALL_CHAT" = true ]; then
     echo "  Bridge:   $CHAT_BRIDGE"
   fi
-  SKILLS_DIR="$(runtime_skills_dir)"
+  _resolve_managed_skill_dirs
   if [ "$INSTALL_SKILLS" = true ]; then
     echo "  Upgrade skill: $SKILLS_DIR"
   else

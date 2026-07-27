@@ -131,12 +131,78 @@ _resolve_skills_dir_for_runtime() {
   )
 }
 
+# Resolve both the runtime roots that may contain managed skills and the
+# canonical targets to populate. OpenCode discovers Claude's skill root, so a
+# dual Claude Code + OpenCode install needs only the Claude copy.
+_resolve_managed_skill_dirs() {
+  local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
+  local has_claude=false has_opencode=false
+  local rt dir seen_dir already
+
+  WP_CODING_AGENTS_SKILL_ROOTS=()
+  WP_CODING_AGENTS_SKILL_TARGETS=()
+
+  for rt in "${runtimes[@]}"; do
+    [ "$rt" = "claude-code" ] && has_claude=true
+    [ "$rt" = "opencode" ] && has_opencode=true
+  done
+
+  for rt in "${runtimes[@]}"; do
+    dir="$(_resolve_skills_dir_for_runtime "$rt")"
+    [ -n "$dir" ] || continue
+
+    already=false
+    for seen_dir in "${WP_CODING_AGENTS_SKILL_ROOTS[@]}"; do
+      [ "$seen_dir" = "$dir" ] && { already=true; break; }
+    done
+    [ "$already" = true ] || WP_CODING_AGENTS_SKILL_ROOTS+=("$dir")
+
+    if [ "$rt" = "opencode" ] && [ "$has_claude" = true ] && [ "$has_opencode" = true ]; then
+      continue
+    fi
+
+    already=false
+    for seen_dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
+      [ "$seen_dir" = "$dir" ] && { already=true; break; }
+    done
+    [ "$already" = true ] || WP_CODING_AGENTS_SKILL_TARGETS+=("$dir")
+  done
+
+  [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 0 ] \
+    || WP_CODING_AGENTS_SKILL_TARGETS=("$(runtime_skills_dir)")
+  SKILLS_DIR="${WP_CODING_AGENTS_SKILL_TARGETS[0]}"
+}
+
+_cleanup_managed_skill_duplicates() {
+  local root target is_target
+
+  for root in "${WP_CODING_AGENTS_SKILL_ROOTS[@]}"; do
+    if [ -d "$root/wp-coding-agents-setup" ]; then
+      if [ "$DRY_RUN" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would remove retired managed skill: $root/wp-coding-agents-setup"
+      else
+        rm -rf "$root/wp-coding-agents-setup"
+        log "  Removed retired managed skill: $root/wp-coding-agents-setup"
+      fi
+    fi
+
+    is_target=false
+    for target in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
+      [ "$root" = "$target" ] && { is_target=true; break; }
+    done
+    if [ "$is_target" = false ] && [ -d "$root/upgrade-wp-coding-agents" ]; then
+      if [ "$DRY_RUN" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would remove noncanonical managed skill: $root/upgrade-wp-coding-agents"
+      else
+        rm -rf "$root/upgrade-wp-coding-agents"
+        log "  Removed noncanonical managed skill: $root/upgrade-wp-coding-agents"
+      fi
+    fi
+  done
+}
+
 install_skills() {
-  # Primary skills dir — set from the currently sourced runtime (drives the
-  # summary output and the kimaki mirror source). Multi-runtime installs
-  # populate every detected runtime's skills dir below, but the primary
-  # stays the canonical one the rest of the script refers to.
-  SKILLS_DIR="$(runtime_skills_dir)"
+  _resolve_managed_skill_dirs
 
   if [ "$INSTALL_SKILLS" != true ]; then
     log "Phase 8.5: Skipping upgrade skill (--no-skills)"
@@ -145,38 +211,14 @@ install_skills() {
 
   log "Phase 8.5: Installing upgrade skill..."
 
-  # Build the unique list of skills dirs to populate. claude-code and
-  # Claude-compatible runtimes can resolve to $SITE_PATH/.claude/skills, so de-dupe.
-  local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
-  local -a skills_dirs=()
-  local seen_dir rt dir
-  for rt in "${runtimes[@]}"; do
-    dir="$(_resolve_skills_dir_for_runtime "$rt")"
-    [ -n "$dir" ] || continue
-    local already=false
-    for seen_dir in "${skills_dirs[@]}"; do
-      [ "$seen_dir" = "$dir" ] && { already=true; break; }
-    done
-    [ "$already" = true ] || skills_dirs+=("$dir")
-  done
-
-  # Always guarantee the primary is in the list (for belt-and-braces when
-  # RUNTIME was set explicitly but somehow isn't in DETECTED_RUNTIMES).
-  local already=false
-  for seen_dir in "${skills_dirs[@]}"; do
-    [ "$seen_dir" = "$SKILLS_DIR" ] && { already=true; break; }
-  done
-  [ "$already" = true ] || skills_dirs+=("$SKILLS_DIR")
-
-  if [ ${#skills_dirs[@]} -gt 1 ]; then
-    log "  Detected ${#runtimes[@]} runtime(s): ${runtimes[*]}"
-    log "  Populating ${#skills_dirs[@]} unique skills dir(s)"
+  if [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 1 ]; then
+    log "  Populating ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} unique skills dir(s)"
   fi
 
-  # Install the managed upgrade skill into every detected runtime's skills dir.
+  # Install the managed upgrade skill into each canonical runtime target.
   local target_dir
-  for target_dir in "${skills_dirs[@]}"; do
-    if [ ${#skills_dirs[@]} -gt 1 ]; then
+  for target_dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
+    if [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 1 ]; then
       log "→ Installing skills into $target_dir"
     fi
     SKILLS_DIR="$target_dir"
@@ -185,9 +227,10 @@ install_skills() {
     install_skills_from_local_repo
   done
 
-  # Reset SKILLS_DIR back to the primary for downstream consumers
-  # (kimaki mirror source, print_skills_summary, summary.sh).
-  SKILLS_DIR="$(runtime_skills_dir)"
+  # Keep existing fallback copies until the canonical install succeeds.
+  _cleanup_managed_skill_duplicates
+
+  SKILLS_DIR="${WP_CODING_AGENTS_SKILL_TARGETS[0]}"
 
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$DRY_RUN" = true ]; then
@@ -207,23 +250,10 @@ install_skills() {
 print_skills_summary() {
   echo ""
 
-  # Collect unique skills dirs across detected runtimes, same logic as
-  # install_skills. Falls back to SKILLS_DIR if DETECTED_RUNTIMES is empty.
-  local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
-  local -a skills_dirs=()
-  local seen_dir rt dir
-  for rt in "${runtimes[@]}"; do
-    dir="$(_resolve_skills_dir_for_runtime "$rt")"
-    [ -n "$dir" ] || continue
-    local already=false
-    for seen_dir in "${skills_dirs[@]}"; do
-      [ "$seen_dir" = "$dir" ] && { already=true; break; }
-    done
-    [ "$already" = true ] || skills_dirs+=("$dir")
-  done
-  [ ${#skills_dirs[@]} -gt 0 ] || skills_dirs=("$SKILLS_DIR")
+  _resolve_managed_skill_dirs
 
-  for dir in "${skills_dirs[@]}"; do
+  local dir
+  for dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
     log "Managed upgrade skill target: $dir/"
     if [ "$DRY_RUN" = false ]; then
       ls -1 "$dir" 2>/dev/null | while read -r skill; do
