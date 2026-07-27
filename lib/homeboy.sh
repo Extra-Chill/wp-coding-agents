@@ -109,12 +109,12 @@ homeboy_dmc_command_json() {
 
   case "$action" in
     resolve)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
+      homeboy_json_array bash "$SCRIPT_DIR/scripts/homeboy-dmc-resolve.sh" "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
       ;;
     ensure)
       # DMC derives the canonical handle from repo + branch and validates the
       # task/base intent before returning the checkout to Homeboy.
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--base-branch={base}' '--task-url={task_url}' --require-task-tracker --format=json "${wp_flags[@]}"
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--base-branch={base}' '--task-url={task_url}' --format=json "${wp_flags[@]}"
       ;;
     list)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --with-status --format=json "${wp_flags[@]}"
@@ -129,7 +129,7 @@ homeboy_dmc_command_json() {
 }
 
 homeboy_dmc_worktree_provider_json() {
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"resolve":%s,"resolve_not_found_exit_codes":[1],"ensure":%s,"list":%s,"cleanup_preview":%s,"cleanup_apply":%s},"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"commands":{"resolve":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"list":%s,"cleanup_preview":%s,"cleanup_apply":%s},"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"}}' \
     "$(homeboy_dmc_command_json resolve)" \
     "$(homeboy_dmc_command_json ensure)" \
     "$(homeboy_dmc_command_json list)" \

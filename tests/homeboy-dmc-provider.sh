@@ -70,23 +70,26 @@ PY
 }
 
 assert_provider_contract() {
-  python3 - "$1" "$SITE_PATH" <<'PY'
+  python3 - "$1" "$2" "$3" <<'PY'
 import json
 import sys
 
 line = open(sys.argv[1], encoding="utf-8").read().strip()
 _, payload = line.split("|", 1)
 commands = json.loads(payload)["commands"]
-expected = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--base-branch={base}", "--task-url={task_url}", "--require-task-tracker", "--format=json", f"--path={sys.argv[2]}"]
-if commands.get("resolve_not_found_exit_codes") != [1]:
-    raise SystemExit("FAIL: DMC missing-worktree classification must be exactly [1]")
-if commands.get("ensure") != expected:
+expected_resolve = ["bash", f"{sys.argv[2]}/scripts/homeboy-dmc-resolve.sh", "studio", "wp", "datamachine-code", "workspace", "worktree", "get", "{handle}", "--format=json", f"--path={sys.argv[3]}"]
+expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--base-branch={base}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
+if commands.get("resolve_not_found_exit_codes") != [42]:
+    raise SystemExit("FAIL: DMC typed-not-found classification must be exactly [42]")
+if commands.get("resolve") != expected_resolve:
+    raise SystemExit(f"FAIL: DMC resolve adapter mapping mismatch: {commands.get('resolve')!r}")
+if commands.get("ensure") != expected_ensure:
     raise SystemExit(f"FAIL: DMC ensure mapping mismatch: {commands.get('ensure')!r}")
 PY
 }
 
 assert_provisioning_contract() {
-  python3 - "$1" "$DMC_STATE" <<'PY'
+  python3 - "$1" "$DMC_ENSURE_LOG" <<'PY'
 import json
 import os
 import subprocess
@@ -101,7 +104,7 @@ def run(name, values):
     return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
 
 first = run("resolve", intent)
-if first.returncode != 1 or json.loads(first.stdout)["error"]["code"] != "worktree_not_found":
+if first.returncode != 42 or json.loads(first.stdout)["error"]["code"] != "worktree_not_found":
     raise SystemExit(f"FAIL: absent resolve did not return DMC's typed status: {first!r}")
 ensured = run("ensure", intent)
 if ensured.returncode or not json.loads(ensured.stdout).get("success"):
@@ -111,10 +114,10 @@ if resolved.returncode or json.loads(resolved.stdout)[0]["handle"] != intent["ha
     raise SystemExit(f"FAIL: resolve -> ensure -> resolve did not converge: {resolved!r}")
 
 before = open(sys.argv[2], encoding="utf-8").read()
-failed = run("resolve", {**intent, "handle": "fixture@auth-failure"})
+failed = run("resolve", {**intent, "handle": "fixture@unrelated-exit-one"})
 after = open(sys.argv[2], encoding="utf-8").read()
-if failed.returncode != 77 or before != after:
-    raise SystemExit("FAIL: non-not-found resolve failure was not fail-closed")
+if failed.returncode != 1 or before != after:
+    raise SystemExit("FAIL: unrelated DMC exit 1 was not fail-closed")
 PY
 }
 
@@ -135,9 +138,9 @@ cat > "$FAKE_BIN/studio" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUDIO_LOG"
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree get" ]; then
-  if [ "$6" = "fixture@auth-failure" ]; then
-    printf '{"success":false,"error":{"code":"provider_auth_failed"}}\n'
-    exit 77
+  if [ "$6" = "fixture@unrelated-exit-one" ]; then
+    printf '{"success":false,"error":{"code":"workspace_unavailable"}}\n'
+    exit 1
   fi
   if [ -f "$DMC_STATE" ]; then
     printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","safety":{"dirty":false,"unpushed":false,"primary":false}}]\n' "$DMC_STATE"
@@ -149,10 +152,11 @@ fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
   [ "$6" = "fixture" ] && [ "$7" = "fix/310-dmc-cook" ] || exit 2
   case "$*" in
-    *--base-branch=main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--require-task-tracker*--format=json*) ;;
+    *--base-branch=main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--format=json*) ;;
     *) exit 2 ;;
   esac
   : > "$DMC_STATE"
+  printf 'ensure\n' >> "$DMC_ENSURE_LOG"
   printf '{"success":true,"handle":"fixture@fix-310-dmc-cook"}\n'
   exit 0
 fi
@@ -168,7 +172,9 @@ PATH="$FAKE_BIN:$PATH"
 HOMEBOY_CONFIG_LOG="$TMP/homeboy-config.log"
 STUDIO_LOG="$TMP/studio.log"
 DMC_STATE="$TMP/dmc-state"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE
+DMC_ENSURE_LOG="$TMP/dmc-ensure.log"
+: > "$DMC_ENSURE_LOG"
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
@@ -178,9 +184,9 @@ DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
-assert_contains "\"resolve\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
-assert_contains "\"resolve_not_found_exit_codes\":[1]" "$TMP/dry-run.log"
-assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--base-branch={base}\",\"--task-url={task_url}\",\"--require-task-tracker\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve\":[\"bash\",\"$SCRIPT_DIR/scripts/homeboy-dmc-resolve.sh\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
+assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--base-branch={base}\",\"--task-url={task_url}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -196,7 +202,7 @@ configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 assert_contains "wp datamachine-code workspace worktree list --format=json --path=$SITE_PATH" "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_mapping "$HOMEBOY_CONFIG_LOG"
-assert_provider_contract "$HOMEBOY_CONFIG_LOG"
+assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 
