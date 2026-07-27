@@ -63,8 +63,58 @@ expected = {
     "unpushed": "$.safety.unpushed",
     "primary": "$.safety.primary",
 }
+
 if provider.get("list_result_mapping") != expected:
     raise SystemExit("FAIL: provider list_result_mapping does not match the DMC safety output")
+PY
+}
+
+assert_provider_contract() {
+  python3 - "$1" "$SITE_PATH" <<'PY'
+import json
+import sys
+
+line = open(sys.argv[1], encoding="utf-8").read().strip()
+_, payload = line.split("|", 1)
+commands = json.loads(payload)["commands"]
+expected = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--base-branch={base}", "--task-url={task_url}", "--require-task-tracker", "--format=json", f"--path={sys.argv[2]}"]
+if commands.get("resolve_not_found_exit_codes") != [1]:
+    raise SystemExit("FAIL: DMC missing-worktree classification must be exactly [1]")
+if commands.get("ensure") != expected:
+    raise SystemExit(f"FAIL: DMC ensure mapping mismatch: {commands.get('ensure')!r}")
+PY
+}
+
+assert_provisioning_contract() {
+  python3 - "$1" "$DMC_STATE" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+line = open(sys.argv[1], encoding="utf-8").read().strip()
+_, payload = line.split("|", 1)
+commands = json.loads(payload)["commands"]
+intent = {"handle": "fixture@fix-310-dmc-cook", "repo": "fixture", "base": "main", "head": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/310", "idempotency_key": "fixture@fix-310-dmc-cook:fixture:main:fix/310-dmc-cook"}
+
+def run(name, values):
+    return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
+
+first = run("resolve", intent)
+if first.returncode != 1 or json.loads(first.stdout)["error"]["code"] != "worktree_not_found":
+    raise SystemExit(f"FAIL: absent resolve did not return DMC's typed status: {first!r}")
+ensured = run("ensure", intent)
+if ensured.returncode or not json.loads(ensured.stdout).get("success"):
+    raise SystemExit(f"FAIL: DMC ensure failed: {ensured!r}")
+resolved = run("resolve", intent)
+if resolved.returncode or json.loads(resolved.stdout)[0]["handle"] != intent["handle"]:
+    raise SystemExit(f"FAIL: resolve -> ensure -> resolve did not converge: {resolved!r}")
+
+before = open(sys.argv[2], encoding="utf-8").read()
+failed = run("resolve", {**intent, "handle": "fixture@auth-failure"})
+after = open(sys.argv[2], encoding="utf-8").read()
+if failed.returncode != 77 or before != after:
+    raise SystemExit("FAIL: non-not-found resolve failure was not fail-closed")
 PY
 }
 
@@ -84,6 +134,28 @@ chmod +x "$FAKE_BIN/homeboy"
 cat > "$FAKE_BIN/studio" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUDIO_LOG"
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree get" ]; then
+  if [ "$6" = "fixture@auth-failure" ]; then
+    printf '{"success":false,"error":{"code":"provider_auth_failed"}}\n'
+    exit 77
+  fi
+  if [ -f "$DMC_STATE" ]; then
+    printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","safety":{"dirty":false,"unpushed":false,"primary":false}}]\n' "$DMC_STATE"
+    exit 0
+  fi
+  printf '{"success":false,"error":{"code":"worktree_not_found"}}\n'
+  exit 1
+fi
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
+  [ "$6" = "fixture" ] && [ "$7" = "fix/310-dmc-cook" ] || exit 2
+  case "$*" in
+    *--base-branch=main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--require-task-tracker*--format=json*) ;;
+    *) exit 2 ;;
+  esac
+  : > "$DMC_STATE"
+  printf '{"success":true,"handle":"fixture@fix-310-dmc-cook"}\n'
+  exit 0
+fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
   printf '{"success":true,"data":[]}\n'
   exit 0
@@ -95,7 +167,8 @@ chmod +x "$FAKE_BIN/studio"
 PATH="$FAKE_BIN:$PATH"
 HOMEBOY_CONFIG_LOG="$TMP/homeboy-config.log"
 STUDIO_LOG="$TMP/studio.log"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG
+DMC_STATE="$TMP/dmc-state"
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
@@ -106,6 +179,8 @@ configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
 assert_contains "\"resolve\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_not_found_exit_codes\":[1]" "$TMP/dry-run.log"
+assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--base-branch={base}\",\"--task-url={task_url}\",\"--require-task-tracker\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -121,6 +196,8 @@ configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 assert_contains "wp datamachine-code workspace worktree list --format=json --path=$SITE_PATH" "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_mapping "$HOMEBOY_CONFIG_LOG"
+assert_provider_contract "$HOMEBOY_CONFIG_LOG"
+assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 
 HOMEBOY_MODE="disabled"
