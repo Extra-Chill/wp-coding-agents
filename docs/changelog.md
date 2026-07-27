@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.6] - 2026-07-27
+
+### Fixed
+- isolate agent sync from login profiles
+- deduplicate managed runtime skills
+- detect stale Kimaki dispatch helpers
+- stop provisioning exposing wp-config.php
+
 ## [1.10.5] - 2026-07-24
 
 ### Fixed
