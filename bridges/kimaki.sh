@@ -389,9 +389,9 @@ _kimaki_install_dispatch_helpers() {
 
   local suffix
   suffix=$(_kimaki_instance_suffix)
-  local dispatch_wrapper="/usr/local/bin/wp-coding-agents-kimaki${suffix}-dispatch"
-  local target_helper="/usr/local/lib/wp-coding-agents/kimaki${suffix}-dispatch-target"
-  local sudoers_file="/etc/sudoers.d/wp-coding-agents-kimaki${suffix}-dispatch"
+  local dispatch_wrapper="${KIMAKI_DISPATCH_WRAPPER_DIR:-/usr/local/bin}/wp-coding-agents-kimaki${suffix}-dispatch"
+  local target_helper="${KIMAKI_DISPATCH_TARGET_DIR:-/usr/local/lib/wp-coding-agents}/kimaki${suffix}-dispatch-target"
+  local sudoers_file="${KIMAKI_DISPATCH_SUDOERS_DIR:-/etc/sudoers.d}/wp-coding-agents-kimaki${suffix}-dispatch"
   local service_home="${SERVICE_HOME:-}"
   local data_dir="${KIMAKI_DATA_DIR:-}"
   local kimaki_bin="${KIMAKI_BIN:-}"
@@ -432,14 +432,18 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
     return 0
   fi
 
-  if [ "$(id -u)" -ne 0 ]; then
-    if [ -x "$target_helper" ] \
-      && [ -x "$dispatch_wrapper" ] \
-      && sudo -n -H -u "$SERVICE_USER" "$target_helper" --version >/dev/null 2>&1; then
+  if [ "$(_kimaki_effective_uid)" -ne 0 ]; then
+    if _kimaki_dispatch_helpers_match \
+      "$target_helper" "$target_content" \
+      "$dispatch_wrapper" "$wrapper_content" \
+      "$sudoers_file" "$sudoers_content" \
+      && _kimaki_validate_dispatch_callers "$dispatch_wrapper" "$SERVICE_USER"; then
       log "  Keeping functional root-owned Kimaki dispatch wrapper for $SERVICE_USER"
       return 0
     fi
-    error "Kimaki dispatch wrapper requires root privileges to install or update"
+
+    _kimaki_report_dispatch_root_repair_required
+    return 0
   fi
 
   install -d -m 0755 "$(dirname "$target_helper")"
@@ -458,8 +462,86 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
     visudo -cf "$sudoers_file" >/dev/null
   fi
 
+  if ! _kimaki_dispatch_helpers_match \
+    "$target_helper" "$target_content" \
+    "$dispatch_wrapper" "$wrapper_content" \
+    "$sudoers_file" "$sudoers_content"; then
+    error "Kimaki dispatch helper validation failed after root installation"
+  fi
+  if ! _kimaki_validate_dispatch_callers "$dispatch_wrapper" "$SERVICE_USER"; then
+    error "Kimaki dispatch wrapper validation failed for www-data or $SERVICE_USER"
+  fi
+
   log "  Installed Kimaki dispatch wrapper: $dispatch_wrapper → $SERVICE_USER"
   UPDATED_ITEMS+=("Kimaki dispatch wrapper")
+}
+
+_kimaki_effective_uid() {
+  printf '%s\n' "${WP_CODING_AGENTS_TEST_EUID:-$(id -u)}"
+}
+
+_kimaki_dispatch_helpers_match() {
+  local target_helper="$1" target_content="$2"
+  local dispatch_wrapper="$3" wrapper_content="$4"
+  local sudoers_file="$5" sudoers_content="$6"
+
+  [ -x "$target_helper" ] \
+    && [ -x "$dispatch_wrapper" ] \
+    && [ -r "$sudoers_file" ] \
+    && printf '%s\n' "$target_content" | cmp -s - "$target_helper" \
+    && printf '%s\n' "$wrapper_content" | cmp -s - "$dispatch_wrapper" \
+    && printf '%s\n' "$sudoers_content" | cmp -s - "$sudoers_file"
+}
+
+_kimaki_dispatch_caller_can_execute() {
+  local caller="$1" dispatch_wrapper="$2"
+  local invoking_user
+  invoking_user=$(id -un 2>/dev/null || true)
+
+  if [ "$invoking_user" = "$caller" ]; then
+    "$dispatch_wrapper" --version >/dev/null 2>&1
+    return $?
+  fi
+
+  command -v sudo >/dev/null 2>&1 || return 1
+  sudo -n -H -u "$caller" "$dispatch_wrapper" --version >/dev/null 2>&1
+}
+
+_kimaki_validate_dispatch_callers() {
+  local dispatch_wrapper="$1" service_user="$2"
+  local caller seen=""
+
+  for caller in www-data "$service_user"; do
+    [ -n "$caller" ] || continue
+    case " $seen " in *" $caller "*) continue ;; esac
+    seen="$seen $caller"
+    _kimaki_dispatch_caller_can_execute "$caller" "$dispatch_wrapper" || return 1
+  done
+}
+
+_kimaki_dispatch_repair_command() {
+  local command
+  printf -v command 'sudo -- %q --kimaki-only --wp-path %q --kimaki-unit %q' \
+    "$SCRIPT_DIR/upgrade.sh" "$SITE_PATH" "${KIMAKI_UNIT:-kimaki.service}"
+  printf '%s\n' "$command"
+}
+
+_kimaki_json_escape() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  printf '%s' "$value"
+}
+
+_kimaki_report_dispatch_root_repair_required() {
+  KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED=true
+  KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=$(_kimaki_dispatch_repair_command)
+
+  warn "  Kimaki dispatch helpers could not be certified for www-data and $SERVICE_USER."
+  warn "  Root repair required: $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
+  printf '{"status":"root_repair_required","component":"kimaki_dispatch_helpers","repair_command":"%s"}\n' \
+    "$(_kimaki_json_escape "$KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND")"
 }
 
 _kimaki_dispatch_sudoers_content() {

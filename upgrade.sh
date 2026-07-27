@@ -390,6 +390,11 @@ UPDATED_ITEMS=()
 # --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
 OPENCODE_JSON_DRIFT=false
 
+# Set by the Kimaki bridge when a non-root upgrade cannot prove or repair the
+# root-owned dispatch wrapper, target, and sudoers installation.
+KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED=false
+KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=""
+
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -1150,6 +1155,12 @@ print_summary() {
     warn "opencode.json: managed entries were added, but unexpected plugins remain."
     warn "  Re-run with: ./upgrade.sh --repair-opencode-json"
     warn "  to remove them (the backup from this run is preserved)."
+  fi
+
+  if [ "${KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED:-false}" = true ]; then
+    echo ""
+    warn "Kimaki dispatch helpers: root repair required."
+    warn "  $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
   fi
 
   if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then

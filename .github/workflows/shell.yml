@@ -98,6 +98,14 @@ jobs:
       - name: Run tests/service-identity-adoption.sh
         run: ./tests/service-identity-adoption.sh
 
+  kimaki-dispatch-helper-health:
+    name: Kimaki dispatch helper health (#304)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/kimaki-dispatch-helper-health.sh
+        run: ./tests/kimaki-dispatch-helper-health.sh
+
   agents-md-guidance:
     name: AGENTS.md guidance registry
     runs-on: ubuntu-latest
