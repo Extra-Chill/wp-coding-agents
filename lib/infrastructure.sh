@@ -221,6 +221,31 @@ setup_ssl() {
   fi
 }
 
+# Restrict the credentials file after the site-wide grant (issue #302).
+#
+# The recursive `chmod -R g+w` above exists so the service user — a member of
+# www-data — can edit themes and plugins. Applied to the whole site path it
+# also sweeps in wp-config.php, which holds the database credentials, salts,
+# and auth keys. That leaves the file world-readable (any local account can
+# read the credentials) and agent-writable (the coding agent can rewrite the
+# site's database connection), neither of which the agent needs.
+#
+# 0640 owned by www-data keeps PHP-FPM and nginx working — both run as
+# www-data on a standard provision — while removing world read and group
+# write. Applied unconditionally so re-running provisioning corrects a mode
+# an earlier install left loosened, rather than only fixing fresh sites.
+harden_wp_config_permissions() {
+  local site_path="$1"
+  local config="$site_path/wp-config.php"
+
+  if [ "$DRY_RUN" != true ] && [ ! -f "$config" ]; then
+    return 0
+  fi
+
+  run_cmd chown www-data:www-data "$config"
+  run_cmd chmod 640 "$config"
+}
+
 setup_service_permissions() {
   if [ "$LOCAL_MODE" = true ]; then
     log "Phase 6: Local mode — skipping service user setup"
@@ -236,6 +261,7 @@ setup_service_permissions() {
 
     run_cmd chmod -R g+w "$SITE_PATH"
     run_cmd chown -R www-data:www-data "$SITE_PATH"
+    harden_wp_config_permissions "$SITE_PATH"
 
     run_cmd mkdir -p "$KIMAKI_DATA_DIR"
     run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$KIMAKI_DATA_DIR"
