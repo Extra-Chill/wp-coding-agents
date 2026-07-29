@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.7] - 2026-07-29
+
+### Fixed
+- configure targeted DMC path resolution
+- provision DMC Cook worktree destinations
+
 ## [1.10.6] - 2026-07-27
 
 ### Fixed
