@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.0] - 2026-08-02
+
+### Added
+- support a managed-hosting posture
+
 ## [1.10.7] - 2026-07-29
 
 ### Fixed
