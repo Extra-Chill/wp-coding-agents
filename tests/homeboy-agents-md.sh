@@ -16,7 +16,12 @@ export DRY_RUN=false
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/source-policy.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/guidance/_dispatch.sh"
+POSTURE="${POSTURE:-engineering}"
 UPDATED_ITEMS=()
 
 log() { :; }
@@ -44,7 +49,7 @@ SH
 chmod +x "$TMP/bin/homeboy"
 
 echo "==> homeboy present: register concise routing guidance"
-PATH="$TMP/bin:$PATH" agents_md_guidance_sync_homeboy_cli
+PATH="$TMP/bin:$PATH" guidance_sync_unit homeboy
 
 if ! php -l "$MU_FILE" >/dev/null 2>&1; then
   echo "  FAIL generated guidance does not parse"
@@ -100,7 +105,7 @@ assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives concise Homeboy routin
 
 echo "==> re-sync with homeboy present (idempotent)"
 HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
-PATH="$TMP/bin:$PATH" agents_md_guidance_sync_homeboy_cli
+PATH="$TMP/bin:$PATH" guidance_sync_unit homeboy
 HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-sync"
 
@@ -122,7 +127,7 @@ for tool in grep mktemp mv cmp chmod python3 md5sum cat sed awk rm cut stat dirn
   resolved="$(command -v "$tool" 2>/dev/null || true)"
   [ -n "$resolved" ] && ln -sf "$resolved" "$SANDBIN/$tool"
 done
-PATH="$SANDBIN" agents_md_guidance_sync_homeboy_cli
+PATH="$SANDBIN" guidance_sync_unit homeboy
 
 if grep -q "BEGIN agents-md-guidance:homeboy-cli" "$MU_FILE"; then
   echo "  FAIL homeboy-cli block remained after absence sync"

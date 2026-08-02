@@ -24,6 +24,9 @@ UPDATED_ITEMS=()
 log() { :; }
 warn() { printf '%s\n' "$*" >&2; }
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/source-policy.sh"
+POSTURE="${POSTURE:-engineering}"
 source "$SCRIPT_DIR/runtimes/codex.sh"
 
 runtime_generate_config

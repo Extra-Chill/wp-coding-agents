@@ -16,3 +16,7 @@ node_modules/
 
 # Credentials
 # Credentials stored at ~/.wp-coding-agents-credentials on the VPS
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -159,6 +159,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | Flag | Description |
 | --- | --- |
 | `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
+| `--posture <name>` | `engineering` (default) or `managed`. See [Install Posture](#install-posture). |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
@@ -180,6 +181,38 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--dry-run` | Print planned actions without applying them. |
 
 Run `./setup.sh --help` for the complete setup surface.
+
+## Install Posture
+
+Posture is the agent's relationship to the installed WordPress source. It is a
+declared intent rather than a detected fact, and it is the single input that
+decides the plugin set, every runtime permission surface, and the AGENTS.md
+guidance the agent reads.
+
+| | `engineering` (default) | `managed` |
+| --- | --- | --- |
+| `wp-content/themes/`, `wp-content/plugins/` | read-only reference | **editable in place** |
+| `wp-includes/` | read-only | read-only |
+| Data Machine Code | installed | not installed |
+| Workspace, git, GitHub | the agent's workflow | not present |
+| How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
+
+**Engineering** is the developer setup: the installed tree is reference
+material, and every code change happens in a Data Machine Code workspace so it
+is tracked in git and reviewed through GitHub.
+
+**Managed** is for managed agentic hosting, where a non-technical owner should
+never have to deal with pull requests. The agent edits the live theme and
+plugins directly and its changes are live on save; something outside the box —
+for example a scheduled `homeboy harvest` — captures them into git as restore
+points.
+
+A single source of truth (`lib/source-policy.sh`) derives the runtime
+permissions and the generated guidance from the chosen posture, so the prose
+cannot tell the agent to do something the permissions then block.
+
+The chosen posture is recorded on the install, so `./upgrade.sh` converges to it
+without repeating the flag. Pass `--posture` to either script to change it.
 
 On VPS hosts with multiple Kimaki services, setup and upgrade select the unit
 whose `WorkingDirectory=` exactly matches the WordPress site path. Ambiguous or

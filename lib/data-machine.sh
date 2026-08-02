@@ -10,19 +10,30 @@ install_data_machine() {
     log "  $WP_CMD plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
   fi
 
-  log "Installing Data Machine Code (developer tools)..."
-  install_plugin data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+  # Data Machine Code is the workspace/git/GitHub tool surface. A managed
+  # install has no workspace by design — the agent edits live source and
+  # changes are captured out-of-band — so installing DMC there contributes
+  # ~90 abilities the agent cannot use plus an AGENTS.md section instructing
+  # it to route work through a git workflow it has no access to. AGENTS.md
+  # composition is unaffected: data-machine core registers the composable file
+  # itself behind the same DATAMACHINE_COMPOSE_AGENTS_MD gate.
+  if source_policy_workspace_enabled; then
+    log "Installing Data Machine Code (developer tools)..."
+    install_plugin data-machine-code https://github.com/Extra-Chill/data-machine-code.git
 
-  # Set workspace path in wp-config.php if not already defined
-  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ] && [ "$IS_STUDIO" = false ]; then
-    if ! grep -q 'DATAMACHINE_WORKSPACE_PATH' "$SITE_PATH/wp-config.php"; then
-      wp_cmd config set DATAMACHINE_WORKSPACE_PATH "$DM_WORKSPACE_DIR" --type=constant
-      log "Set DATAMACHINE_WORKSPACE_PATH to $DM_WORKSPACE_DIR"
-    else
-      log "DATAMACHINE_WORKSPACE_PATH already defined in wp-config.php"
+    # Set workspace path in wp-config.php if not already defined
+    if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ] && [ "$IS_STUDIO" = false ]; then
+      if ! grep -q 'DATAMACHINE_WORKSPACE_PATH' "$SITE_PATH/wp-config.php"; then
+        wp_cmd config set DATAMACHINE_WORKSPACE_PATH "$DM_WORKSPACE_DIR" --type=constant
+        log "Set DATAMACHINE_WORKSPACE_PATH to $DM_WORKSPACE_DIR"
+      else
+        log "DATAMACHINE_WORKSPACE_PATH already defined in wp-config.php"
+      fi
+    elif [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
     fi
-  elif [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
+  else
+    log "Skipping Data Machine Code (posture: ${POSTURE:-managed} — no workspace on this install)"
   fi
 
   set_compose_agents_md_constant
@@ -61,7 +72,15 @@ upgrade_data_machine_plugins() {
 
   log "Phase 2: Updating Data Machine plugins to latest tagged releases..."
   update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
-  update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+
+  # Managed installs deliberately have no DMC. Without this gate every upgrade
+  # silently reinstalls and reactivates it, because update_plugin_to_latest_tag
+  # activates — which is exactly why hand-deactivating DMC never stuck.
+  if source_policy_workspace_enabled; then
+    update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+  else
+    log "  Skipping Data Machine Code (posture: ${POSTURE:-managed})"
+  fi
 
   # Backfill the AGENTS.md composition gate on existing installs (idempotent).
   set_compose_agents_md_constant

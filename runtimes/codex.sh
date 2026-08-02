@@ -106,13 +106,27 @@ runtime_generate_config() {
   fi
 
   mkdir -p "$config_dir"
-  if ! python3 - "$config_file" "$CODEX_PERMISSION_START" "$CODEX_PERMISSION_END" <<'PY'
+
+  # Only roots the active posture keeps read-only appear in the filesystem
+  # profile; anything the posture makes editable inherits the ":workspace"
+  # default. See lib/source-policy.sh.
+  local codex_read_roots=""
+  local _root _action
+  while IFS=$'\t' read -r _root _action; do
+    [ -n "$_root" ] || continue
+    [ "$_action" = "deny" ] || continue
+    codex_read_roots="${codex_read_roots}${_root}"$'\n'
+  done < <(source_policy_root_actions)
+
+  if ! CODEX_READ_ROOTS="$codex_read_roots" python3 - "$config_file" "$CODEX_PERMISSION_START" "$CODEX_PERMISSION_END" <<'PY'
+import os
 import pathlib
 import re
 import sys
 
 path = pathlib.Path(sys.argv[1])
 start, end = sys.argv[2], sys.argv[3]
+read_roots = [line for line in os.environ.get("CODEX_READ_ROOTS", "").splitlines() if line.strip()]
 content = path.read_text(encoding="utf-8") if path.exists() else ""
 pattern = re.compile(rf"^\s*{re.escape(start)}$.*?^\s*{re.escape(end)}\s*$", re.MULTILINE | re.DOTALL)
 unmanaged = pattern.sub("", content)
@@ -121,6 +135,8 @@ if re.search(r"^\s*(default_permissions|sandbox_mode)\s*=", unmanaged, re.MULTIL
 ):
     raise SystemExit("existing Codex default_permissions or sandbox_mode conflicts with managed WordPress permissions")
 
+filesystem = "\n".join(f'"{root}" = "read"' for root in read_roots)
+
 block = f'''{start}
 default_permissions = "wp-coding-agents-wordpress"
 
@@ -128,9 +144,7 @@ default_permissions = "wp-coding-agents-wordpress"
 extends = ":workspace"
 
 [permissions.wp-coding-agents-wordpress.filesystem.":workspace_roots"]
-"wp-content/plugins" = "read"
-"wp-content/themes" = "read"
-"wp-includes" = "read"
+{filesystem}
 {end}'''
 
 before = unmanaged.rstrip()

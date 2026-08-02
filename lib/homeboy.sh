@@ -413,8 +413,8 @@ sync_homeboy_agents_md_guidance() {
   # compose WITHOUT a wp-coding-agents sync — this function just keeps the
   # section block registered (or removes it when homeboy is absent, which
   # is itself the signal that homeboy is not callable on this host).
-  if declare -F agents_md_guidance_sync_homeboy_cli >/dev/null; then
-    agents_md_guidance_sync_homeboy_cli
+  if declare -F guidance_sync_unit >/dev/null; then
+    guidance_sync_unit homeboy
   fi
 }
 

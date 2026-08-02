@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
+for lib in common detect source-policy wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -31,6 +31,11 @@ done
 # "drop a file in bridges/" — no edit here.
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
+
+# Guidance dispatcher — auto-discovers guidance/*.sh AGENTS.md section units.
+# Adding a section is "drop a file in guidance/" — no edit here.
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/guidance/_dispatch.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
 
 # Discover available runtimes from runtimes/ directory
@@ -67,6 +72,8 @@ ROTATE_AI_GATEWAY_TOKEN=false
 RUNTIME=""
 CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
+POSTURE=""
+POSTURE_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
@@ -189,6 +196,11 @@ while [[ $# -gt 0 ]]; do
       RUNTIME="$2"
       shift 2
       ;;
+    --posture)
+      POSTURE="$2"
+      POSTURE_EXPLICIT=true
+      shift 2
+      ;;
     --agent-slug)
       AGENT_SLUG="$2"
       AGENT_SLUG_EXPLICIT=true
@@ -247,6 +259,16 @@ OPTIONS:
                      WordPress install (Studio, MAMP, manual, etc.)
   --runtime <name>   Coding agent runtime (auto-detected if omitted)
                      Available: ${AVAILABLE_RUNTIMES[*]}
+  --posture <name>   Agent's relationship to installed WordPress source.
+                     engineering (default): source is read-only reference and
+                       all code changes go through a Data Machine Code
+                       workspace, git, and GitHub.
+                     managed: the agent edits the live theme and plugins in
+                       place; no workspace, no git, no GitHub, and
+                       data-machine-code is not installed. For managed agentic
+                       hosting where changes are captured out-of-band.
+                     Recorded on the install so upgrades converge without
+                     repeating the flag.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --kimaki-unit <u>  Kimaki systemd unit (default: kimaki.service)
@@ -405,6 +427,10 @@ fi
 
 detect_environment
 
+# Posture must resolve BEFORE anything that enforces it: the plugin set, the
+# runtime permission surfaces, and the AGENTS.md guidance all derive from it.
+source_policy_resolve_posture
+
 if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
   bridge_load kimaki
   _kimaki_resolve_instance
@@ -436,7 +462,8 @@ if [ "$RUNTIME_ONLY" != true ]; then
   setup_service_permissions
 fi
 
-agents_md_guidance_sync_wordpress_agent_boundaries
+source_policy_record_posture
+guidance_sync_all
 setup_ai_gateway
 
 runtime_install

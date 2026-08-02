@@ -194,27 +194,41 @@ runtime_install_hooks() {
     wp_prefix="studio wp"
   fi
 
-  local workspace_allow_rules
-  workspace_allow_rules=$(jq -n \
-    --arg ws "$DM_WORKSPACE_DIR" \
-    --arg wp "$wp_prefix" \
-    '[
-      "Read(\($ws)/**)",
-      "Edit(\($ws)/**)",
-      "Write(\($ws)/**)",
-      "Bash(\($wp) datamachine-code workspace:*)",
-      "Bash(\($wp) datamachine-code github:*)",
-      "Bash(\($wp) datamachine-code gitsync:*)"
-    ]')
+  # Workspace access only exists in postures that have a workspace. On a
+  # managed install these rules would grant the agent an empty directory while
+  # advertising a git workflow it has no part in.
+  local workspace_allow_rules='[]'
+  if source_policy_workspace_enabled; then
+    workspace_allow_rules=$(jq -n \
+      --arg ws "$DM_WORKSPACE_DIR" \
+      --arg wp "$wp_prefix" \
+      '[
+        "Read(\($ws)/**)",
+        "Edit(\($ws)/**)",
+        "Write(\($ws)/**)",
+        "Bash(\($wp) datamachine-code workspace:*)",
+        "Bash(\($wp) datamachine-code github:*)",
+        "Bash(\($wp) datamachine-code gitsync:*)"
+      ]')
+  fi
 
-  local wordpress_deny_rules
-  wordpress_deny_rules=$(jq -n \
-    --arg site "$SITE_PATH" \
-    '[
-      "Edit(\($site)/wp-content/plugins/**)",
-      "Edit(\($site)/wp-content/themes/**)",
-      "Edit(\($site)/wp-includes/**)"
-    ]')
+  # Denies are posture-derived (lib/source-policy.sh). Roots the active posture
+  # allows are subtracted as well as added, so switching an install from
+  # engineering to managed actually clears the old denies instead of leaving
+  # the agent blocked by a rule nothing removes.
+  local wordpress_deny_rules='[]'
+  local wordpress_allowed_rules='[]'
+  local _root _action
+  while IFS=$'\t' read -r _root _action; do
+    [ -n "$_root" ] || continue
+    local _rule
+    _rule=$(jq -n --arg site "$SITE_PATH" --arg root "$_root" '"Edit(\($site)/\($root)/**)"')
+    if [ "$_action" = "deny" ]; then
+      wordpress_deny_rules=$(jq -n --argjson acc "$wordpress_deny_rules" --argjson rule "$_rule" '$acc + [$rule]')
+    else
+      wordpress_allowed_rules=$(jq -n --argjson acc "$wordpress_allowed_rules" --argjson rule "$_rule" '$acc + [$rule]')
+    fi
+  done < <(source_policy_root_actions)
 
   local legacy_wordpress_deny_rules
   legacy_wordpress_deny_rules=$(jq -n '[
@@ -234,13 +248,15 @@ runtime_install_hooks() {
     --arg cmd "$hook_cmd" \
     --argjson allow_rules "$workspace_allow_rules" \
     --argjson deny_rules "$wordpress_deny_rules" \
+    --argjson allowed_rules "$wordpress_allowed_rules" \
     --argjson legacy_deny_rules "$legacy_wordpress_deny_rules" \
+    --argjson workspace_enabled "$(source_policy_workspace_enabled && echo true || echo false)" \
     '
     .autoMemoryEnabled = false
 
     | .permissions.additionalDirectories = (
         (.permissions.additionalDirectories // [])
-        | if any(. == $workspace) then . else . + [$workspace] end
+        | if $workspace_enabled and (any(. == $workspace) | not) then . + [$workspace] else . end
       )
 
     | .permissions.allow = (
@@ -248,7 +264,7 @@ runtime_install_hooks() {
       )
 
     | .permissions.deny = (
-        (((.permissions.deny // []) - $legacy_deny_rules + $deny_rules) | unique)
+        (((.permissions.deny // []) - $legacy_deny_rules - $allowed_rules + $deny_rules) | unique)
       )
 
     | .hooks.SessionStart = (
