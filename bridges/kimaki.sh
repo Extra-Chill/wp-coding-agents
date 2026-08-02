@@ -797,11 +797,18 @@ _kimaki_install_systemd() {
   local DATAMACHINE_WP_CMD
   DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
 
+# Kimaki recreates a general-purpose #kimaki-<bot> channel, welcome message,
+# and tutorial thread on every start. On a wp-coding-agents install the real
+# project channel is the site channel, so the default is pure noise. Upstream
+# added this opt-out in remorses/kimaki@7a9ab1e8 (fixes remorses/kimaki#175);
+# it is inert on kimaki builds that predate it, so setting it unconditionally
+# is safe and converges the moment the host upgrades.
   local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_CMD=$DATAMACHINE_WP_CMD"
+Environment=DATAMACHINE_WP_CMD=$DATAMACHINE_WP_CMD
+Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
   if [ -n "${AGENT_SLUG:-}" ]; then
     ENV_BLOCK="$ENV_BLOCK
 Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
@@ -1097,7 +1104,8 @@ bridge_update_systemd() {
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)"
+Environment=DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
+Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
   if [ -n "${KIMAKI_LOCK_PORT:-}" ]; then
     TEMPLATE_ENV="$TEMPLATE_ENV
 Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
@@ -1268,7 +1276,9 @@ $skill_filter_plist_args
         <key>DATAMACHINE_SITE_PATH</key>
         <string>$SITE_PATH</string>
         <key>DATAMACHINE_WP_CMD</key>
-        <string>$datamachine_wp_cmd</string>$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
+        <string>$datamachine_wp_cmd</string>
+        <key>KIMAKI_NO_DEFAULT_CHANNEL</key>
+        <string>1</string>$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
         <key>DATAMACHINE_AGENT_SLUG</key>
         <string>$AGENT_SLUG</string>"; fi)$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>

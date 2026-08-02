@@ -123,6 +123,14 @@ jobs:
       - name: Run tests/kimaki-dispatch-helper-health.sh
         run: ./tests/kimaki-dispatch-helper-health.sh
 
+  kimaki-no-default-channel:
+    name: Kimaki default-channel opt-out (remorses/kimaki#175)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/kimaki-no-default-channel.sh
+        run: ./tests/kimaki-no-default-channel.sh
+
   posture:
     name: installed-source posture (#314)
     runs-on: ubuntu-latest

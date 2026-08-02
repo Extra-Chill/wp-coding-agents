@@ -35,6 +35,8 @@
         <string>/var/www/site</string>
         <key>DATAMACHINE_WP_CMD</key>
         <string>wp</string>
+        <key>KIMAKI_NO_DEFAULT_CHANNEL</key>
+        <string>1</string>
         <key>DATAMACHINE_AGENT_SLUG</key>
         <string>intelligence-chubes4</string>
     </dict>
