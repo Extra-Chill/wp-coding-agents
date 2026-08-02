@@ -76,11 +76,24 @@ from typing import List, Tuple
 MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
+# Every installed-source root wp-coding-agents manages, in canonical order.
+# Kept in lockstep with lib/source-policy.sh: that file is the single source of
+# truth for which of these the active posture denies, this list is only the key
+# set the reconciler owns and may therefore overwrite.
 MANAGED_EDIT_RULES = (
     "wp-content/plugins/**",
     "wp-content/themes/**",
     "wp-includes/**",
 )
+
+# Roots that stay read-only under each posture. `wp-includes` is WordPress core
+# and is never editable; managed hosting hands the agent its own theme and
+# plugins only.
+POSTURE_DENIED_EDIT_RULES = {
+    "engineering": MANAGED_EDIT_RULES,
+    "managed": ("wp-includes/**",),
+}
+DEFAULT_POSTURE = "engineering"
 
 
 def expected_plugins(
@@ -360,8 +373,14 @@ def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
     return result
 
 
-def expected_edit_permission(data: dict) -> dict:
-    """Return user edit rules followed by wp-coding-agents deny rules."""
+def expected_edit_permission(data: dict, posture: str = DEFAULT_POSTURE) -> dict:
+    """Return user edit rules followed by the posture's managed rules.
+
+    The managed key set is constant across postures so switching an install
+    rewrites every rule rather than leaving a stale deny behind.
+    """
+    denied = POSTURE_DENIED_EDIT_RULES.get(posture, POSTURE_DENIED_EDIT_RULES[DEFAULT_POSTURE])
+
     permission = data.get("permission", {})
     if isinstance(permission, str):
         current: object = permission
@@ -382,25 +401,25 @@ def expected_edit_permission(data: dict) -> dict:
         rules = {}
 
     for pattern in MANAGED_EDIT_RULES:
-        rules[pattern] = "deny"
+        rules[pattern] = "deny" if pattern in denied else "allow"
     return rules
 
 
-def check_edit_permission(data: dict, runtime: str) -> dict:
+def check_edit_permission(data: dict, runtime: str, posture: str = DEFAULT_POSTURE) -> dict:
     if runtime != "opencode":
         return {"status": "ok"}
 
     permission = data.get("permission", {})
     current = permission.get("edit") if isinstance(permission, dict) else None
-    expected = expected_edit_permission(data)
+    expected = expected_edit_permission(data, posture)
     return {
         "status": "ok" if current == expected else "needed",
         "expected": expected,
     }
 
 
-def apply_edit_permission(data: dict) -> None:
-    expected = expected_edit_permission(data)
+def apply_edit_permission(data: dict, posture: str = DEFAULT_POSTURE) -> None:
+    expected = expected_edit_permission(data, posture)
     permission = data.get("permission", {})
     if isinstance(permission, str):
         permission = {"*": permission}
@@ -422,6 +441,12 @@ def main() -> int:
         "--chat-bridge",
         required=True,
         choices=["kimaki", "cc-connect", "telegram", "none"],
+    )
+    parser.add_argument(
+        "--posture",
+        default=DEFAULT_POSTURE,
+        choices=sorted(POSTURE_DENIED_EDIT_RULES),
+        help="Installed-source posture for this install (see lib/source-policy.sh)",
     )
     parser.add_argument(
         "--kimaki-plugins-dir",
@@ -492,7 +517,7 @@ def main() -> int:
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
-    edit_permission_result = check_edit_permission(data, args.runtime)
+    edit_permission_result = check_edit_permission(data, args.runtime, args.posture)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -619,7 +644,7 @@ def main() -> int:
 
     edit_permission_status = "ok"
     if has_edit_permission_drift:
-        apply_edit_permission(data)
+        apply_edit_permission(data, args.posture)
         edit_permission_status = "synced"
 
     with open(args.file, "w", encoding="utf-8") as fh:

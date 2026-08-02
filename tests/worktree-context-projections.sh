@@ -8,6 +8,9 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/site/wp-content/mu-plugins" "$TMP/worktree/.git"
 export SITE_PATH="$TMP/site" DRY_RUN=false
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/source-policy.sh"
+POSTURE="${POSTURE:-engineering}"
 source "$SCRIPT_DIR/lib/runtime-signature.sh"
 log() { :; }
 warn() { :; }

@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance agents-md-backups; do
+for lib in common detect source-policy wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -75,6 +75,11 @@ done
 # render templates, sync, systemd/launchd update, and summary blocks.
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
+
+# Guidance dispatcher — auto-discovers guidance/*.sh AGENTS.md section units.
+# Adding a section is "drop a file in guidance/" — no edit here.
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/guidance/_dispatch.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
 
 # Discover available runtimes
@@ -99,6 +104,8 @@ WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
+POSTURE=""
+POSTURE_EXPLICIT=false
 
 # Defaults setup.sh expects (detect.sh reads these)
 LOCAL_MODE=false
@@ -139,6 +146,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
+    --posture)       POSTURE="$2"; POSTURE_EXPLICIT=true; shift 2 ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
@@ -180,6 +188,8 @@ USAGE:
                                 only adds missing managed entries, never
                                 removes user-added plugins.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
+  ./upgrade.sh --posture <name> Force install posture: engineering | managed
+                               (default: the posture recorded at setup time)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --agent-slug <s> Override Data Machine agent slug
   ./upgrade.sh --kimaki-unit <u> Target Kimaki systemd unit
@@ -327,6 +337,13 @@ source "$RUNTIME_FILE"
 # Run detect_environment first — it auto-sets LOCAL_MODE=true on macOS,
 # which the chat bridge detection below depends on to pick the right branch.
 detect_environment
+
+# Posture drives the plugin set, every runtime permission surface, and the
+# AGENTS.md guidance. Resolve it from the value recorded at setup time so an
+# upgrade converges a managed install instead of silently reverting it to
+# engineering; --posture overrides and re-records.
+source_policy_resolve_posture
+source_policy_record_posture
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
@@ -640,7 +657,7 @@ for item in data:
     if [ -n "$CLAUDE_CODE_AUTH_PLUGIN" ]; then
       claude_auth_arg_display=" --claude-code-auth-plugin $CLAUDE_CODE_AUTH_PLUGIN"
     fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$managed_arg_display $MODE_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --posture ${POSTURE:-engineering} --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$managed_arg_display $MODE_FLAG"
     local dry_out
     local managed_args=()
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
@@ -650,6 +667,7 @@ for item in data:
       --file "$OPENCODE_JSON_FILE" \
       --runtime "$RUNTIME_ARG" \
       --chat-bridge "$BRIDGE_ARG" \
+      --posture "${POSTURE:-engineering}" \
       --kimaki-plugins-dir "$PLUGINS_DIR" \
       "${claude_code_auth_args[@]}" \
       "${managed_args[@]}" 2>&1 || true)
@@ -667,6 +685,7 @@ for item in data:
     --file "$OPENCODE_JSON_FILE" \
     --runtime "$RUNTIME_ARG" \
     --chat-bridge "$BRIDGE_ARG" \
+    --posture "${POSTURE:-engineering}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
@@ -788,7 +807,7 @@ regenerate_agents_md() {
     return 0
   fi
 
-  agents_md_guidance_sync_wordpress_agent_boundaries
+  guidance_sync_all
   sync_homeboy_availability
   sync_homeboy_agents_md_guidance
 

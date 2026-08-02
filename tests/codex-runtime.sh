@@ -29,6 +29,9 @@ printf 'memory context sentinel\n' > "$SITE_PATH/wp-content/uploads/datamachine-
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/source-policy.sh"
+POSTURE="${POSTURE:-engineering}"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/runtime-signature.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/codex.sh"

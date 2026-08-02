@@ -15,7 +15,12 @@ export DRY_RUN=false
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/source-policy.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/guidance/_dispatch.sh"
+POSTURE="${POSTURE:-engineering}"
 UPDATED_ITEMS=()
 
 VERBOSE=false
@@ -236,7 +241,7 @@ content = path.read_text().replace("\n}, 100 );\n", "\n} );\n")
 content += "\nadd_action( 'unrelated_action', static function () {}, 100 );\n"
 path.write_text(content)
 PY
-agents_md_guidance_sync_wordpress_agent_boundaries
+guidance_sync_all
 assert_php_lint "$MU_FILE" "WordPress boundary guidance parses with php -l"
 if grep -q '^}, 100 );$' "$MU_FILE"; then
   echo "  ok   existing action wrapper normalized to priority 100"
@@ -258,7 +263,7 @@ else
 fi
 
 HASH_BEFORE=$(file_hash "$MU_FILE")
-agents_md_guidance_sync_wordpress_agent_boundaries
+guidance_sync_all
 HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "WordPress boundary sync is idempotent"
 

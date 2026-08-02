@@ -43,8 +43,14 @@ print_summary() {
     echo "  Agent:       $AGENT_SLUG"
   fi
   echo "  Discover:    $WP_CMD datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
-  echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
-  echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
+  echo "  Posture:     ${POSTURE:-engineering}"
+  if source_policy_workspace_enabled; then
+    echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
+    echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
+  else
+    echo "  Code tools:  none — the agent edits live theme and plugin source in place"
+    echo "  Capture:     changes are harvested into version control out-of-band"
+  fi
   echo ""
   if [ "${HOMEBOY_MODE:-auto}" != "disabled" ] && [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
     echo "Homeboy:"

@@ -282,16 +282,28 @@ runtime_generate_config() {
     fi
   fi
 
-  # Permission: allow the DM workspace while keeping installed WordPress
-  # source outside OpenCode's shared edit/write/apply_patch mutation surface.
+  # Permission: the installed-source mutation surface is posture-derived (see
+  # lib/source-policy.sh). Engineering keeps every installed root outside
+  # OpenCode's shared edit/write/apply_patch surface and grants the DM
+  # workspace instead; managed inverts that for themes and plugins and grants
+  # no workspace, because there isn't one.
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
-  OPENCODE_JSON="$OPENCODE_JSON\n    },"
+  if source_policy_workspace_enabled; then
+    OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
+    OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+    OPENCODE_JSON="$OPENCODE_JSON\n    },"
+  fi
   OPENCODE_JSON="$OPENCODE_JSON\n    \"edit\": {"
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-content/plugins/**\": \"deny\","
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-content/themes/**\": \"deny\","
-  OPENCODE_JSON="$OPENCODE_JSON\n      \"wp-includes/**\": \"deny\""
+  local _edit_rules=""
+  local _root _action
+  while IFS=$'\t' read -r _root _action; do
+    [ -n "$_root" ] || continue
+    if [ -n "$_edit_rules" ]; then
+      _edit_rules="${_edit_rules},"
+    fi
+    _edit_rules="${_edit_rules}\n      \"${_root}/**\": \"${_action}\""
+  done < <(source_policy_root_actions)
+  OPENCODE_JSON="$OPENCODE_JSON${_edit_rules}"
   OPENCODE_JSON="$OPENCODE_JSON\n    }"
   OPENCODE_JSON="$OPENCODE_JSON\n  }"
 
@@ -342,6 +354,7 @@ _runtime_repair_opencode_json_additive() {
     --file "$SITE_PATH/opencode.json" \
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
+    --posture "${POSTURE:-engineering}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
