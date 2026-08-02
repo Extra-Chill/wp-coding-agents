@@ -111,12 +111,11 @@ runtime_generate_config() {
   # profile; anything the posture makes editable inherits the ":workspace"
   # default. See lib/source-policy.sh.
   local codex_read_roots=""
-  local _root _action
-  while IFS=$'\t' read -r _root _action; do
+  local _root
+  while IFS= read -r _root; do
     [ -n "$_root" ] || continue
-    [ "$_action" = "deny" ] || continue
     codex_read_roots="${codex_read_roots}${_root}"$'\n'
-  done < <(source_policy_root_actions)
+  done < <(source_policy_read_only_roots)
 
   if ! CODEX_READ_ROOTS="$codex_read_roots" python3 - "$config_file" "$CODEX_PERMISSION_START" "$CODEX_PERMISSION_END" <<'PY'
 import os

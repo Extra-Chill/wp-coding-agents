@@ -106,6 +106,8 @@ ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
 POSTURE=""
 POSTURE_EXPLICIT=false
+MANAGED_SOURCES=""
+MANAGED_SOURCES_EXPLICIT=false
 
 # Defaults setup.sh expects (detect.sh reads these)
 LOCAL_MODE=false
@@ -147,6 +149,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --posture)       POSTURE="$2"; POSTURE_EXPLICIT=true; shift 2 ;;
+    --managed-source) MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"; MANAGED_SOURCES_EXPLICIT=true; shift 2 ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
@@ -190,6 +193,10 @@ USAGE:
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --posture <name> Force install posture: engineering | managed
                                (default: the posture recorded at setup time)
+  ./upgrade.sh --managed-source <path>
+                               wp-content path this site owns and may edit under
+                               managed posture. Repeatable. Replaces the
+                               recorded set when supplied.
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --agent-slug <s> Override Data Machine agent slug
   ./upgrade.sh --kimaki-unit <u> Target Kimaki systemd unit
@@ -343,7 +350,10 @@ detect_environment
 # upgrade converges a managed install instead of silently reverting it to
 # engineering; --posture overrides and re-records.
 source_policy_resolve_posture
+source_policy_resolve_owned_sources
+source_policy_assert_runtime_supports_posture
 source_policy_record_posture
+source_policy_record_owned_sources
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
@@ -578,6 +588,15 @@ check_opencode_json_drift() {
   fi
 
   local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
+
+  # Owned-source allow rules the reconciler must (re)write. Empty under
+  # engineering, so the argument list is unchanged there.
+  local _managed_source_args=()
+  local _owned_path
+  while IFS= read -r _owned_path; do
+    [ -n "$_owned_path" ] || continue
+    _managed_source_args+=(--managed-source "$_owned_path")
+  done < <(source_policy_owned_sources)
   if [ ! -f "$HELPER" ]; then
     warn "Phase 3b: $HELPER not found — skipping drift check"
     return 0
@@ -668,6 +687,7 @@ for item in data:
       --runtime "$RUNTIME_ARG" \
       --chat-bridge "$BRIDGE_ARG" \
       --posture "${POSTURE:-engineering}" \
+      "${_managed_source_args[@]}" \
       --kimaki-plugins-dir "$PLUGINS_DIR" \
       "${claude_code_auth_args[@]}" \
       "${managed_args[@]}" 2>&1 || true)
@@ -686,6 +706,7 @@ for item in data:
     --runtime "$RUNTIME_ARG" \
     --chat-bridge "$BRIDGE_ARG" \
     --posture "${POSTURE:-engineering}" \
+    "${_managed_source_args[@]}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
