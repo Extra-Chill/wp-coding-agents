@@ -303,7 +303,11 @@ runtime_generate_config() {
     if [ -n "$_ext_rules" ]; then
       _ext_rules="${_ext_rules},"
     fi
-    _ext_rules="${_ext_rules}\n      \"${_log_path}/**\": \"allow\""
+    # Both patterns, because a log path may be a directory (/var/log/nginx) or
+    # a single file (/var/log/php8.4-fpm.log). Appending /** alone silently
+    # matches nothing for the file case, which is a grant that looks present
+    # and does nothing.
+    _ext_rules="${_ext_rules}\n      \"${_log_path}\": \"allow\",\n      \"${_log_path}/**\": \"allow\""
   done < <(source_policy_log_paths)
 
   if [ -n "$_ext_rules" ]; then
@@ -333,7 +337,7 @@ runtime_generate_config() {
     if [ -n "$_edit_rules" ]; then
       _edit_rules="${_edit_rules},"
     fi
-    _edit_rules="${_edit_rules}\n      \"${_log_path}/**\": \"deny\""
+    _edit_rules="${_edit_rules}\n      \"${_log_path}\": \"deny\",\n      \"${_log_path}/**\": \"deny\""
   done < <(source_policy_log_paths)
   OPENCODE_JSON="$OPENCODE_JSON${_edit_rules}"
   OPENCODE_JSON="$OPENCODE_JSON\n    }"

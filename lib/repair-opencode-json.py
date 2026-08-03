@@ -407,7 +407,8 @@ def expected_edit_permission(
     logs = list(log_paths or [])
 
     source_keys = [f"{path}/**" for path in sources]
-    log_keys = [f"{path}/**" for path in logs]
+    # A log path may be a directory or a single file; emit both forms.
+    log_keys = [k for path in logs for k in (path, f"{path}/**")]
     managed_keys = set(MANAGED_ROOTS) | set(source_keys) | set(writable) | set(log_keys)
 
     permission = data.get("permission", {})
