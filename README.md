@@ -161,6 +161,8 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
 | `--posture <name>` | `engineering` (default) or `managed`. See [Install Posture](#install-posture). |
 | `--managed-source <path>` | wp-content path the site owns and may edit under `--posture managed`. Repeatable. |
+| `--managed-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. |
+| `--log-path <path>` | Absolute path outside the site root the agent may read. Repeatable. |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
@@ -192,12 +194,19 @@ guidance the agent reads.
 
 | | `engineering` (default) | `managed` |
 | --- | --- | --- |
-| `wp-content/themes/`, `wp-content/plugins/` | read-only reference | read-only **except declared owned paths** |
-| `wp-includes/` | read-only | read-only |
+| WordPress core (`wp-admin/`, `wp-includes/`, root bootstrap) | read-only | read-only |
+| `wp-content/mu-plugins/`, `wp-config.php` | read-only | read-only, opt-in |
+| `wp-content/plugins/`, `wp-content/themes/` | read-only | read-only **except declared owned paths** |
+| `wp-content/uploads/` | writable (agent memory) | writable (agent memory) |
 | Data Machine Code | installed | not installed |
 | Workspace, git, GitHub | the agent's workflow | not present |
 | How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
 | Runtimes | all | `opencode` only |
+
+Both postures point the agent at the installed WordPress source as reference —
+that is the section's purpose, and it is why a small model can be competent
+about WordPress here without skills or fine-tuning. Reading is never
+restricted. Everything below is about *writing*.
 
 **Engineering** is the developer setup: the installed tree is reference
 material, and every code change happens in a Data Machine Code workspace so it
@@ -209,11 +218,9 @@ plugins directly and its changes are live on save; something outside the box —
 for example a scheduled `homeboy harvest` — captures them into git as restore
 points.
 
-Managed does **not** open `wp-content`. Those directories also hold commerce and
-payment plugins, third-party code, the stock themes, and the agent's own Data
-Machine runtime — none of which the site owns, none of which the operator's
-capture records, and all of which an update would overwrite anyway. Instead you
-declare exactly what the site owns:
+Managed does **not** open `wp-content`. Those directories hold third-party
+code, the stock themes, and the agent's own runtime, none of which the site
+owns or the operator's capture records. Declare exactly what the site owns:
 
 ```bash
 ./setup.sh --posture managed \
@@ -221,16 +228,41 @@ declare exactly what the site owns:
   --managed-source wp-content/plugins/acme-core
 ```
 
-Everything else stays read-only. **The declared set must match what the
-operator's capture records** — a path the agent can edit but nothing records is
-a path where it silently loses work. Declaring nothing fails closed: the agent
-gets no editable source and the generated guidance says so.
+**The declared set must match what the operator's capture records** — a path
+the agent can edit but nothing records is a path where it silently loses work.
+Declaring nothing fails closed: no editable source, and the guidance says so.
+
+### Declared exceptions
+
+`wp-config.php` and `wp-content/mu-plugins/` are agent governance — they hold
+the database credentials and the mu-plugin that generates AGENTS.md itself, so
+an agent able to edit them can rewrite its own instructions. They are denied by
+default and re-opened only on request:
+
+```bash
+--managed-writable wp-config.php
+```
+
+These are **editable but not captured**, and the generated guidance says so
+explicitly. Conflating them with `--managed-source` would have AGENTS.md
+promise that the work is recorded when it is not.
+
+### Log access
+
+A coding agent that cannot read the PHP error log cannot recover the site it
+just broke. OpenCode gates paths outside the site root behind
+`external_directory`, which defaults to `ask` — and an autonomous agent has
+nobody to ask. Declare the host's log paths so they are readable (never
+writable):
+
+```bash
+--log-path /var/log/nginx --log-path /var/log/php8.4-fpm.log
+```
 
 A single source of truth (`lib/source-policy.sh`) derives the runtime
-permissions and the generated guidance from the chosen posture and that
-declared set, so the prose cannot tell the agent to do something the
-permissions then block — or imply a directory is editable when only two paths
-inside it are.
+permissions and the generated guidance from the posture and these
+declarations, so the prose cannot tell the agent to do something the
+permissions then block.
 
 Managed is currently supported on the `opencode` runtime only. OpenCode
 evaluates permissions with `findLast` over rules in config key order, so a

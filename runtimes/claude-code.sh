@@ -219,11 +219,12 @@ runtime_install_hooks() {
   # rather than emitting a permission set that would silently lock the agent
   # out of its own source. See lib/source-policy.sh.
   local wordpress_deny_rules='[]'
-  local _path _action
-  while IFS=$'\t' read -r _path _action; do
+  local _path _kind _pattern
+  while IFS=$'\t' read -r _path _kind; do
     [ -n "$_path" ] || continue
+    _pattern="$(source_policy_pattern "$_path" "$_kind")"
     local _rule
-    _rule=$(jq -n --arg site "$SITE_PATH" --arg root "$_path" '"Edit(\($site)/\($root)/**)"')
+    _rule=$(jq -n --arg site "$SITE_PATH" --arg pat "$_pattern" '"Edit(\($site)/\($pat))"')
     wordpress_deny_rules=$(jq -n --argjson acc "$wordpress_deny_rules" --argjson rule "$_rule" '$acc + [$rule]')
   done < <(source_policy_read_only_roots)
 

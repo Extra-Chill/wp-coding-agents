@@ -76,6 +76,10 @@ POSTURE=""
 POSTURE_EXPLICIT=false
 MANAGED_SOURCES=""
 MANAGED_SOURCES_EXPLICIT=false
+MANAGED_WRITABLE=""
+MANAGED_WRITABLE_EXPLICIT=false
+MANAGED_LOG_PATHS=""
+MANAGED_LOG_PATHS_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
@@ -206,6 +210,16 @@ while [[ $# -gt 0 ]]; do
     --managed-source)
       MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"
       MANAGED_SOURCES_EXPLICIT=true
+      shift 2
+      ;;
+    --managed-writable)
+      MANAGED_WRITABLE="${MANAGED_WRITABLE}${MANAGED_WRITABLE:+ }$2"
+      MANAGED_WRITABLE_EXPLICIT=true
+      shift 2
+      ;;
+    --log-path)
+      MANAGED_LOG_PATHS="${MANAGED_LOG_PATHS}${MANAGED_LOG_PATHS:+ }$2"
+      MANAGED_LOG_PATHS_EXPLICIT=true
       shift 2
       ;;
     --agent-slug)
@@ -446,6 +460,8 @@ detect_environment
 # runtime permission surfaces, and the AGENTS.md guidance all derive from it.
 source_policy_resolve_posture
 source_policy_resolve_owned_sources
+source_policy_resolve_writable_paths
+source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_posture
 
 if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
@@ -481,6 +497,8 @@ fi
 
 source_policy_record_posture
 source_policy_record_owned_sources
+source_policy_record_writable_paths
+source_policy_record_log_paths
 guidance_sync_all
 setup_ai_gateway
 

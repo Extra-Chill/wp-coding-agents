@@ -288,9 +288,26 @@ runtime_generate_config() {
   # workspace instead; managed inverts that for themes and plugins and grants
   # no workspace, because there isn't one.
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
+
+  # external_directory covers anything outside the site root. Engineering gets
+  # the DMC workspace; every posture gets whatever log paths the operator
+  # declared, because a coding agent that cannot read the PHP error log cannot
+  # recover the site it just broke.
+  local _ext_rules=""
   if source_policy_workspace_enabled; then
-    OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
-    OPENCODE_JSON="$OPENCODE_JSON\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+    _ext_rules="\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+  fi
+  local _log_path
+  while IFS= read -r _log_path; do
+    [ -n "$_log_path" ] || continue
+    if [ -n "$_ext_rules" ]; then
+      _ext_rules="${_ext_rules},"
+    fi
+    _ext_rules="${_ext_rules}\n      \"${_log_path}/**\": \"allow\""
+  done < <(source_policy_log_paths)
+
+  if [ -n "$_ext_rules" ]; then
+    OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {${_ext_rules}"
     OPENCODE_JSON="$OPENCODE_JSON\n    },"
   fi
   OPENCODE_JSON="$OPENCODE_JSON\n    \"edit\": {"
@@ -300,14 +317,24 @@ runtime_generate_config() {
   # written before the narrower owned-source allows that carve exceptions out
   # of them. source_policy_edit_rules emits them in exactly that order.
   local _edit_rules=""
-  local _path _action
-  while IFS=$'\t' read -r _path _action; do
+  local _path _kind _action _pattern
+  while IFS=$'\t' read -r _path _kind _action; do
     [ -n "$_path" ] || continue
+    _pattern="$(source_policy_pattern "$_path" "$_kind")"
     if [ -n "$_edit_rules" ]; then
       _edit_rules="${_edit_rules},"
     fi
-    _edit_rules="${_edit_rules}\n      \"${_path}/**\": \"${_action}\""
+    _edit_rules="${_edit_rules}\n      \"${_pattern}\": \"${_action}\""
   done < <(source_policy_edit_rules)
+  # Granting external_directory would otherwise inherit the workspace default
+  # of allow for edits. Logs are diagnostic input, never something to rewrite.
+  while IFS= read -r _log_path; do
+    [ -n "$_log_path" ] || continue
+    if [ -n "$_edit_rules" ]; then
+      _edit_rules="${_edit_rules},"
+    fi
+    _edit_rules="${_edit_rules}\n      \"${_log_path}/**\": \"deny\""
+  done < <(source_policy_log_paths)
   OPENCODE_JSON="$OPENCODE_JSON${_edit_rules}"
   OPENCODE_JSON="$OPENCODE_JSON\n    }"
   OPENCODE_JSON="$OPENCODE_JSON\n  }"

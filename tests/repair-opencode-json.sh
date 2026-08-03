@@ -210,16 +210,20 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
-expected = {
-    "*": "allow",
-    "docs/**": "ask",
-    "wp-content/plugins/**": "deny",
-    "wp-content/themes/**": "deny",
-    "wp-includes/**": "deny",
-}
 permission = data.get("permission", {})
-if permission.get("edit") != expected:
-    raise SystemExit(f"unexpected managed edit rules: {permission.get('edit')}")
+edit = permission.get("edit", {})
+# Operator rules survive, and they keep their position ahead of the managed
+# block so the managed denies still win under findLast.
+for pattern, action in (("*", "allow"), ("docs/**", "ask")):
+    if edit.get(pattern) != action:
+        raise SystemExit(f"operator rule lost: {pattern} -> {edit.get(pattern)}")
+keys = list(edit)
+if keys.index("docs/**") > keys.index("wp-admin/**"):
+    raise SystemExit(f"operator rules must precede the managed block: {keys}")
+for required in ("wp-admin/**", "wp-includes/**", "wp-content/plugins/**",
+                 "wp-content/themes/**", "wp-content/mu-plugins/**", "wp-config.php"):
+    if edit.get(required) != "deny":
+        raise SystemExit(f"installed source not denied: {required} -> {edit.get(required)}")
 if permission.get("bash") != "allow":
     raise SystemExit(f"user bash permission was not preserved: {permission}")
 PY

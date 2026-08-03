@@ -111,8 +111,8 @@ runtime_generate_config() {
   # profile; anything the posture makes editable inherits the ":workspace"
   # default. See lib/source-policy.sh.
   local codex_read_roots=""
-  local _root
-  while IFS= read -r _root; do
+  local _root _kind
+  while IFS=$'\t' read -r _root _kind; do
     [ -n "$_root" ] || continue
     codex_read_roots="${codex_read_roots}${_root}"$'\n'
   done < <(source_policy_read_only_roots)
