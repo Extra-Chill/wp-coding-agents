@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.4] - 2026-08-03
+
+### Fixed
+- reconcile external_directory and pass all declarations to the reconciler
+
 ## [1.11.3] - 2026-08-03
 
 ### Fixed
