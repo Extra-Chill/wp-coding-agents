@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.11.1] - 2026-08-03
+
+### Fixed
+- scope managed posture to declared owned sources
+- set KIMAKI_NO_DEFAULT_CHANNEL on managed Kimaki services
+
 ## [1.11.0] - 2026-08-02
 
 ### Added
