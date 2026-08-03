@@ -425,6 +425,28 @@ fi
 echo "==> opencode.json reconciler honours posture"
 # ===========================================================================
 
+# #316: the reconciler owned permission.edit only, so an engineering->managed
+# upgrade kept a stale workspace grant and declared log paths never landed.
+# The upgrade path is the one every real install takes.
+EXT_OUT="$(python3 - <<'PYX'
+import importlib.util, json, pathlib
+spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+data = {"permission": {"external_directory": {
+    "/var/lib/datamachine/workspace/**": "allow",
+    "./operator-added": "allow",
+}}}
+print(json.dumps(mod.expected_external_directory(data, "", ["/var/log/site", "/var/log/one.log"])))
+PYX
+)"
+refute_contains "$EXT_OUT" 'datamachine/workspace' \
+  "managed reconcile drops the stale workspace grant"
+assert_contains "$EXT_OUT" '"./operator-added": "allow"' \
+  "managed reconcile preserves operator-added external grants"
+assert_contains "$EXT_OUT" '"/var/log/one.log": "allow"' \
+  "a log path naming a file is granted as a literal, not only as a subtree"
+
 RECON_IN="$(mktemp)"
 cat > "$RECON_IN" <<'JSON'
 {"permission":{"edit":{"wp-content/plugins/**":"deny","wp-content/themes/**":"deny","wp-includes/**":"deny","custom/**":"ask"}}}
