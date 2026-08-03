@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.3] - 2026-08-03
+
+### Fixed
+- grant log paths as both literal and subtree
+
 ## [1.11.2] - 2026-08-03
 
 ### Changed
