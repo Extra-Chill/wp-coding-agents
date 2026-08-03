@@ -310,12 +310,23 @@ assert_contains "$MGD_PROSE" '`wp-includes/` ' \
   "managed prose keeps core read-only"
 assert_contains "$MGD_PROSE" 'live the moment you save' \
   "managed prose states that edits reach production immediately"
-assert_contains "$MGD_PROSE" 'never recorded' \
-  "managed prose warns about paths a capture silently skips"
+assert_contains "$MGD_PROSE" 'not every file is authored source' \
+  "managed prose warns that installed and generated files are not captured"
 assert_contains "$MGD_PROSE" 'no pull request step' \
   "managed prose rules out the review workflow rather than leaving it implied"
 refute_contains "$MGD_PROSE" "Make code changes in the configured managed workspace" \
   "managed prose never routes work to a workspace that does not exist"
+
+# This text ships to EVERY managed install, so it must not describe one site's
+# stack as if it were universal. #320: it named commerce and payment code, "the
+# site's ability to take money", called the remaining plugins "the runtime that
+# gives you memory and tools", and listed one operator's harvest excludes
+# verbatim — a config wp-coding-agents does not own and cannot read. Assert the
+# CATEGORY and the REASON; never the specifics.
+for term in WooCommerce Stripe commerce payment money composer.lock package-lock node_modules "Data Machine" homeboy harvest.yml wp-admin; do
+  refute_contains "$MGD_PROSE" "$term" \
+    "managed prose does not assume '$term' exists on this install"
+done
 
 # Fail closed in prose too: nothing declared must not read as "edit anything".
 MANAGED_SOURCES=""
