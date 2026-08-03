@@ -248,15 +248,21 @@ import json,sys
 k=list(json.load(open(sys.argv[1]))["permission"]["edit"])
 print(k.index("wp-content/themes/**") < k.index("wp-content/themes/acme/**"))' "$MGD_JSON")" \
   "True" "managed emits the broad deny before the narrower allow"
+assert_contains "$MGD_EDIT_JSON" '"/var/log/site": "deny"' \
+  "a readable log path is denied for editing as a literal"
 assert_contains "$MGD_EDIT_JSON" '"/var/log/site/**": "deny"' \
-  "a readable log path is still denied for editing"
+  "a readable log path is denied for editing as a subtree"
 
 assert_eq "$(python3 -c 'import json,sys; print("yes" if "external_directory" in json.load(open(sys.argv[1]))["permission"] else "no")' "$ENG_JSON")" \
   "yes" "engineering grants the workspace directory"
 MGD_EXT="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"].get("external_directory",{})))' "$MGD_JSON")"
 refute_contains "$MGD_EXT" 'workspace' "managed grants no workspace directory (there is none)"
 assert_contains "$MGD_EXT" '"/var/log/site/**": "allow"' \
-  "managed grants read on the declared log path, so the agent can debug a fatal"
+  "managed grants read on the declared log directory"
+# A log path may be a single FILE (/var/log/php-fpm.log). Appending /** alone
+# matches nothing there — a grant that looks present and does nothing.
+assert_contains "$MGD_EXT" '"/var/log/site": "allow"' \
+  "the literal log path is granted too, so a file path actually works"
 
 # ===========================================================================
 echo "==> claude-code denies every installed root (managed is refused upstream)"
