@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.2] - 2026-08-03
+
+### Changed
+- Restore the wordpress-source section's purpose; close the wp-admin/wp-config/mu-plugins gaps
+
 ## [1.11.1] - 2026-08-03
 
 ### Fixed
