@@ -108,6 +108,10 @@ POSTURE=""
 POSTURE_EXPLICIT=false
 MANAGED_SOURCES=""
 MANAGED_SOURCES_EXPLICIT=false
+MANAGED_WRITABLE=""
+MANAGED_WRITABLE_EXPLICIT=false
+MANAGED_LOG_PATHS=""
+MANAGED_LOG_PATHS_EXPLICIT=false
 
 # Defaults setup.sh expects (detect.sh reads these)
 LOCAL_MODE=false
@@ -150,6 +154,8 @@ while [[ $# -gt 0 ]]; do
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --posture)       POSTURE="$2"; POSTURE_EXPLICIT=true; shift 2 ;;
     --managed-source) MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"; MANAGED_SOURCES_EXPLICIT=true; shift 2 ;;
+    --managed-writable) MANAGED_WRITABLE="${MANAGED_WRITABLE}${MANAGED_WRITABLE:+ }$2"; MANAGED_WRITABLE_EXPLICIT=true; shift 2 ;;
+    --log-path) MANAGED_LOG_PATHS="${MANAGED_LOG_PATHS}${MANAGED_LOG_PATHS:+ }$2"; MANAGED_LOG_PATHS_EXPLICIT=true; shift 2 ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
@@ -351,9 +357,13 @@ detect_environment
 # engineering; --posture overrides and re-records.
 source_policy_resolve_posture
 source_policy_resolve_owned_sources
+source_policy_resolve_writable_paths
+source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_posture
 source_policy_record_posture
 source_policy_record_owned_sources
+source_policy_record_writable_paths
+source_policy_record_log_paths
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /

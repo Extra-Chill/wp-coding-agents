@@ -76,15 +76,37 @@ from typing import List, Tuple
 MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
-# Every installed-source root wp-coding-agents manages, in canonical order.
-# These are denied under BOTH postures. wp-content/plugins holds WooCommerce,
-# payment gateways, and the agent's own Data Machine runtime; wp-content/themes
-# holds the stock bundled themes. Managed hosting does not open these
-# directories — it opens declared paths inside them.
+# Every installed path wp-coding-agents manages, as ready-made edit patterns in
+# canonical order. Denied under BOTH postures.
+#
+# Directories carry /**; root files are exact literals. That distinction is not
+# cosmetic: OpenCode's matcher turns `*` into `.*`, which spans slashes, so a
+# pattern like `wp-*.php` would also match wp-content/plugins/acme/wp-thing.php
+# and over-deny inside a site's own component. Literals anchor to the root.
+#
+# wp-admin and the root bootstrap are core, siblings of wp-includes rather than
+# nested in it. wp-content/mu-plugins is agent governance: the mu-plugin that
+# generates AGENTS.md lives there.
 MANAGED_ROOTS = (
+    "wp-admin/**",
+    "wp-includes/**",
     "wp-content/plugins/**",
     "wp-content/themes/**",
-    "wp-includes/**",
+    "wp-content/mu-plugins/**",
+    "wp-config.php",
+    "wp-settings.php",
+    "wp-load.php",
+    "wp-blog-header.php",
+    "wp-cron.php",
+    "wp-login.php",
+    "wp-mail.php",
+    "wp-signup.php",
+    "wp-activate.php",
+    "wp-trackback.php",
+    "wp-comments-post.php",
+    "wp-links-opml.php",
+    "xmlrpc.php",
+    "index.php",
 )
 DEFAULT_POSTURE = "engineering"
 
@@ -369,16 +391,24 @@ def expected_edit_permission(
     data: dict,
     posture: str = DEFAULT_POSTURE,
     managed_sources: List[str] | None = None,
+    managed_writable: List[str] | None = None,
+    log_paths: List[str] | None = None,
 ) -> dict:
-    """Return user edit rules, then the managed roots, then owned-source allows.
+    """User rules, then managed denies, then the narrower allows.
 
-    KEY ORDER IS THE PRECEDENCE MECHANISM. OpenCode evaluates permissions with
-    findLast over a ruleset built in JSON key order, so the broad root denies
-    have to come before the narrower allows that carve exceptions out of them.
-    Emitting the allows first would silently invert the policy.
+    KEY ORDER IS THE PRECEDENCE MECHANISM. OpenCode evaluates with findLast over
+    a ruleset built in JSON key order, so broad denies have to come before the
+    allows that carve exceptions out of them. Emitting the allows first would
+    silently invert the policy.
     """
-    sources = list(managed_sources or []) if posture == "managed" else []
-    managed_keys = set(MANAGED_ROOTS) | {f"{path}/**" for path in sources}
+    is_managed = posture == "managed"
+    sources = list(managed_sources or []) if is_managed else []
+    writable = list(managed_writable or []) if is_managed else []
+    logs = list(log_paths or [])
+
+    source_keys = [f"{path}/**" for path in sources]
+    log_keys = [f"{path}/**" for path in logs]
+    managed_keys = set(MANAGED_ROOTS) | set(source_keys) | set(writable) | set(log_keys)
 
     permission = data.get("permission", {})
     if isinstance(permission, str):
@@ -401,8 +431,14 @@ def expected_edit_permission(
 
     for pattern in MANAGED_ROOTS:
         rules[pattern] = "deny"
-    for path in sources:
-        rules[f"{path}/**"] = "allow"
+    for pattern in source_keys:
+        rules[pattern] = "allow"
+    for pattern in writable:
+        rules[pattern] = "allow"
+    # Logs are diagnostic input. external_directory would otherwise inherit an
+    # allow for edits on them.
+    for pattern in log_keys:
+        rules[pattern] = "deny"
     return rules
 
 
@@ -412,7 +448,10 @@ def _is_stale_managed_key(pattern: str) -> bool:
     Without this a path dropped from --managed-source would keep its allow rule
     forever, which is the drift the reconciler exists to prevent.
     """
-    return pattern.startswith(("wp-content/plugins/", "wp-content/themes/")) and pattern.endswith("/**")
+    return (
+        pattern.startswith(("wp-content/plugins/", "wp-content/themes/", "/"))
+        and pattern.endswith("/**")
+    )
 
 
 def check_edit_permission(
@@ -420,13 +459,15 @@ def check_edit_permission(
     runtime: str,
     posture: str = DEFAULT_POSTURE,
     managed_sources: List[str] | None = None,
+    managed_writable: List[str] | None = None,
+    log_paths: List[str] | None = None,
 ) -> dict:
     if runtime != "opencode":
         return {"status": "ok"}
 
     permission = data.get("permission", {})
     current = permission.get("edit") if isinstance(permission, dict) else None
-    expected = expected_edit_permission(data, posture, managed_sources)
+    expected = expected_edit_permission(data, posture, managed_sources, managed_writable, log_paths)
     return {
         "status": "ok" if current == expected else "needed",
         "expected": expected,
@@ -437,8 +478,10 @@ def apply_edit_permission(
     data: dict,
     posture: str = DEFAULT_POSTURE,
     managed_sources: List[str] | None = None,
+    managed_writable: List[str] | None = None,
+    log_paths: List[str] | None = None,
 ) -> None:
-    expected = expected_edit_permission(data, posture, managed_sources)
+    expected = expected_edit_permission(data, posture, managed_sources, managed_writable, log_paths)
     permission = data.get("permission", {})
     if isinstance(permission, str):
         permission = {"*": permission}
@@ -473,6 +516,20 @@ def main() -> int:
         default=[],
         dest="managed_sources",
         help="wp-content path this site owns and may edit under managed posture. Repeatable.",
+    )
+    parser.add_argument(
+        "--managed-writable",
+        action="append",
+        default=[],
+        dest="managed_writable",
+        help="Denied path this install explicitly re-opens for editing. Not captured. Repeatable.",
+    )
+    parser.add_argument(
+        "--log-path",
+        action="append",
+        default=[],
+        dest="log_paths",
+        help="Absolute path outside the site root the agent may read. Repeatable.",
     )
     parser.add_argument(
         "--kimaki-plugins-dir",
@@ -543,7 +600,7 @@ def main() -> int:
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
-    edit_permission_result = check_edit_permission(data, args.runtime, args.posture, args.managed_sources)
+    edit_permission_result = check_edit_permission(data, args.runtime, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -670,7 +727,7 @@ def main() -> int:
 
     edit_permission_status = "ok"
     if has_edit_permission_drift:
-        apply_edit_permission(data, args.posture, args.managed_sources)
+        apply_edit_permission(data, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
         edit_permission_status = "synced"
 
     with open(args.file, "w", encoding="utf-8") as fh:

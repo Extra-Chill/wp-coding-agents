@@ -46,15 +46,81 @@ SOURCE_POLICY_OPTION="wp_coding_agents_posture"
 SOURCE_POLICY_DEFAULT_POSTURE="engineering"
 # Newline-separated wp-content paths the site owns under managed posture.
 SOURCE_POLICY_OWNED_OPTION="wp_coding_agents_managed_sources"
+# Paths that are editable but NOT captured. Distinct from owned sources on
+# purpose: --managed-source means "editable AND recorded by the operator's
+# capture", which is what makes the guidance's "your work is recorded" promise
+# true. wp-config.php and friends are not captured by a component harvest, so
+# declaring them as sources would have AGENTS.md assert a safety property that
+# does not hold for them — the #318 failure. They get their own category and
+# their own, honest, prose.
+SOURCE_POLICY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
+# Paths OUTSIDE the site root the agent may read — server logs, almost always.
+#
+# This exists because the limitation was backwards. We are strict about editing
+# core (correct: an update overwrites it anyway) and were accidentally strict
+# about READING the one thing needed to recover from a fatal. OpenCode gates
+# anything touching a path outside the project directory behind
+# `external_directory`, which defaults to "ask" — and an autonomous agent has
+# nobody to ask. So on a live site the single most important recovery
+# capability sat behind a prompt that could never be answered.
+#
+# Read only. These are granted through external_directory and then explicitly
+# denied for edit, so the agent can diagnose without rewriting a log.
+SOURCE_POLICY_LOG_OPTION="wp_coding_agents_log_paths"
 
 # Every installed-source root wp-coding-agents has an opinion about, in the
 # order they are emitted by every consumer. Adding a root here adds it to all
 # runtimes and to the AGENTS.md prose at once.
+# Every installed path wp-coding-agents has an opinion about, as
+# `<path>\t<dir|file>` lines in canonical order.
+#
+# The kind matters because the three runtimes format these differently, and
+# because of a glob trap: OpenCode's matcher turns `*` into `.*`, which SPANS
+# SLASHES (packages/opencode/src/util/wildcard.ts). A pattern like `wp-*.php`
+# meant for root bootstrap files would therefore also match
+# `wp-content/plugins/acme/wp-thing.php` and over-deny inside a site's own
+# component. Root files must be exact literals; `Wildcard.match` anchors ^...$
+# so a literal matches only that exact relative path.
+#
+# WordPress core is `wp-admin/` AND `wp-includes/` plus the root bootstrap —
+# they are siblings, not nested. Listing only wp-includes (the historical
+# behavior) left wp-admin and every root PHP file, including wp-config.php,
+# editable on every install.
+#
+# `wp-content/mu-plugins/` is here because it is AGENT GOVERNANCE, not a site
+# extension: wp-coding-agents installs the mu-plugin that GENERATES AGENTS.md
+# there, alongside the channel and runtime registries. An agent able to edit
+# that directory can rewrite its own instructions. Same reasoning as
+# wp-config.php, which holds the constants that gate composition at all.
+#
+# `wp-content/uploads/` is deliberately NOT here. The agent's own memory files
+# live under it and it has to be able to write them.
 _source_policy_all_roots() {
   printf '%s\n' \
-    'wp-content/plugins' \
-    'wp-content/themes' \
-    'wp-includes'
+    'wp-admin	dir' \
+    'wp-includes	dir' \
+    'wp-content/plugins	dir' \
+    'wp-content/themes	dir' \
+    'wp-content/mu-plugins	dir' \
+    'wp-config.php	file' \
+    'wp-settings.php	file' \
+    'wp-load.php	file' \
+    'wp-blog-header.php	file' \
+    'wp-cron.php	file' \
+    'wp-login.php	file' \
+    'wp-mail.php	file' \
+    'wp-signup.php	file' \
+    'wp-activate.php	file' \
+    'wp-trackback.php	file' \
+    'wp-comments-post.php	file' \
+    'wp-links-opml.php	file' \
+    'xmlrpc.php	file' \
+    'index.php	file'
+}
+
+# Just the paths, for callers that do not care about the kind.
+_source_policy_all_root_paths() {
+  _source_policy_all_roots | cut -f1
 }
 
 source_policy_is_valid() {
@@ -176,6 +242,82 @@ source_policy_owned_sources() {
   done
 }
 
+# Declared editable-but-not-captured paths. Empty unless managed.
+source_policy_writable_paths() {
+  if ! source_policy_is_managed; then
+    return 0
+  fi
+
+  printf '%s\n' "${MANAGED_WRITABLE:-}" | while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    printf '%s\n' "$path"
+  done
+}
+
+# Declared read-only paths outside the site root.
+source_policy_log_paths() {
+  printf '%s\n' "${MANAGED_LOG_PATHS:-}" | while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    printf '%s\n' "$path"
+  done
+}
+
+source_policy_resolve_log_paths() {
+  if [ "${MANAGED_LOG_PATHS_EXPLICIT:-false}" = true ]; then
+    MANAGED_LOG_PATHS="$(_source_policy_normalize_log_paths "${MANAGED_LOG_PATHS:-}")"
+  else
+    MANAGED_LOG_PATHS="$(_source_policy_normalize_log_paths "$(source_policy_recorded_log_paths)")"
+  fi
+}
+
+source_policy_recorded_log_paths() {
+  if [ "${DRY_RUN:-false}" = true ]; then
+    printf '%s' "${MANAGED_LOG_PATHS:-}"
+    return 0
+  fi
+  if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
+    return 0
+  fi
+  wp_cmd option get "$SOURCE_POLICY_LOG_OPTION" 2>/dev/null || true
+}
+
+source_policy_record_log_paths() {
+  local paths="${MANAGED_LOG_PATHS:-}"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_LOG_OPTION '<${paths}>'"
+    return 0
+  fi
+  if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
+    return 0
+  fi
+  if [ "$(source_policy_recorded_log_paths)" = "$paths" ]; then
+    return 0
+  fi
+  if printf '%s' "$paths" | wp_cmd option update "$SOURCE_POLICY_LOG_OPTION" >/dev/null 2>&1; then
+    log "  Recorded readable log paths: $(printf '%s' "$paths" | tr '\n' ' ')"
+  else
+    warn "Could not record readable log paths"
+  fi
+}
+
+# Must be absolute. A relative path here would be inside the site root, where
+# external_directory does not apply and the grant would silently do nothing.
+_source_policy_normalize_log_paths() {
+  printf '%s\n' "${1:-}" | tr ' ' '\n' | while IFS= read -r path; do
+    path="${path%/}"
+    [ -n "$path" ] || continue
+    case "$path" in
+      /*) ;;
+      *)
+        warn "  Ignoring log path '$path': must be absolute" >&2
+        continue
+        ;;
+    esac
+    printf '%s\n' "$path"
+  done
+}
+
 source_policy_is_managed() {
   [ "${POSTURE:-$SOURCE_POLICY_DEFAULT_POSTURE}" = managed ]
 }
@@ -206,6 +348,68 @@ source_policy_resolve_owned_sources() {
     warn "  --managed-source wp-content/themes/<theme> --managed-source wp-content/plugins/<plugin>"
     warn "These must match what the operator's harvest captures."
   fi
+}
+
+source_policy_resolve_writable_paths() {
+  if ! source_policy_is_managed; then
+    MANAGED_WRITABLE=""
+    return 0
+  fi
+
+  if [ "${MANAGED_WRITABLE_EXPLICIT:-false}" = true ]; then
+    MANAGED_WRITABLE="$(_source_policy_normalize_writable "${MANAGED_WRITABLE:-}")"
+  else
+    MANAGED_WRITABLE="$(_source_policy_normalize_writable "$(source_policy_recorded_writable_paths)")"
+  fi
+}
+
+source_policy_recorded_writable_paths() {
+  if [ "${DRY_RUN:-false}" = true ]; then
+    printf '%s' "${MANAGED_WRITABLE:-}"
+    return 0
+  fi
+  if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
+    return 0
+  fi
+  wp_cmd option get "$SOURCE_POLICY_WRITABLE_OPTION" 2>/dev/null || true
+}
+
+source_policy_record_writable_paths() {
+  source_policy_is_managed || return 0
+  local paths="${MANAGED_WRITABLE:-}"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_WRITABLE_OPTION '<${paths}>'"
+    return 0
+  fi
+  if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
+    return 0
+  fi
+  if [ "$(source_policy_recorded_writable_paths)" = "$paths" ]; then
+    return 0
+  fi
+  if printf '%s' "$paths" | wp_cmd option update "$SOURCE_POLICY_WRITABLE_OPTION" >/dev/null 2>&1; then
+    log "  Recorded managed writable paths: $(printf '%s' "$paths" | tr '\n' ' ')"
+  else
+    warn "Could not record managed writable paths"
+  fi
+}
+
+# Writable exceptions must name a path the policy actually denies; anything
+# else is either already editable or a typo, and silently accepting it would
+# leave the operator believing they granted something they did not.
+_source_policy_normalize_writable() {
+  local known
+  known="$(_source_policy_all_root_paths)"
+  printf '%s\n' "${1:-}" | tr ' ' '\n' | while IFS= read -r path; do
+    path="${path#./}"; path="${path#/}"; path="${path%/}"
+    [ -n "$path" ] || continue
+    if ! printf '%s\n' "$known" | grep -qxF "$path"; then
+      warn "  Ignoring writable path '$path': not one of the paths this policy denies" >&2
+      continue
+    fi
+    printf '%s\n' "$path"
+  done
 }
 
 _source_policy_normalize_sources() {
@@ -327,15 +531,38 @@ source_policy_workspace_enabled() {
 # the pre-posture behavior. Managed emits the same three denies, then one allow
 # per declared owned source.
 source_policy_edit_rules() {
-  local path
+  local path kind
+  local writable owned
 
-  while IFS= read -r path; do
+  # Denies first. ORDER IS LOAD-BEARING: OpenCode resolves with findLast over a
+  # ruleset built in config key order, so every broad deny must precede the
+  # narrower allows that carve exceptions out of it.
+  while IFS=$'\t' read -r path kind; do
     [ -n "$path" ] || continue
-    printf '%s\tdeny\n' "$path"
+    printf '%s\t%s\tdeny\n' "$path" "$kind"
   done < <(source_policy_read_only_roots)
 
+  # Owned source trees: editable AND captured.
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    printf '%s\tallow\n' "$path"
+    printf '%s\tdir\tallow\n' "$path"
   done < <(source_policy_owned_sources)
+
+  # Declared exceptions: editable, NOT captured.
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    printf '%s\tfile\tallow\n' "$path"
+  done < <(source_policy_writable_paths)
+}
+
+# Render one rule path for a runtime that uses glob patterns (OpenCode,
+# Claude Code). Directories get /**; files stay literal so they anchor to the
+# site root instead of matching same-named files inside components.
+source_policy_pattern() {
+  local path="$1" kind="$2"
+  if [ "$kind" = dir ]; then
+    printf '%s/**' "$path"
+  else
+    printf '%s' "$path"
+  fi
 }

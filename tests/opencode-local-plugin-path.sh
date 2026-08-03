@@ -54,13 +54,13 @@ actual = data.get("plugin")
 if actual != expected:
     raise SystemExit(f"unexpected local plugin paths: {actual}")
 
-expected_edit = {
-    "wp-content/plugins/**": "deny",
-    "wp-content/themes/**": "deny",
-    "wp-includes/**": "deny",
-}
-if data.get("permission", {}).get("edit") != expected_edit:
-    raise SystemExit(f"unexpected edit permissions: {data.get('permission')}")
+edit = data.get("permission", {}).get("edit", {})
+for required in ("wp-admin/**", "wp-includes/**", "wp-content/plugins/**",
+                 "wp-content/themes/**", "wp-content/mu-plugins/**", "wp-config.php"):
+    if edit.get(required) != "deny":
+        raise SystemExit(f"installed source not denied: {required} -> {edit.get(required)}")
+if set(edit.values()) != {"deny"}:
+    raise SystemExit(f"engineering must grant no edit allow: {edit}")
 PY
 
 if [ ! -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then
@@ -95,13 +95,13 @@ actual = data.get("plugin")
 if actual != expected:
     raise SystemExit(f"unexpected opt-out plugin paths: {actual}")
 
-expected_edit = {
-    "wp-content/plugins/**": "deny",
-    "wp-content/themes/**": "deny",
-    "wp-includes/**": "deny",
-}
-if data.get("permission", {}).get("edit") != expected_edit:
-    raise SystemExit(f"unexpected edit permissions: {data.get('permission')}")
+edit = data.get("permission", {}).get("edit", {})
+for required in ("wp-admin/**", "wp-includes/**", "wp-content/plugins/**",
+                 "wp-content/themes/**", "wp-content/mu-plugins/**", "wp-config.php"):
+    if edit.get(required) != "deny":
+        raise SystemExit(f"installed source not denied: {required} -> {edit.get(required)}")
+if set(edit.values()) != {"deny"}:
+    raise SystemExit(f"engineering must grant no edit allow: {edit}")
 PY
 
 if [ -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then
