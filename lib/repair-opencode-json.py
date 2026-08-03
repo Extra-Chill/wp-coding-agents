@@ -455,6 +455,87 @@ def _is_stale_managed_key(pattern: str) -> bool:
     )
 
 
+def expected_external_directory(
+    data: dict,
+    workspace_dir: str = "",
+    log_paths: List[str] | None = None,
+) -> dict:
+    """Return user external_directory rules followed by the managed grants.
+
+    #316: the reconciler owned permission.edit only, so an engineering->managed
+    upgrade kept a stale workspace grant, and log paths declared at upgrade time
+    never landed at all. Both halves of the policy have to be reconciled or the
+    upgrade path silently diverges from a fresh install.
+    """
+    logs = list(log_paths or [])
+    managed: dict[str, str] = {}
+    if workspace_dir:
+        managed[f"{workspace_dir}/**"] = "allow"
+    for path in logs:
+        # Directory or single file; see the log-path rules in edit permissions.
+        managed[path] = "allow"
+        managed[f"{path}/**"] = "allow"
+
+    permission = data.get("permission", {})
+    current = permission.get("external_directory") if isinstance(permission, dict) else None
+
+    if isinstance(current, dict):
+        rules = {
+            pattern: action
+            for pattern, action in current.items()
+            if pattern not in managed and not _is_managed_external_key(pattern)
+        }
+    else:
+        rules = {}
+
+    rules.update(managed)
+    return rules
+
+
+def _is_managed_external_key(pattern: str) -> bool:
+    """True for a grant wp-coding-agents previously wrote and no longer declares.
+
+    Absolute paths are ours to manage here; anything relative was added by the
+    operator and is preserved.
+    """
+    return pattern.startswith("/") or pattern.startswith("~")
+
+
+def check_external_directory(
+    data: dict,
+    runtime: str,
+    workspace_dir: str = "",
+    log_paths: List[str] | None = None,
+) -> dict:
+    if runtime != "opencode":
+        return {"status": "ok"}
+    permission = data.get("permission", {})
+    current = permission.get("external_directory") if isinstance(permission, dict) else None
+    expected = expected_external_directory(data, workspace_dir, log_paths)
+    if not expected and current in (None, {}):
+        return {"status": "ok"}
+    return {
+        "status": "ok" if current == expected else "needed",
+        "expected": expected,
+    }
+
+
+def apply_external_directory(
+    data: dict,
+    workspace_dir: str = "",
+    log_paths: List[str] | None = None,
+) -> None:
+    expected = expected_external_directory(data, workspace_dir, log_paths)
+    permission = data.get("permission", {})
+    if not isinstance(permission, dict):
+        permission = {}
+    if expected:
+        permission["external_directory"] = expected
+    else:
+        permission.pop("external_directory", None)
+    data["permission"] = permission
+
+
 def check_edit_permission(
     data: dict,
     runtime: str,
@@ -524,6 +605,11 @@ def main() -> int:
         default=[],
         dest="managed_writable",
         help="Denied path this install explicitly re-opens for editing. Not captured. Repeatable.",
+    )
+    parser.add_argument(
+        "--workspace-dir",
+        default="",
+        help="DMC workspace root to grant via external_directory (engineering only).",
     )
     parser.add_argument(
         "--log-path",
@@ -602,6 +688,7 @@ def main() -> int:
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
     edit_permission_result = check_edit_permission(data, args.runtime, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
+    external_directory_result = check_external_directory(data, args.runtime, args.workspace_dir, args.log_paths)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -643,12 +730,14 @@ def main() -> int:
     has_agent_cleanup_drift = agent_cleanup_result["status"] == "needed"
     has_instruction_drift = instruction_sync_result["status"] == "needed"
     has_edit_permission_drift = edit_permission_result["status"] == "needed"
+    has_external_directory_drift = external_directory_result["status"] == "needed"
     has_any_drift = (
         has_plugin_drift
         or has_prompt_drift
         or has_agent_cleanup_drift
         or has_instruction_drift
         or has_edit_permission_drift
+        or has_external_directory_drift
     )
 
     if not has_any_drift:
@@ -659,6 +748,7 @@ def main() -> int:
             "agent_cleanup": "ok",
             "instruction_sync": "ok",
             "edit_permission": "ok",
+            "external_directory": "ok",
         }
         if plugin_skipped:
             result["plugins_skipped"] = (
@@ -677,6 +767,7 @@ def main() -> int:
             "agent_cleanup": agent_cleanup_result["status"],
             "instruction_sync": instruction_sync_result["status"],
             "edit_permission": edit_permission_result["status"],
+            "external_directory": external_directory_result["status"],
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
@@ -693,6 +784,8 @@ def main() -> int:
             result["instruction_sync_current"] = instruction_sync_result.get("current_managed", [])
         if has_edit_permission_drift:
             result["edit_permission_expected"] = edit_permission_result["expected"]
+        if has_external_directory_drift:
+            result["external_directory_expected"] = external_directory_result["expected"]
         if plugin_skipped:
             result["plugins_skipped"] = (
                 f"runtime {args.runtime} does not use opencode.json plugin array"
@@ -730,6 +823,10 @@ def main() -> int:
     if has_edit_permission_drift:
         apply_edit_permission(data, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
         edit_permission_status = "synced"
+    external_directory_status = "ok"
+    if has_external_directory_drift:
+        apply_external_directory(data, args.workspace_dir, args.log_paths)
+        external_directory_status = "synced"
 
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
@@ -753,6 +850,8 @@ def main() -> int:
             "agent_cleanup": "removed" if removed_agent_blocks else "ok",
             "instruction_sync": instruction_sync_status,
             "edit_permission": edit_permission_status,
+        "external_directory": external_directory_status,
+            "external_directory": external_directory_status,
         }
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites

@@ -607,6 +607,17 @@ check_opencode_json_drift() {
     [ -n "$_owned_path" ] || continue
     _managed_source_args+=(--managed-source "$_owned_path")
   done < <(source_policy_owned_sources)
+  while IFS= read -r _owned_path; do
+    [ -n "$_owned_path" ] || continue
+    _managed_source_args+=(--managed-writable "$_owned_path")
+  done < <(source_policy_writable_paths)
+  while IFS= read -r _owned_path; do
+    [ -n "$_owned_path" ] || continue
+    _managed_source_args+=(--log-path "$_owned_path")
+  done < <(source_policy_log_paths)
+  if source_policy_workspace_enabled; then
+    _managed_source_args+=(--workspace-dir "$DM_WORKSPACE_DIR")
+  fi
   if [ ! -f "$HELPER" ]; then
     warn "Phase 3b: $HELPER not found — skipping drift check"
     return 0
