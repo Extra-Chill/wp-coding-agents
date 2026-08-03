@@ -77,24 +77,16 @@ MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
 # Every installed-source root wp-coding-agents manages, in canonical order.
-# Kept in lockstep with lib/source-policy.sh: that file is the single source of
-# truth for which of these the active posture denies, this list is only the key
-# set the reconciler owns and may therefore overwrite.
-MANAGED_EDIT_RULES = (
+# These are denied under BOTH postures. wp-content/plugins holds WooCommerce,
+# payment gateways, and the agent's own Data Machine runtime; wp-content/themes
+# holds the stock bundled themes. Managed hosting does not open these
+# directories — it opens declared paths inside them.
+MANAGED_ROOTS = (
     "wp-content/plugins/**",
     "wp-content/themes/**",
     "wp-includes/**",
 )
-
-# Roots that stay read-only under each posture. `wp-includes` is WordPress core
-# and is never editable; managed hosting hands the agent its own theme and
-# plugins only.
-POSTURE_DENIED_EDIT_RULES = {
-    "engineering": MANAGED_EDIT_RULES,
-    "managed": ("wp-includes/**",),
-}
 DEFAULT_POSTURE = "engineering"
-
 
 def expected_plugins(
     runtime: str,
@@ -373,13 +365,20 @@ def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
     return result
 
 
-def expected_edit_permission(data: dict, posture: str = DEFAULT_POSTURE) -> dict:
-    """Return user edit rules followed by the posture's managed rules.
+def expected_edit_permission(
+    data: dict,
+    posture: str = DEFAULT_POSTURE,
+    managed_sources: List[str] | None = None,
+) -> dict:
+    """Return user edit rules, then the managed roots, then owned-source allows.
 
-    The managed key set is constant across postures so switching an install
-    rewrites every rule rather than leaving a stale deny behind.
+    KEY ORDER IS THE PRECEDENCE MECHANISM. OpenCode evaluates permissions with
+    findLast over a ruleset built in JSON key order, so the broad root denies
+    have to come before the narrower allows that carve exceptions out of them.
+    Emitting the allows first would silently invert the policy.
     """
-    denied = POSTURE_DENIED_EDIT_RULES.get(posture, POSTURE_DENIED_EDIT_RULES[DEFAULT_POSTURE])
+    sources = list(managed_sources or []) if posture == "managed" else []
+    managed_keys = set(MANAGED_ROOTS) | {f"{path}/**" for path in sources}
 
     permission = data.get("permission", {})
     if isinstance(permission, str):
@@ -395,31 +394,51 @@ def expected_edit_permission(data: dict, posture: str = DEFAULT_POSTURE) -> dict
         rules = {
             pattern: action
             for pattern, action in current.items()
-            if pattern not in MANAGED_EDIT_RULES
+            if pattern not in managed_keys and not _is_stale_managed_key(pattern)
         }
     else:
         rules = {}
 
-    for pattern in MANAGED_EDIT_RULES:
-        rules[pattern] = "deny" if pattern in denied else "allow"
+    for pattern in MANAGED_ROOTS:
+        rules[pattern] = "deny"
+    for path in sources:
+        rules[f"{path}/**"] = "allow"
     return rules
 
 
-def check_edit_permission(data: dict, runtime: str, posture: str = DEFAULT_POSTURE) -> dict:
+def _is_stale_managed_key(pattern: str) -> bool:
+    """True for an owned-source allow this install no longer declares.
+
+    Without this a path dropped from --managed-source would keep its allow rule
+    forever, which is the drift the reconciler exists to prevent.
+    """
+    return pattern.startswith(("wp-content/plugins/", "wp-content/themes/")) and pattern.endswith("/**")
+
+
+def check_edit_permission(
+    data: dict,
+    runtime: str,
+    posture: str = DEFAULT_POSTURE,
+    managed_sources: List[str] | None = None,
+) -> dict:
     if runtime != "opencode":
         return {"status": "ok"}
 
     permission = data.get("permission", {})
     current = permission.get("edit") if isinstance(permission, dict) else None
-    expected = expected_edit_permission(data, posture)
+    expected = expected_edit_permission(data, posture, managed_sources)
     return {
         "status": "ok" if current == expected else "needed",
         "expected": expected,
     }
 
 
-def apply_edit_permission(data: dict, posture: str = DEFAULT_POSTURE) -> None:
-    expected = expected_edit_permission(data, posture)
+def apply_edit_permission(
+    data: dict,
+    posture: str = DEFAULT_POSTURE,
+    managed_sources: List[str] | None = None,
+) -> None:
+    expected = expected_edit_permission(data, posture, managed_sources)
     permission = data.get("permission", {})
     if isinstance(permission, str):
         permission = {"*": permission}
@@ -445,8 +464,15 @@ def main() -> int:
     parser.add_argument(
         "--posture",
         default=DEFAULT_POSTURE,
-        choices=sorted(POSTURE_DENIED_EDIT_RULES),
+        choices=["engineering", "managed"],
         help="Installed-source posture for this install (see lib/source-policy.sh)",
+    )
+    parser.add_argument(
+        "--managed-source",
+        action="append",
+        default=[],
+        dest="managed_sources",
+        help="wp-content path this site owns and may edit under managed posture. Repeatable.",
     )
     parser.add_argument(
         "--kimaki-plugins-dir",
@@ -517,7 +543,7 @@ def main() -> int:
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
-    edit_permission_result = check_edit_permission(data, args.runtime, args.posture)
+    edit_permission_result = check_edit_permission(data, args.runtime, args.posture, args.managed_sources)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -644,7 +670,7 @@ def main() -> int:
 
     edit_permission_status = "ok"
     if has_edit_permission_drift:
-        apply_edit_permission(data, args.posture)
+        apply_edit_permission(data, args.posture, args.managed_sources)
         edit_permission_status = "synced"
 
     with open(args.file, "w", encoding="utf-8") as fh:

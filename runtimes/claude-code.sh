@@ -212,23 +212,20 @@ runtime_install_hooks() {
       ]')
   fi
 
-  # Denies are posture-derived (lib/source-policy.sh). Roots the active posture
-  # allows are subtracted as well as added, so switching an install from
-  # engineering to managed actually clears the old denies instead of leaving
-  # the agent blocked by a rule nothing removes.
+  # Every installed root is denied. Claude Code treats deny as absolute — an
+  # allow never overrides it — so this runtime cannot express "deny the
+  # directory, allow the site's own plugin inside it". That is why
+  # source_policy_assert_runtime_supports_posture refuses managed posture here
+  # rather than emitting a permission set that would silently lock the agent
+  # out of its own source. See lib/source-policy.sh.
   local wordpress_deny_rules='[]'
-  local wordpress_allowed_rules='[]'
-  local _root _action
-  while IFS=$'\t' read -r _root _action; do
-    [ -n "$_root" ] || continue
+  local _path _action
+  while IFS=$'\t' read -r _path _action; do
+    [ -n "$_path" ] || continue
     local _rule
-    _rule=$(jq -n --arg site "$SITE_PATH" --arg root "$_root" '"Edit(\($site)/\($root)/**)"')
-    if [ "$_action" = "deny" ]; then
-      wordpress_deny_rules=$(jq -n --argjson acc "$wordpress_deny_rules" --argjson rule "$_rule" '$acc + [$rule]')
-    else
-      wordpress_allowed_rules=$(jq -n --argjson acc "$wordpress_allowed_rules" --argjson rule "$_rule" '$acc + [$rule]')
-    fi
-  done < <(source_policy_root_actions)
+    _rule=$(jq -n --arg site "$SITE_PATH" --arg root "$_path" '"Edit(\($site)/\($root)/**)"')
+    wordpress_deny_rules=$(jq -n --argjson acc "$wordpress_deny_rules" --argjson rule "$_rule" '$acc + [$rule]')
+  done < <(source_policy_read_only_roots)
 
   local legacy_wordpress_deny_rules
   legacy_wordpress_deny_rules=$(jq -n '[
@@ -248,7 +245,6 @@ runtime_install_hooks() {
     --arg cmd "$hook_cmd" \
     --argjson allow_rules "$workspace_allow_rules" \
     --argjson deny_rules "$wordpress_deny_rules" \
-    --argjson allowed_rules "$wordpress_allowed_rules" \
     --argjson legacy_deny_rules "$legacy_wordpress_deny_rules" \
     --argjson workspace_enabled "$(source_policy_workspace_enabled && echo true || echo false)" \
     '
@@ -264,7 +260,7 @@ runtime_install_hooks() {
       )
 
     | .permissions.deny = (
-        (((.permissions.deny // []) - $legacy_deny_rules - $allowed_rules + $deny_rules) | unique)
+        (((.permissions.deny // []) - $legacy_deny_rules + $deny_rules) | unique)
       )
 
     | .hooks.SessionStart = (

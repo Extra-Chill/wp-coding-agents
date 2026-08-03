@@ -160,6 +160,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | --- | --- |
 | `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
 | `--posture <name>` | `engineering` (default) or `managed`. See [Install Posture](#install-posture). |
+| `--managed-source <path>` | wp-content path the site owns and may edit under `--posture managed`. Repeatable. |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
@@ -191,25 +192,52 @@ guidance the agent reads.
 
 | | `engineering` (default) | `managed` |
 | --- | --- | --- |
-| `wp-content/themes/`, `wp-content/plugins/` | read-only reference | **editable in place** |
+| `wp-content/themes/`, `wp-content/plugins/` | read-only reference | read-only **except declared owned paths** |
 | `wp-includes/` | read-only | read-only |
 | Data Machine Code | installed | not installed |
 | Workspace, git, GitHub | the agent's workflow | not present |
 | How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
+| Runtimes | all | `opencode` only |
 
 **Engineering** is the developer setup: the installed tree is reference
 material, and every code change happens in a Data Machine Code workspace so it
 is tracked in git and reviewed through GitHub.
 
 **Managed** is for managed agentic hosting, where a non-technical owner should
-never have to deal with pull requests. The agent edits the live theme and
+never have to deal with pull requests. The agent edits the site's own theme and
 plugins directly and its changes are live on save; something outside the box —
 for example a scheduled `homeboy harvest` — captures them into git as restore
 points.
 
+Managed does **not** open `wp-content`. Those directories also hold commerce and
+payment plugins, third-party code, the stock themes, and the agent's own Data
+Machine runtime — none of which the site owns, none of which the operator's
+capture records, and all of which an update would overwrite anyway. Instead you
+declare exactly what the site owns:
+
+```bash
+./setup.sh --posture managed \
+  --managed-source wp-content/themes/acme \
+  --managed-source wp-content/plugins/acme-core
+```
+
+Everything else stays read-only. **The declared set must match what the
+operator's capture records** — a path the agent can edit but nothing records is
+a path where it silently loses work. Declaring nothing fails closed: the agent
+gets no editable source and the generated guidance says so.
+
 A single source of truth (`lib/source-policy.sh`) derives the runtime
-permissions and the generated guidance from the chosen posture, so the prose
-cannot tell the agent to do something the permissions then block.
+permissions and the generated guidance from the chosen posture and that
+declared set, so the prose cannot tell the agent to do something the
+permissions then block — or imply a directory is editable when only two paths
+inside it are.
+
+Managed is currently supported on the `opencode` runtime only. OpenCode
+evaluates permissions with `findLast` over rules in config key order, so a
+narrow allow written after a broad deny wins. Claude Code treats deny as
+absolute and Codex has no documented precedence for overlapping filesystem
+entries, so both refuse managed posture rather than emit a permission set whose
+behavior on a production site is unverified.
 
 The chosen posture is recorded on the install, so `./upgrade.sh` converges to it
 without repeating the flag. Pass `--posture` to either script to change it.

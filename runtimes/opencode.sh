@@ -294,15 +294,20 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON\n    },"
   fi
   OPENCODE_JSON="$OPENCODE_JSON\n    \"edit\": {"
+  # Key ORDER is the precedence mechanism here, not decoration: OpenCode
+  # evaluates with findLast over a ruleset built in JSON key order
+  # (packages/opencode/src/permission/index.ts), so the broad denies must be
+  # written before the narrower owned-source allows that carve exceptions out
+  # of them. source_policy_edit_rules emits them in exactly that order.
   local _edit_rules=""
-  local _root _action
-  while IFS=$'\t' read -r _root _action; do
-    [ -n "$_root" ] || continue
+  local _path _action
+  while IFS=$'\t' read -r _path _action; do
+    [ -n "$_path" ] || continue
     if [ -n "$_edit_rules" ]; then
       _edit_rules="${_edit_rules},"
     fi
-    _edit_rules="${_edit_rules}\n      \"${_root}/**\": \"${_action}\""
-  done < <(source_policy_root_actions)
+    _edit_rules="${_edit_rules}\n      \"${_path}/**\": \"${_action}\""
+  done < <(source_policy_edit_rules)
   OPENCODE_JSON="$OPENCODE_JSON${_edit_rules}"
   OPENCODE_JSON="$OPENCODE_JSON\n    }"
   OPENCODE_JSON="$OPENCODE_JSON\n  }"
@@ -324,6 +329,15 @@ runtime_generate_config() {
 # unexpected entries, users run `./upgrade.sh --repair-opencode-json`.
 _runtime_repair_opencode_json_additive() {
   local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
+
+  # Owned-source allow rules the reconciler must (re)write. Empty under
+  # engineering, so the argument list is unchanged there.
+  local _managed_source_args=()
+  local _owned_path
+  while IFS= read -r _owned_path; do
+    [ -n "$_owned_path" ] || continue
+    _managed_source_args+=(--managed-source "$_owned_path")
+  done < <(source_policy_owned_sources)
   if [ ! -f "$HELPER" ]; then
     log "opencode.json exists but repair helper not found ($HELPER) — leaving as-is"
     return
@@ -355,6 +369,7 @@ _runtime_repair_opencode_json_additive() {
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
     --posture "${POSTURE:-engineering}" \
+    "${_managed_source_args[@]}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \

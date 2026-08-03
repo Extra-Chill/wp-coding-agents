@@ -74,6 +74,8 @@ CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
 POSTURE=""
 POSTURE_EXPLICIT=false
+MANAGED_SOURCES=""
+MANAGED_SOURCES_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
@@ -201,6 +203,11 @@ while [[ $# -gt 0 ]]; do
       POSTURE_EXPLICIT=true
       shift 2
       ;;
+    --managed-source)
+      MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"
+      MANAGED_SOURCES_EXPLICIT=true
+      shift 2
+      ;;
     --agent-slug)
       AGENT_SLUG="$2"
       AGENT_SLUG_EXPLICIT=true
@@ -269,6 +276,14 @@ OPTIONS:
                        hosting where changes are captured out-of-band.
                      Recorded on the install so upgrades converge without
                      repeating the flag.
+  --managed-source <path>
+                     wp-content path this site owns and the agent may edit
+                     under --posture managed. Repeatable. Must be a plugin or
+                     theme directory, e.g.
+                     wp-content/themes/acme or wp-content/plugins/acme-core.
+                     Everything not declared stays read-only, including
+                     third-party plugins. Declare exactly what the operator's
+                     harvest captures.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --kimaki-unit <u>  Kimaki systemd unit (default: kimaki.service)
@@ -430,6 +445,8 @@ detect_environment
 # Posture must resolve BEFORE anything that enforces it: the plugin set, the
 # runtime permission surfaces, and the AGENTS.md guidance all derive from it.
 source_policy_resolve_posture
+source_policy_resolve_owned_sources
+source_policy_assert_runtime_supports_posture
 
 if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
   bridge_load kimaki
@@ -463,6 +480,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
 fi
 
 source_policy_record_posture
+source_policy_record_owned_sources
 guidance_sync_all
 setup_ai_gateway
 

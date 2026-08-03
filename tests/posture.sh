@@ -68,34 +68,98 @@ echo "==> source policy resolves the documented root matrix"
 # ===========================================================================
 
 POSTURE=engineering
-assert_eq "$(source_policy_root_actions | tr '\t' '=' | tr '\n' ' ')" \
+MANAGED_SOURCES=""
+assert_eq "$(source_policy_edit_rules | tr '\t' '=' | tr '\n' ' ')" \
   "wp-content/plugins=deny wp-content/themes=deny wp-includes=deny " \
   "engineering keeps every installed root read-only"
 source_policy_workspace_enabled \
   && echo "  ok   engineering has a workspace" \
   || { echo "  FAIL engineering has a workspace"; FAILED=$((FAILED + 1)); }
 
+# Managed does NOT open wp-content. It denies the same roots and then carves
+# out only the declared owned paths. The regression this pins: an earlier
+# version allowed `wp-content/plugins/**` wholesale, which on a live install
+# meant WooCommerce, a payment gateway, and the agent's own runtime.
 POSTURE=managed
-assert_eq "$(source_policy_root_actions | tr '\t' '=' | tr '\n' ' ')" \
-  "wp-content/plugins=allow wp-content/themes=allow wp-includes=deny " \
-  "managed opens themes and plugins but never core"
+MANAGED_SOURCES="wp-content/themes/acme
+wp-content/plugins/acme-core"
+assert_eq "$(source_policy_edit_rules | tr '\t' '=' | tr '\n' ' ')" \
+  "wp-content/plugins=deny wp-content/themes=deny wp-includes=deny wp-content/themes/acme=allow wp-content/plugins/acme-core=allow " \
+  "managed denies the roots and allows only declared owned paths"
+
+# Order is the precedence mechanism for OpenCode findLast; a narrower allow
+# emitted before the broad deny would be silently inverted.
+DENY_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins	deny$' | cut -d: -f1)
+ALLOW_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins/acme-core	allow$' | cut -d: -f1)
+[ "$DENY_POS" -lt "$ALLOW_POS" ]
+check_rc=$?
+if [ "$check_rc" -eq 0 ]; then
+  echo "  ok   broad deny is emitted before the narrower allow"
+else
+  echo "  FAIL broad deny is emitted before the narrower allow"
+  FAILED=$((FAILED + 1))
+fi
+
 source_policy_workspace_enabled \
   && { echo "  FAIL managed has no workspace"; FAILED=$((FAILED + 1)); } \
   || echo "  ok   managed has no workspace"
 
-# An unrecognised posture must fall back to the safe (read-only) matrix rather
-# than silently granting write access to a live site.
+# Fail closed: a managed install that declares nothing gets NO editable source
+# rather than a wide-open wp-content.
+POSTURE=managed
+MANAGED_SOURCES=""
+assert_eq "$(source_policy_edit_rules | tr '\t' '=' | tr '\n' ' ')" \
+  "wp-content/plugins=deny wp-content/themes=deny wp-includes=deny " \
+  "managed with nothing declared grants no edit access at all"
+
+# Paths outside wp-content, and files inside a component, are rejected rather
+# than silently trusted.
+MANAGED_SOURCES_EXPLICIT=true
+MANAGED_SOURCES="wp-includes/foo wp-content/plugins/acme/file.php wp-content/plugins/acme"
+source_policy_resolve_owned_sources 2>/dev/null
+assert_eq "$(source_policy_owned_sources | tr '\n' ' ')" "wp-content/plugins/acme " \
+  "only well-formed plugin/theme directories survive normalization"
+
 POSTURE=nonsense
-assert_eq "$(source_policy_root_actions | tr '\t' '=' | tr '\n' ' ')" \
+MANAGED_SOURCES=""
+assert_eq "$(source_policy_edit_rules | tr '\t' '=' | tr '\n' ' ')" \
   "wp-content/plugins=deny wp-content/themes=deny wp-includes=deny " \
   "unknown posture degrades to read-only, never to write"
+
+# ===========================================================================
+echo "==> runtimes that cannot express scoped permissions refuse managed"
+# ===========================================================================
+
+for rt in claude-code codex; do
+  rc=0
+  POSTURE=managed RUNTIME="$rt" \
+    bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_posture' \
+    >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 3 ]; then
+    echo "  ok   $rt refuses managed posture"
+  else
+    echo "  FAIL $rt should refuse managed posture (rc=$rc)"
+    FAILED=$((FAILED + 1))
+  fi
+done
+
+rc=0
+POSTURE=managed RUNTIME=opencode \
+  bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_posture' \
+  >/dev/null 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "  ok   opencode accepts managed posture"
+else
+  echo "  FAIL opencode should accept managed posture (rc=$rc)"
+  FAILED=$((FAILED + 1))
+fi
 
 # ===========================================================================
 echo "==> opencode.json permission surface follows posture"
 # ===========================================================================
 
 _opencode_config_for() {
-  local posture="$1" out="$2"
+  local posture="$1" out="$2" sources="${3:-}"
   (
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
@@ -110,6 +174,7 @@ _opencode_config_for() {
     export WITH_CLAUDE_CODE_AUTH=false RUNTIME="opencode"
     UPDATED_ITEMS=()
     POSTURE="$posture"
+    MANAGED_SOURCES="$sources"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/opencode.sh"
     runtime_generate_config
@@ -120,15 +185,21 @@ _opencode_config_for() {
 ENG_JSON="$(mktemp)"; MGD_JSON="$(mktemp)"
 trap 'rm -f "$ENG_JSON" "$MGD_JSON"' EXIT
 _opencode_config_for engineering "$ENG_JSON"
-_opencode_config_for managed "$MGD_JSON"
+_opencode_config_for managed "$MGD_JSON" "wp-content/themes/acme
+wp-content/plugins/acme-core"
 
 assert_eq "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"]["edit"],sort_keys=True))' "$ENG_JSON")" \
   '{"wp-content/plugins/**": "deny", "wp-content/themes/**": "deny", "wp-includes/**": "deny"}' \
   "engineering opencode edit map is byte-identical to the pre-refactor rules"
 
-assert_eq "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"]["edit"],sort_keys=True))' "$MGD_JSON")" \
-  '{"wp-content/plugins/**": "allow", "wp-content/themes/**": "allow", "wp-includes/**": "deny"}' \
-  "managed opencode edit map opens the live working tree"
+# sort_keys would destroy the very thing under test, so compare raw order.
+assert_eq "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")" \
+  '{"wp-content/plugins/**": "deny", "wp-content/themes/**": "deny", "wp-includes/**": "deny", "wp-content/themes/acme/**": "allow", "wp-content/plugins/acme-core/**": "allow"}' \
+  "managed opencode edit map denies the roots then allows owned paths, in that order"
+
+MGD_EDIT="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")"
+refute_contains "$MGD_EDIT" 'wp-content/plugins/**": "allow' \
+  "managed never opens the whole plugins directory"
 
 assert_eq "$(python3 -c 'import json,sys; print("yes" if "external_directory" in json.load(open(sys.argv[1]))["permission"] else "no")' "$ENG_JSON")" \
   "yes" "engineering grants the workspace directory"
@@ -136,7 +207,7 @@ assert_eq "$(python3 -c 'import json,sys; print("yes" if "external_directory" in
   "no" "managed grants no workspace directory (there is none)"
 
 # ===========================================================================
-echo "==> claude-code settings.json follows posture, and switching clears denies"
+echo "==> claude-code denies every installed root (managed is refused upstream)"
 # ===========================================================================
 
 _claude_settings_for() {
@@ -161,34 +232,18 @@ _claude_settings_for() {
   )
 }
 
-CC_ENG="$(mktemp)"; CC_MGD="$(mktemp)"; CC_SEED="$(mktemp)"
+CC_ENG="$(mktemp)"
 _claude_settings_for engineering "$CC_ENG"
 assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/themes/**)"' \
   "engineering denies theme edits"
+assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/plugins/**)"' \
+  "engineering denies plugin edits"
 assert_contains "$(cat "$CC_ENG")" '"Bash(wp datamachine-code workspace:*)"' \
   "engineering allows the DMC workspace bash surface"
-
-# Seed a settings.json that already carries the engineering denies, then sync
-# under managed. A posture switch has to REMOVE the stale denies; leaving them
-# is precisely the failure mode that blocked h44-bot from its own theme.
-cat > "$CC_SEED" <<'JSON'
-{"permissions":{"deny":["Read(./private/**)","Edit(SITE_PATH/wp-content/plugins/**)","Edit(SITE_PATH/wp-content/themes/**)","Edit(SITE_PATH/wp-includes/**)"]}}
-JSON
-_claude_settings_for managed "$CC_MGD" "$CC_SEED"
-refute_contains "$(cat "$CC_MGD")" '"Edit(SITE_PATH/wp-content/themes/**)"' \
-  "managed sync clears the stale theme deny"
-refute_contains "$(cat "$CC_MGD")" '"Edit(SITE_PATH/wp-content/plugins/**)"' \
-  "managed sync clears the stale plugin deny"
-assert_contains "$(cat "$CC_MGD")" '"Edit(SITE_PATH/wp-includes/**)"' \
-  "managed still denies WordPress core"
-assert_contains "$(cat "$CC_MGD")" '"Read(./private/**)"' \
-  "managed sync preserves unrelated operator denies"
-refute_contains "$(cat "$CC_MGD")" 'datamachine-code workspace' \
-  "managed grants no workspace bash surface"
-rm -f "$CC_ENG" "$CC_MGD" "$CC_SEED"
+rm -f "$CC_ENG"
 
 # ===========================================================================
-echo "==> codex filesystem profile follows posture"
+echo "==> codex filesystem profile keeps every installed root read-only"
 # ===========================================================================
 
 _codex_config_for() {
@@ -211,12 +266,9 @@ _codex_config_for() {
 }
 
 CX_ENG="$(_codex_config_for engineering)"
-CX_MGD="$(_codex_config_for managed)"
-assert_contains "$CX_ENG" '"wp-content/themes" = "read"' "engineering codex profile keeps themes read-only"
-assert_contains "$CX_ENG" '"wp-includes" = "read"' "engineering codex profile keeps core read-only"
-refute_contains "$CX_MGD" '"wp-content/themes" = "read"' "managed codex profile drops the theme read-only rule"
-refute_contains "$CX_MGD" '"wp-content/plugins" = "read"' "managed codex profile drops the plugin read-only rule"
-assert_contains "$CX_MGD" '"wp-includes" = "read"' "managed codex profile still protects core"
+assert_contains "$CX_ENG" '"wp-content/themes" = "read"' "codex profile keeps themes read-only"
+assert_contains "$CX_ENG" '"wp-content/plugins" = "read"' "codex profile keeps plugins read-only"
+assert_contains "$CX_ENG" '"wp-includes" = "read"' "codex profile keeps core read-only"
 
 # ===========================================================================
 echo "==> AGENTS.md guidance agrees with the enforced permissions"
@@ -235,21 +287,44 @@ assert_contains "$ENG_PROSE" "read-only" "engineering prose says read-only"
 assert_contains "$ENG_PROSE" "managed workspace" "engineering prose routes changes to the workspace"
 
 POSTURE=managed
+MANAGED_SOURCES="wp-content/themes/acme
+wp-content/plugins/acme-core"
 MGD_PROSE="$(guidance_call wordpress-source render)"
 assert_eq "$(guidance_call wordpress-source id)" "wordpress-source" \
   "managed variant registers the same section id"
-assert_contains "$MGD_PROSE" '`wp-content/themes/` — **editable**' \
-  "managed prose declares themes editable, matching permission.edit"
-assert_contains "$MGD_PROSE" '`wp-includes/` — WordPress core, **read-only**' \
-  "managed prose keeps core read-only, matching permission.edit"
-assert_contains "$MGD_PROSE" "live the moment you save" \
+
+# The prose must ENUMERATE, never generalise to a directory. Saying "this
+# site's theme and plugins" while the policy lists two paths is how an agent
+# concludes WooCommerce is fair game.
+assert_contains "$MGD_PROSE" '- `wp-content/themes/acme/`' \
+  "managed prose names each editable path"
+assert_contains "$MGD_PROSE" '- `wp-content/plugins/acme-core/`' \
+  "managed prose names every editable path, not just the first"
+assert_contains "$MGD_PROSE" 'this is the complete list' \
+  "managed prose states the editable list is exhaustive"
+refute_contains "$MGD_PROSE" '`wp-content/plugins/` -- **editable**' \
+  "managed prose never presents a whole directory as editable"
+assert_contains "$MGD_PROSE" 'The rest of `wp-content/plugins/`' \
+  "managed prose marks the remaining plugins read-only"
+assert_contains "$MGD_PROSE" '`wp-includes/` ' \
+  "managed prose keeps core read-only"
+assert_contains "$MGD_PROSE" 'live the moment you save' \
   "managed prose states that edits reach production immediately"
-assert_contains "$MGD_PROSE" "never recorded" \
+assert_contains "$MGD_PROSE" 'never recorded' \
   "managed prose warns about paths a capture silently skips"
-assert_contains "$MGD_PROSE" "no pull request step" \
+assert_contains "$MGD_PROSE" 'no pull request step' \
   "managed prose rules out the review workflow rather than leaving it implied"
 refute_contains "$MGD_PROSE" "Make code changes in the configured managed workspace" \
   "managed prose never routes work to a workspace that does not exist"
+
+# Fail closed in prose too: nothing declared must not read as "edit anything".
+MANAGED_SOURCES=""
+NONE_PROSE="$(guidance_call wordpress-source render)"
+assert_contains "$NONE_PROSE" 'declares no editable source' \
+  "managed prose with nothing declared says so explicitly"
+refute_contains "$NONE_PROSE" 'You edit this site directly' \
+  "managed prose with nothing declared does not invite edits"
+MANAGED_SOURCES="wp-content/themes/acme"
 
 # The homeboy unit is engineering-only: its routing advice is about cooking
 # tracked changes in managed worktrees, which does not exist under managed.
@@ -269,18 +344,19 @@ RECON_IN="$(mktemp)"
 cat > "$RECON_IN" <<'JSON'
 {"permission":{"edit":{"wp-content/plugins/**":"deny","wp-content/themes/**":"deny","wp-includes/**":"deny","custom/**":"ask"}}}
 JSON
-RECON_OUT="$(python3 - "$RECON_IN" <<'PY'
+RECON_OUT="$(python3 - "$RECON_IN" <<'PYX'
 import importlib.util, json, sys, pathlib
 spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 data = json.load(open(sys.argv[1]))
-print(json.dumps(mod.expected_edit_permission(data, "managed"), sort_keys=True))
-PY
+# json.dumps preserves insertion order, which is the property under test.
+print(json.dumps(mod.expected_edit_permission(data, "managed", ["wp-content/plugins/acme-core"])))
+PYX
 )"
 assert_eq "$RECON_OUT" \
-  '{"custom/**": "ask", "wp-content/plugins/**": "allow", "wp-content/themes/**": "allow", "wp-includes/**": "deny"}' \
-  "reconciler rewrites managed rules and preserves operator rules"
+  '{"custom/**": "ask", "wp-content/plugins/**": "deny", "wp-content/themes/**": "deny", "wp-includes/**": "deny", "wp-content/plugins/acme-core/**": "allow"}' \
+  "reconciler emits denies before owned allows and preserves operator rules"
 rm -f "$RECON_IN"
 
 if [ "$FAILED" -ne 0 ]; then
