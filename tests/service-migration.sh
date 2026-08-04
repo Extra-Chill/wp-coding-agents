@@ -283,6 +283,45 @@ else
 fi
 
 echo ""
+echo "service-migration: AGENTS.md is composed as the service user"
+
+# The generated text encodes the composing process's euid: data-machine and
+# data-machine-code both append `--allow-root` to their WP-CLI examples when
+# posix_geteuid() === 0. upgrade.sh runs under sudo, so composing as the caller
+# writes an AGENTS.md telling a non-root agent to run `wp --allow-root` — a file
+# that misdescribes the agent's own environment (#322). `--allow-root` is a
+# no-op for a non-root caller so nothing breaks, which is exactly why this would
+# otherwise go unnoticed.
+assert_contains "$(cat upgrade.sh)" "wp_run_as_service_user datamachine memory compose AGENTS.md" \
+  "upgrade.sh composes AGENTS.md as the service user"
+assert_contains "$(cat lib/homeboy.sh)" "wp_run_as_service_user datamachine memory compose AGENTS.md" \
+  "homeboy recompose also drops to the service user"
+
+# Every EXECUTING compose call site must go through the helper, or the one that
+# does not silently re-bakes --allow-root over the correct file. Dry-run echoes
+# and comments are prose about the call, not the call — strip grep's
+# `file:line:` prefix before testing for a leading `#`.
+stray=$(grep -n 'datamachine memory compose AGENTS.md' upgrade.sh lib/*.sh \
+  | grep -v 'wp_run_as_service_user' \
+  | grep -v 'dry-run' \
+  | sed 's/^[^:]*:[0-9]*: *//' \
+  | grep -v '^#' || true)
+if [ -z "$stray" ]; then
+  echo "  ok   no compose call site bypasses the service-user helper"
+else
+  echo "  FAIL compose call site bypasses the service-user helper:"
+  echo "$stray" | sed 's/^/         /'
+  FAILED=$((FAILED + 1))
+fi
+
+# The helper must not pass --allow-root when it has dropped privileges: the
+# whole point of that branch is that the invocation is not root.
+helper=$(sed -n '/^wp_run_as_service_user()/,/^}/p' lib/wordpress.sh)
+sudo_branch=$(printf '%s\n' "$helper" | sed -n '/sudo -n -H -u/p')
+refute_contains "$sudo_branch" 'WP_ROOT_FLAG' "service-user branch omits --allow-root"
+assert_contains "$helper" 'WP_ROOT_FLAG' "caller branch still passes the root flag"
+
+echo ""
 if [ "$FAILED" -eq 0 ]; then
   echo "service-migration: all assertions passed"
 else

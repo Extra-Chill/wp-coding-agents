@@ -905,7 +905,7 @@ regenerate_agents_md() {
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
     echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
-    echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $WP_CMD datamachine memory compose AGENTS.md"
     if _runtime_detected opencode; then
       echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     fi
@@ -925,12 +925,19 @@ regenerate_agents_md() {
 
   # `datamachine memory compose AGENTS.md` writes in-place to the registered
   # composable file path. It does NOT accept an arbitrary output path —
-  # the filename must be a registered MemoryFileRegistry entry. Compose runs
-  # as the wp-coding-agents caller's identity (root during upgrade, opencode
-  # during local dev), so normalize afterward the same way every other
-  # service-file writer does — otherwise the identity that ran this upgrade
-  # is the only one that can write AGENTS.md until the next normalize.
-  if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+  # the filename must be a registered MemoryFileRegistry entry.
+  #
+  # Composed AS THE SERVICE USER, not as the caller. The generated text encodes
+  # the composing process's euid — data-machine and data-machine-code both
+  # append `--allow-root` to their WP-CLI examples when posix_geteuid() === 0 —
+  # and upgrade.sh runs under sudo. Composing here as root would write an
+  # AGENTS.md instructing a non-root agent to run `wp --allow-root`, i.e. a file
+  # that misdescribes the agent's own environment (#93, #322).
+  #
+  # Permissions are still normalized afterward: compose writes as whichever
+  # identity ran it, and without this every other writer is locked out until the
+  # next normalize.
+  if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
