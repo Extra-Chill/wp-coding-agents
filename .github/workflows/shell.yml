@@ -131,6 +131,14 @@ jobs:
       - name: Run tests/kimaki-no-default-channel.sh
         run: ./tests/kimaki-no-default-channel.sh
 
+  runtime-guard:
+    name: runtime deactivation guard (#328)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/runtime-guard.sh
+        run: ./tests/runtime-guard.sh
+
   posture:
     name: installed-source posture (#314)
     runs-on: ubuntu-latest
