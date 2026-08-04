@@ -237,8 +237,19 @@ service_migration_estimate_bytes() {
 # Preflight
 # ---------------------------------------------------------------------------
 
+# The uid the migration would run as. A function rather than a bare $EUID read
+# so tests can exercise the checks that come after the privilege gate without
+# being root — the same seam SYSTEMD_UNIT_DIR provides for unit discovery.
+service_migration_effective_uid() {
+  echo "${EUID:-$(id -u)}"
+}
+
 # Fails closed on anything that would leave a half-migrated install. Changes
 # nothing, so it is safe to call before confirming with the operator.
+#
+# Argument validation comes before the privilege gate on purpose: a mistyped
+# --migrate-user should say so, not send the operator off to re-run under sudo
+# only to be told the flag was wrong all along.
 #
 # Args: <target_user> <old_home> <posture>
 service_migration_preflight() {
@@ -248,12 +259,16 @@ service_migration_preflight() {
     error "Service identity migration is not applicable to a local install (no systemd, no service user)."
   fi
 
-  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    error "Service identity migration must run as root (sudo ./upgrade.sh --migrate-non-root)."
-  fi
-
   if [ "$target_user" = "root" ]; then
     error "Migration target user cannot be root — that is the identity being migrated away from."
+  fi
+
+  if [ -z "$target_user" ]; then
+    error "Migration target user cannot be empty."
+  fi
+
+  if [ "$(service_migration_effective_uid)" -ne 0 ]; then
+    error "Service identity migration must run as root (sudo ./upgrade.sh --migrate-non-root)."
   fi
 
   if [ ! -d "$old_home" ]; then

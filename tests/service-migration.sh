@@ -222,7 +222,10 @@ out=$(LOCAL_MODE=true bash -c '
 ' 2>&1 || true)
 assert_contains "$out" "not applicable to a local install" "preflight refuses local mode"
 
-# Migrating "to" root is a no-op that would silently report success.
+# Argument validation must come BEFORE the privilege gate, so these assertions
+# hold whether or not the suite is running as root. CI runs unprivileged; the
+# development box runs as root. An ordering that only passes on one of them is
+# the bug this arrangement pins.
 out=$(bash -c '
   source lib/service-migration.sh
   log() { :; }; warn() { :; }
@@ -232,6 +235,17 @@ out=$(bash -c '
 ' 2>&1 || true)
 assert_contains "$out" "cannot be root" "preflight refuses root as target"
 
+# Privilege gate itself, forced on regardless of who is running the suite.
+out=$(bash -c '
+  source lib/service-migration.sh
+  log() { :; }; warn() { :; }
+  error() { echo "ERROR: $1"; exit 1; }
+  service_migration_effective_uid() { echo 1000; }
+  LOCAL_MODE=false
+  service_migration_preflight opencode /root engineering
+' 2>&1 || true)
+assert_contains "$out" "must run as root" "preflight refuses an unprivileged run"
+
 # A target home that already holds runtime state means a previous attempt got
 # partway. Merging two session databases corrupts both.
 mkdir -p "$TMP/home/opencode/.kimaki"
@@ -239,6 +253,7 @@ out=$(bash -c '
   source lib/service-migration.sh
   log() { :; }; warn() { :; }
   error() { echo "ERROR: $1"; exit 1; }
+  service_migration_effective_uid() { echo 0; }
   service_migration_target_home() { echo "'"$TMP"'/home/opencode"; }
   LOCAL_MODE=false
   service_migration_preflight opencode /root engineering
