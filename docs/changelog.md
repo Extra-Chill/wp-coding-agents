@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.0] - 2026-08-05
+
+### Added
+- project the declared owned sources to a readable manifest
+
 ## [1.12.0] - 2026-08-05
 
 ### Added
