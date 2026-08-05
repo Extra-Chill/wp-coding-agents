@@ -283,6 +283,93 @@ else
 fi
 
 echo ""
+echo "service-migration: refuses to migrate from inside the unit it stops"
+
+# An agent driving its own upgrade runs inside the chat-bridge unit
+# (0::/system.slice/kimaki.service). Stopping that unit kills the migration
+# mid-move: state partly relocated, no unit rendered, nothing left running to
+# finish or report. It must refuse, and it must be a refusal rather than a
+# warning, because the process that would read the warning is the one that dies.
+out=$(bash -c '
+  source lib/service-migration.sh
+  log() { :; }; warn() { :; }
+  error() { echo "ERROR: $1"; exit 1; }
+  service_migration_effective_uid() { echo 0; }
+  service_migration_current_unit() { echo "kimaki.service"; }
+  bridge_systemd_units() { echo "kimaki.service"; }
+  LOCAL_MODE=false
+  service_migration_preflight opencode /root engineering
+' 2>&1 || true)
+assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
+assert_contains "$out" "systemd-run" "names a detached way to re-run it"
+
+# ...and does NOT refuse when the caller is outside the service (an SSH shell,
+# or systemd-run under its own transient unit).
+out=$(bash -c '
+  source lib/service-migration.sh
+  log() { :; }; warn() { :; }
+  error() { echo "ERROR: $1"; exit 1; }
+  service_migration_effective_uid() { echo 0; }
+  service_migration_current_unit() { echo ""; }
+  bridge_systemd_units() { echo "kimaki.service"; }
+  service_migration_target_home() { echo "'"$TMP"'/fresh-home"; }
+  LOCAL_MODE=false
+  service_migration_preflight opencode /root engineering && echo PREFLIGHT_OK
+' 2>&1 || true)
+assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
+
+echo ""
+echo "service-migration: state lands owned by the service user"
+
+# Every level created on the way down must be chowned, not just the immediate
+# parent: `mkdir -p ~/.local/share` as root creates BOTH root-owned, and
+# chowning only `.local/share` leaves `.local` unwritable — which surfaces later
+# as a permission error nowhere near this code.
+MOVE=$TMP/move
+mkdir -p "$MOVE/old/.local/share/opencode" "$MOVE/old/.kimaki" "$MOVE/new"
+echo data >"$MOVE/old/.local/share/opencode/sessions.db"
+
+MOVE_USER="daemon"
+MOVE_GROUP="$(id -gn "$MOVE_USER" 2>/dev/null || echo daemon)"
+
+if [ "$(id -u)" -eq 0 ]; then
+  (
+    log() { :; }; warn() { :; }; error() { echo "ERROR: $1"; exit 1; }
+    run_cmd() { "$@"; }
+    # shellcheck disable=SC1091
+    source lib/service-migration.sh
+    service_migration_move_path ".local/share/opencode" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
+    service_migration_move_path ".kimaki" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
+  ) >/dev/null 2>&1
+
+  for p in ".local" ".local/share" ".local/share/opencode" ".kimaki"; do
+    owner=$(stat -c '%U' "$MOVE/new/$p" 2>/dev/null || echo MISSING)
+    assert_eq "$owner" "$MOVE_USER" "$p is owned by the service user"
+  done
+  assert_eq "$(stat -c '%U' "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
+    "$MOVE_USER" "moved file contents are owned by the service user"
+  # The source must be gone — a copy would leave the old identity's session
+  # database live alongside the new one.
+  if [ ! -e "$MOVE/old/.kimaki" ]; then
+    echo "  ok   source path is moved, not copied"
+  else
+    echo "  FAIL source path still exists after migration"
+    FAILED=$((FAILED + 1))
+  fi
+else
+  echo "  skip ownership assertions (requires root)"
+fi
+
+# `chown user:user` assumes the primary group matches the account name. That
+# holds for a useradd-created `opencode` and not for an existing account named
+# via --migrate-user (`nobody` is in `nogroup` on Debian), where chown fails
+# outright rather than degrading.
+assert_eq "$(service_migration_user_group nobody)" "$(id -gn nobody)" \
+  "primary group is read from the account, not assumed"
+assert_eq "$(service_migration_user_group definitely-no-such-user-here)" \
+  "definitely-no-such-user-here" "falls back to the user name when absent"
+
+echo ""
 echo "service-migration: AGENTS.md is composed as the service user"
 
 # The generated text encodes the composing process's euid: data-machine and

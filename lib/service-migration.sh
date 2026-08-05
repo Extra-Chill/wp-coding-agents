@@ -275,6 +275,25 @@ service_migration_preflight() {
     error "Current service home '$old_home' does not exist; refusing to migrate from a home that was never used."
   fi
 
+  # An agent that drives this from inside its own chat bridge is sitting in the
+  # unit the migration stops. `systemctl stop kimaki.service` would kill the
+  # migration mid-move, with 8 GiB of state partly relocated, no unit rendered,
+  # and nothing left running to finish or report. Recovery would be by hand, on
+  # a box whose agent is now gone.
+  #
+  # It has to be a refusal rather than a warning, because the process that would
+  # read the warning is the one that disappears.
+  local current_unit unit
+  current_unit=$(service_migration_current_unit)
+  if [ -n "$current_unit" ]; then
+    while IFS= read -r unit; do
+      [ -n "$unit" ] || continue
+      if [ "$unit" = "$current_unit" ]; then
+        error "Refusing to migrate from inside '$current_unit' — this migration stops that unit, which would kill this process partway through. Re-run it detached from the service, e.g.: systemd-run --unit=wpca-migrate --same-dir --wait $0 --migrate-non-root"
+      fi
+    done <<<"$(service_migration_units)"
+  fi
+
   # A target home that already holds runtime state means a previous attempt got
   # partway, or the user is shared with another install. Merging two runtime
   # states silently corrupts session databases, so stop and let a human look.
@@ -303,6 +322,33 @@ service_migration_preflight() {
   fi
 
   return 0
+}
+
+# The systemd unit this process is running inside, empty when it is not under
+# one. An agent driving its own upgrade is inside the very unit the migration
+# stops (`0::/system.slice/kimaki.service`), so this is how it finds out.
+service_migration_current_unit() {
+  local line
+  [ -r /proc/self/cgroup ] || return 0
+  line=$(awk -F: '$1 == "0" {print $3}' /proc/self/cgroup 2>/dev/null | head -1)
+  case "$line" in
+    */*.service) echo "${line##*/}" ;;
+    *) : ;;
+  esac
+}
+
+# The units the migration would stop, newline-separated.
+service_migration_units() {
+  local unit units=""
+  if declare -F bridge_systemd_units >/dev/null 2>&1; then
+    units="$(bridge_systemd_units)"
+  fi
+  if declare -F datamachine_worker_systemd_units >/dev/null 2>&1; then
+    units="$units $(datamachine_worker_systemd_units)"
+  fi
+  for unit in $units; do
+    [ -n "$unit" ] && echo "$unit"
+  done
 }
 
 # Read the identity the install is CURRENTLY running under, straight from the
@@ -348,35 +394,59 @@ service_migration_target_home() {
 # Kimaki's session store is SQLite in WAL mode; moving it under a live writer
 # corrupts it.
 service_migration_stop_units() {
-  local unit units=""
-  if declare -F bridge_systemd_units >/dev/null 2>&1; then
-    units="$(bridge_systemd_units)"
-  fi
-  if declare -F datamachine_worker_systemd_units >/dev/null 2>&1; then
-    units="$units $(datamachine_worker_systemd_units)"
-  fi
-  for unit in $units; do
+  local unit
+  while IFS= read -r unit; do
+    [ -n "$unit" ] || continue
     [ -f "/etc/systemd/system/$unit" ] || continue
     case "$unit" in
       *.timer|*.service) run_cmd systemctl stop "$unit" ;;
     esac
-  done
+  done <<<"$(service_migration_units)"
+}
+
+# The account's primary group. `useradd -m` creates a matching group for a new
+# account, but --migrate-user may name an existing one whose primary group is
+# something else entirely (`nobody` is in `nogroup` on Debian), and
+# `chown user:user` fails outright there rather than degrading.
+service_migration_user_group() {
+  local user="$1" group
+  group=$(id -gn "$user" 2>/dev/null) || group=""
+  [ -n "$group" ] && { echo "$group"; return 0; }
+  echo "$user"
 }
 
 # Move one inventory entry, preserving the parent structure (`.config/opencode`
 # has to land under a `.config` that exists and is owned by the service user).
+#
+# Every level created on the way down is chowned, not just the immediate parent.
+# `mkdir -p ~/.local/share` run as root creates BOTH levels root-owned; chowning
+# only `.local/share` leaves `.local` itself unwritable by the service user, so
+# anything that later wants `~/.local/bin` or `~/.local/state` fails with a
+# permission error far away from here.
 service_migration_move_path() {
   local rel="$1" old_home="$2" new_home="$3" user="$4"
   local src="$old_home/$rel" dest="$new_home/$rel"
 
   [ -e "$src" ] || return 0
 
-  local parent
+  local group parent
+  group=$(service_migration_user_group "$user")
   parent=$(dirname "$dest")
   run_cmd mkdir -p "$parent"
-  run_cmd chown "$user:$user" "$parent"
+
+  # Walk new_home -> parent, chowning each component.
+  local walk="$new_home" component
+  run_cmd chown "$user:$group" "$walk"
+  while IFS= read -r component; do
+    # dirname of a top-level entry like `.kimaki` is `.` — nothing to walk.
+    [ -n "$component" ] && [ "$component" != "." ] || continue
+    walk="$walk/$component"
+    [ "$walk" = "$dest" ] && break
+    run_cmd chown "$user:$group" "$walk"
+  done <<<"$(dirname "$rel" | tr '/' '\n')"
+
   run_cmd mv "$src" "$dest"
-  run_cmd chown -R "$user:$user" "$dest"
+  run_cmd chown -R "$user:$group" "$dest"
 }
 
 # Hand the WordPress install back to www-data with group write, and put the
@@ -404,7 +474,9 @@ service_migration_reclaim_workspace() {
   [ -n "$workspace" ] || return 0
   [ -d "$workspace" ] || return 0
 
-  run_cmd chown -R "$user:$user" "$workspace"
+  local group
+  group=$(service_migration_user_group "$user")
+  run_cmd chown -R "$user:$group" "$workspace"
 }
 
 # Run the migration. Assumes service_migration_preflight has already passed.
@@ -435,8 +507,10 @@ service_migration_run() {
   service_migration_stop_units
 
   log "  Moving agent state..."
+  local target_group
+  target_group=$(service_migration_user_group "$target_user")
   run_cmd mkdir -p "$new_home"
-  run_cmd chown "$target_user:$target_user" "$new_home"
+  run_cmd chown "$target_user:$target_group" "$new_home"
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     if [ -e "$old_home/$rel" ] || [ "${DRY_RUN:-false}" = true ]; then
@@ -468,6 +542,13 @@ service_migration_run() {
   warn "OUT of the agent's reach. That is intentional. If the agent legitimately"
   warn "needed one of them, issue it a scoped credential under $new_home instead"
   warn "of moving the operator's."
+  # upgrade.sh does not restart services; it prints a restart hint at the end.
+  # That is fine for an ordinary upgrade, where the units were never stopped —
+  # but this migration DID stop them, so say so plainly rather than let the
+  # operator infer it from a hint that looks routine.
+  warn "Services were STOPPED for the migration and have not been restarted."
+  warn "Start them once you have checked the rendered units (see the restart"
+  warn "hint at the end of this run)."
 
   return 0
 }
