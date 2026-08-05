@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.0] - 2026-08-05
+
+### Added
+- owned mode defaults to a non-root service user
+- migrate an installed root agent onto a non-root service user
+- guard the agent runtime against admin-UI deactivation on managed installs
+
+### Changed
+- rename posture to source mode (workspace | owned)
+
+### Fixed
+- run the whole test suite in CI, and repair the break it was hiding
+- use environment for Kimaki lock port
+
 ## [1.11.4] - 2026-08-03
 
 ### Fixed
