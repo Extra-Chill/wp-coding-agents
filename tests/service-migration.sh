@@ -370,6 +370,60 @@ assert_eq "$(service_migration_user_group definitely-no-such-user-here)" \
   "definitely-no-such-user-here" "falls back to the user name when absent"
 
 echo ""
+echo "service-migration: ExecStartPre survives a root-owned package dir"
+
+# bridges/kimaki/post-upgrade.sh runs as ExecStartPre, as the SERVICE user,
+# under `set -euo pipefail`, with no `-` prefix on the unit directive — so any
+# non-zero exit blocks the service from starting at all. It removes bundled
+# skills from the npm package dir, which is root-owned (/usr/lib/node_modules,
+# 0755) and which a non-root service user cannot unlink from.
+#
+# This predates the migration: it breaks any `--non-root` install, a shape
+# setup.sh already supports. The migration is what makes it reachable. It also
+# fails LATE — only once `npm update -g kimaki` has recreated a bundled skill is
+# there anything to remove — so it would present as a service that mysteriously
+# stops booting long after the migration looked successful.
+assert_contains "$(cat bridges/kimaki/post-upgrade.sh)" "try_remove_package_path" \
+  "package-dir removals go through the best-effort helper"
+
+unguarded=$(grep -nE '^\s*rm -(rf|f) "\$(skill_dir|obsolete_plugin)"' bridges/kimaki/post-upgrade.sh || true)
+if [ -z "$unguarded" ]; then
+  echo "  ok   no unguarded rm on a package path remains"
+else
+  echo "  FAIL unguarded rm would abort ExecStartPre under set -e:"
+  echo "$unguarded" | sed 's/^/         /'
+  FAILED=$((FAILED + 1))
+fi
+
+# Behavioural: the helper must return 0 and keep going when the path cannot be
+# removed. An assertion on the text alone would not catch a helper that warns
+# and then still fails.
+if [ "$(id -u)" -eq 0 ]; then
+  EP=$TMP/execstartpre
+  mkdir -p "$EP/skills/upgrade-wp-coding-agents"
+  echo x >"$EP/skills/upgrade-wp-coding-agents/SKILL.md"
+  chmod -R go+rX "$TMP" 2>/dev/null || true
+  helper_src=$(sed -n '/^try_remove_package_path() {/,/^}/p' bridges/kimaki/post-upgrade.sh)
+  out=$(su -s /bin/bash nobody -c "bash -c '
+set -euo pipefail
+skills_removed=0; skills_unremovable=0
+$helper_src
+try_remove_package_path \"$EP/skills/upgrade-wp-coding-agents\" \"duplicate skill\"
+echo REACHED_END
+'" 2>&1 || true)
+  assert_contains "$out" "REACHED_END" "script continues past an unremovable path"
+  assert_contains "$out" "WARNING" "and warns about it"
+  if [ -d "$EP/skills/upgrade-wp-coding-agents" ]; then
+    echo "  ok   the unremovable path is left in place"
+  else
+    echo "  FAIL path was removed in a test that should not have been able to"
+    FAILED=$((FAILED + 1))
+  fi
+else
+  echo "  skip ExecStartPre behavioural check (requires root)"
+fi
+
+echo ""
 echo "service-migration: AGENTS.md is composed as the service user"
 
 # The generated text encodes the composing process's euid: data-machine and
