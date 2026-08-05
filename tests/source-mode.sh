@@ -581,3 +581,114 @@ assert_contains "$(cat "$PROBE")" "option update wp_coding_agents_source_mode wo
   source_policy_record_mode >/dev/null 2>&1
 )
 assert_eq "$(cat "$PROBE")" "" "record_mode does not rewrite an already-migrated install"
+
+# ===========================================================================
+echo "==> the owned-sources manifest (#336)"
+# ===========================================================================
+
+# Owned mode's invariant is that the editable set equals the set the operator's
+# out-of-band capture records. Capture cannot read the wp option that holds the
+# editable set: it runs as a deliberately read-only identity that cannot read
+# wp-config.php — wp-coding-agents hardens that file to www-data:640 itself — so
+# it can never run WP-CLI. Measured on h44lacrosse.com, `wp option get` as the
+# harvest user fails with "Failed to open stream: Permission denied".
+#
+# The manifest is the option's projection for exactly that reader.
+
+MANI_ROOT="$TMPD/manifest"
+
+manifest_for() {
+  # Args: SOURCE_MODE OWNED_SOURCES [LOCAL_MODE]
+  (
+    SOURCE_POLICY_MANIFEST_ROOT="$MANI_ROOT"
+    SITE_DOMAIN=example.com
+    LOCAL_MODE="${3:-false}"
+    DRY_RUN=false
+    SOURCE_MODE="$1"
+    OWNED_SOURCES="$2"
+    log() { :; }; warn() { :; }
+    source_policy_write_owned_manifest
+  )
+}
+
+rm -rf "$MANI_ROOT"
+manifest_for owned "wp-content/themes/acme
+wp-content/plugins/acme-core"
+
+MANI="$MANI_ROOT/example.com/owned-sources"
+
+if [ -f "$MANI" ]; then
+  echo "  ok   manifest is written"
+else
+  echo "  FAIL manifest was not written"
+  FAILED=$((FAILED + 1))
+fi
+
+assert_eq "$(cat "$MANI" 2>/dev/null)" \
+"wp-content/themes/acme
+wp-content/plugins/acme-core" \
+  "manifest is one declared path per line"
+
+# The reader is an unprivileged identity that is not us. A mode that keeps it
+# out defeats the only reason the file exists.
+assert_eq "$(stat -c '%a' "$MANI" 2>/dev/null)" "644" "manifest is world-readable"
+
+# SITE_PATH is the nginx docroot on a real install (verified on
+# h44lacrosse.com: `root /var/www/h44lacrosse.com;`). A manifest written there
+# would be fetchable over HTTP.
+case "$(SOURCE_POLICY_MANIFEST_ROOT="$MANI_ROOT" SITE_DOMAIN=example.com source_policy_manifest_path)" in
+  "$MANI_ROOT"/*) echo "  ok   manifest lives outside the site root" ;;
+  *) echo "  FAIL manifest path is not under the manifest root"; FAILED=$((FAILED + 1)) ;;
+esac
+
+# A manifest left behind by an install that has since moved to workspace mode
+# keeps asserting an editable set the permission layer no longer grants, and a
+# capture reading it would report health for a relationship that ended.
+(
+  SOURCE_POLICY_MANIFEST_ROOT="$MANI_ROOT"
+  SITE_DOMAIN=example.com LOCAL_MODE=false DRY_RUN=false
+  SOURCE_MODE=workspace
+  log() { :; }; warn() { :; }
+  source_policy_record_owned_sources
+) >/dev/null 2>&1
+if [ ! -e "$MANI" ]; then
+  echo "  ok   leaving owned mode removes the stale manifest"
+else
+  echo "  FAIL a stale manifest survived the switch to workspace mode"
+  FAILED=$((FAILED + 1))
+fi
+
+# Local installs have no out-of-band capture to inform, and no business
+# requiring write access to /var/lib on a laptop.
+rm -rf "$MANI_ROOT"
+manifest_for owned "wp-content/plugins/acme-core" true
+if [ ! -e "$MANI" ]; then
+  echo "  ok   local installs write no manifest"
+else
+  echo "  FAIL local mode wrote a manifest"
+  FAILED=$((FAILED + 1))
+fi
+
+# Blank lines would become empty component ids downstream.
+rm -rf "$MANI_ROOT"
+manifest_for owned "wp-content/plugins/a
+
+wp-content/plugins/b
+"
+assert_eq "$(grep -c . "$MANI" 2>/dev/null)" "2" "blank lines are stripped"
+assert_eq "$(wc -l < "$MANI" 2>/dev/null | tr -d ' ')" "2" "no trailing blank line"
+
+# DRY_RUN must not touch the filesystem.
+rm -rf "$MANI_ROOT"
+(
+  SOURCE_POLICY_MANIFEST_ROOT="$MANI_ROOT"
+  SITE_DOMAIN=example.com LOCAL_MODE=false DRY_RUN=true
+  OWNED_SOURCES="wp-content/plugins/acme-core"
+  source_policy_write_owned_manifest
+) >/dev/null 2>&1
+if [ ! -e "$MANI" ]; then
+  echo "  ok   dry-run writes nothing"
+else
+  echo "  FAIL dry-run wrote the manifest"
+  FAILED=$((FAILED + 1))
+fi

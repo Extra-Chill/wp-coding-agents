@@ -208,6 +208,31 @@ read-only reference there. What it buys is git and review, not latitude.
 | Runtimes | all | `opencode` only |
 | Service user | root by default | **non-root by default** (`opencode`) |
 
+### How out-of-band capture learns the editable set
+
+Owned mode rests on one invariant: **the editable set equals the set the
+operator's capture records.** A path the agent may edit but nothing captures is
+where work silently disappears, and on a live site that stays invisible until an
+update overwrites it.
+
+Capture cannot read the `wp_coding_agents_owned_sources` option that holds the
+editable set. It runs as a deliberately read-only identity that cannot read
+`wp-config.php` — wp-coding-agents hardens that file to `www-data:640` itself —
+so it can never run WP-CLI and never reach the database.
+
+So owned installs project the declaration to a plain file:
+
+```
+/var/lib/wp-coding-agents/<domain>/owned-sources
+```
+
+One wp-content-relative path per line, mode `0644`, rewritten on every upgrade,
+removed if the install leaves owned mode. It lives outside the site root because
+`SITE_PATH` is the web root and a file written there is fetchable over HTTP.
+
+A capture mechanism reads that file and derives its component list from it,
+rather than keeping a second hand-maintained copy that can drift.
+
 ### The service user is the boundary that holds
 
 The edit rules above are a guardrail, not containment. `permission.edit` gates
