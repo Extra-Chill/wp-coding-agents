@@ -468,6 +468,11 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_mode
 
+# Owned mode defaults to a non-root service user (#327). Must run after the mode
+# resolves and before create_service_user / setup_service_permissions, both of
+# which branch on RUN_AS_ROOT.
+detect_apply_source_mode_identity_default
+
 if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
   bridge_load kimaki
   _kimaki_resolve_instance

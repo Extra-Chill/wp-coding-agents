@@ -486,6 +486,16 @@ if [ "$MIGRATE_NON_ROOT" = true ]; then
     service_migration_run "$MIGRATE_TARGET_USER" "/root" "$SOURCE_MODE"
     UPDATED_ITEMS+=("Service identity migrated: root -> $SERVICE_USER")
   fi
+elif [ "$LOCAL_MODE" = false ] && [ "$SOURCE_MODE" = "owned" ] && \
+     [ "$INSTALLED_SERVICE_USER" = "root" ]; then
+  # Owned mode now defaults to non-root on fresh installs (#327), but an
+  # existing install is NEVER flipped implicitly — that is the #204 rule, and
+  # here it would additionally strand the agent's state in /root. Recommend the
+  # migration and let the operator choose when to take the service down.
+  warn "This owned-mode install runs as root. Fresh owned installs now default to"
+  warn "a non-root service user: the edit denies are a guardrail, not containment,"
+  warn "and a root service can reach every denied path through bash or wp eval."
+  warn "Migrate when convenient:  sudo ./upgrade.sh --migrate-non-root"
 fi
 
 # Set true when opencode.json is found to have plugin-array drift and the

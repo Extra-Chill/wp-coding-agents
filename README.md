@@ -206,6 +206,25 @@ read-only reference there. What it buys is git and review, not latitude.
 | Workspace, git, GitHub | the agent's workflow | not present |
 | How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
 | Runtimes | all | `opencode` only |
+| Service user | root by default | **non-root by default** (`opencode`) |
+
+### The service user is the boundary that holds
+
+The edit rules above are a guardrail, not containment. `permission.edit` gates
+the runtime's edit tool; `bash` is a separate permission key, unset and
+therefore allowed. A service running as root reaches every denied path through
+`bash -c`, `wp eval`, or a PHP one-liner regardless of what the edit rules say.
+
+So owned installs default to a dedicated non-root service user. That one is
+enforced by the kernel rather than a config file: a non-root agent cannot
+`apt install`, cannot rewrite a systemd unit, cannot read another site's
+credentials, and cannot write `wp-admin/` whichever tool it reaches for.
+
+Workspace installs keep the root default — that box belongs to a developer who
+chose it. Existing installs of either mode are never flipped implicitly, since
+that would strand the agent's state in the old home; migrate deliberately with
+`sudo ./upgrade.sh --migrate-non-root`, which moves the agent's runtime state
+across and leaves SSH keys and secret stores behind in root-owned `/root`.
 
 Both modes point the agent at the installed WordPress source as reference —
 that is the section's purpose, and it is why a small model can be competent
