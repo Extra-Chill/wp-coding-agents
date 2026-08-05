@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.1] - 2026-08-05
+
+### Fixed
+- reconcile the manifest and migrate the sibling option keys
+
 ## [1.13.0] - 2026-08-05
 
 ### Added
