@@ -72,14 +72,14 @@ ROTATE_AI_GATEWAY_TOKEN=false
 RUNTIME=""
 CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
-POSTURE=""
-POSTURE_EXPLICIT=false
-MANAGED_SOURCES=""
-MANAGED_SOURCES_EXPLICIT=false
-MANAGED_WRITABLE=""
-MANAGED_WRITABLE_EXPLICIT=false
-MANAGED_LOG_PATHS=""
-MANAGED_LOG_PATHS_EXPLICIT=false
+SOURCE_MODE=""
+SOURCE_MODE_EXPLICIT=false
+OWNED_SOURCES=""
+OWNED_SOURCES_EXPLICIT=false
+OWNED_WRITABLE=""
+OWNED_WRITABLE_EXPLICIT=false
+SOURCE_LOG_PATHS=""
+SOURCE_LOG_PATHS_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
@@ -202,24 +202,24 @@ while [[ $# -gt 0 ]]; do
       RUNTIME="$2"
       shift 2
       ;;
-    --posture)
-      POSTURE="$2"
-      POSTURE_EXPLICIT=true
+    --source-mode|--posture)
+      SOURCE_MODE="$2"
+      SOURCE_MODE_EXPLICIT=true
       shift 2
       ;;
-    --managed-source)
-      MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"
-      MANAGED_SOURCES_EXPLICIT=true
+    --owned-source|--managed-source)
+      OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"
+      OWNED_SOURCES_EXPLICIT=true
       shift 2
       ;;
-    --managed-writable)
-      MANAGED_WRITABLE="${MANAGED_WRITABLE}${MANAGED_WRITABLE:+ }$2"
-      MANAGED_WRITABLE_EXPLICIT=true
+    --owned-writable|--managed-writable)
+      OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"
+      OWNED_WRITABLE_EXPLICIT=true
       shift 2
       ;;
     --log-path)
-      MANAGED_LOG_PATHS="${MANAGED_LOG_PATHS}${MANAGED_LOG_PATHS:+ }$2"
-      MANAGED_LOG_PATHS_EXPLICIT=true
+      SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"
+      SOURCE_LOG_PATHS_EXPLICIT=true
       shift 2
       ;;
     --agent-slug)
@@ -280,19 +280,23 @@ OPTIONS:
                      WordPress install (Studio, MAMP, manual, etc.)
   --runtime <name>   Coding agent runtime (auto-detected if omitted)
                      Available: ${AVAILABLE_RUNTIMES[*]}
-  --posture <name>   Agent's relationship to installed WordPress source.
-                     engineering (default): source is read-only reference and
-                       all code changes go through a Data Machine Code
-                       workspace, git, and GitHub.
-                     managed: the agent edits the live theme and plugins in
-                       place; no workspace, no git, no GitHub, and
-                       data-machine-code is not installed. For managed agentic
-                       hosting where changes are captured out-of-band.
+  --source-mode <name>
+                     Where the agent's code changes land. These are two shapes,
+                     not two levels — neither is "more access" than the other.
+                     workspace (default): installed source is read-only
+                       reference and every change goes through a Data Machine
+                       Code workspace, git, and GitHub. Recorded by review.
+                     owned: the agent edits the site's own declared components
+                       in place; no workspace, no git, no GitHub, and
+                       data-machine-code is not installed. Recorded by the
+                       operator's out-of-band capture. For managed agentic
+                       hosting.
                      Recorded on the install so upgrades converge without
-                     repeating the flag.
-  --managed-source <path>
+                     repeating the flag. (--posture is accepted as a
+                     deprecated alias; engineering=workspace, managed=owned.)
+  --owned-source <path>
                      wp-content path this site owns and the agent may edit
-                     under --posture managed. Repeatable. Must be a plugin or
+                     under --source-mode owned. Repeatable. Must be a plugin or
                      theme directory, e.g.
                      wp-content/themes/acme or wp-content/plugins/acme-core.
                      Everything not declared stays read-only, including
@@ -456,13 +460,13 @@ fi
 
 detect_environment
 
-# Posture must resolve BEFORE anything that enforces it: the plugin set, the
+# The source mode must resolve BEFORE anything that enforces it: the plugin set, the
 # runtime permission surfaces, and the AGENTS.md guidance all derive from it.
-source_policy_resolve_posture
+source_policy_resolve_mode
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
-source_policy_assert_runtime_supports_posture
+source_policy_assert_runtime_supports_mode
 
 if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
   bridge_load kimaki
@@ -495,7 +499,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
   setup_service_permissions
 fi
 
-source_policy_record_posture
+source_policy_record_mode
 source_policy_record_owned_sources
 source_policy_record_writable_paths
 source_policy_record_log_paths

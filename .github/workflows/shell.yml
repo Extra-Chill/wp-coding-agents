@@ -139,13 +139,13 @@ jobs:
       - name: Run tests/runtime-guard.sh
         run: ./tests/runtime-guard.sh
 
-  posture:
-    name: installed-source posture (#314)
+  source-mode:
+    name: installed-source mode (#314, #324)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/posture.sh
-        run: ./tests/posture.sh
+      - name: Run tests/source-mode.sh
+        run: ./tests/source-mode.sh
 
   service-migration:
     name: root -> non-root service identity migration (#93)

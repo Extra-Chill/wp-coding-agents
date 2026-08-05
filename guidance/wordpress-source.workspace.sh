@@ -1,5 +1,5 @@
 #!/bin/bash
-# guidance/wordpress-source.engineering.sh — installed WordPress source, engineering posture.
+# guidance/wordpress-source.workspace.sh — installed WordPress source, workspace mode.
 #
 # Same purpose as the managed variant: CAPABILITY. The agent should be an expert
 # on its own runtime by reading the WordPress actually installed here rather
@@ -14,7 +14,7 @@ guidance_priority() { printf '1'; }
 guidance_label() { printf 'WordPress Source'; }
 guidance_description() { printf 'Points the agent at the installed WordPress source as read-only reference.'; }
 guidance_freshness() { printf 'static'; }
-guidance_conditions() { printf 'Registered by wp-coding-agents on engineering-posture installations.'; }
+guidance_conditions() { printf 'Registered by wp-coding-agents on workspace-mode installations.'; }
 
 guidance_render() {
   cat <<'MD'

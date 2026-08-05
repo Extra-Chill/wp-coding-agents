@@ -21,7 +21,7 @@ source "$SCRIPT_DIR/lib/source-policy.sh"
 source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
-POSTURE="${POSTURE:-engineering}"
+SOURCE_MODE="${SOURCE_MODE:-workspace}"
 UPDATED_ITEMS=()
 
 log() { :; }

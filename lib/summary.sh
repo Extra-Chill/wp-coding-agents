@@ -43,7 +43,7 @@ print_summary() {
     echo "  Agent:       $AGENT_SLUG"
   fi
   echo "  Discover:    $WP_CMD datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
-  echo "  Posture:     ${POSTURE:-engineering}"
+  echo "  Source mode: ${SOURCE_MODE:-workspace}"
   if source_policy_workspace_enabled; then
     echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
     echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"

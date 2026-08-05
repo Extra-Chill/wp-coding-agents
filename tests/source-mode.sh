@@ -1,17 +1,17 @@
 #!/bin/bash
-# tests/posture.sh — installed-source posture regression coverage (#314).
+# tests/source-mode.sh — installed-source mode regression coverage (#314, #324).
 #
 # Two properties matter here and neither is obvious from reading one file:
 #
 #   1. Engineering output is UNCHANGED. Every existing install is engineering,
-#      so a posture refactor that shifts a single glob is a silent permission
+#      so a source-mode refactor that shifts a single glob is a silent permission
 #      change on every box in the fleet.
 #
 #   2. Managed output AGREES WITH ITSELF. The whole reason lib/source-policy.sh
 #      exists is that the AGENTS.md prose and the enforced runtime permissions
 #      used to be written independently and drifted: h44lacrosse.com shipped an
 #      agent told to edit live theme and plugin files while its opencode.json
-#      denied exactly those two paths. A managed install that says "editable"
+#      denied exactly those two paths. An owned-mode install that says "editable"
 #      in prose and "deny" in permissions is the bug, not a cosmetic mismatch.
 set -eu
 
@@ -78,8 +78,8 @@ refute_rule() {
   if has_rule "$1"; then echo "  FAIL $2 (unexpected $1)"; FAILED=$((FAILED + 1)); else echo "  ok   $2"; fi
 }
 
-POSTURE=engineering
-MANAGED_SOURCES=""; MANAGED_WRITABLE=""; MANAGED_LOG_PATHS=""
+SOURCE_MODE=workspace
+OWNED_SOURCES=""; OWNED_WRITABLE=""; SOURCE_LOG_PATHS=""
 
 # Core is wp-admin AND wp-includes plus the root bootstrap — siblings, not
 # nested. Listing only wp-includes left wp-admin and every root PHP file,
@@ -95,21 +95,21 @@ check_rule "wp-content/themes=deny"       "installed themes are read-only"
 
 # The agent's own memory lives under uploads; denying it would break the agent.
 refute_rule "wp-content/uploads=deny"     "uploads stay writable (agent memory lives there)"
-refute_rule "wp-content/uploads=allow"    "uploads are not a managed rule at all"
+refute_rule "wp-content/uploads=allow"    "uploads are not an owned rule at all"
 
 source_policy_workspace_enabled \
   && echo "  ok   engineering has a workspace" \
   || { echo "  FAIL engineering has a workspace"; FAILED=$((FAILED + 1)); }
 
 # Managed denies the same set and carves out only what was declared.
-POSTURE=managed
-MANAGED_SOURCES="wp-content/themes/acme
+SOURCE_MODE=owned
+OWNED_SOURCES="wp-content/themes/acme
 wp-content/plugins/acme-core"
-MANAGED_WRITABLE=""; MANAGED_LOG_PATHS=""
-check_rule "wp-content/plugins=deny"           "managed still denies the plugins directory"
-check_rule "wp-content/themes/acme=allow"      "managed allows a declared owned theme"
-check_rule "wp-content/plugins/acme-core=allow" "managed allows a declared owned plugin"
-check_rule "wp-config.php=deny"                "managed still denies wp-config.php by default"
+OWNED_WRITABLE=""; SOURCE_LOG_PATHS=""
+check_rule "wp-content/plugins=deny"           "owned mode still denies the plugins directory"
+check_rule "wp-content/themes/acme=allow"      "owned mode allows a declared owned theme"
+check_rule "wp-content/plugins/acme-core=allow" "owned mode allows a declared owned plugin"
+check_rule "wp-config.php=deny"                "owned mode still denies wp-config.php by default"
 
 # ORDER is the precedence mechanism for OpenCode findLast.
 DENY_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins	dir	deny$' | cut -d: -f1)
@@ -126,21 +126,21 @@ source_policy_workspace_enabled \
   || echo "  ok   managed has no workspace"
 
 # Fail closed.
-MANAGED_SOURCES=""
-refute_rule "wp-content/themes/acme=allow" "managed with nothing declared grants no edit access"
+OWNED_SOURCES=""
+refute_rule "wp-content/themes/acme=allow" "owned mode with nothing declared grants no edit access"
 
 # Declared writable exceptions re-open a denied path, and are NOT captured.
-MANAGED_SOURCES=""; MANAGED_WRITABLE="wp-config.php"
+OWNED_SOURCES=""; OWNED_WRITABLE="wp-config.php"
 check_rule "wp-config.php=allow" "a declared writable path re-opens wp-config.php"
 
 # ...but only paths the policy actually denies. Anything else is a typo, and
 # accepting it silently would leave the operator believing they granted something.
-MANAGED_WRITABLE_EXPLICIT=true
-MANAGED_WRITABLE="wp-config.php nonsense/path.php"
+OWNED_WRITABLE_EXPLICIT=true
+OWNED_WRITABLE="wp-config.php nonsense/path.php"
 source_policy_resolve_writable_paths 2>/dev/null
 assert_eq "$(source_policy_writable_paths | tr '\n' ' ')" "wp-config.php " \
   "unknown writable paths are rejected, not silently granted"
-MANAGED_WRITABLE_EXPLICIT=false; MANAGED_WRITABLE=""
+OWNED_WRITABLE_EXPLICIT=false; OWNED_WRITABLE=""
 
 # ===========================================================================
 echo "==> the agent can read the logs it needs to recover the site"
@@ -150,29 +150,29 @@ echo "==> the agent can read the logs it needs to recover the site"
 # the one thing needed to recover from a fatal: OpenCode gates paths outside
 # the site root behind external_directory, which defaults to "ask" — and an
 # autonomous agent has nobody to ask (#322).
-MANAGED_LOG_PATHS_EXPLICIT=true
-MANAGED_LOG_PATHS="/var/log/nginx relative/nope"
+SOURCE_LOG_PATHS_EXPLICIT=true
+SOURCE_LOG_PATHS="/var/log/nginx relative/nope"
 source_policy_resolve_log_paths 2>/dev/null
 assert_eq "$(source_policy_log_paths | tr '\n' ' ')" "/var/log/nginx " \
   "log paths must be absolute or they silently do nothing"
 # The read-only-ness of a granted log path is enforced where external_directory
 # is written — see the opencode section below.
 
-POSTURE=nonsense
-MANAGED_SOURCES=""; MANAGED_WRITABLE=""
-refute_rule "wp-content/plugins=allow" "unknown posture never grants write"
+SOURCE_MODE=nonsense
+OWNED_SOURCES=""; OWNED_WRITABLE=""
+refute_rule "wp-content/plugins=allow" "unknown mode never grants write"
 
 # ===========================================================================
-echo "==> runtimes that cannot express scoped permissions refuse managed"
+echo "==> runtimes that cannot express scoped permissions refuse owned mode"
 # ===========================================================================
 
 for rt in claude-code codex; do
   rc=0
-  POSTURE=managed RUNTIME="$rt" \
-    bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_posture' \
+  SOURCE_MODE=owned RUNTIME="$rt" \
+    bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_mode' \
     >/dev/null 2>&1 || rc=$?
   if [ "$rc" -eq 3 ]; then
-    echo "  ok   $rt refuses managed posture"
+    echo "  ok   $rt refuses owned source mode"
   else
     echo "  FAIL $rt should refuse managed posture (rc=$rc)"
     FAILED=$((FAILED + 1))
@@ -180,8 +180,8 @@ for rt in claude-code codex; do
 done
 
 rc=0
-POSTURE=managed RUNTIME=opencode \
-  bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_posture' \
+SOURCE_MODE=owned RUNTIME=opencode \
+  bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_mode' \
   >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then
   echo "  ok   opencode accepts managed posture"
@@ -190,14 +190,14 @@ else
   FAILED=$((FAILED + 1))
 fi
 
-MANAGED_LOG_PATHS_EXPLICIT=false; MANAGED_LOG_PATHS=""
+SOURCE_LOG_PATHS_EXPLICIT=false; SOURCE_LOG_PATHS=""
 
 # ===========================================================================
-echo "==> opencode.json permission surface follows posture"
+echo "==> opencode.json permission surface follows the source mode"
 # ===========================================================================
 
 _opencode_config_for() {
-  local posture="$1" out="$2" sources="${3:-}" logs="${4:-}"
+  local mode="$1" out="$2" sources="${3:-}" logs="${4:-}"
   (
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
@@ -211,10 +211,10 @@ _opencode_config_for() {
     export DM_AGENT_FILES=""
     export WITH_CLAUDE_CODE_AUTH=false RUNTIME="opencode"
     UPDATED_ITEMS=()
-    POSTURE="$posture"
-    MANAGED_SOURCES="$sources"
-    MANAGED_WRITABLE=""
-    MANAGED_LOG_PATHS="$logs"
+    SOURCE_MODE="$mode"
+    OWNED_SOURCES="$sources"
+    OWNED_WRITABLE=""
+    SOURCE_LOG_PATHS="$logs"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/opencode.sh"
     runtime_generate_config
@@ -224,39 +224,39 @@ _opencode_config_for() {
 
 ENG_JSON="$(mktemp)"; MGD_JSON="$(mktemp)"
 trap 'rm -f "$ENG_JSON" "$MGD_JSON"' EXIT
-_opencode_config_for engineering "$ENG_JSON"
-_opencode_config_for managed "$MGD_JSON" "wp-content/themes/acme
+_opencode_config_for workspace "$ENG_JSON"
+_opencode_config_for owned "$MGD_JSON" "wp-content/themes/acme
 wp-content/plugins/acme-core" "/var/log/site"
 
 ENG_EDIT="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$ENG_JSON")"
-assert_contains "$ENG_EDIT" 'wp-admin/**' "engineering denies wp-admin"
-assert_contains "$ENG_EDIT" 'wp-config.php' "engineering denies wp-config.php"
-assert_contains "$ENG_EDIT" 'wp-content/mu-plugins/**' "engineering denies mu-plugins"
-refute_contains "$ENG_EDIT" 'wp-content/uploads' "engineering leaves uploads alone"
+assert_contains "$ENG_EDIT" 'wp-admin/**' "workspace mode denies wp-admin"
+assert_contains "$ENG_EDIT" 'wp-config.php' "workspace mode denies wp-config.php"
+assert_contains "$ENG_EDIT" 'wp-content/mu-plugins/**' "workspace mode denies mu-plugins"
+refute_contains "$ENG_EDIT" 'wp-content/uploads' "workspace mode leaves uploads alone"
 assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["permission"]["edit"]; print(sorted(set(d.values())))' "$ENG_JSON")" \
-  "['deny']" "engineering grants no edit allow anywhere in the installed tree"
+  "['deny']" "workspace mode grants no edit allow anywhere in the installed tree"
 
 MGD_EDIT_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")"
 MGD_KEYS="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")"
 assert_contains "$MGD_EDIT_JSON" '"wp-content/plugins/**": "deny"' \
   "managed never opens the whole plugins directory"
 assert_contains "$MGD_EDIT_JSON" '"wp-content/themes/acme/**": "allow"' \
-  "managed allows the declared owned theme"
+  "owned mode allows the declared owned theme"
 # sort_keys would destroy the property under test; compare positions instead.
 assert_eq "$(python3 -c '
 import json,sys
 k=list(json.load(open(sys.argv[1]))["permission"]["edit"])
 print(k.index("wp-content/themes/**") < k.index("wp-content/themes/acme/**"))' "$MGD_JSON")" \
-  "True" "managed emits the broad deny before the narrower allow"
+  "True" "owned mode emits the broad deny before the narrower allow"
 assert_contains "$MGD_EDIT_JSON" '"/var/log/site": "deny"' \
   "a readable log path is denied for editing as a literal"
 assert_contains "$MGD_EDIT_JSON" '"/var/log/site/**": "deny"' \
   "a readable log path is denied for editing as a subtree"
 
 assert_eq "$(python3 -c 'import json,sys; print("yes" if "external_directory" in json.load(open(sys.argv[1]))["permission"] else "no")' "$ENG_JSON")" \
-  "yes" "engineering grants the workspace directory"
+  "yes" "workspace mode grants the workspace directory"
 MGD_EXT="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"].get("external_directory",{})))' "$MGD_JSON")"
-refute_contains "$MGD_EXT" 'workspace' "managed grants no workspace directory (there is none)"
+refute_contains "$MGD_EXT" 'workspace' "owned mode grants no workspace directory (there is none)"
 assert_contains "$MGD_EXT" '"/var/log/site/**": "allow"' \
   "managed grants read on the declared log directory"
 # A log path may be a single FILE (/var/log/php-fpm.log). Appending /** alone
@@ -269,7 +269,7 @@ echo "==> claude-code denies every installed root (managed is refused upstream)"
 # ===========================================================================
 
 _claude_settings_for() {
-  local posture="$1" out="$2" seed="${3:-}"
+  local mode="$1" out="$2" seed="${3:-}"
   (
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
@@ -281,7 +281,7 @@ _claude_settings_for() {
       sed "s|SITE_PATH|$SITE_PATH|g" "$seed" > "$SITE_PATH/.claude/settings.json"
     fi
     UPDATED_ITEMS=()
-    POSTURE="$posture"
+    SOURCE_MODE="$mode"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/claude-code.sh"
     runtime_install_hooks >/dev/null 2>&1
@@ -293,11 +293,11 @@ _claude_settings_for() {
 CC_ENG="$(mktemp)"
 _claude_settings_for engineering "$CC_ENG"
 assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/themes/**)"' \
-  "engineering denies theme edits"
+  "workspace mode denies theme edits"
 assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/plugins/**)"' \
-  "engineering denies plugin edits"
+  "workspace mode denies plugin edits"
 assert_contains "$(cat "$CC_ENG")" '"Bash(wp datamachine-code workspace:*)"' \
-  "engineering allows the DMC workspace bash surface"
+  "workspace mode allows the DMC workspace bash surface"
 rm -f "$CC_ENG"
 
 # ===========================================================================
@@ -305,7 +305,7 @@ echo "==> codex filesystem profile keeps every installed root read-only"
 # ===========================================================================
 
 _codex_config_for() {
-  local posture="$1"
+  local mode="$1"
   (
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
@@ -315,7 +315,7 @@ _codex_config_for() {
     chmod +x "$TMP/bin/codex"
     export PATH="$TMP/bin:$PATH"
     UPDATED_ITEMS=()
-    POSTURE="$posture"
+    SOURCE_MODE="$mode"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/codex.sh"
     runtime_generate_config >/dev/null 2>&1
@@ -337,17 +337,17 @@ source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
 
-POSTURE=engineering
+SOURCE_MODE=workspace
 ENG_PROSE="$(guidance_call wordpress-source render)"
 assert_eq "$(guidance_call wordpress-source id)" "wordpress-source" \
   "section id is stable across postures"
-assert_contains "$ENG_PROSE" "read-only" "engineering prose says read-only"
-assert_contains "$ENG_PROSE" "managed workspace" "engineering prose routes changes to the workspace"
+assert_contains "$ENG_PROSE" "read-only" "workspace mode prose says read-only"
+assert_contains "$ENG_PROSE" "managed workspace" "workspace mode prose routes changes to the workspace"
 
-POSTURE=managed
-MANAGED_SOURCES="wp-content/themes/acme
+SOURCE_MODE=owned
+OWNED_SOURCES="wp-content/themes/acme
 wp-content/plugins/acme-core"
-MANAGED_WRITABLE="wp-config.php"
+OWNED_WRITABLE="wp-config.php"
 MGD_PROSE="$(guidance_call wordpress-source render)"
 assert_eq "$(guidance_call wordpress-source id)" "wordpress-source" \
   "managed variant registers the same section id"
@@ -394,26 +394,26 @@ for term in WooCommerce Stripe commerce payment money composer.lock package-lock
 done
 
 # Fail closed in prose too.
-MANAGED_SOURCES=""; MANAGED_WRITABLE=""
+OWNED_SOURCES=""; OWNED_WRITABLE=""
 NONE_PROSE="$(guidance_call wordpress-source render)"
 assert_contains "$NONE_PROSE" 'Nothing on this install is declared as editable' \
   "managed prose with nothing declared says so explicitly"
 assert_contains "$NONE_PROSE" 'Read it to verify core APIs' \
   "managed prose keeps the reference material even with nothing editable"
-MANAGED_SOURCES="wp-content/themes/acme"
+OWNED_SOURCES="wp-content/themes/acme"
 
 # Engineering keeps the same capability framing.
-POSTURE=engineering
+SOURCE_MODE=workspace
 ENG_PROSE2="$(guidance_call wordpress-source render)"
 assert_contains "$ENG_PROSE2" '`wp-admin/`' \
-  "engineering prose also points at wp-admin"
+  "workspace mode prose also points at wp-admin"
 assert_contains "$ENG_PROSE2" 'ground truth' \
-  "engineering prose frames installed source as authoritative"
-POSTURE=managed
+  "workspace mode prose frames installed source as authoritative"
+SOURCE_MODE=owned
 
 # The homeboy unit is engineering-only: its routing advice is about cooking
 # tracked changes in managed worktrees, which does not exist under managed.
-POSTURE=managed
+SOURCE_MODE=owned
 if guidance_call homeboy applies; then
   echo "  FAIL homeboy guidance must not apply under managed"
   FAILED=$((FAILED + 1))
@@ -422,10 +422,10 @@ else
 fi
 
 # ===========================================================================
-echo "==> opencode.json reconciler honours posture"
+echo "==> opencode.json reconciler honours the source mode"
 # ===========================================================================
 
-# #316: the reconciler owned permission.edit only, so an engineering->managed
+# #316: the reconciler owned permission.edit only, so a workspace->owned
 # upgrade kept a stale workspace grant and declared log paths never landed.
 # The upgrade path is the one every real install takes.
 EXT_OUT="$(python3 - <<'PYX'
@@ -441,9 +441,9 @@ print(json.dumps(mod.expected_external_directory(data, "", ["/var/log/site", "/v
 PYX
 )"
 refute_contains "$EXT_OUT" 'datamachine/workspace' \
-  "managed reconcile drops the stale workspace grant"
+  "owned reconcile drops the stale workspace grant"
 assert_contains "$EXT_OUT" '"./operator-added": "allow"' \
-  "managed reconcile preserves operator-added external grants"
+  "owned reconcile preserves operator-added external grants"
 assert_contains "$EXT_OUT" '"/var/log/one.log": "allow"' \
   "a log path naming a file is granted as a literal, not only as a subtree"
 
@@ -458,7 +458,7 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 data = json.load(open(sys.argv[1]))
 # json.dumps preserves insertion order, which is the property under test.
-print(json.dumps(mod.expected_edit_permission(data, "managed", ["wp-content/plugins/acme-core"])))
+print(json.dumps(mod.expected_edit_permission(data, "owned", ["wp-content/plugins/acme-core"])))
 PYX
 )"
 assert_contains "$RECON_OUT" '"custom/**": "ask"' \
@@ -481,4 +481,103 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "OK: all posture assertions passed"
+echo "OK: all source-mode assertions passed"
+
+TMPD="$(mktemp -d)"
+trap 'rm -rf "$TMPD"' EXIT
+
+# ===========================================================================
+echo "==> the #324 rename carries existing installs across"
+# ===========================================================================
+
+# Renaming is only safe if every install that recorded the old vocabulary keeps
+# working without the operator touching anything. Two live installs recorded
+# `wp_coding_agents_posture` before this change; an upgrade that read an empty
+# new key and fell through to the default would silently revert a managed box
+# to workspace mode and hand its agent a workspace it does not have.
+
+assert_eq "$(source_policy_canonical_mode engineering)" "workspace" "engineering -> workspace"
+assert_eq "$(source_policy_canonical_mode managed)" "owned" "managed -> owned"
+assert_eq "$(source_policy_canonical_mode workspace)" "workspace" "workspace passes through"
+assert_eq "$(source_policy_canonical_mode owned)" "owned" "owned passes through"
+assert_eq "$(source_policy_canonical_mode nonsense)" "nonsense" "unknown passes through to fail validation"
+assert_eq "$(source_policy_canonical_mode '')" "" "empty passes through"
+
+# The deprecated flag spelling must resolve to the new value, not error.
+for legacy_pair in "engineering workspace" "managed owned"; do
+  set -- $legacy_pair
+  got=$(
+    SOURCE_MODE="$1" SOURCE_MODE_EXPLICIT=true DRY_RUN=true
+    log() { :; }; error() { echo "ERROR: $*"; exit 1; }
+    source_policy_resolve_mode >/dev/null 2>&1
+    printf '%s' "$SOURCE_MODE"
+  )
+  assert_eq "$got" "$2" "--posture $1 resolves to $2"
+done
+
+# A recorded legacy value must resolve the same way. This is the upgrade path
+# every existing install takes.
+for legacy_pair in "engineering workspace" "managed owned"; do
+  set -- $legacy_pair
+  got=$(
+    SOURCE_MODE_EXPLICIT=false DRY_RUN=false SITE_PATH="$TMPD/site"
+    mkdir -p "$SITE_PATH"; : > "$SITE_PATH/wp-config.php"
+    log() { :; }; error() { echo "ERROR: $*"; exit 1; }
+    # Legacy key populated, new key empty — the pre-rename install.
+    LEGACY="$1"
+    wp_cmd() {
+      case "$*" in
+        *"option get wp_coding_agents_source_mode"*) return 0 ;;
+        *"option get wp_coding_agents_posture"*) echo "$LEGACY" ;;
+        *) return 0 ;;
+      esac
+    }
+    source_policy_resolve_mode >/dev/null 2>&1
+    printf '%s' "$SOURCE_MODE"
+  )
+  assert_eq "$got" "$2" "recorded '$1' resolves to $2 on upgrade"
+done
+
+# ...and the migration must actually WRITE the new key. Comparing through the
+# legacy-aware reader would see a pre-rename install as already correct — the
+# canonical value of `engineering` IS `workspace` — and leave it on the old key
+# forever, so the rename would never complete.
+#
+# The call site redirects wp_cmd's output to /dev/null, so the stub records what
+# it was asked to do in a file rather than on a stream nobody can see.
+PROBE="$TMPD/option-writes"
+: > "$PROBE"
+(
+  SOURCE_MODE="workspace" DRY_RUN=false SITE_PATH="$TMPD/site2"
+  mkdir -p "$SITE_PATH"; : > "$SITE_PATH/wp-config.php"
+  log() { :; }; warn() { :; }
+  wp_cmd() {
+    case "$*" in
+      *"option get wp_coding_agents_source_mode"*) return 0 ;;
+      *"option get wp_coding_agents_posture"*) echo "engineering" ;;
+      *"option update wp_coding_agents_source_mode"*)
+        echo "$*" >> "$PROBE" ;;
+      *) return 0 ;;
+    esac
+  }
+  source_policy_record_mode >/dev/null 2>&1
+)
+assert_contains "$(cat "$PROBE")" "option update wp_coding_agents_source_mode workspace" \
+  "record_mode migrates a legacy install onto the new key"
+
+# And it must be idempotent: once the new key holds the value, no second write.
+: > "$PROBE"
+(
+  SOURCE_MODE="workspace" DRY_RUN=false SITE_PATH="$TMPD/site3"
+  mkdir -p "$SITE_PATH"; : > "$SITE_PATH/wp-config.php"
+  log() { :; }; warn() { :; }
+  wp_cmd() {
+    case "$*" in
+      *"option get wp_coding_agents_source_mode"*) echo "workspace" ;;
+      *"option update"*) echo "$*" >> "$PROBE" ;;
+      *) return 0 ;;
+    esac
+  }
+  source_policy_record_mode >/dev/null 2>&1
+)
+assert_eq "$(cat "$PROBE")" "" "record_mode does not rewrite an already-migrated install"

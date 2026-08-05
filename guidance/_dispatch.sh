@@ -12,28 +12,28 @@
 # renders marker-delimited PHP blocks, and rewrites them idempotently. It used
 # to also carry the CONTENT — the actual prose for every section — as heredocs
 # inside sync functions. That coupling meant every new section, and every
-# posture variant of an existing section, grew the same file. This directory is
+# source-mode variant of an existing section, grew the same file. This directory is
 # the content half; lib/agents-md-guidance.sh no longer knows what WordPress or
 # Homeboy are.
 #
-# POSTURE VARIANTS
+# SOURCE_MODE VARIANTS
 #
-# A section whose prose depends on the install posture (see lib/source-policy.sh)
-# ships one file per posture:
+# A section whose prose depends on the install source mode (see lib/source-policy.sh)
+# ships one file per mode:
 #
 #   guidance/wordpress-source.engineering.sh
 #   guidance/wordpress-source.managed.sh
 #
-# Resolution for section <id> is `<id>.<posture>.sh` when present, else
-# `<id>.sh`. Posture-neutral sections ship a single `<id>.sh` and are unaffected.
+# Resolution for section <id> is `<id>.<mode>.sh` when present, else
+# `<id>.sh`. Mode-neutral sections ship a single `<id>.sh` and are unaffected.
 # Two files that differ wholesale beat one file with a conditional wrapped
-# around a heredoc: the diff of a posture is the file, and neither variant can
+# around a heredoc: the diff of a mode is the file, and neither variant can
 # quietly inherit a clause meant for the other.
 #
 # HOOK CONTRACT (functions namespaced guidance_* inside each unit file)
 #
 #   Mandatory:
-#     guidance_id            — SectionRegistry section id (stable across postures)
+#     guidance_id            — SectionRegistry section id (stable across modes)
 #     guidance_priority      — integer sort key within AGENTS.md
 #     guidance_label         — human label recorded in section metadata
 #     guidance_render        — emit the section markdown on stdout
@@ -60,8 +60,8 @@ fi
 # guidance_names — every discoverable section id, one per line, de-duplicated.
 #
 # Discovery: any guidance/*.sh whose basename does not start with `_`. A
-# `<id>.<posture>.sh` filename contributes the id once, no matter how many
-# posture variants exist.
+# `<id>.<mode>.sh` filename contributes the id once, no matter how many
+# mode variants exist.
 guidance_names() {
   local f base id seen=""
   for f in "$GUIDANCE_DIR"/*.sh; do
@@ -79,15 +79,15 @@ guidance_names() {
   done
 }
 
-# guidance_file <id> — absolute path to the unit for the active posture.
+# guidance_file <id> — absolute path to the unit for the active source mode.
 #
-# Prefers the posture-specific variant, falls back to the neutral file.
+# Prefers the mode-specific variant, falls back to the neutral file.
 guidance_file() {
   local id="$1"
-  local posture="${POSTURE:-engineering}"
+  local mode="${SOURCE_MODE:-workspace}"
 
-  if [ -f "$GUIDANCE_DIR/${id}.${posture}.sh" ]; then
-    printf '%s' "$GUIDANCE_DIR/${id}.${posture}.sh"
+  if [ -f "$GUIDANCE_DIR/${id}.${mode}.sh" ]; then
+    printf '%s' "$GUIDANCE_DIR/${id}.${mode}.sh"
     return 0
   fi
 
@@ -178,7 +178,7 @@ guidance_call() {
   )
 }
 
-# guidance_sync_all — sync every discovered section for the active posture.
+# guidance_sync_all — sync every discovered section for the active source mode.
 #
 # Called once from setup.sh and once from upgrade.sh. Individual units may also
 # be synced on their own (lib/homeboy.sh re-syncs the homeboy section after the

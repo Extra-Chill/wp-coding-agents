@@ -77,7 +77,7 @@ MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
 # Every installed path wp-coding-agents manages, as ready-made edit patterns in
-# canonical order. Denied under BOTH postures.
+# canonical order. Denied under BOTH modes.
 #
 # Directories carry /**; root files are exact literals. That distinction is not
 # cosmetic: OpenCode's matcher turns `*` into `.*`, which spans slashes, so a
@@ -108,7 +108,7 @@ MANAGED_ROOTS = (
     "xmlrpc.php",
     "index.php",
 )
-DEFAULT_POSTURE = "engineering"
+DEFAULT_SOURCE_MODE = "workspace"
 
 def expected_plugins(
     runtime: str,
@@ -387,11 +387,22 @@ def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
     return result
 
 
+def canonical_source_mode(mode: str) -> str:
+    """Translate a pre-rename posture name to its source-mode equivalent.
+
+    The shell does this in source_policy_canonical_mode; the reconciler is
+    reachable directly (and by an operator scripting it), so it has to agree.
+    A caller passing "managed" and silently getting the workspace ruleset would
+    produce an owned install with no editable source at all.
+    """
+    return {"engineering": "workspace", "managed": "owned"}.get(mode, mode)
+
+
 def expected_edit_permission(
     data: dict,
-    posture: str = DEFAULT_POSTURE,
-    managed_sources: List[str] | None = None,
-    managed_writable: List[str] | None = None,
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    owned_sources: List[str] | None = None,
+    owned_writable: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
     """User rules, then managed denies, then the narrower allows.
@@ -401,9 +412,9 @@ def expected_edit_permission(
     allows that carve exceptions out of them. Emitting the allows first would
     silently invert the policy.
     """
-    is_managed = posture == "managed"
-    sources = list(managed_sources or []) if is_managed else []
-    writable = list(managed_writable or []) if is_managed else []
+    is_owned = canonical_source_mode(source_mode) == "owned"
+    sources = list(owned_sources or []) if is_owned else []
+    writable = list(owned_writable or []) if is_owned else []
     logs = list(log_paths or [])
 
     source_keys = [f"{path}/**" for path in sources]
@@ -446,7 +457,7 @@ def expected_edit_permission(
 def _is_stale_managed_key(pattern: str) -> bool:
     """True for an owned-source allow this install no longer declares.
 
-    Without this a path dropped from --managed-source would keep its allow rule
+    Without this a path dropped from --owned-source would keep its allow rule
     forever, which is the drift the reconciler exists to prevent.
     """
     return (
@@ -483,7 +494,7 @@ def expected_external_directory(
         rules = {
             pattern: action
             for pattern, action in current.items()
-            if pattern not in managed and not _is_managed_external_key(pattern)
+            if pattern not in managed and not _is_owned_external_key(pattern)
         }
     else:
         rules = {}
@@ -492,7 +503,7 @@ def expected_external_directory(
     return rules
 
 
-def _is_managed_external_key(pattern: str) -> bool:
+def _is_owned_external_key(pattern: str) -> bool:
     """True for a grant wp-coding-agents previously wrote and no longer declares.
 
     Absolute paths are ours to manage here; anything relative was added by the
@@ -539,9 +550,9 @@ def apply_external_directory(
 def check_edit_permission(
     data: dict,
     runtime: str,
-    posture: str = DEFAULT_POSTURE,
-    managed_sources: List[str] | None = None,
-    managed_writable: List[str] | None = None,
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    owned_sources: List[str] | None = None,
+    owned_writable: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
     if runtime != "opencode":
@@ -549,7 +560,7 @@ def check_edit_permission(
 
     permission = data.get("permission", {})
     current = permission.get("edit") if isinstance(permission, dict) else None
-    expected = expected_edit_permission(data, posture, managed_sources, managed_writable, log_paths)
+    expected = expected_edit_permission(data, source_mode, owned_sources, owned_writable, log_paths)
     return {
         "status": "ok" if current == expected else "needed",
         "expected": expected,
@@ -558,12 +569,12 @@ def check_edit_permission(
 
 def apply_edit_permission(
     data: dict,
-    posture: str = DEFAULT_POSTURE,
-    managed_sources: List[str] | None = None,
-    managed_writable: List[str] | None = None,
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    owned_sources: List[str] | None = None,
+    owned_writable: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> None:
-    expected = expected_edit_permission(data, posture, managed_sources, managed_writable, log_paths)
+    expected = expected_edit_permission(data, source_mode, owned_sources, owned_writable, log_paths)
     permission = data.get("permission", {})
     if isinstance(permission, str):
         permission = {"*": permission}
@@ -587,23 +598,23 @@ def main() -> int:
         choices=["kimaki", "cc-connect", "telegram", "none"],
     )
     parser.add_argument(
-        "--posture",
-        default=DEFAULT_POSTURE,
-        choices=["engineering", "managed"],
-        help="Installed-source posture for this install (see lib/source-policy.sh)",
+        "--source-mode",
+        default=DEFAULT_SOURCE_MODE,
+        choices=["workspace", "owned", "engineering", "managed"],
+        help="Installed-source mode for this install (see lib/source-policy.sh)",
     )
     parser.add_argument(
-        "--managed-source",
+        "--owned-source",
         action="append",
         default=[],
-        dest="managed_sources",
-        help="wp-content path this site owns and may edit under managed posture. Repeatable.",
+        dest="owned_sources",
+        help="wp-content path this site owns and may edit under owned source mode. Repeatable.",
     )
     parser.add_argument(
-        "--managed-writable",
+        "--owned-writable",
         action="append",
         default=[],
-        dest="managed_writable",
+        dest="owned_writable",
         help="Denied path this install explicitly re-opens for editing. Not captured. Repeatable.",
     )
     parser.add_argument(
@@ -687,7 +698,7 @@ def main() -> int:
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
-    edit_permission_result = check_edit_permission(data, args.runtime, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
+    edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
     external_directory_result = check_external_directory(data, args.runtime, args.workspace_dir, args.log_paths)
 
     # --- Plugin array check ---
@@ -821,7 +832,7 @@ def main() -> int:
 
     edit_permission_status = "ok"
     if has_edit_permission_drift:
-        apply_edit_permission(data, args.posture, args.managed_sources, args.managed_writable, args.log_paths)
+        apply_edit_permission(data, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
         edit_permission_status = "synced"
     external_directory_status = "ok"
     if has_external_directory_drift:

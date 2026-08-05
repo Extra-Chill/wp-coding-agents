@@ -107,8 +107,8 @@ runtime_generate_config() {
 
   mkdir -p "$config_dir"
 
-  # Only roots the active posture keeps read-only appear in the filesystem
-  # profile; anything the posture makes editable inherits the ":workspace"
+  # Only roots the active mode keeps read-only appear in the filesystem
+  # profile; anything the mode makes editable inherits the ":workspace"
   # default. See lib/source-policy.sh.
   local codex_read_roots=""
   local _root _kind

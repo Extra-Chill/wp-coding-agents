@@ -194,7 +194,7 @@ runtime_install_hooks() {
     wp_prefix="studio wp"
   fi
 
-  # Workspace access only exists in postures that have a workspace. On a
+  # Workspace access only exists in modes that have a workspace. On a
   # managed install these rules would grant the agent an empty directory while
   # advertising a git workflow it has no part in.
   local workspace_allow_rules='[]'
@@ -215,7 +215,7 @@ runtime_install_hooks() {
   # Every installed root is denied. Claude Code treats deny as absolute — an
   # allow never overrides it — so this runtime cannot express "deny the
   # directory, allow the site's own plugin inside it". That is why
-  # source_policy_assert_runtime_supports_posture refuses managed posture here
+  # source_policy_assert_runtime_supports_mode refuses owned source mode here
   # rather than emitting a permission set that would silently lock the agent
   # out of its own source. See lib/source-policy.sh.
   local wordpress_deny_rules='[]'

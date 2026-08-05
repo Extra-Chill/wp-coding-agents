@@ -32,7 +32,7 @@ warn() { printf '%s\n' "$*" >&2; }
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/source-policy.sh"
-POSTURE="${POSTURE:-engineering}"
+SOURCE_MODE="${SOURCE_MODE:-workspace}"
 source "$SCRIPT_DIR/runtimes/claude-code.sh"
 
 runtime_install_hooks

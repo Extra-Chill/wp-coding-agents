@@ -33,7 +33,7 @@ install_data_machine() {
       echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
     fi
   else
-    log "Skipping Data Machine Code (posture: ${POSTURE:-managed} — no workspace on this install)"
+    log "Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned} — no workspace on this install)"
   fi
 
   set_compose_agents_md_constant
@@ -79,7 +79,7 @@ upgrade_data_machine_plugins() {
   if source_policy_workspace_enabled; then
     update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
   else
-    log "  Skipping Data Machine Code (posture: ${POSTURE:-managed})"
+    log "  Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned})"
   fi
 
   # Backfill the AGENTS.md composition gate on existing installs (idempotent).
