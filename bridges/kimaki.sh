@@ -1189,9 +1189,7 @@ bridge_render_systemd() {
   [ "$normalized_unit" = "$unit" ] || { echo "kimaki has no unit '$unit'" >&2; return 1; }
   local skill_filter_args
   skill_filter_args="$(_kimaki_skill_filter_args_shell)"
-  local lock_port_arg=""
   _kimaki_validate_lock_port
-  [ -z "${KIMAKI_LOCK_PORT:-}" ] || lock_port_arg=" --lock-port $KIMAKI_LOCK_PORT"
   local stale_worker_cleanup="# User-wide stale-worker cleanup omitted for instance isolation."
   if [ "$unit" = "kimaki.service" ]; then
     stale_worker_cleanup='ExecStartPre=-/usr/bin/pkill -TERM -u '$SERVICE_USER' -f "opencode-ai/bin/.*serve"'
@@ -1218,7 +1216,7 @@ $env_block
 # tolerate exit code 1 (no matches found, the happy path on a clean box).
 $stale_worker_cleanup
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
-ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR$lock_port_arg --auto-restart --no-critique$skill_filter_args
+ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$skill_filter_args
 Restart=always
 RestartSec=10
 
