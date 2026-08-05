@@ -692,3 +692,88 @@ else
   echo "  FAIL dry-run wrote the manifest"
   FAILED=$((FAILED + 1))
 fi
+
+# ===========================================================================
+echo "==> manifest and option reconciliation (#336 follow-up)"
+# ===========================================================================
+
+# Found by verifying the v1.13.0 upgrade on h44lacrosse.com: the mode migrated
+# to the new key, the sources did not, and no manifest was written.
+#
+# source_policy_record_owned_sources compared through the legacy-aware reader,
+# which on a pre-rename install returns exactly the paths about to be written —
+# so it returned early, never wrote the new key, and never reached the manifest
+# call sitting after it. The same defect record_mode already fixed; the sibling
+# recorders inherited it.
+
+RECON="$TMPD/reconcile"
+mkdir -p "$RECON/site"; : > "$RECON/site/wp-config.php"
+
+# Legacy key populated, new key empty — the shape every existing install has.
+record_probe=$(
+  PROBE="$RECON/writes"; : > "$PROBE"
+  SOURCE_POLICY_MANIFEST_ROOT="$RECON/manifest"
+  SITE_PATH="$RECON/site" SITE_DOMAIN=example.com LOCAL_MODE=false DRY_RUN=false
+  SOURCE_MODE=owned
+  OWNED_SOURCES="wp-content/plugins/acme-core"
+  log() { :; }; warn() { :; }
+  _source_policy_option_read() {
+    case "$1" in
+      wp_coding_agents_owned_sources) return 0 ;;
+      wp_coding_agents_managed_sources) echo "wp-content/plugins/acme-core" ;;
+    esac
+  }
+  wp_cmd() { echo "$*" >> "$PROBE"; cat >/dev/null 2>&1 || true; return 0; }
+  source_policy_record_owned_sources
+  cat "$PROBE"
+)
+assert_contains "$record_probe" "option update wp_coding_agents_owned_sources" \
+  "a legacy install is migrated onto the new sources key"
+
+if [ -f "$RECON/manifest/example.com/owned-sources" ]; then
+  echo "  ok   the manifest is written on a legacy install"
+else
+  echo "  FAIL no manifest written for a legacy install (the h44 v1.13.0 failure)"
+  FAILED=$((FAILED + 1))
+fi
+
+# The manifest is a projection, not a change record: an install whose sources
+# never change must still get one, and a manifest deleted by hand must return.
+rm -f "$RECON/manifest/example.com/owned-sources"
+(
+  SOURCE_POLICY_MANIFEST_ROOT="$RECON/manifest"
+  SITE_PATH="$RECON/site" SITE_DOMAIN=example.com LOCAL_MODE=false DRY_RUN=false
+  SOURCE_MODE=owned
+  OWNED_SOURCES="wp-content/plugins/acme-core"
+  log() { :; }; warn() { :; }
+  # Already migrated: new key holds exactly what we are about to write.
+  _source_policy_option_read() { echo "wp-content/plugins/acme-core"; }
+  wp_cmd() { return 0; }
+  source_policy_record_owned_sources
+) >/dev/null 2>&1
+if [ -f "$RECON/manifest/example.com/owned-sources" ]; then
+  echo "  ok   a deleted manifest is restored even when the option is unchanged"
+else
+  echo "  FAIL manifest not reconciled when the option needs no write"
+  FAILED=$((FAILED + 1))
+fi
+
+# Reads must work under --dry-run. wp_cmd routes through run_cmd, which echoes
+# instead of executing, so a dry run reported the workspace default for an owned
+# install — advertising exactly the destructive outcome a dry run exists to rule
+# out. Reads are side-effect free; only writes belong behind run_cmd.
+# Strip comments before asserting: the code must have no short-circuit, and the
+# comment explaining why legitimately names DRY_RUN.
+reader_code=$(sed -n '/^source_policy_recorded_mode()/,/^}/p' lib/source-policy.sh | sed 's/#.*//')
+refute_contains "$reader_code" 'DRY_RUN' "the mode reader has no dry-run short-circuit"
+
+dry_mode=$(
+  SITE_PATH="$RECON/site" DRY_RUN=true SOURCE_MODE_EXPLICIT=false
+  log() { :; }; error() { echo "ERR"; exit 1; }
+  _source_policy_option_read() {
+    case "$1" in wp_coding_agents_posture) echo managed ;; *) return 0 ;; esac
+  }
+  source_policy_resolve_mode >/dev/null 2>&1
+  printf '%s' "$SOURCE_MODE"
+)
+assert_eq "$dry_mode" "owned" "a dry run reports the mode the install actually has"

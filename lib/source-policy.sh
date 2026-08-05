@@ -62,6 +62,29 @@ SOURCE_POLICY_LEGACY_OPTION="wp_coding_agents_posture"
 SOURCE_POLICY_LEGACY_OWNED_OPTION="wp_coding_agents_managed_sources"
 SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
 
+# Read a wp option WITHOUT going through run_cmd.
+#
+# wp_cmd routes through run_cmd, which under --dry-run ECHOES the command
+# instead of running it. Every recorded_* reader used it, so during a dry run
+# they returned the echoed command text rather than the stored value, and the
+# resolver fell through to defaults. On h44lacrosse.com that made
+# `./upgrade.sh --dry-run` report `--source-mode workspace` and a full deny set
+# for a site recorded as owned — advertising precisely the destructive outcome
+# an operator runs a dry run to rule out.
+#
+# Reads are side-effect free, so they should happen in a dry run, not be
+# simulated. Only writes belong behind run_cmd.
+_source_policy_option_read() {
+  local key="$1"
+  [ -n "${SITE_PATH:-}" ] || return 0
+  if [ "${IS_STUDIO:-false}" = true ]; then
+    studio wp option get "$key" --path="$SITE_PATH" 2>/dev/null || true
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  $WP_CMD option get "$key" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
+}
+
 # Read an option, falling back to its pre-rename name.
 #
 # Not a one-shot migration on upgrade: an operator can run a NEWER upgrade.sh
@@ -72,13 +95,13 @@ SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
 _source_policy_option_get() {
   local key="$1" legacy="$2" value=""
 
-  value="$(wp_cmd option get "$key" 2>/dev/null || true)"
+  value="$(_source_policy_option_read "$key" 2>/dev/null || true)"
   if [ -n "$(printf '%s' "$value" | tr -d '[:space:]')" ]; then
     printf '%s' "$value"
     return 0
   fi
 
-  wp_cmd option get "$legacy" 2>/dev/null || true
+  _source_policy_option_read "$legacy" 2>/dev/null || true
 }
 # Paths OUTSIDE the site root the agent may read — server logs, almost always.
 #
@@ -237,11 +260,8 @@ source_policy_resolve_mode() {
 # Deliberately quiet: a fresh install, a dry run, or a site whose database is
 # not reachable yet must fall through to the default rather than fail.
 source_policy_recorded_mode() {
-  if [ "${DRY_RUN:-false}" = true ]; then
-    printf '%s' "${SOURCE_MODE:-}"
-    return 0
-  fi
-
+  # No DRY_RUN short-circuit: reads are side-effect free, and faking one here
+  # made a dry run on an owned install report the workspace default.
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
@@ -267,7 +287,7 @@ source_policy_record_mode() {
   # `engineering` IS `workspace` — and leave it recorded under the old key
   # forever, so the migration would never actually happen.
   local current=""
-  current="$(wp_cmd option get "$SOURCE_POLICY_OPTION" 2>/dev/null | tr -d '[:space:]' || true)"
+  current="$(_source_policy_option_read "$SOURCE_POLICY_OPTION" 2>/dev/null | tr -d '[:space:]' || true)"
   if [ "$current" = "$mode" ]; then
     return 0
   fi
@@ -358,7 +378,7 @@ source_policy_recorded_log_paths() {
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
-  wp_cmd option get "$SOURCE_POLICY_LOG_OPTION" 2>/dev/null || true
+  _source_policy_option_read "$SOURCE_POLICY_LOG_OPTION" 2>/dev/null || true
 }
 
 source_policy_record_log_paths() {
@@ -371,7 +391,10 @@ source_policy_record_log_paths() {
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
-  if [ "$(source_policy_recorded_log_paths)" = "$paths" ]; then
+  # New key only — see source_policy_record_owned_sources.
+  local current=""
+  current="$(_source_policy_option_read "$SOURCE_POLICY_LOG_OPTION" 2>/dev/null || true)"
+  if [ "$current" = "$paths" ]; then
     return 0
   fi
   if printf '%s' "$paths" | wp_cmd option update "$SOURCE_POLICY_LOG_OPTION" >/dev/null 2>&1; then
@@ -465,7 +488,10 @@ source_policy_record_writable_paths() {
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
-  if [ "$(source_policy_recorded_writable_paths)" = "$paths" ]; then
+  # New key only — see source_policy_record_owned_sources.
+  local current=""
+  current="$(_source_policy_option_read "$SOURCE_POLICY_WRITABLE_OPTION" 2>/dev/null || true)"
+  if [ "$current" = "$paths" ]; then
     return 0
   fi
   if printf '%s' "$paths" | wp_cmd option update "$SOURCE_POLICY_WRITABLE_OPTION" >/dev/null 2>&1; then
@@ -545,7 +571,20 @@ source_policy_record_owned_sources() {
     return 0
   fi
 
-  if [ "$(source_policy_recorded_owned_sources)" = "$sources" ]; then
+  # The manifest is reconciled unconditionally, BEFORE the no-change return.
+  # It is a projection of the declaration, not a record of a change to it: an
+  # install whose sources never change would otherwise never get one, and a
+  # manifest deleted by hand would never come back.
+  source_policy_write_owned_manifest
+
+  # Compare against the NEW key only. Comparing through the legacy-aware reader
+  # sees a pre-rename install as already correct — the legacy key holds exactly
+  # these paths — and returns before writing, leaving the install recorded under
+  # the old key forever. Same defect this file already fixed for the mode; the
+  # sibling recorders inherited it.
+  local current=""
+  current="$(_source_policy_option_read "$SOURCE_POLICY_OWNED_OPTION" 2>/dev/null || true)"
+  if [ "$current" = "$sources" ]; then
     return 0
   fi
 
@@ -557,8 +596,6 @@ source_policy_record_owned_sources() {
   else
     warn "Could not record managed sources — upgrades will fall back to the recorded value or none"
   fi
-
-  source_policy_write_owned_manifest
 }
 
 # Absolute path of this install's owned-sources manifest, or '' when there is
