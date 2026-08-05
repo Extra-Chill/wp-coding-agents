@@ -94,6 +94,33 @@ _source_policy_option_get() {
 # denied for edit, so the agent can diagnose without rewriting a log.
 SOURCE_POLICY_LOG_OPTION="wp_coding_agents_log_paths"
 
+# Where the declared owned sources are projected as a plain readable file.
+#
+# Owned mode rests on one invariant: the editable set equals the set captured by
+# the operator's out-of-band harvest. Nothing enforces that today, because the
+# two lists live in different places — this install records the editable set in
+# a wp option, and the capture mechanism keeps its own hand-maintained copy. A
+# component added to one and forgotten in the other is either an editable
+# surface nothing records (work silently lost on the next update) or a captured
+# surface the agent cannot touch.
+#
+# The capture mechanism cannot simply read the option. It is deliberately a
+# read-only identity and cannot read wp-config.php — wp-coding-agents hardens
+# that file to www-data:640 itself — so it can never run WP-CLI and never reach
+# the database. Verified on h44lacrosse.com: the harvest user gets
+# "Failed to open stream: Permission denied" from `wp option get`.
+#
+# So the option stays authoritative and this file is its projection: a derived
+# artifact, rewritten on every upgrade, that a shell with no database access can
+# `cat`. That is what lets capture derive its component list from the same
+# declaration the permissions come from, instead of duplicating it.
+#
+# DELIBERATELY OUTSIDE THE SITE ROOT. SITE_PATH is the nginx docroot, so a file
+# written there is fetchable over HTTP. This only names plugin and theme slugs,
+# but the install's component layout is not something to publish for the
+# convenience of a local reader.
+SOURCE_POLICY_MANIFEST_ROOT="${SOURCE_POLICY_MANIFEST_ROOT:-/var/lib/wp-coding-agents}"
+
 # Every installed-source root wp-coding-agents has an opinion about, in the
 # order they are emitted by every consumer. Adding a root here adds it to all
 # runtimes and to the AGENTS.md prose at once.
@@ -501,6 +528,9 @@ source_policy_recorded_owned_sources() {
 
 source_policy_record_owned_sources() {
   if ! source_policy_is_owned; then
+    # Includes the workspace-mode case, and an install switched back out of
+    # owned mode — which is exactly when a left-behind manifest starts lying.
+    source_policy_remove_owned_manifest
     return 0
   fi
 
@@ -526,6 +556,78 @@ source_policy_record_owned_sources() {
     fi
   else
     warn "Could not record managed sources — upgrades will fall back to the recorded value or none"
+  fi
+
+  source_policy_write_owned_manifest
+}
+
+# Absolute path of this install's owned-sources manifest, or '' when there is
+# nothing to key it on. Keyed by site domain so one host can serve several.
+source_policy_manifest_path() {
+  local key="${SITE_DOMAIN:-}"
+  [ -n "$key" ] || key="$(basename "${SITE_PATH:-}" 2>/dev/null)"
+  [ -n "$key" ] || return 0
+  printf '%s/%s/owned-sources' "$SOURCE_POLICY_MANIFEST_ROOT" "$key"
+}
+
+# Project the declared owned sources to that path: one wp-content-relative path
+# per line, no header, so a consumer with only `cat` and a read loop can use it.
+#
+# Written 0644 on purpose. The reader is a different, unprivileged, deliberately
+# read-only identity; making this file secret would defeat the reason it exists.
+# It contains nothing the site's own directory listing does not already show to
+# anyone with a shell.
+source_policy_write_owned_manifest() {
+  local path sources
+  path="$(source_policy_manifest_path)"
+  [ -n "$path" ] || return 0
+
+  # Local installs have no out-of-band capture to inform, and no reason to
+  # require write access to /var/lib on someone's laptop.
+  [ "${LOCAL_MODE:-false}" = true ] && return 0
+
+  sources="${OWNED_SOURCES:-}"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} write owned-sources manifest: $path"
+    return 0
+  fi
+
+  if ! mkdir -p "$(dirname "$path")" 2>/dev/null; then
+    warn "Could not create $(dirname "$path") — out-of-band capture cannot read the declared sources"
+    return 0
+  fi
+
+  if printf '%s\n' "$sources" | sed '/^[[:space:]]*$/d' > "$path.tmp" 2>/dev/null &&
+     mv "$path.tmp" "$path" 2>/dev/null; then
+    chmod 0644 "$path" 2>/dev/null || true
+    log "  Owned-sources manifest: $path"
+  else
+    rm -f "$path.tmp" 2>/dev/null || true
+    warn "Could not write $path — out-of-band capture cannot read the declared sources"
+  fi
+}
+
+# Remove a manifest left behind by an install that is no longer in owned mode.
+#
+# A stale manifest is worse than none: it keeps asserting an editable set that
+# the permission layer has stopped granting, and a capture mechanism reading it
+# would go on harvesting components the agent can no longer touch — reporting
+# health for a relationship that no longer exists.
+source_policy_remove_owned_manifest() {
+  local path
+  path="$(source_policy_manifest_path)"
+  [ -n "$path" ] || return 0
+  [ "${LOCAL_MODE:-false}" = true ] && return 0
+  [ -e "$path" ] || return 0
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} remove stale owned-sources manifest: $path"
+    return 0
+  fi
+
+  if rm -f "$path" 2>/dev/null; then
+    log "  Removed stale owned-sources manifest: $path"
   fi
 }
 
