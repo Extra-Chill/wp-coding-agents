@@ -134,6 +134,33 @@ skill_is_enabled() {
 }
 
 skills_removed=0
+skills_unremovable=0
+
+# Best-effort removal inside the npm package directory.
+#
+# This script runs as ExecStartPre, as the SERVICE user, with `set -e` and no
+# `-` prefix on the unit directive — so any non-zero exit here blocks the
+# service from starting at all. The package dir is root-owned
+# (/usr/lib/node_modules/kimaki, 0755), which a non-root service user cannot
+# unlink from. An unguarded `rm -rf` therefore turns a supported install shape
+# into a service that will not boot, and it fails LATE: only once `npm update -g
+# kimaki` has recreated a bundled skill is there anything to remove.
+#
+# These removals are hygiene against npm restoring files we do not want on the
+# skill surface, not correctness. Not being able to perform them is worth a
+# warning, never a failed start.
+try_remove_package_path() {
+  local path="$1" label="$2"
+  if rm -rf "$path" 2>/dev/null; then
+    echo "kimaki-config: removed $label"
+    skills_removed=$((skills_removed + 1))
+    return 0
+  fi
+  echo "kimaki-config: WARNING: could not remove $label at $path (owned by another user?); leaving it in place"
+  skills_unremovable=$((skills_unremovable + 1))
+  return 0
+}
+
 if [[ ! -d "$SKILLS_DIR" ]]; then
   echo "kimaki-config: skills dir not found at $SKILLS_DIR, skipping package skill surface enforcement"
 else
@@ -141,16 +168,12 @@ else
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
     if is_wp_coding_agents_skill "$skill_name"; then
-      rm -rf "$skill_dir"
-      echo "kimaki-config: removed package-local duplicate skill $skill_name"
-      skills_removed=$((skills_removed + 1))
+      try_remove_package_path "$skill_dir" "package-local duplicate skill $skill_name"
       continue
     fi
 
     if [[ -n "$SKILL_ENABLES_FILE" && -f "$SKILL_ENABLES_FILE" ]] && ! skill_is_enabled "$skill_name"; then
-      rm -rf "$skill_dir"
-      echo "kimaki-config: removed package-local skill outside allowlist $skill_name"
-      skills_removed=$((skills_removed + 1))
+      try_remove_package_path "$skill_dir" "package-local skill outside allowlist $skill_name"
     fi
   done
 fi
@@ -257,8 +280,14 @@ fi
 for obsolete_dir in "$PLUGIN_SOURCE_DIR" "$PLUGINS_DIR"; do
   obsolete_plugin="$obsolete_dir/homeboy-notification-context.ts"
   if [[ -e "$obsolete_plugin" ]]; then
-    rm -f "$obsolete_plugin"
-    echo "kimaki-config: removed obsolete plugin $obsolete_plugin"
+    # Same reasoning as try_remove_package_path: on a VPS PLUGINS_DIR is
+    # /opt/kimaki-config/plugins, which is root-owned, and this runs as the
+    # service user during ExecStartPre.
+    if rm -f "$obsolete_plugin" 2>/dev/null; then
+      echo "kimaki-config: removed obsolete plugin $obsolete_plugin"
+    else
+      echo "kimaki-config: WARNING: could not remove obsolete plugin $obsolete_plugin (owned by another user?)"
+    fi
   fi
 done
 

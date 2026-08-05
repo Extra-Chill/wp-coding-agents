@@ -575,7 +575,7 @@ configure_homeboy_wordpress_extension() {
 
 recompose_agents_md_for_homeboy() {
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} (as ${SERVICE_USER:-caller}) $WP_CMD datamachine memory compose AGENTS.md"
     return 0
   fi
 
@@ -583,7 +583,10 @@ recompose_agents_md_for_homeboy() {
     return 0
   fi
 
-  if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+  # As the service user — see wp_run_as_service_user(). A recompose that runs as
+  # root re-bakes `wp --allow-root` into the examples and would silently undo the
+  # correct file the main compose phase just wrote.
+  if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     log "AGENTS.md recomposed after Homeboy availability sync."
   else
     homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy availability sync."

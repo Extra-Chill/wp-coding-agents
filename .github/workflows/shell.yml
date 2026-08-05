@@ -147,6 +147,14 @@ jobs:
       - name: Run tests/posture.sh
         run: ./tests/posture.sh
 
+  service-migration:
+    name: root -> non-root service identity migration (#93)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/service-migration.sh
+        run: ./tests/service-migration.sh
+
   agents-md-guidance:
     name: AGENTS.md guidance registry
     runs-on: ubuntu-latest

@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance agents-md-backups; do
+for lib in common detect source-policy service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -134,6 +134,10 @@ WITH_HOMEBOY="${WITH_HOMEBOY:-false}"
 # True when the operator forced the identity via --root / --non-root.
 # Suppresses adopt_service_identity_from_units (existing-unit adoption).
 SERVICE_USER_FORCED=false
+# Set by --migrate-non-root: move an already-installed root agent onto a
+# dedicated non-root service user, carrying its state across. See #93.
+MIGRATE_NON_ROOT=false
+MIGRATE_TARGET_USER="$SERVICE_MIGRATION_DEFAULT_USER"
 initialize_kimaki_overrides
 
 while [[ $# -gt 0 ]]; do
@@ -165,6 +169,9 @@ while [[ $# -gt 0 ]]; do
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
     --root)          RUN_AS_ROOT=true;  SERVICE_USER_FORCED=true; shift ;;
     --non-root)      RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
+    --migrate-non-root) MIGRATE_NON_ROOT=true; RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
+    --migrate-user)  MIGRATE_TARGET_USER="$2"; shift 2 ;;
+    --migrate-extra) service_migration_add_extra_path "$2"; shift 2 ;;
     --help|-h)       SHOW_HELP=true; shift ;;
     *)               shift ;;
   esac
@@ -234,6 +241,28 @@ SERVICE IDENTITY:
   installed systemd unit (its User= line) rather than assuming root.
   The upgrade never changes the service identity implicitly; use
   --root / --non-root to change it deliberately.
+
+  ./upgrade.sh --migrate-non-root
+                                Move an install that currently runs as root
+                                onto a dedicated non-root service user,
+                                carrying the agent's state across. Use this
+                                rather than --non-root, which only re-renders
+                                the unit and would strand the agent's state
+                                in /root.
+  ./upgrade.sh --migrate-user <name>
+                                Target user for --migrate-non-root
+                                (default: $SERVICE_MIGRATION_DEFAULT_USER).
+  ./upgrade.sh --migrate-extra <path>
+                                Carry an additional service-home-relative path
+                                across. Repeatable. For install-specific state
+                                the shipped inventory cannot know about.
+                                Credential-shaped paths are refused.
+
+  What migrates is an explicit, posture-aware allowlist: runtime state
+  under every posture, plus the dev toolchain and forge credentials under
+  engineering posture only. SSH keys, secret stores, and shell history are
+  never migrated — they stay behind in root-owned /root, out of the agent's
+  reach. That is the point of the migration, not a side effect.
 
 SUPPORTED CHAT BRIDGES:
   kimaki, cc-connect, telegram  (auto-detected per environment)
@@ -406,6 +435,23 @@ if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = tru
   error "Please run as root (sudo ./upgrade.sh), or use --non-root for installs whose service and WordPress files are writable by the current user."
 fi
 
+# Service identity, as the units on disk actually have it. --non-root and
+# --migrate-non-root both set SERVICE_USER_FORCED=true, which suppresses
+# adoption above, so this is the only thing that still knows what the install is
+# running as TODAY — which both branches below need. Read-only.
+INSTALLED_SERVICE_USER="$(service_migration_installed_user)"
+
+# --non-root alone only forces the identity the units are RENDERED with. On an
+# install already running as root that is a footgun (#93): the service user may
+# not exist, and KIMAKI_DATA_DIR is derived from the service home, so the agent
+# gets repointed at an empty home while its session database, runtime auth, and
+# toolchains stay behind in /root. Refuse early, before any mutation, and name
+# the flag that does it properly rather than render a broken unit.
+if [ "$MIGRATE_NON_ROOT" = false ] && [ "$LOCAL_MODE" = false ] && \
+   [ "$RUN_AS_ROOT" = false ] && [ "$INSTALLED_SERVICE_USER" = "root" ]; then
+  error "This install currently runs as root. --non-root only re-renders the unit; it would not create the service user or carry the agent's state across, leaving the service pointed at an empty home. Use --migrate-non-root to move it properly."
+fi
+
 log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
 log "Site path:   $SITE_PATH"
@@ -422,6 +468,22 @@ echo ""
 
 # Track what was touched for the summary
 UPDATED_ITEMS=()
+
+# Service identity migration (#93). Runs before any phase that renders a unit or
+# writes into the service home, so everything downstream sees the new identity.
+# Deliberately after UPDATED_ITEMS is declared — it reports into the summary.
+if [ "$MIGRATE_NON_ROOT" = true ]; then
+  if [ -z "$INSTALLED_SERVICE_USER" ]; then
+    error "--migrate-non-root found no installed systemd unit to migrate. Use ./setup.sh --non-root for a fresh install."
+  elif [ "$INSTALLED_SERVICE_USER" != "root" ]; then
+    log "Install already runs as '$INSTALLED_SERVICE_USER' — nothing to migrate."
+    MIGRATE_NON_ROOT=false
+  else
+    service_migration_preflight "$MIGRATE_TARGET_USER" "/root" "$POSTURE"
+    service_migration_run "$MIGRATE_TARGET_USER" "/root" "$POSTURE"
+    UPDATED_ITEMS+=("Service identity migrated: root -> $SERVICE_USER")
+  fi
+fi
 
 # Set true when opencode.json is found to have plugin-array drift and the
 # --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
@@ -843,7 +905,7 @@ regenerate_agents_md() {
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
     echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
-    echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $WP_CMD datamachine memory compose AGENTS.md"
     if _runtime_detected opencode; then
       echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     fi
@@ -863,12 +925,19 @@ regenerate_agents_md() {
 
   # `datamachine memory compose AGENTS.md` writes in-place to the registered
   # composable file path. It does NOT accept an arbitrary output path —
-  # the filename must be a registered MemoryFileRegistry entry. Compose runs
-  # as the wp-coding-agents caller's identity (root during upgrade, opencode
-  # during local dev), so normalize afterward the same way every other
-  # service-file writer does — otherwise the identity that ran this upgrade
-  # is the only one that can write AGENTS.md until the next normalize.
-  if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+  # the filename must be a registered MemoryFileRegistry entry.
+  #
+  # Composed AS THE SERVICE USER, not as the caller. The generated text encodes
+  # the composing process's euid — data-machine and data-machine-code both
+  # append `--allow-root` to their WP-CLI examples when posix_geteuid() === 0 —
+  # and upgrade.sh runs under sudo. Composing here as root would write an
+  # AGENTS.md instructing a non-root agent to run `wp --allow-root`, i.e. a file
+  # that misdescribes the agent's own environment (#93, #322).
+  #
+  # Permissions are still normalized afterward: compose writes as whichever
+  # identity ran it, and without this every other writer is locked out until the
+  # next normalize.
+  if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
