@@ -147,6 +147,14 @@ jobs:
       - name: Run tests/source-mode.sh
         run: ./tests/source-mode.sh
 
+  service-identity-defaults:
+    name: owned mode defaults to non-root (#327)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/service-identity-defaults.sh
+        run: ./tests/service-identity-defaults.sh
+
   service-migration:
     name: root -> non-root service identity migration (#93)
     runs-on: ubuntu-latest

@@ -177,21 +177,91 @@ detect_environment() {
   WP_ADMIN_PASS="${WP_ADMIN_PASS:-$(openssl rand -base64 16)}"
   WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@$SITE_DOMAIN}"
 
-  # Service user configuration
+  detect_service_identity
+}
+
+# Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / DM_WORKSPACE_DIR from
+# LOCAL_MODE and RUN_AS_ROOT.
+#
+# Split out of detect_environment so it can be re-derived. setup.sh resolves the
+# source mode AFTER detection — the mode is read from the site, which detection
+# is what finds — and the owned mode defaults to a non-root service user (#327).
+# Without a way to recompute, that default could only flip RUN_AS_ROOT and would
+# leave SERVICE_USER, the service home, and the data dir all still pointing at
+# root: exactly the half-applied identity that #204 and #93 are both about.
+#
+# Idempotent. KIMAKI_DATA_DIR is recomputed unless the operator set it
+# explicitly (env var or --kimaki-data-dir), so a second call cannot pin the
+# data dir to the home of the identity that was current on the first call.
+detect_service_identity() {
   if [ "$LOCAL_MODE" = true ]; then
     SERVICE_USER="$(whoami)"
     SERVICE_HOME="$HOME"
-    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
+    _detect_default_kimaki_data_dir "$HOME/.kimaki"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-$HOME/.datamachine/workspace}"
   elif [ "$RUN_AS_ROOT" = true ]; then
     SERVICE_USER="root"
     SERVICE_HOME="/root"
-    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-/root/.kimaki}"
+    _detect_default_kimaki_data_dir "/root/.kimaki"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   else
     SERVICE_USER="opencode"
     SERVICE_HOME="/home/opencode"
-    KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-/home/opencode/.kimaki}"
+    _detect_default_kimaki_data_dir "/home/opencode/.kimaki"
     DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   fi
+}
+
+_detect_default_kimaki_data_dir() {
+  # An operator-set data dir is never relocated.
+  if [ "${KIMAKI_DATA_DIR_EXPLICIT:-}" = true ]; then
+    return 0
+  fi
+
+  # This used to be `KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-<default>}"`, which
+  # cannot be re-derived: the second call sees the value the first one wrote and
+  # keeps the old identity's home. The EXPLICIT flag replaces it, and both real
+  # entry points set that flag (initialize_kimaki_overrides) before detecting.
+  # When the flag machinery has not run at all, fall back to the historical
+  # behaviour rather than silently relocating a caller that only exported the
+  # variable.
+  if [ -z "${KIMAKI_DATA_DIR_EXPLICIT+x}" ] && [ -n "${KIMAKI_DATA_DIR:-}" ]; then
+    return 0
+  fi
+
+  KIMAKI_DATA_DIR="$1"
+}
+
+# Owned mode defaults to a non-root service user (#327).
+#
+# The edit denies are a guardrail, not containment: `permission.edit` gates the
+# runtime's edit tool only, `bash` is a separate key that is unset (and so
+# allowed), and a root service reaches every denied path through `bash -c`,
+# `wp eval`, or a PHP one-liner. The service user is the lever that actually
+# holds, because the kernel enforces it rather than a config file.
+#
+# Scoped to owned mode deliberately. That is the shape aimed at owners who
+# cannot evaluate the risk — a site whose operator never opens a terminal should
+# not carry an agent with an unrestricted root shell. A workspace install
+# belongs to a developer who chose it, so its default is left alone and the
+# migration (upgrade.sh --migrate-non-root) is offered instead.
+#
+# A DEFAULT only: --root and --non-root both set SERVICE_USER_FORCED, which
+# means the operator already decided and is not second-guessed. Applies to fresh
+# installs; an existing install is never flipped implicitly (#204), because that
+# would strand the agent's state in the old home.
+#
+# Lives here rather than inline in setup.sh because setup.sh resolves the source
+# mode AFTER detection — the mode is read from the site, which detection is what
+# finds — so this has to re-derive the identity, and a re-derivation is worth
+# testing directly.
+detect_apply_source_mode_identity_default() {
+  [ "${SOURCE_MODE:-}" = "owned" ] || return 0
+  [ "${SERVICE_USER_FORCED:-false}" = false ] || return 0
+  [ "${LOCAL_MODE:-false}" = false ] || return 0
+  [ "${RUN_AS_ROOT:-true}" = true ] || return 0
+
+  RUN_AS_ROOT=false
+  detect_service_identity
+  log "Owned mode: defaulting to non-root service user '$SERVICE_USER' (pass --root to override)"
 }
