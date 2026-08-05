@@ -135,7 +135,11 @@ bridge_update_systemd
 other_after=$(cksum "$SYSTEMD_UNIT_DIR/kimaki.service")
 [ "$other_before" = "$other_after" ]
 grep -q '^WorkingDirectory=.*/site-b$' "$SYSTEMD_UNIT_DIR/kimaki-site-b.service"
-grep -q -- '--data-dir /home/opencode/.kimaki-site-b --lock-port 6543' "$SYSTEMD_UNIT_DIR/kimaki-site-b.service"
+grep -q '^Environment=KIMAKI_LOCK_PORT=6543$' "$SYSTEMD_UNIT_DIR/kimaki-site-b.service"
+if grep -q -- '--lock-port' "$SYSTEMD_UNIT_DIR/kimaki-site-b.service"; then
+  echo "FAIL: obsolete lock-port argument survived managed unit migration" >&2
+  exit 1
+fi
 grep -q '^Environment=DATAMACHINE_AGENT_SLUG=site-b$' "$SYSTEMD_UNIT_DIR/kimaki-site-b.service"
 
 # Explicit managed overrides replace, rather than merge-preserve, installed
@@ -177,7 +181,11 @@ wrapper_output=$(LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/openc
 echo "$wrapper_output" | grep -q 'wp-coding-agents-kimaki-site-b-dispatch'
 
 rendered=$(bridge_render_systemd kimaki-site-b.service 'Environment=HOME=/home/opencode')
-echo "$rendered" | grep -q -- '--lock-port 6543'
+echo "$rendered" | grep -q '^Environment=KIMAKI_LOCK_PORT=6543$'
+if echo "$rendered" | grep -q -- '--lock-port'; then
+  echo "FAIL: renderer emitted obsolete lock-port argument" >&2
+  exit 1
+fi
 if echo "$rendered" | grep -q 'pkill -TERM'; then
   echo "FAIL: custom instance contains host-user-wide stale worker cleanup" >&2
   exit 1
