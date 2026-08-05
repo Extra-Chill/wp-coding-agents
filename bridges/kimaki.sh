@@ -1190,6 +1190,19 @@ bridge_render_systemd() {
   local skill_filter_args
   skill_filter_args="$(_kimaki_skill_filter_args_shell)"
   _kimaki_validate_lock_port
+
+  # The lock port reaches the unit through Environment= rather than the
+  # --lock-port argument this used to append (#334). That moved a guarantee the
+  # RENDERER held unconditionally into data the CALLER supplies, so a caller
+  # that passes an env block without the line silently drops the port and the
+  # instance falls back to the default — two instances then fight over one lock.
+  # Re-assert it here, where it was always enforced.
+  if [ -n "${KIMAKI_LOCK_PORT:-}" ] && \
+     ! printf '%s\n' "$env_block" | grep -q '^Environment=KIMAKI_LOCK_PORT='; then
+    env_block="$env_block
+Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
+  fi
+
   local stale_worker_cleanup="# User-wide stale-worker cleanup omitted for instance isolation."
   if [ "$unit" = "kimaki.service" ]; then
     stale_worker_cleanup='ExecStartPre=-/usr/bin/pkill -TERM -u '$SERVICE_USER' -f "opencode-ai/bin/.*serve"'

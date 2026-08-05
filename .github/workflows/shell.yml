@@ -194,3 +194,39 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/claude-code-hook-scope.sh
         run: ./tests/claude-code-hook-scope.sh
+
+  # Suites that had no CI job until #335. Run as a matrix so adding a test is a
+  # one-line change and tests/ci-coverage.sh stays satisfied; invoked through
+  # `bash` because several of these files do not carry the executable bit.
+  suites:
+    name: ${{ matrix.test }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - agents-md-backup-retention
+          - carried-claude-code-plugin
+          - ci-coverage
+          - codex-runtime
+          - datamachine-worker
+          - detect-site-domain
+          - homeboy-codebox-canary
+          - homeboy-components
+          - homeboy-dmc-provider
+          - homeboy-project-id
+          - kimaki-launchd-start
+          - kimaki-managed-plugin-rig
+          - kimaki-multi-instance
+          - kimaki-system-message-patch
+          - opencode-claude-auth-refresh-hardening
+          - path-helpers
+          - post-upgrade-restore
+          - runtime-signature
+          - upgrade-opencode-auth-plugin-sync
+          - worktree-context-projections
+          - wp-config-permissions
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/${{ matrix.test }}.sh
+        run: bash tests/${{ matrix.test }}.sh
