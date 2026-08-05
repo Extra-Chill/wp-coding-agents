@@ -1,8 +1,8 @@
 #!/bin/bash
 # guidance/abilities.sh — WordPress Abilities discovery guidance.
 #
-# Posture-neutral: abilities are the tool surface in both engineering and
-# managed installs, and the routing advice does not change with the agent's
+# Mode-neutral: abilities are the tool surface in both workspace and
+# owned-mode installs, and the routing advice does not change with the agent's
 # relationship to installed source.
 
 guidance_id() { printf 'abilities'; }

@@ -2,7 +2,7 @@
 # guidance/homeboy.sh — Homeboy orchestration routing guidance (issues #208, #254, #298).
 #
 # Strictly presence-gated on the optional homeboy binary, and additionally on
-# postures that actually have a workspace: the routing advice below is about
+# modes that actually have a workspace: the routing advice below is about
 # cooking tracked changes in managed worktrees, which is meaningless on a
 # managed-hosting install where the agent edits live source and never touches
 # git.

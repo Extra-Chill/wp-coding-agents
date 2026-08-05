@@ -35,16 +35,16 @@
 # that says "the agent's files" will, on somebody else's install, mean something
 # nobody intended).
 #
-# The inventory is posture-aware, which makes it the file-axis counterpart to the
+# The inventory is mode-aware, which makes it the file-axis counterpart to the
 # capability table in #327:
 #
-#   managed       runtime state only. No dev toolchain, no forge credentials —
-#                 a managed agent has no git and no GitHub in its world at all,
+#   owned         runtime state only. No dev toolchain, no forge credentials —
+#                 an owned-mode agent has no git and no GitHub in its world at all,
 #                 so migrating them would hand over reach it has no use for.
-#   engineering   runtime state plus the dev toolchain and forge auth, because
-#                 that posture's whole job is workspace/git/GitHub work.
+#   workspace     runtime state plus the dev toolchain and forge auth, because
+#                 that mode's whole job is workspace/git/GitHub work.
 #
-# Neither posture migrates SSH keys, secret stores, or shell history. There is no
+# Neither mode migrates SSH keys, secret stores, or shell history. There is no
 # flag to opt into that. An agent that needs to reach another host should be given
 # a scoped credential deliberately, not inherit the operator's.
 #
@@ -58,11 +58,11 @@
 # Public surface:
 #   service_migration_runtime_paths           # newline-separated, HOME-relative
 #   service_migration_toolchain_paths         # newline-separated, HOME-relative
-#   service_migration_inventory <posture>     # the two above, per posture
+#   service_migration_inventory <mode>     # the two above, per mode
 #   service_migration_excluded_paths          # documented never-migrate list
 #   service_migration_is_excluded <rel>       # 0 = must never be migrated
 #   service_migration_preflight               # fails closed, changes nothing
-#   service_migration_estimate_bytes <home> <posture>
+#   service_migration_estimate_bytes <home> <mode>
 #   service_migration_run                     # the migration itself
 #
 # Honors DRY_RUN (logs intent, makes no changes).
@@ -82,7 +82,7 @@ SERVICE_MIGRATION_DEFAULT_USER="opencode"
 
 # Runtime state: the agent's own brain. Without these the migrated service is
 # amnesiac — no sessions, no runtime auth, no CLI state. Migrated under every
-# posture because they are what "the agent" IS.
+# mode because they are what "the agent" IS.
 service_migration_runtime_paths() {
   cat <<'EOF'
 .kimaki
@@ -94,9 +94,9 @@ service_migration_runtime_paths() {
 EOF
 }
 
-# Dev toolchain and forge credentials. Engineering posture only: these exist to
-# serve workspace/git/GitHub work, which is precisely what managed posture does
-# not do. Handing a managed agent GitHub auth would widen its reach for no
+# Dev toolchain and forge credentials. Workspace mode only: these exist to
+# serve workspace/git/GitHub work, which is precisely what owned mode does
+# not do. Handing an owned-mode agent GitHub auth would widen its reach for no
 # capability it is ever asked to exercise.
 service_migration_toolchain_paths() {
   cat <<'EOF'
@@ -120,7 +120,7 @@ go
 EOF
 }
 
-# Paths that must never migrate, whatever the posture. Enumerated so the
+# Paths that must never migrate, whatever the mode. Enumerated so the
 # exclusion is reviewable and testable rather than implied by absence — an
 # inventory that merely forgets `.ssh` is one careless addition away from
 # shipping it.
@@ -179,15 +179,23 @@ service_migration_is_excluded() {
 # exclusion rules: the escape hatch does not become the way SSH keys travel.
 SERVICE_MIGRATION_EXTRA_PATHS="${SERVICE_MIGRATION_EXTRA_PATHS:-}"
 
-# The inventory for a posture, as newline-separated HOME-relative paths.
+# The inventory for a mode, as newline-separated HOME-relative paths.
 # Excluded paths are filtered unconditionally, so neither a future edit to the
 # lists above nor an operator's --migrate-extra can leak a credential.
 service_migration_inventory() {
-  local posture="${1:-engineering}" rel
+  local mode="${1:-workspace}" rel
+  # Accept the pre-rename names. A caller passing `managed` and silently
+  # getting the workspace inventory would migrate a dev toolchain and GitHub
+  # credentials onto an owned-mode agent, which is the one thing the split
+  # exists to prevent.
+  case "$mode" in
+    managed)     mode="owned" ;;
+    engineering) mode="workspace" ;;
+  esac
 
   {
     service_migration_runtime_paths
-    [ "$posture" != "managed" ] && service_migration_toolchain_paths
+    [ "$mode" != "owned" ] && service_migration_toolchain_paths
     [ -n "$SERVICE_MIGRATION_EXTRA_PATHS" ] && printf '%s\n' "$SERVICE_MIGRATION_EXTRA_PATHS"
   } | while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -223,13 +231,13 @@ $rel"
 # Total bytes the inventory occupies under a given home. Used by preflight to
 # refuse a migration that would fill the disk partway through.
 service_migration_estimate_bytes() {
-  local home="$1" posture="${2:-engineering}" rel total=0 sz
+  local home="$1" mode="${2:-workspace}" rel total=0 sz
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     [ -e "$home/$rel" ] || continue
     sz=$(du -sb "$home/$rel" 2>/dev/null | cut -f1)
     [ -n "$sz" ] && total=$((total + sz))
-  done <<<"$(service_migration_inventory "$posture")"
+  done <<<"$(service_migration_inventory "$mode")"
   echo "$total"
 }
 
@@ -251,9 +259,9 @@ service_migration_effective_uid() {
 # --migrate-user should say so, not send the operator off to re-run under sudo
 # only to be told the flag was wrong all along.
 #
-# Args: <target_user> <old_home> <posture>
+# Args: <target_user> <old_home> <mode>
 service_migration_preflight() {
-  local target_user="$1" old_home="$2" posture="${3:-engineering}"
+  local target_user="$1" old_home="$2" mode="${3:-workspace}"
 
   if [ "${LOCAL_MODE:-false}" = true ]; then
     error "Service identity migration is not applicable to a local install (no systemd, no service user)."
@@ -305,7 +313,7 @@ service_migration_preflight() {
       if [ -e "$new_home/$rel" ]; then
         error "Target home '$new_home' already contains '$rel'. Refusing to merge runtime state — inspect and remove it, or choose another target user."
       fi
-    done <<<"$(service_migration_inventory "$posture")"
+    done <<<"$(service_migration_inventory "$mode")"
   fi
 
   # Same-filesystem moves are renames and need no headroom; a cross-filesystem
@@ -314,7 +322,7 @@ service_migration_preflight() {
   old_fs=$(df -P "$old_home" 2>/dev/null | awk 'NR==2 {print $1}')
   new_fs=$(df -P "$(dirname "$new_home")" 2>/dev/null | awk 'NR==2 {print $1}')
   if [ -n "$old_fs" ] && [ "$old_fs" != "$new_fs" ]; then
-    need=$(service_migration_estimate_bytes "$old_home" "$posture")
+    need=$(service_migration_estimate_bytes "$old_home" "$mode")
     avail=$(df -PB1 "$(dirname "$new_home")" 2>/dev/null | awk 'NR==2 {print $4}')
     if [ -n "$avail" ] && [ "$need" -gt 0 ] && [ "$avail" -lt "$need" ]; then
       error "Not enough space to migrate: need $((need / 1024 / 1024)) MiB at '$new_home', $((avail / 1024 / 1024)) MiB available."
@@ -466,8 +474,8 @@ service_migration_reclaim_site() {
   fi
 }
 
-# The agent's code workspace, when one exists (engineering posture only —
-# managed installs have no workspace by definition).
+# The agent's code workspace, when one exists (workspace mode only —
+# owned-mode installs have no workspace by definition).
 service_migration_reclaim_workspace() {
   local user="$1" workspace="$2"
 
@@ -481,20 +489,20 @@ service_migration_reclaim_workspace() {
 
 # Run the migration. Assumes service_migration_preflight has already passed.
 #
-# Args: <target_user> <old_home> <posture>
+# Args: <target_user> <old_home> <mode>
 #
 # On success, sets SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / RUN_AS_ROOT /
 # SERVICE_USER_FORCED for the caller so the normal upgrade phases re-render every
 # unit against the new identity.
 service_migration_run() {
-  local target_user="$1" old_home="$2" posture="${3:-engineering}"
+  local target_user="$1" old_home="$2" mode="${3:-workspace}"
   local new_home rel
 
   new_home=$(service_migration_target_home "$target_user")
 
   log "Migrating service identity: root -> $target_user"
   log "  State home:  $old_home -> $new_home"
-  log "  Posture:     $posture"
+  log "  Source mode: $mode"
 
   if ! id -u "$target_user" >/dev/null 2>&1 || [ "${DRY_RUN:-false}" = true ]; then
     log "  Creating service user '$target_user'..."
@@ -517,12 +525,12 @@ service_migration_run() {
       log "    $rel"
       service_migration_move_path "$rel" "$old_home" "$new_home" "$target_user"
     fi
-  done <<<"$(service_migration_inventory "$posture")"
+  done <<<"$(service_migration_inventory "$mode")"
 
   log "  Reclaiming WordPress file ownership..."
   service_migration_reclaim_site "$target_user" "${SITE_PATH:-}"
 
-  if [ "$posture" != "managed" ]; then
+  if [ "$mode" != "owned" ]; then
     log "  Reclaiming code workspace..."
     service_migration_reclaim_workspace "$target_user" "${DM_WORKSPACE_DIR:-}"
   fi

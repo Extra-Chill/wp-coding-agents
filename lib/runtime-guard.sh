@@ -58,15 +58,15 @@ runtime_guard_sync() {
   }
 
   # Engineering installs have a developer at the keyboard; the guard would be
-  # noise. Remove any guard left behind by a posture switch.
-  if ! source_policy_is_managed; then
+  # noise. Remove any guard left behind by a source-mode switch.
+  if ! source_policy_is_owned; then
     if [ -f "$file" ]; then
       if [ "${DRY_RUN:-false}" = true ]; then
         echo -e "${BLUE}[dry-run]${NC} Would remove runtime guard mu-plugin $file"
         return 0
       fi
       rm -f "$file"
-      log "  Removed runtime guard mu-plugin (posture is ${POSTURE:-engineering}): $file"
+      log "  Removed runtime guard mu-plugin (source mode is ${SOURCE_MODE:-workspace}): $file"
       if [ -n "${UPDATED_ITEMS+x}" ]; then
         UPDATED_ITEMS+=("runtime guard removed")
       fi

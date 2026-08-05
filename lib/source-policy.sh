@@ -1,5 +1,5 @@
 #!/bin/bash
-# lib/source-policy.sh — installed-WordPress-source policy, derived from posture.
+# lib/source-policy.sh — installed-WordPress-source policy, derived from the source mode.
 #
 # wp-coding-agents installs two fundamentally different kinds of agent:
 #
@@ -27,33 +27,59 @@
 #
 # Duplicated policy drifts, and when the prose and the permissions disagree the
 # agent is told to do something it is then blocked from doing. This module is
-# the single answer all of them derive from, so posture cannot be half-applied.
+# the single answer all of them derive from, so the mode cannot be half-applied.
 #
 # Public surface:
-#   source_policy_resolve_posture          # sets POSTURE (flag -> recorded -> default)
-#   source_policy_record_posture           # persists POSTURE for later upgrades
-#   source_policy_is_valid <posture>
+#   source_policy_resolve_mode          # sets SOURCE_MODE (flag -> recorded -> default)
+#   source_policy_record_mode           # persists SOURCE_MODE for later upgrades
+#   source_policy_is_valid <mode>
 #   source_policy_read_only_roots          # newline-separated, ordered
 #   source_policy_editable_roots           # newline-separated, ordered
 #   source_policy_workspace_enabled        # 0 = workspace/git/GitHub apply
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
-# The wp option wp-coding-agents records the chosen posture in. Mirrors the
+# The wp option wp-coding-agents records the chosen source mode in. Mirrors the
 # existing `datamachine_code_homeboy_available` pattern: a setup-time fact that
 # upgrade.sh has to be able to rediscover without asking again.
-SOURCE_POLICY_OPTION="wp_coding_agents_posture"
-SOURCE_POLICY_DEFAULT_POSTURE="engineering"
-# Newline-separated wp-content paths the site owns under managed posture.
-SOURCE_POLICY_OWNED_OPTION="wp_coding_agents_managed_sources"
+SOURCE_POLICY_OPTION="wp_coding_agents_source_mode"
+SOURCE_POLICY_DEFAULT_MODE="workspace"
+# Newline-separated wp-content paths the site owns under owned mode.
+SOURCE_POLICY_OWNED_OPTION="wp_coding_agents_owned_sources"
 # Paths that are editable but NOT captured. Distinct from owned sources on
-# purpose: --managed-source means "editable AND recorded by the operator's
+# purpose: --owned-source means "editable AND recorded by the operator's
 # capture", which is what makes the guidance's "your work is recorded" promise
 # true. wp-config.php and friends are not captured by a component harvest, so
 # declaring them as sources would have AGENTS.md assert a safety property that
 # does not hold for them — the #318 failure. They get their own category and
 # their own, honest, prose.
-SOURCE_POLICY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
+SOURCE_POLICY_WRITABLE_OPTION="wp_coding_agents_owned_writable"
+
+# The option names these replace. Every existing install has its state under
+# these keys, so the rename is only safe if reading transparently falls back and
+# writing migrates. Ordered to match the three constants above.
+SOURCE_POLICY_LEGACY_OPTION="wp_coding_agents_posture"
+SOURCE_POLICY_LEGACY_OWNED_OPTION="wp_coding_agents_managed_sources"
+SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
+
+# Read an option, falling back to its pre-rename name.
+#
+# Not a one-shot migration on upgrade: an operator can run a NEWER upgrade.sh
+# against an install whose options were written by an older one at any time, and
+# a `wp option get` returning empty is indistinguishable from "recorded as
+# empty". Reading through this keeps both true regardless of the order anyone
+# runs anything in.
+_source_policy_option_get() {
+  local key="$1" legacy="$2" value=""
+
+  value="$(wp_cmd option get "$key" 2>/dev/null || true)"
+  if [ -n "$(printf '%s' "$value" | tr -d '[:space:]')" ]; then
+    printf '%s' "$value"
+    return 0
+  fi
+
+  wp_cmd option get "$legacy" 2>/dev/null || true
+}
 # Paths OUTSIDE the site root the agent may read — server logs, almost always.
 #
 # This exists because the limitation was backwards. We are strict about editing
@@ -125,46 +151,67 @@ _source_policy_all_root_paths() {
 
 source_policy_is_valid() {
   case "${1:-}" in
-    engineering|managed) return 0 ;;
+    workspace|owned) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-# Resolve the active posture into the POSTURE global.
+# Translate a legacy posture name to its source-mode equivalent.
 #
-# Precedence: explicit --posture flag (POSTURE_EXPLICIT=true) > posture recorded
-# on the install at setup time > engineering. The recorded value is what lets
-# `upgrade.sh` converge a managed box without the operator repeating the flag —
-# and, critically, without silently reverting it to engineering.
-source_policy_resolve_posture() {
-  if [ "${POSTURE_EXPLICIT:-false}" = true ]; then
-    if ! source_policy_is_valid "${POSTURE:-}"; then
-      error "Unknown --posture '${POSTURE:-}'. Supported: engineering, managed"
+# The old names read as a scale — as though `engineering` were the unrestricted
+# one and `managed` the safe one. It is not a scale, and it is backwards:
+# `engineering` is strictly MORE restricted on live source, since installed
+# source is read-only reference there. What it buys is git and review, not
+# latitude. The new names say where a change LANDS, which is the actual
+# difference, and neither implies rank.
+#
+# Accepted anywhere a mode is: recorded option values written by older installs,
+# and the --posture flag. Returns the input unchanged when it is not a legacy
+# name, so this is safe to run over an already-migrated value.
+source_policy_canonical_mode() {
+  case "${1:-}" in
+    engineering) echo "workspace" ;;
+    managed)     echo "owned" ;;
+    *)           echo "${1:-}" ;;
+  esac
+}
+
+# Resolve the active source mode into the SOURCE_MODE global.
+#
+# Precedence: explicit --source-mode flag (SOURCE_MODE_EXPLICIT=true) > mode
+# recorded on the install at setup time > workspace. The recorded value is what
+# lets `upgrade.sh` converge an owned-mode box without the operator repeating
+# the flag — and, critically, without silently reverting it to workspace.
+source_policy_resolve_mode() {
+  if [ "${SOURCE_MODE_EXPLICIT:-false}" = true ]; then
+    SOURCE_MODE="$(source_policy_canonical_mode "${SOURCE_MODE:-}")"
+    if ! source_policy_is_valid "${SOURCE_MODE:-}"; then
+      error "Unknown --source-mode '${SOURCE_MODE:-}'. Supported: workspace, owned (legacy: engineering, managed)"
     fi
-    log "Posture: $POSTURE (explicit)"
+    log "Source mode: $SOURCE_MODE (explicit)"
     return 0
   fi
 
   local recorded=""
-  recorded="$(source_policy_recorded_posture)"
+  recorded="$(source_policy_canonical_mode "$(source_policy_recorded_mode)")"
 
   if source_policy_is_valid "$recorded"; then
-    POSTURE="$recorded"
-    log "Posture: $POSTURE (recorded on this install)"
+    SOURCE_MODE="$recorded"
+    log "Source mode: $SOURCE_MODE (recorded on this install)"
     return 0
   fi
 
-  POSTURE="$SOURCE_POLICY_DEFAULT_POSTURE"
-  log "Posture: $POSTURE (default)"
+  SOURCE_MODE="$SOURCE_POLICY_DEFAULT_MODE"
+  log "Source mode: $SOURCE_MODE (default)"
 }
 
-# Read the posture recorded on this install, or '' when unavailable.
+# Read the source mode recorded on this install, or '' when unavailable.
 #
 # Deliberately quiet: a fresh install, a dry run, or a site whose database is
 # not reachable yet must fall through to the default rather than fail.
-source_policy_recorded_posture() {
+source_policy_recorded_mode() {
   if [ "${DRY_RUN:-false}" = true ]; then
-    printf '%s' "${POSTURE:-}"
+    printf '%s' "${SOURCE_MODE:-}"
     return 0
   fi
 
@@ -172,15 +219,15 @@ source_policy_recorded_posture() {
     return 0
   fi
 
-  wp_cmd option get "$SOURCE_POLICY_OPTION" 2>/dev/null | tr -d '[:space:]' || true
+  _source_policy_option_get "$SOURCE_POLICY_OPTION" "$SOURCE_POLICY_LEGACY_OPTION" | tr -d '[:space:]'
 }
 
-# Persist the resolved posture so upgrade.sh can rediscover it.
-source_policy_record_posture() {
-  local posture="${POSTURE:-$SOURCE_POLICY_DEFAULT_POSTURE}"
+# Persist the resolved source mode so upgrade.sh can rediscover it.
+source_policy_record_mode() {
+  local mode="${SOURCE_MODE:-$SOURCE_POLICY_DEFAULT_MODE}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_OPTION $posture"
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_OPTION $mode"
     return 0
   fi
 
@@ -188,23 +235,29 @@ source_policy_record_posture() {
     return 0
   fi
 
-  if [ "$(source_policy_recorded_posture)" = "$posture" ]; then
+  # Compare against the NEW key only. Comparing through the legacy-aware reader
+  # would see a pre-rename install as already correct — the canonical value of
+  # `engineering` IS `workspace` — and leave it recorded under the old key
+  # forever, so the migration would never actually happen.
+  local current=""
+  current="$(wp_cmd option get "$SOURCE_POLICY_OPTION" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [ "$current" = "$mode" ]; then
     return 0
   fi
 
-  if wp_cmd option update "$SOURCE_POLICY_OPTION" "$posture" >/dev/null 2>&1; then
-    log "  Recorded install posture: $posture"
+  if wp_cmd option update "$SOURCE_POLICY_OPTION" "$mode" >/dev/null 2>&1; then
+    log "  Recorded install source mode: $mode"
     if [ -n "${UPDATED_ITEMS+x}" ]; then
-      UPDATED_ITEMS+=("posture: $posture")
+      UPDATED_ITEMS+=("source mode: $mode")
     fi
   else
-    warn "Could not record install posture '$posture' — upgrades will fall back to $SOURCE_POLICY_DEFAULT_POSTURE"
+    warn "Could not record install source mode '$mode' — upgrades will fall back to $SOURCE_POLICY_DEFAULT_MODE"
   fi
 }
 
-# Roots the agent must NOT edit, under EITHER posture.
+# Roots the agent must NOT edit, under EITHER mode.
 #
-# This is deliberately every root in both postures. `wp-content/plugins/` holds
+# This is deliberately every root in both modes. `wp-content/plugins/` holds
 # WooCommerce, payment gateways, and the agent's own Data Machine runtime;
 # `wp-content/themes/` holds the stock bundled themes. None of those belong to
 # the site owner, none are captured by the operator's harvest, and editing them
@@ -232,11 +285,11 @@ source_policy_read_only_roots() {
 # plugins a site "owns" by inspection, and guessing wrong on a production site
 # is not an acceptable default.
 source_policy_owned_sources() {
-  if ! source_policy_is_managed; then
+  if ! source_policy_is_owned; then
     return 0
   fi
 
-  printf '%s\n' "${MANAGED_SOURCES:-}" | while IFS= read -r path; do
+  printf '%s\n' "${OWNED_SOURCES:-}" | while IFS= read -r path; do
     [ -n "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -244,11 +297,11 @@ source_policy_owned_sources() {
 
 # Declared editable-but-not-captured paths. Empty unless managed.
 source_policy_writable_paths() {
-  if ! source_policy_is_managed; then
+  if ! source_policy_is_owned; then
     return 0
   fi
 
-  printf '%s\n' "${MANAGED_WRITABLE:-}" | while IFS= read -r path; do
+  printf '%s\n' "${OWNED_WRITABLE:-}" | while IFS= read -r path; do
     [ -n "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -256,23 +309,23 @@ source_policy_writable_paths() {
 
 # Declared read-only paths outside the site root.
 source_policy_log_paths() {
-  printf '%s\n' "${MANAGED_LOG_PATHS:-}" | while IFS= read -r path; do
+  printf '%s\n' "${SOURCE_LOG_PATHS:-}" | while IFS= read -r path; do
     [ -n "$path" ] || continue
     printf '%s\n' "$path"
   done
 }
 
 source_policy_resolve_log_paths() {
-  if [ "${MANAGED_LOG_PATHS_EXPLICIT:-false}" = true ]; then
-    MANAGED_LOG_PATHS="$(_source_policy_normalize_log_paths "${MANAGED_LOG_PATHS:-}")"
+  if [ "${SOURCE_LOG_PATHS_EXPLICIT:-false}" = true ]; then
+    SOURCE_LOG_PATHS="$(_source_policy_normalize_log_paths "${SOURCE_LOG_PATHS:-}")"
   else
-    MANAGED_LOG_PATHS="$(_source_policy_normalize_log_paths "$(source_policy_recorded_log_paths)")"
+    SOURCE_LOG_PATHS="$(_source_policy_normalize_log_paths "$(source_policy_recorded_log_paths)")"
   fi
 }
 
 source_policy_recorded_log_paths() {
   if [ "${DRY_RUN:-false}" = true ]; then
-    printf '%s' "${MANAGED_LOG_PATHS:-}"
+    printf '%s' "${SOURCE_LOG_PATHS:-}"
     return 0
   fi
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
@@ -282,7 +335,7 @@ source_policy_recorded_log_paths() {
 }
 
 source_policy_record_log_paths() {
-  local paths="${MANAGED_LOG_PATHS:-}"
+  local paths="${SOURCE_LOG_PATHS:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_LOG_OPTION '<${paths}>'"
@@ -318,32 +371,32 @@ _source_policy_normalize_log_paths() {
   done
 }
 
-source_policy_is_managed() {
-  [ "${POSTURE:-$SOURCE_POLICY_DEFAULT_POSTURE}" = managed ]
+source_policy_is_owned() {
+  [ "${SOURCE_MODE:-$SOURCE_POLICY_DEFAULT_MODE}" = owned ]
 }
 
-# Resolve the declared owned-source set into MANAGED_SOURCES.
+# Resolve the declared owned-source set into OWNED_SOURCES.
 #
-# Precedence mirrors posture: explicit --managed-source flags, then the set
+# Precedence mirrors the source mode: explicit --owned-source flags, then the set
 # recorded on the install, then nothing.
 source_policy_resolve_owned_sources() {
-  if ! source_policy_is_managed; then
-    MANAGED_SOURCES=""
+  if ! source_policy_is_owned; then
+    OWNED_SOURCES=""
     return 0
   fi
 
-  if [ "${MANAGED_SOURCES_EXPLICIT:-false}" = true ]; then
-    MANAGED_SOURCES="$(_source_policy_normalize_sources "${MANAGED_SOURCES:-}")"
+  if [ "${OWNED_SOURCES_EXPLICIT:-false}" = true ]; then
+    OWNED_SOURCES="$(_source_policy_normalize_sources "${OWNED_SOURCES:-}")"
   else
-    MANAGED_SOURCES="$(_source_policy_normalize_sources "$(source_policy_recorded_owned_sources)")"
+    OWNED_SOURCES="$(_source_policy_normalize_sources "$(source_policy_recorded_owned_sources)")"
   fi
 
-  if [ -z "$MANAGED_SOURCES" ]; then
+  if [ -z "$OWNED_SOURCES" ]; then
     # FAIL CLOSED. A managed install with nothing declared must not fall back
     # to opening wp-content wholesale; that is how a coding agent ends up with
     # write access to a payment gateway. Deny everything and make the operator
     # say what the site owns.
-    warn "Managed posture with no --managed-source declared: the agent will have NO editable source."
+    warn "Owned source mode with no --owned-source declared: the agent will have NO editable source."
     warn "Declare the site's own theme and plugins, for example:"
     warn "  --managed-source wp-content/themes/<theme> --managed-source wp-content/plugins/<plugin>"
     warn "These must match what the operator's harvest captures."
@@ -351,32 +404,32 @@ source_policy_resolve_owned_sources() {
 }
 
 source_policy_resolve_writable_paths() {
-  if ! source_policy_is_managed; then
-    MANAGED_WRITABLE=""
+  if ! source_policy_is_owned; then
+    OWNED_WRITABLE=""
     return 0
   fi
 
-  if [ "${MANAGED_WRITABLE_EXPLICIT:-false}" = true ]; then
-    MANAGED_WRITABLE="$(_source_policy_normalize_writable "${MANAGED_WRITABLE:-}")"
+  if [ "${OWNED_WRITABLE_EXPLICIT:-false}" = true ]; then
+    OWNED_WRITABLE="$(_source_policy_normalize_writable "${OWNED_WRITABLE:-}")"
   else
-    MANAGED_WRITABLE="$(_source_policy_normalize_writable "$(source_policy_recorded_writable_paths)")"
+    OWNED_WRITABLE="$(_source_policy_normalize_writable "$(source_policy_recorded_writable_paths)")"
   fi
 }
 
 source_policy_recorded_writable_paths() {
   if [ "${DRY_RUN:-false}" = true ]; then
-    printf '%s' "${MANAGED_WRITABLE:-}"
+    printf '%s' "${OWNED_WRITABLE:-}"
     return 0
   fi
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
-  wp_cmd option get "$SOURCE_POLICY_WRITABLE_OPTION" 2>/dev/null || true
+  _source_policy_option_get "$SOURCE_POLICY_WRITABLE_OPTION" "$SOURCE_POLICY_LEGACY_WRITABLE_OPTION"
 }
 
 source_policy_record_writable_paths() {
-  source_policy_is_managed || return 0
-  local paths="${MANAGED_WRITABLE:-}"
+  source_policy_is_owned || return 0
+  local paths="${OWNED_WRITABLE:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_WRITABLE_OPTION '<${paths}>'"
@@ -435,7 +488,7 @@ _source_policy_normalize_sources() {
 
 source_policy_recorded_owned_sources() {
   if [ "${DRY_RUN:-false}" = true ]; then
-    printf '%s' "${MANAGED_SOURCES:-}"
+    printf '%s' "${OWNED_SOURCES:-}"
     return 0
   fi
 
@@ -443,15 +496,15 @@ source_policy_recorded_owned_sources() {
     return 0
   fi
 
-  wp_cmd option get "$SOURCE_POLICY_OWNED_OPTION" 2>/dev/null || true
+  _source_policy_option_get "$SOURCE_POLICY_OWNED_OPTION" "$SOURCE_POLICY_LEGACY_OWNED_OPTION"
 }
 
 source_policy_record_owned_sources() {
-  if ! source_policy_is_managed; then
+  if ! source_policy_is_owned; then
     return 0
   fi
 
-  local sources="${MANAGED_SOURCES:-}"
+  local sources="${OWNED_SOURCES:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_OWNED_OPTION '<${sources}>'"
@@ -487,24 +540,24 @@ source_policy_record_owned_sources() {
 # same shape would leave the owned paths unusable. Codex filesystem profiles
 # have no documented precedence for overlapping entries either. Rather than emit
 # a permission set whose behavior is unverified on a live production site, those
-# runtimes refuse managed posture outright.
-source_policy_runtime_supports_managed() {
+# runtimes refuse owned source mode outright.
+source_policy_runtime_supports_owned() {
   case "${1:-${RUNTIME:-}}" in
     opencode) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-source_policy_assert_runtime_supports_posture() {
-  if ! source_policy_is_managed; then
+source_policy_assert_runtime_supports_mode() {
+  if ! source_policy_is_owned; then
     return 0
   fi
 
-  if source_policy_runtime_supports_managed "${RUNTIME:-}"; then
+  if source_policy_runtime_supports_owned "${RUNTIME:-}"; then
     return 0
   fi
 
-  error "Managed posture is not supported on the '${RUNTIME:-unknown}' runtime yet — only 'opencode' can express scoped source permissions safely. See lib/source-policy.sh."
+  error "Owned source mode is not supported on the '${RUNTIME:-unknown}' runtime yet — only 'opencode' can express scoped source permissions safely. See lib/source-policy.sh."
 }
 
 # Whether the Data Machine Code workspace (and therefore git/GitHub) is part of
@@ -513,13 +566,13 @@ source_policy_assert_runtime_supports_posture() {
 # Consumed by the runtimes (workspace allow rules) and by lib/data-machine.sh
 # (whether data-machine-code is installed at all). Returns 0 for yes.
 source_policy_workspace_enabled() {
-  case "${POSTURE:-$SOURCE_POLICY_DEFAULT_POSTURE}" in
-    managed) return 1 ;;
+  case "${SOURCE_MODE:-$SOURCE_POLICY_DEFAULT_MODE}" in
+    owned) return 1 ;;
     *) return 0 ;;
   esac
 }
 
-# The ordered edit ruleset for the active posture, as tab-separated
+# The ordered edit ruleset for the active source mode, as tab-separated
 # `<path>\t<deny|allow>` lines.
 #
 # ORDER IS LOAD-BEARING. OpenCode resolves permissions with `findLast` over a
@@ -528,7 +581,7 @@ source_policy_workspace_enabled() {
 # this order verbatim.
 #
 # Engineering emits three denies and nothing else, which is byte-identical to
-# the pre-posture behavior. Managed emits the same three denies, then one allow
+# the pre-source-mode behavior. Owned mode emits the same three denies, then one allow
 # per declared owned source.
 source_policy_edit_rules() {
   local path kind

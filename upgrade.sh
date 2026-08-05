@@ -104,14 +104,14 @@ WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
-POSTURE=""
-POSTURE_EXPLICIT=false
-MANAGED_SOURCES=""
-MANAGED_SOURCES_EXPLICIT=false
-MANAGED_WRITABLE=""
-MANAGED_WRITABLE_EXPLICIT=false
-MANAGED_LOG_PATHS=""
-MANAGED_LOG_PATHS_EXPLICIT=false
+SOURCE_MODE=""
+SOURCE_MODE_EXPLICIT=false
+OWNED_SOURCES=""
+OWNED_SOURCES_EXPLICIT=false
+OWNED_WRITABLE=""
+OWNED_WRITABLE_EXPLICIT=false
+SOURCE_LOG_PATHS=""
+SOURCE_LOG_PATHS_EXPLICIT=false
 
 # Defaults setup.sh expects (detect.sh reads these)
 LOCAL_MODE=false
@@ -156,10 +156,10 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
-    --posture)       POSTURE="$2"; POSTURE_EXPLICIT=true; shift 2 ;;
-    --managed-source) MANAGED_SOURCES="${MANAGED_SOURCES}${MANAGED_SOURCES:+ }$2"; MANAGED_SOURCES_EXPLICIT=true; shift 2 ;;
-    --managed-writable) MANAGED_WRITABLE="${MANAGED_WRITABLE}${MANAGED_WRITABLE:+ }$2"; MANAGED_WRITABLE_EXPLICIT=true; shift 2 ;;
-    --log-path) MANAGED_LOG_PATHS="${MANAGED_LOG_PATHS}${MANAGED_LOG_PATHS:+ }$2"; MANAGED_LOG_PATHS_EXPLICIT=true; shift 2 ;;
+    --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
+    --owned-source|--managed-source) OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"; OWNED_SOURCES_EXPLICIT=true; shift 2 ;;
+    --owned-writable|--managed-writable) OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"; OWNED_WRITABLE_EXPLICIT=true; shift 2 ;;
+    --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
@@ -204,11 +204,14 @@ USAGE:
                                 only adds missing managed entries, never
                                 removes user-added plugins.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
-  ./upgrade.sh --posture <name> Force install posture: engineering | managed
-                               (default: the posture recorded at setup time)
-  ./upgrade.sh --managed-source <path>
+  ./upgrade.sh --source-mode <name>
+                               Where code changes land: workspace | owned
+                               (default: the mode recorded at setup time).
+                               Two shapes, not two levels. --posture is
+                               accepted as a deprecated alias.
+  ./upgrade.sh --owned-source <path>
                                wp-content path this site owns and may edit under
-                               managed posture. Repeatable. Replaces the
+                               --source-mode owned. Repeatable. Replaces the
                                recorded set when supplied.
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --agent-slug <s> Override Data Machine agent slug
@@ -258,9 +261,9 @@ SERVICE IDENTITY:
                                 the shipped inventory cannot know about.
                                 Credential-shaped paths are refused.
 
-  What migrates is an explicit, posture-aware allowlist: runtime state
-  under every posture, plus the dev toolchain and forge credentials under
-  engineering posture only. SSH keys, secret stores, and shell history are
+  What migrates is an explicit, mode-aware allowlist: runtime state
+  under every mode, plus the dev toolchain and forge credentials under
+  workspace mode only. SSH keys, secret stores, and shell history are
   never migrated — they stay behind in root-owned /root, out of the agent's
   reach. That is the point of the migration, not a side effect.
 
@@ -380,16 +383,16 @@ source "$RUNTIME_FILE"
 # which the chat bridge detection below depends on to pick the right branch.
 detect_environment
 
-# Posture drives the plugin set, every runtime permission surface, and the
+# The source mode drives the plugin set, every runtime permission surface, and the
 # AGENTS.md guidance. Resolve it from the value recorded at setup time so an
 # upgrade converges a managed install instead of silently reverting it to
 # engineering; --posture overrides and re-records.
-source_policy_resolve_posture
+source_policy_resolve_mode
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
-source_policy_assert_runtime_supports_posture
-source_policy_record_posture
+source_policy_assert_runtime_supports_mode
+source_policy_record_mode
 source_policy_record_owned_sources
 source_policy_record_writable_paths
 source_policy_record_log_paths
@@ -479,8 +482,8 @@ if [ "$MIGRATE_NON_ROOT" = true ]; then
     log "Install already runs as '$INSTALLED_SERVICE_USER' — nothing to migrate."
     MIGRATE_NON_ROOT=false
   else
-    service_migration_preflight "$MIGRATE_TARGET_USER" "/root" "$POSTURE"
-    service_migration_run "$MIGRATE_TARGET_USER" "/root" "$POSTURE"
+    service_migration_preflight "$MIGRATE_TARGET_USER" "/root" "$SOURCE_MODE"
+    service_migration_run "$MIGRATE_TARGET_USER" "/root" "$SOURCE_MODE"
     UPDATED_ITEMS+=("Service identity migrated: root -> $SERVICE_USER")
   fi
 fi
@@ -664,22 +667,22 @@ check_opencode_json_drift() {
 
   # Owned-source allow rules the reconciler must (re)write. Empty under
   # engineering, so the argument list is unchanged there.
-  local _managed_source_args=()
+  local _owned_source_args=()
   local _owned_path
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
-    _managed_source_args+=(--managed-source "$_owned_path")
+    _owned_source_args+=(--owned-source "$_owned_path")
   done < <(source_policy_owned_sources)
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
-    _managed_source_args+=(--managed-writable "$_owned_path")
+    _owned_source_args+=(--owned-writable "$_owned_path")
   done < <(source_policy_writable_paths)
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
-    _managed_source_args+=(--log-path "$_owned_path")
+    _owned_source_args+=(--log-path "$_owned_path")
   done < <(source_policy_log_paths)
   if source_policy_workspace_enabled; then
-    _managed_source_args+=(--workspace-dir "$DM_WORKSPACE_DIR")
+    _owned_source_args+=(--workspace-dir "$DM_WORKSPACE_DIR")
   fi
   if [ ! -f "$HELPER" ]; then
     warn "Phase 3b: $HELPER not found — skipping drift check"
@@ -752,15 +755,15 @@ for item in data:
   log "Phase 3b: opencode.json $MODE_LABEL..."
 
   if [ "$DRY_RUN" = true ]; then
-    local managed_arg_display=""
+    local owned_arg_display=""
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
-      managed_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
+      owned_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
     fi
     local claude_auth_arg_display=""
     if [ -n "$CLAUDE_CODE_AUTH_PLUGIN" ]; then
       claude_auth_arg_display=" --claude-code-auth-plugin $CLAUDE_CODE_AUTH_PLUGIN"
     fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --posture ${POSTURE:-engineering} --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$managed_arg_display $MODE_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$owned_arg_display $MODE_FLAG"
     local dry_out
     local managed_args=()
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
@@ -770,8 +773,8 @@ for item in data:
       --file "$OPENCODE_JSON_FILE" \
       --runtime "$RUNTIME_ARG" \
       --chat-bridge "$BRIDGE_ARG" \
-      --posture "${POSTURE:-engineering}" \
-      "${_managed_source_args[@]}" \
+      --source-mode "${SOURCE_MODE:-workspace}" \
+      "${_owned_source_args[@]}" \
       --kimaki-plugins-dir "$PLUGINS_DIR" \
       "${claude_code_auth_args[@]}" \
       "${managed_args[@]}" 2>&1 || true)
@@ -789,8 +792,8 @@ for item in data:
     --file "$OPENCODE_JSON_FILE" \
     --runtime "$RUNTIME_ARG" \
     --chat-bridge "$BRIDGE_ARG" \
-    --posture "${POSTURE:-engineering}" \
-    "${_managed_source_args[@]}" \
+    --source-mode "${SOURCE_MODE:-workspace}" \
+    "${_owned_source_args[@]}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \

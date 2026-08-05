@@ -1,5 +1,5 @@
 #!/bin/bash
-# guidance/wordpress-source.managed.sh — installed WordPress source, managed posture.
+# guidance/wordpress-source.owned.sh — installed WordPress source, owned mode.
 #
 # WHAT THIS SECTION IS FOR
 #
@@ -34,7 +34,7 @@ guidance_priority() { printf '1'; }
 guidance_label() { printf 'WordPress Source'; }
 guidance_description() { printf 'Points the agent at the installed WordPress source and names the trees this site owns.'; }
 guidance_freshness() { printf 'conditional'; }
-guidance_conditions() { printf 'Registered on managed-posture installations; the owned-source list is generated from the declared managed sources.'; }
+guidance_conditions() { printf 'Registered on owned-mode installations; the owned-source list is generated from the declared owned sources.'; }
 
 guidance_render() {
   local owned writable

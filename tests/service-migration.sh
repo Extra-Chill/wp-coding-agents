@@ -106,22 +106,22 @@ assert_excluded "opencode-auth-backup.json"
 assert_excluded "some-service.pem"
 assert_excluded "deploy.key"
 
-# And the inventories themselves must be clean under BOTH postures, which is
+# And the inventories themselves must be clean under BOTH modes, which is
 # the assertion that survives someone adding an entry to the lists later.
-for posture in engineering managed; do
-  inv="$(service_migration_inventory "$posture")"
+for mode in workspace owned; do
+  inv="$(service_migration_inventory "$mode")"
   for bad in .ssh .secrets .pki .gnupg .aws .bash_history; do
-    refute_contains "$inv" "$bad" "$posture inventory omits $bad"
+    refute_contains "$inv" "$bad" "$mode inventory omits $bad"
   done
 done
 
 echo ""
-echo "service-migration: posture shapes the inventory"
+echo "service-migration: source mode shapes the inventory"
 
-eng="$(service_migration_inventory engineering)"
-man="$(service_migration_inventory managed)"
+eng="$(service_migration_inventory workspace)"
+man="$(service_migration_inventory owned)"
 
-# Runtime state is what the agent IS — required under every posture, or the
+# Runtime state is what the agent IS — required under every mode, or the
 # migrated service comes back with no sessions and no runtime auth.
 for p in .kimaki .config/opencode .local/share/opencode; do
   assert_contains "$eng" "$p" "engineering carries $p"
@@ -163,11 +163,11 @@ echo "service-migration: --migrate-extra escape hatch"
   SERVICE_MIGRATION_EXTRA_PATHS=""
   service_migration_add_extra_path "homeboy-modules"
   service_migration_add_extra_path "go-sdk"
-  inv="$(service_migration_inventory engineering)"
+  inv="$(service_migration_inventory workspace)"
   assert_contains "$inv" "homeboy-modules" "extra path is carried"
   assert_contains "$inv" "go-sdk" "second extra path is carried"
   # And still absent from managed's runtime-only base set unless asked for.
-  assert_contains "$(service_migration_inventory managed)" "homeboy-modules" \
+  assert_contains "$(service_migration_inventory owned)" "homeboy-modules" \
     "extra paths apply under managed too"
 ) || FAILED=$((FAILED + 1))
 

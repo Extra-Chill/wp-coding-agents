@@ -159,9 +159,9 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | Flag | Description |
 | --- | --- |
 | `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
-| `--posture <name>` | `engineering` (default) or `managed`. See [Install Posture](#install-posture). |
-| `--managed-source <path>` | wp-content path the site owns and may edit under `--posture managed`. Repeatable. |
-| `--managed-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. |
+| `--source-mode <name>` | `workspace` (default) or `owned`. See [Source Mode](#source-mode). `--posture` is a deprecated alias. |
+| `--owned-source <path>` | wp-content path the site owns and may edit under `--source-mode owned`. Repeatable. |
+| `--owned-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. |
 | `--log-path <path>` | Absolute path outside the site root the agent may read. Repeatable. |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
@@ -185,14 +185,18 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 
 Run `./setup.sh --help` for the complete setup surface.
 
-## Install Posture
+## Source Mode
 
-Posture is the agent's relationship to the installed WordPress source. It is a
-declared intent rather than a detected fact, and it is the single input that
-decides the plugin set, every runtime permission surface, and the AGENTS.md
-guidance the agent reads.
+Source mode is where the agent's code changes land. It is a declared intent
+rather than a detected fact, and it is the single input that decides the plugin
+set, every runtime permission surface, and the AGENTS.md guidance the agent
+reads.
 
-| | `engineering` (default) | `managed` |
+These are two shapes, not two levels. Neither is "more access" than the other —
+`workspace` is in fact *stricter* on live source, since the installed tree is
+read-only reference there. What it buys is git and review, not latitude.
+
+| | `workspace` (default) | `owned` |
 | --- | --- | --- |
 | WordPress core (`wp-admin/`, `wp-includes/`, root bootstrap) | read-only | read-only |
 | `wp-content/mu-plugins/`, `wp-config.php` | read-only | read-only, opt-in |
@@ -203,16 +207,16 @@ guidance the agent reads.
 | How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
 | Runtimes | all | `opencode` only |
 
-Both postures point the agent at the installed WordPress source as reference —
+Both modes point the agent at the installed WordPress source as reference —
 that is the section's purpose, and it is why a small model can be competent
 about WordPress here without skills or fine-tuning. Reading is never
 restricted. Everything below is about *writing*.
 
-**Engineering** is the developer setup: the installed tree is reference
+**Workspace** is the developer setup: the installed tree is reference
 material, and every code change happens in a Data Machine Code workspace so it
 is tracked in git and reviewed through GitHub.
 
-**Managed** is for managed agentic hosting, where a non-technical owner should
+**Owned** is for managed agentic hosting, where a non-technical owner should
 never have to deal with pull requests. The agent edits the site's own theme and
 plugins directly and its changes are live on save; something outside the box —
 for example a scheduled `homeboy harvest` — captures them into git as restore
@@ -223,9 +227,9 @@ code, the stock themes, and the agent's own runtime, none of which the site
 owns or the operator's capture records. Declare exactly what the site owns:
 
 ```bash
-./setup.sh --posture managed \
-  --managed-source wp-content/themes/acme \
-  --managed-source wp-content/plugins/acme-core
+./setup.sh --source-mode owned \
+  --owned-source wp-content/themes/acme \
+  --owned-source wp-content/plugins/acme-core
 ```
 
 **The declared set must match what the operator's capture records** — a path
@@ -240,11 +244,11 @@ an agent able to edit them can rewrite its own instructions. They are denied by
 default and re-opened only on request:
 
 ```bash
---managed-writable wp-config.php
+--owned-writable wp-config.php
 ```
 
 These are **editable but not captured**, and the generated guidance says so
-explicitly. Conflating them with `--managed-source` would have AGENTS.md
+explicitly. Conflating them with `--owned-source` would have AGENTS.md
 promise that the work is recorded when it is not.
 
 ### Log access
@@ -260,7 +264,7 @@ writable):
 ```
 
 A single source of truth (`lib/source-policy.sh`) derives the runtime
-permissions and the generated guidance from the posture and these
+permissions and the generated guidance from the source mode and these
 declarations, so the prose cannot tell the agent to do something the
 permissions then block.
 
@@ -268,11 +272,11 @@ Managed is currently supported on the `opencode` runtime only. OpenCode
 evaluates permissions with `findLast` over rules in config key order, so a
 narrow allow written after a broad deny wins. Claude Code treats deny as
 absolute and Codex has no documented precedence for overlapping filesystem
-entries, so both refuse managed posture rather than emit a permission set whose
+entries, so both refuse owned mode rather than emit a permission set whose
 behavior on a production site is unverified.
 
-The chosen posture is recorded on the install, so `./upgrade.sh` converges to it
-without repeating the flag. Pass `--posture` to either script to change it.
+The chosen mode is recorded on the install, so `./upgrade.sh` converges to it
+without repeating the flag. Pass `--source-mode` to either script to change it.
 
 On VPS hosts with multiple Kimaki services, setup and upgrade select the unit
 whose `WorkingDirectory=` exactly matches the WordPress site path. Ambiguous or

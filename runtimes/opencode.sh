@@ -282,7 +282,7 @@ runtime_generate_config() {
     fi
   fi
 
-  # Permission: the installed-source mutation surface is posture-derived (see
+  # Permission: the installed-source mutation surface is source-mode-derived (see
   # lib/source-policy.sh). Engineering keeps every installed root outside
   # OpenCode's shared edit/write/apply_patch surface and grants the DM
   # workspace instead; managed inverts that for themes and plugins and grants
@@ -290,7 +290,7 @@ runtime_generate_config() {
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
 
   # external_directory covers anything outside the site root. Engineering gets
-  # the DMC workspace; every posture gets whatever log paths the operator
+  # the DMC workspace; every mode gets whatever log paths the operator
   # declared, because a coding agent that cannot read the PHP error log cannot
   # recover the site it just broke.
   local _ext_rules=""
@@ -410,7 +410,7 @@ _runtime_repair_opencode_json_additive() {
     --file "$SITE_PATH/opencode.json" \
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
-    --posture "${POSTURE:-engineering}" \
+    --posture "${SOURCE_MODE:-workspace}" \
     "${_managed_source_args[@]}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \

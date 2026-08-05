@@ -34,22 +34,22 @@ wp_cmd() { printf 'data-machine/data-machine.php\ndata-machine-business/data-mac
 
 GUARD="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtime-guard.php"
 
-echo "==> the guard is posture-scoped"
-POSTURE=engineering runtime_guard_sync
+echo "==> the guard is source-mode-scoped"
+SOURCE_MODE=workspace runtime_guard_sync
 [ ! -f "$GUARD" ]; check $? "engineering installs no guard"
 
-POSTURE=managed runtime_guard_sync
+SOURCE_MODE=owned runtime_guard_sync
 [ -f "$GUARD" ]; check $? "managed installs the guard"
 php -l "$GUARD" >/dev/null 2>&1; check $? "generated guard parses"
 
 grep -q "data-machine-business/data-machine-business.php" "$GUARD"
 check $? "companion plugins are discovered, not assumed"
 
-# A posture switch must clean up, or an engineering install keeps a guard
+# A source-mode switch must clean up, or a workspace install keeps a guard
 # nothing maintains.
-POSTURE=engineering runtime_guard_sync
+SOURCE_MODE=workspace runtime_guard_sync
 [ ! -f "$GUARD" ]; check $? "switching to engineering removes the guard"
-POSTURE=managed runtime_guard_sync >/dev/null
+SOURCE_MODE=owned runtime_guard_sync >/dev/null
 
 echo "==> behaviour: links hidden, request refused"
 php -r '

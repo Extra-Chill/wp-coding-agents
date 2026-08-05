@@ -12,7 +12,7 @@
 # has no opinion about what any section says. The prose lives in guidance/*.sh,
 # one self-contained unit per section, discovered and dispatched by
 # guidance/_dispatch.sh — see that file for the hook contract and for how
-# posture selects between section variants.
+# the source mode selects between section variants.
 #
 # Resolved file: $SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agents-md.php
 #
