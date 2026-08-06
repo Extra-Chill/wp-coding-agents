@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.15.0] - 2026-08-06
+
+### Added
+- reconcile the owned source set continuously, not at upgrade time
+
 ## [1.14.0] - 2026-08-06
 
 ### Added
