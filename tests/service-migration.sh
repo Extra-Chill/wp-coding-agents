@@ -469,3 +469,94 @@ else
   echo "service-migration: $FAILED assertion(s) failed"
   exit 1
 fi
+
+echo ""
+echo "service-migration: the unit's environment follows the identity"
+
+# Found by migrating h44lacrosse.com and checking the rendered unit BEFORE
+# starting anything. The migration produced User=opencode alongside
+# Environment=HOME=/root and KIMAKI_DATA_DIR=/root/.kimaki: the merge keeps the
+# installed unit's value for any key the template also sets, deliberately, so
+# operator edits survive an upgrade — but identity-derived values are not
+# operator edits. Starting that unit runs the agent as a user that cannot read
+# either path (/root is 0700), so it comes up with no session database and no
+# runtime state.
+#
+# Same defect as #204 from the other direction: there the User flipped silently
+# while state stayed put; here the User moved and the environment stayed put.
+
+# shellcheck disable=SC1091
+source bridges/_dispatch.sh 2>/dev/null || true
+
+INSTALLED_ENV='Environment=HOME=/root
+Environment=PATH=/root/.kimaki/bin:/root/.cargo/bin:/usr/bin:/bin
+Environment=KIMAKI_DATA_DIR=/root/.kimaki
+Environment=BUN_INSTALL=/root/.bun
+Environment=OPERATOR_CUSTOM=keep-me'
+
+TEMPLATE_ENV='Environment=HOME=/home/opencode
+Environment=PATH=/home/opencode/.kimaki/bin:/usr/bin:/bin
+Environment=KIMAKI_DATA_DIR=/home/opencode/.kimaki'
+
+# Without a migration in flight nothing is invalidated: an ordinary upgrade must
+# not rewrite an operator's environment.
+MERGED_NORMAL=$(SERVICE_MIGRATION_PREVIOUS_HOME="" _merge_systemd_env_lines "$INSTALLED_ENV" "$TEMPLATE_ENV")
+assert_contains "$MERGED_NORMAL" "Environment=HOME=/root" \
+  "an ordinary upgrade keeps the installed HOME"
+assert_contains "$MERGED_NORMAL" "OPERATOR_CUSTOM=keep-me" \
+  "an ordinary upgrade keeps operator additions"
+
+# Mid-migration, every value built from the old home is replaced.
+MERGED_MIG=$(SERVICE_MIGRATION_PREVIOUS_HOME="/root" _merge_systemd_env_lines "$INSTALLED_ENV" "$TEMPLATE_ENV")
+assert_contains "$MERGED_MIG" "Environment=HOME=/home/opencode" "HOME follows the new identity"
+assert_contains "$MERGED_MIG" "KIMAKI_DATA_DIR=/home/opencode/.kimaki" "the data dir follows"
+refute_contains "$MERGED_MIG" "HOME=/root" "the old HOME is gone"
+refute_contains "$MERGED_MIG" "/root/.kimaki" "no value still points into the old home"
+
+# PATH is the one a key-name list would have missed: it is not obviously an
+# identity value, and a stale one leaves the agent unable to reach its binaries.
+refute_contains "$MERGED_MIG" "/root/.cargo/bin" "a stale PATH entry is dropped"
+refute_contains "$MERGED_MIG" "BUN_INSTALL=/root/.bun" "so is an unrelated tool var"
+
+# Operator additions that say nothing about identity still survive a migration.
+assert_contains "$MERGED_MIG" "OPERATOR_CUSTOM=keep-me" \
+  "a migration preserves operator additions"
+
+# The migration must publish the old home, or the filter above never engages.
+assert_contains "$(sed -n '/^service_migration_run/,/^}/p' lib/service-migration.sh)" \
+  'SERVICE_MIGRATION_PREVIOUS_HOME="$old_home"' \
+  "service_migration_run publishes the previous home"
+
+echo ""
+echo "service-migration: wp-config hardening is not optional"
+
+# The reclaim chmods the whole site g+w and then hardens wp-config back. That
+# harden lived in lib/infrastructure.sh, which setup.sh sources and upgrade.sh
+# does not, behind a `declare -F` guard — so on an upgrade the function did not
+# exist, the guard silently skipped it, and h44lacrosse.com came out of the
+# migration with its database credentials group-writable (660, not 640).
+#
+# A guard around a function you REQUIRE converts a missing dependency into
+# silent breakage.
+reclaim=$(sed -n '/^service_migration_reclaim_site/,/^}/p' lib/service-migration.sh)
+refute_contains "$reclaim" "declare -F harden_wp_config_permissions" \
+  "hardening is not behind a declare -F guard"
+assert_contains "$reclaim" "harden_wp_config_permissions" "hardening still happens"
+
+# It must be defined in a lib upgrade.sh actually sources.
+upgrade_libs=$(grep -o 'for lib in [a-z0-9 -]*' upgrade.sh)
+defined_in=$(grep -rl '^harden_wp_config_permissions()' lib/ | head -1 | xargs -r basename | sed 's/\.sh$//')
+case "$upgrade_libs" in
+  *"$defined_in"*) echo "  ok   defined in '$defined_in', which upgrade.sh sources" ;;
+  *) echo "  FAIL defined in '$defined_in', which upgrade.sh does NOT source"; FAILED=$((FAILED + 1)) ;;
+esac
+
+# And it must run AFTER the blanket g+w, or the g+w undoes it.
+chmod_line=$(printf '%s\n' "$reclaim" | grep -n 'chmod -R g+w' | head -1 | cut -d: -f1)
+harden_line=$(printf '%s\n' "$reclaim" | grep -n '^  harden_wp_config_permissions' | head -1 | cut -d: -f1)
+if [ -n "$chmod_line" ] && [ -n "$harden_line" ] && [ "$harden_line" -gt "$chmod_line" ]; then
+  echo "  ok   hardening runs after the blanket g+w"
+else
+  echo "  FAIL ordering wrong (chmod=${chmod_line:-?} harden=${harden_line:-?})"
+  FAILED=$((FAILED + 1))
+fi

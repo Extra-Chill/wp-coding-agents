@@ -469,9 +469,9 @@ service_migration_reclaim_site() {
 
   run_cmd chown -R www-data:www-data "$site_path"
   run_cmd chmod -R g+w "$site_path"
-  if declare -F harden_wp_config_permissions >/dev/null 2>&1; then
-    harden_wp_config_permissions "$site_path"
-  fi
+  # Unconditional, and deliberately AFTER the blanket g+w that would otherwise
+  # leave the database credentials group-writable.
+  harden_wp_config_permissions "$site_path"
 }
 
 # The agent's code workspace, when one exists (workspace mode only —
@@ -537,6 +537,11 @@ service_migration_run() {
 
   # Re-point the caller's identity variables. Everything downstream — unit
   # rendering, bridge config, data dir creation — derives from these.
+  # Published so the systemd env merge can invalidate values built from the old
+  # identity. Without it the merge keeps HOME, KIMAKI_DATA_DIR and PATH from the
+  # installed unit — all pointing into a home the new user cannot read.
+  SERVICE_MIGRATION_PREVIOUS_HOME="$old_home"
+
   SERVICE_USER="$target_user"
   SERVICE_HOME="$new_home"
   RUN_AS_ROOT=false

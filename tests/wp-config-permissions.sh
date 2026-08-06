@@ -1,6 +1,6 @@
 #!/bin/bash
 # tests/wp-config-permissions.sh — Regression coverage for issue #302 in
-# lib/infrastructure.sh.
+# lib/wordpress.sh.
 #
 # Phase 6 grants the service user write access to the site with a recursive
 # `chmod -R g+w "$SITE_PATH"`, so it can edit themes and plugins. That grant
@@ -51,7 +51,9 @@ run_cmd() {
 }
 
 # shellcheck disable=SC1091
-eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/infrastructure.sh)"
+# Lives in lib/wordpress.sh: upgrade.sh does not source infrastructure.sh, and
+# the service-identity migration needs this during an upgrade.
+eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
 
 mode_of() {
   stat -c '%a' "$1"
