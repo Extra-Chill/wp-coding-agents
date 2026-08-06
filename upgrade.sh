@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance agents-md-backups; do
+for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance agents-md-backups; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -157,6 +157,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
+    --not-owned)     owned_discovery_add_exclusion "$2"; shift 2 ;;
     --owned-source|--managed-source) OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"; OWNED_SOURCES_EXPLICIT=true; shift 2 ;;
     --owned-writable|--managed-writable) OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"; OWNED_WRITABLE_EXPLICIT=true; shift 2 ;;
     --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
@@ -209,6 +210,10 @@ USAGE:
                                (default: the mode recorded at setup time).
                                Two shapes, not two levels. --posture is
                                accepted as a deprecated alias.
+  ./upgrade.sh --not-owned <slug>
+                               Plugin or theme slug that is NOT the site's,
+                               despite classifying as owned — a premium or
+                               vendor plugin, typically. Repeatable, recorded.
   ./upgrade.sh --owned-source <path>
                                wp-content path this site owns and may edit under
                                --source-mode owned. Repeatable. Replaces the
@@ -393,6 +398,7 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_mode
 source_policy_record_mode
+owned_discovery_record_exclusions
 source_policy_record_owned_sources
 source_policy_record_writable_paths
 source_policy_record_log_paths

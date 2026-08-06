@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance; do
+for lib in common detect source-policy owned-source-discovery wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -207,6 +207,10 @@ while [[ $# -gt 0 ]]; do
       SOURCE_MODE_EXPLICIT=true
       shift 2
       ;;
+    --not-owned)
+      owned_discovery_add_exclusion "$2"
+      shift 2
+      ;;
     --owned-source|--managed-source)
       OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"
       OWNED_SOURCES_EXPLICIT=true
@@ -294,6 +298,9 @@ OPTIONS:
                      Recorded on the install so upgrades converge without
                      repeating the flag. (--posture is accepted as a
                      deprecated alias; engineering=workspace, managed=owned.)
+  --not-owned <slug> Plugin or theme slug that is NOT the site's despite
+                     classifying as owned — a premium or vendor plugin,
+                     typically. Repeatable. Recorded on the install.
   --owned-source <path>
                      wp-content path this site owns and the agent may edit
                      under --source-mode owned. Repeatable. Must be a plugin or
@@ -505,6 +512,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
 fi
 
 source_policy_record_mode
+owned_discovery_record_exclusions
 source_policy_record_owned_sources
 source_policy_record_writable_paths
 source_policy_record_log_paths
