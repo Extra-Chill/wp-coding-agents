@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.14.0] - 2026-08-06
+
+### Added
+- derive the owned source set from site state
+
+### Fixed
+- the unit's environment must follow the service identity
+- redact CLI transport diagnostics
+
 ## [1.13.1] - 2026-08-05
 
 ### Fixed
