@@ -221,6 +221,17 @@ owned = installed  −  known to wp.org  −  installed by wp-coding-agents
 A plugin the agent creates is therefore editable and captured with no operator
 step and no self-declaration. `--owned-source` still overrides when supplied.
 
+Derivation is **continuous**, not upgrade-time. An mu-plugin listens to
+WordPress's own plugin and theme lifecycle hooks and reconciles the owned set,
+the capture manifest, and the runtime edit permissions as the installed set
+changes — plus an hourly sweep, because a plugin the agent *scaffolds* fires no
+lifecycle hook at all. An inventory fingerprint makes the usual call a single
+option read.
+
+The derivation lives in PHP because that is the only place a WordPress hook can
+reach it; the installer delegates to the same code rather than keeping a second
+copy that could drift.
+
 **It cannot widen on missing evidence.** The wp.org signal is a transient; on a
 fresh install, after a cache flush, or when wp.org is unreachable it is absent,
 and treating absence as "nothing belongs to wp.org" would classify every plugin
