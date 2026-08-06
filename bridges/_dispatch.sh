@@ -154,6 +154,35 @@ _compose_path_value() {
 _merge_systemd_env_lines() {
   local current_env="$1"
   local template_env="$2"
+
+  # Drop existing values that point into a service home the install has just
+  # migrated away from.
+  #
+  # This merge keeps the INSTALLED unit's value for any key the template also
+  # sets — deliberately, so operator edits survive an upgrade. But the service
+  # identity migration (#93) changes User= and the home every identity-derived
+  # value is built from, and those values are not operator edits: they describe
+  # an identity that no longer exists.
+  #
+  # Measured on h44lacrosse.com: the migration produced User=opencode alongside
+  # Environment=HOME=/root and KIMAKI_DATA_DIR=/root/.kimaki. Starting that unit
+  # runs the agent as a user that cannot read either path — /root is 0700 — so
+  # it comes up with no session database and no runtime state. The same defect
+  # #204 fixed from the other direction: there the User flipped silently while
+  # the state stayed put; here the User moved and the environment stayed put.
+  #
+  # Filtering by VALUE rather than by a list of key names is what makes this
+  # hold. PATH on a long-lived install carries /root/.kimaki/bin,
+  # /root/.cargo/bin and /root/.bun/bin; BUN_INSTALL points at /root/.bun.
+  # Enumerating keys would have fixed HOME and KIMAKI_DATA_DIR and left the
+  # agent with a PATH full of directories it can no longer read (#318: prefer
+  # the property over a list of names).
+  if [ -n "${SERVICE_MIGRATION_PREVIOUS_HOME:-}" ]; then
+    current_env="$(printf '%s\n' "$current_env" \
+      | grep -vF "=${SERVICE_MIGRATION_PREVIOUS_HOME}" \
+      | grep -vF ":${SERVICE_MIGRATION_PREVIOUS_HOME}" || true)"
+  fi
+
   local merged="$current_env"
   while IFS= read -r tmpl_line; do
     [ -z "$tmpl_line" ] && continue

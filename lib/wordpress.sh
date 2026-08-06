@@ -255,3 +255,35 @@ setup_multisite() {
     log "Phase 3.5: Existing multisite detected — skipping conversion"
   fi
 }
+
+# Moved here from lib/infrastructure.sh, which setup.sh sources and upgrade.sh
+# does not. The service-identity migration called this behind a
+# `declare -F` guard, so on an upgrade the function did not exist, the guard
+# silently skipped it, and wp-config.php was left group-writable by the blanket
+# `chmod -R g+w` that runs just before. A guard around a function you REQUIRE
+# converts a missing dependency into silent breakage; the call site is now
+# unconditional and this lives where every caller already sources it.
+# Restrict the credentials file after the site-wide grant (issue #302).
+#
+# The recursive `chmod -R g+w` above exists so the service user — a member of
+# www-data — can edit themes and plugins. Applied to the whole site path it
+# also sweeps in wp-config.php, which holds the database credentials, salts,
+# and auth keys. That leaves the file world-readable (any local account can
+# read the credentials) and agent-writable (the coding agent can rewrite the
+# site's database connection), neither of which the agent needs.
+#
+# 0640 owned by www-data keeps PHP-FPM and nginx working — both run as
+# www-data on a standard provision — while removing world read and group
+# write. Applied unconditionally so re-running provisioning corrects a mode
+# an earlier install left loosened, rather than only fixing fresh sites.
+harden_wp_config_permissions() {
+  local site_path="$1"
+  local config="$site_path/wp-config.php"
+
+  if [ "$DRY_RUN" != true ] && [ ! -f "$config" ]; then
+    return 0
+  fi
+
+  run_cmd chown www-data:www-data "$config"
+  run_cmd chmod 640 "$config"
+}
