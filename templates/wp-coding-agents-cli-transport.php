@@ -177,6 +177,93 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 	}
 }
 
+if ( ! class_exists( 'WpCodingAgents_Cli_Output_Redactor', false ) ) {
+	/**
+	 * Redact secrets from untrusted child-process diagnostics.
+	 */
+	class WpCodingAgents_Cli_Output_Redactor {
+		private const REDACTED = '[redacted]';
+
+		/**
+		 * Redact generic credential patterns and known environment values.
+		 *
+		 * @param array<string, string> $configured_env Channel-configured environment.
+		 */
+		public static function redact( string $output, array $configured_env = array() ): string {
+			$redacted = $output;
+			foreach ( self::known_environment_values( $configured_env ) as $secret ) {
+				$redacted = str_replace( $secret, self::REDACTED, $redacted );
+			}
+
+			$candidate = preg_replace(
+				'/\b((?:(?:proxy-)?authorization|(?:set-)?cookie)\s*[:=]\s*)[^\r\n]+/i',
+				'$1' . self::REDACTED,
+				$redacted
+			);
+			$redacted  = is_string( $candidate ) ? $candidate : $redacted;
+
+			$candidate = preg_replace( '/\bbearer\s+[A-Za-z0-9._~+\/=\-]{8,}/i', 'Bearer ' . self::REDACTED, $redacted );
+			$redacted  = is_string( $candidate ) ? $candidate : $redacted;
+
+			$candidate = preg_replace( '#\b(https?://)[^/\s:@]+:[^@/\s]+@#i', '$1' . self::REDACTED . ':' . self::REDACTED . '@', $redacted );
+			$redacted  = is_string( $candidate ) ? $candidate : $redacted;
+
+			$sensitive_key = '(?:(?:[a-z][a-z0-9]*[_-])*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization)?|client[_-]?secret|cookie|credentials?|nonce|password|passwd|private[_-]?key|secret|signature|token))';
+			$candidate     = preg_replace( '/([?&]' . $sensitive_key . '=)[^&#\s]*/i', '$1' . self::REDACTED, $redacted );
+			$redacted      = is_string( $candidate ) ? $candidate : $redacted;
+
+			$assignment_pattern = '/(?P<prefix>(?:"|\')?\b' . $sensitive_key . '\b(?:"|\')?\s*[:=]\s*)(?P<value>"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s,;&#]+)/i';
+			$assigned           = preg_replace_callback(
+				$assignment_pattern,
+				static function ( array $matches ): string {
+					$value = $matches['value'];
+					$quote = in_array( $value[0] ?? '', array( '"', "'" ), true ) ? $value[0] : '';
+					return $matches['prefix'] . $quote . self::REDACTED . $quote;
+				},
+				$redacted
+			);
+			$redacted           = is_string( $assigned ) ? $assigned : $redacted;
+
+			return $redacted;
+		}
+
+		/**
+		 * Gather exact values that must not cross a diagnostic boundary.
+		 *
+		 * Every sufficiently distinctive configured value is treated as private;
+		 * inherited values are included only when their key is sensitive.
+		 *
+		 * @param array<string, string> $configured_env Channel-configured environment.
+		 * @return array<int, string>
+		 */
+		private static function known_environment_values( array $configured_env ): array {
+			$values = array();
+			foreach ( $configured_env as $value ) {
+				if ( strlen( $value ) >= 8 ) {
+					$values[] = $value;
+				}
+			}
+
+			$inherited = getenv();
+			if ( is_array( $inherited ) ) {
+				foreach ( $inherited as $key => $value ) {
+					if ( is_string( $key ) && is_string( $value ) && strlen( $value ) >= 8 && self::key_is_sensitive( $key ) ) {
+						$values[] = $value;
+					}
+				}
+			}
+
+			$values = array_values( array_unique( $values ) );
+			usort( $values, static fn( string $left, string $right ): int => strlen( $right ) <=> strlen( $left ) );
+			return $values;
+		}
+
+		private static function key_is_sensitive( string $key ): bool {
+			return 1 === preg_match( '/(?:api[_-]?key|auth|cookie|credential|nonce|password|passwd|private[_-]?key|secret|signature|token)/i', $key );
+		}
+	}
+}
+
 if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 	/**
 	 * Generic CLI transport for agents/dispatch-message.
@@ -243,13 +330,14 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			$detach = (bool) ( $config['detach'] ?? true );
 			$timeout = isset( $config['timeout'] ) && is_int( $config['timeout'] ) ? $config['timeout'] : self::DEFAULT_TIMEOUT_SECONDS;
 			$cwd     = isset( $config['cwd'] ) && is_string( $config['cwd'] ) && '' !== $config['cwd'] ? $config['cwd'] : null;
-			$env     = self::build_env_map( isset( $config['env'] ) && is_array( $config['env'] ) ? $config['env'] : array() );
+			$configured_env = isset( $config['env'] ) && is_array( $config['env'] ) ? $config['env'] : array();
+			$env            = self::build_env_map( $configured_env );
 
 			if ( $detach ) {
-				return self::dispatch_detached( $channel, $recipient, $command_args, $cwd, $env );
+				return self::dispatch_detached( $channel, $recipient, $command_args, $cwd, $env, $configured_env );
 			}
 
-			return self::dispatch_sync( $channel, $recipient, $command_args, $cwd, $env, $timeout );
+			return self::dispatch_sync( $channel, $recipient, $command_args, $cwd, $env, $timeout, $configured_env );
 		}
 
 		/**
@@ -257,7 +345,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		 * @param array<string, string>|null $env  Environment map.
 		 * @return array<string, mixed>|WP_Error
 		 */
-		private static function dispatch_detached( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env ) {
+		private static function dispatch_detached( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env, array $configured_env ) {
 			// Capture stderr so an early-exiting child can report WHY it died.
 			// proc_close() below waits for the child either way (it always has —
 			// "detached" here means new session, not fire-and-forget), so the
@@ -312,21 +400,20 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			$duration_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
 
 			if ( null !== $exit_code && 0 !== $exit_code ) {
+				$stderr = self::sanitize_output( $stderr, $configured_env );
 				return new WP_Error(
 					'wp_coding_agents_cli_dispatch_exit_nonzero',
 					sprintf(
-						'CLI dispatch process "%s" exited with code %d after %dms.%s',
-						$argv[0] ?? '',
+						'CLI dispatch process exited with code %d after %dms.',
 						$exit_code,
-						$duration_ms,
-						'' !== $stderr ? ' stderr: ' . self::truncate_output( $stderr ) : ''
+						$duration_ms
 					),
 					array(
 						'channel'     => $channel,
 						'recipient'   => $recipient,
 						'exit_code'   => $exit_code,
 						'duration_ms' => $duration_ms,
-						'stderr'      => self::truncate_output( $stderr ),
+						'stderr'      => $stderr,
 					)
 				);
 			}
@@ -350,7 +437,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		 * @param array<string, string>|null $env  Environment map.
 		 * @return array<string, mixed>|WP_Error
 		 */
-		private static function dispatch_sync( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env, int $timeout ) {
+		private static function dispatch_sync( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env, int $timeout, array $configured_env ) {
 			$descriptors = array(
 				0 => array( 'pipe', 'r' ),
 				1 => array( 'pipe', 'w' ),
@@ -429,13 +516,15 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 
 			$exit_code   = proc_close( $process );
 			$duration_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
+			$stdout      = self::sanitize_output( $stdout, $configured_env );
+			$stderr      = self::sanitize_output( $stderr, $configured_env );
 
 			if ( $timed_out ) {
-				return new WP_Error( 'wp_coding_agents_cli_dispatch_timeout', sprintf( 'CLI channel "%s" exceeded the %d second timeout.', $channel, $timeout ), array( 'channel' => $channel, 'recipient' => $recipient, 'stdout' => self::truncate_output( $stdout ), 'stderr' => self::truncate_output( $stderr ), 'duration_ms' => $duration_ms ) );
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_timeout', sprintf( 'CLI channel "%s" exceeded the %d second timeout.', $channel, $timeout ), array( 'channel' => $channel, 'recipient' => $recipient, 'stdout' => $stdout, 'stderr' => $stderr, 'duration_ms' => $duration_ms ) );
 			}
 
 			if ( 0 !== $exit_code ) {
-				return new WP_Error( 'wp_coding_agents_cli_dispatch_nonzero_exit', sprintf( 'CLI channel "%s" exited with code %d.', $channel, $exit_code ), array( 'channel' => $channel, 'recipient' => $recipient, 'exit_code' => $exit_code, 'stdout' => self::truncate_output( $stdout ), 'stderr' => self::truncate_output( $stderr ), 'duration_ms' => $duration_ms ) );
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_nonzero_exit', sprintf( 'CLI channel "%s" exited with code %d.', $channel, $exit_code ), array( 'channel' => $channel, 'recipient' => $recipient, 'exit_code' => $exit_code, 'stdout' => $stdout, 'stderr' => $stderr, 'duration_ms' => $duration_ms ) );
 			}
 
 			return array(
@@ -447,8 +536,6 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 					'mode'        => 'sync',
 					'exit_code'   => $exit_code,
 					'duration_ms' => $duration_ms,
-					'stdout'      => self::truncate_output( $stdout ),
-					'stderr'      => self::truncate_output( $stderr ),
 				),
 			);
 		}
@@ -472,7 +559,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 
 			$process = @proc_open( $argv, $descriptors, $pipes, $cwd, $env, $options );
 			if ( ! is_resource( $process ) ) {
-				return new WP_Error( 'wp_coding_agents_cli_dispatch_spawn_failed', sprintf( 'Failed to spawn CLI process "%s".', $argv[0] ?? '' ) );
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_spawn_failed', 'Failed to spawn CLI process.' );
 			}
 
 			return $process;
@@ -567,6 +654,11 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			}
 
 			return substr( $output, 0, $limit ) . "\n[...truncated]";
+		}
+
+		/** @param array<string, string> $configured_env Channel-configured environment. */
+		private static function sanitize_output( string $output, array $configured_env ): string {
+			return self::truncate_output( WpCodingAgents_Cli_Output_Redactor::redact( $output, $configured_env ) );
 		}
 	}
 }
