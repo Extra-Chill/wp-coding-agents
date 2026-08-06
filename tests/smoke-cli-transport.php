@@ -89,11 +89,11 @@ $find_stub = static function ( array $candidates ): ?string {
 };
 
 $echo_bin  = $find_stub( array( '/bin/echo', '/usr/bin/echo' ) );
-$env_bin   = $find_stub( array( '/usr/bin/env', '/bin/env' ) );
 $true_bin  = $find_stub( array( '/bin/true', '/usr/bin/true' ) );
 $false_bin = $find_stub( array( '/bin/false', '/usr/bin/false' ) );
 $sleep_bin = $find_stub( array( '/bin/sleep', '/usr/bin/sleep' ) );
-foreach ( array( 'echo' => $echo_bin, 'env' => $env_bin, 'true' => $true_bin, 'false' => $false_bin, 'sleep' => $sleep_bin ) as $name => $path ) {
+$php_bin   = is_executable( PHP_BINARY ) ? PHP_BINARY : null;
+foreach ( array( 'echo' => $echo_bin, 'true' => $true_bin, 'false' => $false_bin, 'sleep' => $sleep_bin, 'php' => $php_bin ) as $name => $path ) {
 	if ( null === $path ) {
 		echo "  [SKIP] stub binary {$name} not present\n";
 		exit( 0 );
@@ -175,6 +175,36 @@ $substituted = WpCodingAgents_Cli_Channel_Registry::substitute_tokens(
 $assert( 'message token substituted verbatim', 'hello $(rm -rf /)' === $substituted[3] );
 $assert( 'conversation token substituted', 'conv-abc' === $substituted[5] );
 
+$redaction_fixture = implode(
+	"\n",
+	array(
+		'Authorization: Bearer bearer-secret-123456',
+		'Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==',
+		'Cookie: session=cookie-secret',
+		'OPENAI_API_KEY=assignment-secret',
+		'"refresh_token": "json-secret"',
+		'Authorization=Bearer assignment-bearer-secret',
+		'https://user:password@example.com/callback?access_token=query-secret&state=public',
+		'safe multiline detail',
+	)
+);
+$redacted_fixture = WpCodingAgents_Cli_Output_Redactor::redact( $redaction_fixture );
+$assert( 'bearer authorization is redacted', ! str_contains( $redacted_fixture, 'bearer-secret-123456' ) && ! str_contains( $redacted_fixture, 'assignment-bearer-secret' ) );
+$assert( 'basic authorization is redacted', ! str_contains( $redacted_fixture, 'dXNlcjpwYXNzd29yZA==' ) );
+$assert( 'cookie header is redacted', ! str_contains( $redacted_fixture, 'cookie-secret' ) );
+$assert( 'secret assignments are redacted', ! str_contains( $redacted_fixture, 'assignment-secret' ) && ! str_contains( $redacted_fixture, 'json-secret' ) );
+$assert( 'URL credentials are redacted', ! str_contains( $redacted_fixture, 'user:password' ) );
+$assert( 'URL query secrets are redacted', ! str_contains( $redacted_fixture, 'query-secret' ) );
+$assert( 'multiline safe detail is preserved', str_contains( $redacted_fixture, "\nsafe multiline detail" ) );
+
+$known_env_secret = '/private/configured/path/known-secret';
+$known_redacted   = WpCodingAgents_Cli_Output_Redactor::redact( 'diagnostic: ' . $known_env_secret, array( 'OPAQUE_VALUE' => $known_env_secret ) );
+$assert( 'configured environment values are redacted', ! str_contains( $known_redacted, $known_env_secret ) && str_contains( $known_redacted, '[redacted]' ) );
+
+$safe_fixture  = 'token count: 5; secret sauce; Basic skills; https://example.com/?page=1&state=public';
+$safe_redacted = WpCodingAgents_Cli_Output_Redactor::redact( $safe_fixture );
+$assert( 'non-secret prose resists false positives', $safe_fixture === $safe_redacted );
+
 $wp_coding_agents_test_options = array(
 	'wp_coding_agents_cli_channels' => array(
 		'sync-echo'     => array(
@@ -201,6 +231,12 @@ $wp_coding_agents_test_options = array(
 			'detach'  => false,
 			'timeout' => 1,
 		),
+		'timeout-secret' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'fwrite(STDERR, "refresh_token=timeout-secret\\n"); sleep(5);' ),
+			'detach'  => false,
+			'timeout' => 1,
+		),
 		'detached-true' => array(
 			'command' => $true_bin,
 			'args'    => array(),
@@ -211,15 +247,41 @@ $wp_coding_agents_test_options = array(
 			'args'    => array(),
 			'detach'  => true,
 		),
+		'detached-secret' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'fwrite(STDERR, "Authorization: Bearer detached-secret-token\\n"); exit(7);' ),
+			'detach'  => true,
+		),
+		'diagnostics-fail' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'fwrite(STDOUT, "token=stdout-secret\\nsafe stdout\\n"); fwrite(STDERR, "Authorization: Basic stderr-secret\\nsafe stderr\\n"); exit(9);' ),
+			'detach'  => false,
+			'timeout' => 5,
+		),
+		'configured-secret-fail' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'fwrite(STDERR, "opaque=" . getenv("OPAQUE_VALUE")); exit(9);' ),
+			'detach'  => false,
+			'timeout' => 5,
+			'env'     => array(
+				'OPAQUE_VALUE' => $known_env_secret,
+			),
+		),
+		'truncation-order-fail' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'fwrite(STDERR, str_repeat("x", 8170) . " token=" . str_repeat("z", 100)); exit(9);' ),
+			'detach'  => false,
+			'timeout' => 5,
+		),
 		'inherit-env'   => array(
-			'command' => $env_bin,
-			'args'    => array(),
+			'command' => $php_bin,
+			'args'    => array( '-r', 'exit("parent-ok" === getenv("WP_CODING_AGENTS_PARENT_ENV") ? 0 : 11);' ),
 			'detach'  => false,
 			'timeout' => 5,
 		),
 		'configured-env' => array(
-			'command' => $env_bin,
-			'args'    => array(),
+			'command' => $php_bin,
+			'args'    => array( '-r', 'exit("parent-ok" === getenv("WP_CODING_AGENTS_PARENT_ENV") && "configured-ok" === getenv("WP_CODING_AGENTS_CONFIGURED_ENV") ? 0 : 11);' ),
 			'detach'  => false,
 			'timeout' => 5,
 			'env'     => array(
@@ -229,15 +291,15 @@ $wp_coding_agents_test_options = array(
 		// #228: a channel with no configured HOME must not have a poisoned
 		// (unwritable) inherited HOME leak through to the child.
 		'guard-home'    => array(
-			'command' => $env_bin,
-			'args'    => array(),
+			'command' => $php_bin,
+			'args'    => array( '-r', 'exit(false === getenv("HOME") && "parent-ok" === getenv("WP_CODING_AGENTS_PARENT_ENV") ? 0 : 11);' ),
 			'detach'  => false,
 			'timeout' => 5,
 		),
 		// #228: a channel that pins a writable HOME keeps it verbatim.
 		'pinned-home'   => array(
-			'command' => $env_bin,
-			'args'    => array(),
+			'command' => $php_bin,
+			'args'    => array( '-r', 'exit(getenv("HOME") === sys_get_temp_dir() ? 0 : 11);' ),
 			'detach'  => false,
 			'timeout' => 5,
 			'env'     => array(
@@ -262,7 +324,7 @@ $ok = WpCodingAgents_Cli_Channel_Transport::execute(
 );
 $assert( 'sync success returns array', is_array( $ok ) && ! ( $ok instanceof WP_Error ) );
 if ( is_array( $ok ) ) {
-	$assert( 'sync success captures stdout', isset( $ok['metadata']['stdout'] ) && 'user-1:hi-there' === trim( (string) $ok['metadata']['stdout'] ) );
+	$assert( 'sync success omits child output', ! isset( $ok['metadata']['stdout'] ) && ! isset( $ok['metadata']['stderr'] ) );
 }
 
 $assert( 'sync true succeeds', is_array( WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-true', 'recipient' => 'r', 'message' => 'm' ) ) ) );
@@ -270,6 +332,9 @@ $fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync
 $assert( 'nonzero exit returns WP_Error', $fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_nonzero_exit' === $fail->get_error_code() );
 $timed = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-sleep', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'timeout returns WP_Error', $timed instanceof WP_Error && 'wp_coding_agents_cli_dispatch_timeout' === $timed->get_error_code() );
+$timed_secret = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'timeout-secret', 'recipient' => 'r', 'message' => 'm' ) );
+$timed_data   = $timed_secret instanceof WP_Error ? (array) $timed_secret->get_error_data() : array();
+$assert( 'timeout structured stderr is redacted', isset( $timed_data['stderr'] ) && ! str_contains( (string) $timed_data['stderr'], 'timeout-secret' ) && str_contains( (string) $timed_data['stderr'], '[redacted]' ) );
 $unknown = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'unknown', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'execute unknown returns WP_Error', $unknown instanceof WP_Error );
 
@@ -281,14 +346,30 @@ $assert( 'detached returns array', is_array( $detached ) && true === ( $detached
 $detached_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-false', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'detached early exit returns WP_Error', $detached_fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_exit_nonzero' === $detached_fail->get_error_code() );
 
+$detached_secret = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-secret', 'recipient' => 'r', 'message' => 'm' ) );
+$detached_data   = $detached_secret instanceof WP_Error ? (array) $detached_secret->get_error_data() : array();
+$assert( 'detached error message omits child output', $detached_secret instanceof WP_Error && ! str_contains( $detached_secret->get_error_message(), 'detached-secret-token' ) );
+$assert( 'detached structured stderr is redacted', isset( $detached_data['stderr'] ) && ! str_contains( (string) $detached_data['stderr'], 'detached-secret-token' ) && str_contains( (string) $detached_data['stderr'], '[redacted]' ) );
+
+$diagnostic_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'diagnostics-fail', 'recipient' => 'r', 'message' => 'm' ) );
+$diagnostic_data = $diagnostic_fail instanceof WP_Error ? (array) $diagnostic_fail->get_error_data() : array();
+$assert( 'sync structured stdout is redacted', isset( $diagnostic_data['stdout'] ) && ! str_contains( (string) $diagnostic_data['stdout'], 'stdout-secret' ) && str_contains( (string) $diagnostic_data['stdout'], 'safe stdout' ) );
+$assert( 'sync structured stderr is redacted', isset( $diagnostic_data['stderr'] ) && ! str_contains( (string) $diagnostic_data['stderr'], 'stderr-secret' ) && str_contains( (string) $diagnostic_data['stderr'], 'safe stderr' ) );
+
+$configured_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'configured-secret-fail', 'recipient' => 'r', 'message' => 'm' ) );
+$configured_data = $configured_fail instanceof WP_Error ? (array) $configured_fail->get_error_data() : array();
+$assert( 'configured value is redacted at error boundary', isset( $configured_data['stderr'] ) && ! str_contains( (string) $configured_data['stderr'], $known_env_secret ) );
+
+$truncation_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'truncation-order-fail', 'recipient' => 'r', 'message' => 'm' ) );
+$truncation_data = $truncation_fail instanceof WP_Error ? (array) $truncation_fail->get_error_data() : array();
+$assert( 'redaction occurs before truncation', isset( $truncation_data['stderr'] ) && ! str_contains( (string) $truncation_data['stderr'], str_repeat( 'z', 20 ) ) && ! str_contains( (string) $truncation_data['stderr'], '[...truncated]' ) );
+
 putenv( 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' );
 $inherited = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'inherit-env', 'recipient' => 'r', 'message' => 'm' ) );
-$assert( 'empty channel env inherits parent env', is_array( $inherited ) && str_contains( (string) ( $inherited['metadata']['stdout'] ?? '' ), 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
+$assert( 'empty channel env inherits parent env', is_array( $inherited ) );
 
 $configured = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'configured-env', 'recipient' => 'r', 'message' => 'm' ) );
-$configured_stdout = is_array( $configured ) ? (string) ( $configured['metadata']['stdout'] ?? '' ) : '';
-$assert( 'configured channel env keeps parent env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
-$assert( 'configured channel env adds configured env', str_contains( $configured_stdout, 'WP_CODING_AGENTS_CONFIGURED_ENV=configured-ok' ) );
+$assert( 'configured channel env keeps parent and adds configured env', is_array( $configured ) );
 
 // #228 regression: when the caller's HOME is unwritable (PHP-FPM/WP-cron as
 // www-data with HOME=/var/www) and the channel does not pin HOME, the
@@ -299,15 +380,12 @@ $prev_home     = getenv( 'HOME' );
 // A non-existent directory is, by definition, not a writable HOME.
 putenv( 'HOME=' . $poisoned_home );
 $guarded = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'guard-home', 'recipient' => 'r', 'message' => 'm' ) );
-$guarded_stdout = is_array( $guarded ) ? (string) ( $guarded['metadata']['stdout'] ?? '' ) : '';
-$assert( 'unwritable inherited HOME is not leaked', ! str_contains( $guarded_stdout, 'HOME=' . $poisoned_home ) );
-$assert( 'guarded channel still inherits other parent env', str_contains( $guarded_stdout, 'WP_CODING_AGENTS_PARENT_ENV=parent-ok' ) );
+$assert( 'unwritable HOME is dropped while other parent env is inherited', is_array( $guarded ) );
 
 // #228: a channel that pins a writable HOME keeps it even when the inherited
 // HOME is poisoned — this is the kimaki installer's fix path.
 $pinned = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'pinned-home', 'recipient' => 'r', 'message' => 'm' ) );
-$pinned_stdout = is_array( $pinned ) ? (string) ( $pinned['metadata']['stdout'] ?? '' ) : '';
-$assert( 'pinned writable HOME wins over poisoned inherited HOME', str_contains( $pinned_stdout, 'HOME=' . sys_get_temp_dir() ) );
+$assert( 'pinned writable HOME wins over poisoned inherited HOME', is_array( $pinned ) );
 // Restore HOME so any later code/tests see the original value.
 if ( false === $prev_home ) {
 	putenv( 'HOME' );
