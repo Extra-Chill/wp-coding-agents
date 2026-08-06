@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard agents-md-guidance; do
+for lib in common detect source-policy owned-source-discovery wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -530,6 +530,10 @@ runtime_merge_mcp_servers
 install_skills
 cli_transport_install
 runtime_guard_sync
+# Install the reconciler, then run it once so a fresh install converges the same
+# way a live change will.
+source_reconcile_sync
+source_reconcile_run
 install_chat_bridge
 datamachine_worker_install
 print_summary
