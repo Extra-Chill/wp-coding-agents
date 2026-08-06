@@ -435,10 +435,30 @@ source_policy_resolve_owned_sources() {
     return 0
   fi
 
+  # Precedence: explicit flags > derived from site state > last recorded.
+  #
+  # Derivation is the default because ownership is a fact already on the box,
+  # not a judgement (see lib/owned-source-discovery.sh). It wins over the
+  # recorded set so a plugin the agent creates becomes editable and captured
+  # with no operator step — otherwise the recorded value would pin the set
+  # forever and this would change nothing.
+  #
+  # It CANNOT win when the wp.org signal is untrustworthy. owned_discovery_derive
+  # returns nonzero rather than guessing, and the recorded set is kept. That
+  # asymmetry is the safety argument: a stale transient makes every plugin look
+  # unknown to wp.org, and a version that widened on missing evidence would open
+  # WooCommerce and a payment gateway on the site this was built for.
+  local derived=""
   if [ "${OWNED_SOURCES_EXPLICIT:-false}" = true ]; then
     OWNED_SOURCES="$(_source_policy_normalize_sources "${OWNED_SOURCES:-}")"
+  elif declare -F owned_discovery_derive >/dev/null 2>&1 && derived="$(owned_discovery_derive)" && [ -n "$derived" ]; then
+    OWNED_SOURCES="$(_source_policy_normalize_sources "$(printf '%s' "$derived" | tr '\n' ' ')")"
+    log "  Owned sources derived from site state: $(printf '%s' "$OWNED_SOURCES" | tr '\n' ' ')"
   else
     OWNED_SOURCES="$(_source_policy_normalize_sources "$(source_policy_recorded_owned_sources)")"
+    if declare -F owned_discovery_derive >/dev/null 2>&1; then
+      warn "  Could not derive owned sources (wp.org update signal missing or stale) — keeping the recorded set."
+    fi
   fi
 
   if [ -z "$OWNED_SOURCES" ]; then

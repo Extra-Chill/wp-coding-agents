@@ -208,6 +208,32 @@ read-only reference there. What it buys is git and review, not latitude.
 | Runtimes | all | `opencode` only |
 | Service user | root by default | **non-root by default** (`opencode`) |
 
+### The owned set is derived, not declared
+
+Ownership is a fact already on the box, not a judgement, so it is computed
+rather than configured:
+
+```
+owned = installed  −  known to wp.org  −  installed by wp-coding-agents
+                   −  explicitly excluded
+```
+
+A plugin the agent creates is therefore editable and captured with no operator
+step and no self-declaration. `--owned-source` still overrides when supplied.
+
+**It cannot widen on missing evidence.** The wp.org signal is a transient; on a
+fresh install, after a cache flush, or when wp.org is unreachable it is absent,
+and treating absence as "nothing belongs to wp.org" would classify every plugin
+as the site's — handing the agent write access to WooCommerce and any payment
+gateway. So a signal that is missing, empty, or older than two days produces no
+derivation at all and the last recorded set is kept. Ownership is inferred only
+from the presence of evidence.
+
+`--not-owned <slug>` is the escape hatch for a premium or vendor plugin, which
+is on nobody's wp.org list and is not carried by wp-coding-agents, yet is no
+more the site's than WooCommerce is. Editing it is futile and capturing it may
+put licensed code in the operator's repository.
+
 ### How out-of-band capture learns the editable set
 
 Owned mode rests on one invariant: **the editable set equals the set the

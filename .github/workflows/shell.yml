@@ -220,6 +220,7 @@ jobs:
           - kimaki-multi-instance
           - kimaki-system-message-patch
           - opencode-claude-auth-refresh-hardening
+          - owned-source-discovery
           - path-helpers
           - post-upgrade-restore
           - runtime-signature
