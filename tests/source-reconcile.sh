@@ -156,12 +156,32 @@ echo ""
 echo "source-reconcile: wiring"
 
 # A scaffolded plugin fires none of the lifecycle hooks — no install, no
-# activation, just a directory appearing. That is the case this exists for, so
-# the scheduled sweep is not optional.
+# activation, just a directory appearing.
+#
+# The first version handled that with an hourly sweep, which is not a latency
+# but a wall: an agent that writes a plugin and cannot edit it for up to
+# fifty-nine minutes has to explain that to the person who asked for it, and
+# cannot tell them which of the two it will be. The sweep is now a backstop.
 tpl="$(cat "$TEMPLATE")"
 assert_contains "$tpl" "activated_plugin" "hooks plugin activation"
 assert_contains "$tpl" "upgrader_process_complete" "hooks installs and updates"
-assert_contains "$tpl" "wp_coding_agents_reconcile_cron" "schedules a sweep for scaffolded plugins"
+
+# WP-CLI is how a plugin actually gets scaffolded, and after_invoke fires in the
+# SAME command that created the directory — no race, no perceptible latency.
+assert_contains "$tpl" "after_invoke:" "hooks WP-CLI after_invoke"
+assert_contains "$tpl" "scaffold plugin" "covers the scaffold command specifically"
+
+# And every bootstrap, so a directory created by ANY means — including a bare
+# mkdir from the agent's shell — is picked up by the next request. Measured on
+# h44lacrosse.com: 0.16 ms against a 191 ms page render.
+assert_contains "$tpl" "add_action( 'init', 'wp_coding_agents_reconcile_on_change'" \
+  "reconciles on every bootstrap, not only on a timer"
+
+assert_contains "$tpl" "wp_coding_agents_reconcile_cron" "keeps the sweep as a backstop"
+
+# The hash check is what makes the init hook affordable; without it this would
+# be a filesystem scan in the hot path of every request.
+assert_contains "$tpl" "wp_coding_agents_inventory_hash" "the bootstrap path is hash-gated"
 
 # The shell must delegate, not re-derive: two implementations of the same safety
 # rule are free to drift, which is the failure this design removes.

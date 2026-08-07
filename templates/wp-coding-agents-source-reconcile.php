@@ -392,9 +392,48 @@ function wp_coding_agents_reconcile_on_change() {
 
 /**
  * A plugin the agent SCAFFOLDS fires none of the hooks above — no install, no
- * activation, just a directory appearing. That is the case this whole file
- * exists for, so the inventory is also checked on the site's regular heartbeat.
- * The hash comparison makes the usual outcome a single option read.
+ * activation, just a directory appearing. That is the case this file exists for,
+ * and the first version handled it with an hourly sweep.
+ *
+ * An hour is not a latency, it is a wall. An agent that writes a plugin and then
+ * cannot edit it until the next hour has to explain that to the person who asked
+ * for the plugin, which is the friction managed hosting exists to remove. Worse,
+ * it is unpredictable: sometimes instant, sometimes fifty-nine minutes, with no
+ * way for the agent to tell which.
+ *
+ * So the sweep is a backstop, not the mechanism. Two deterministic triggers do
+ * the real work.
+ *
+ * FIRST: WP-CLI, which is how a plugin actually gets scaffolded. `after_invoke`
+ * fires in the SAME command that created the directory, so the reconcile lands
+ * before the agent's next tool call — zero perceptible latency and no race.
+ */
+if ( class_exists( 'WP_CLI' ) && method_exists( 'WP_CLI', 'add_hook' ) ) {
+	foreach ( array( 'scaffold plugin', 'scaffold child-theme', 'plugin install', 'plugin delete', 'theme install', 'theme delete' ) as $wp_coding_agents_cli_cmd ) {
+		WP_CLI::add_hook(
+			'after_invoke:' . $wp_coding_agents_cli_cmd,
+			function () {
+				wp_coding_agents_reconcile_sources();
+			}
+		);
+	}
+	unset( $wp_coding_agents_cli_cmd );
+}
+
+/**
+ * SECOND: every WordPress bootstrap. The inventory hash makes the common case a
+ * single option read, so this is affordable on `init` — and it means a directory
+ * created by ANY means, including a bare mkdir from the agent's shell, is picked
+ * up by the very next WordPress request or wp-cli command. On an active agent
+ * that is seconds, not an hour, and it needs no cooperation from whatever
+ * created the directory.
+ */
+add_action( 'init', 'wp_coding_agents_reconcile_on_change', 5 );
+
+/**
+ * The sweep remains as a backstop for a site nobody is touching — where no
+ * request arrives to trigger the above — and is now the slow path rather than
+ * the only path.
  */
 add_action( 'wp_coding_agents_reconcile_cron', 'wp_coding_agents_reconcile_on_change' );
 add_action(
