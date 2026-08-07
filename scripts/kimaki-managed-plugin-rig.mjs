@@ -87,6 +87,7 @@ function stageManagedConfig() {
 
   copyFile(path.join(repoPluginsDir, 'dm-context-filter.ts'), path.join(stagedPluginsDir, 'dm-context-filter.ts'))
   copyFile(path.join(repoPluginsDir, 'dm-agent-sync.ts'), path.join(stagedPluginsDir, 'dm-agent-sync.ts'))
+  copyFile(path.join(repoPluginsDir, 'kimaki-session-attribution.ts'), path.join(stagedPluginsDir, 'kimaki-session-attribution.ts'))
   copyFile(path.join(repoKimakiDir, 'post-upgrade.sh'), postUpgradePath)
   fs.chmodSync(postUpgradePath, 0o755)
 
@@ -110,6 +111,7 @@ function writeOpencodeConfig() {
     plugin: [
       path.join(stagedPluginsDir, 'dm-context-filter.ts'),
       path.join(stagedPluginsDir, 'dm-agent-sync.ts'),
+      path.join(stagedPluginsDir, 'kimaki-session-attribution.ts'),
     ],
     instructions: [],
   }
@@ -121,6 +123,7 @@ function recordStaticEvidence() {
   artifacts.files['site/opencode.json'] = fileRecord(path.join(siteDir, 'opencode.json'))
   artifacts.files['kimaki-config/plugins/dm-context-filter.ts'] = fileRecord(path.join(stagedPluginsDir, 'dm-context-filter.ts'))
   artifacts.files['kimaki-config/plugins/dm-agent-sync.ts'] = fileRecord(path.join(stagedPluginsDir, 'dm-agent-sync.ts'))
+  artifacts.files['kimaki-config/plugins/kimaki-session-attribution.ts'] = fileRecord(path.join(stagedPluginsDir, 'kimaki-session-attribution.ts'))
   artifacts.files['kimaki-config/post-upgrade.sh'] = fileRecord(postUpgradePath)
   for (const candidate of ['skills-enable-list.txt', 'skills-disable-list.txt']) {
     const file = path.join(kimakiConfigDir, candidate)
@@ -165,6 +168,7 @@ async function recordLiveDriftEvidence() {
   const liveFreshnessFiles = [
     path.join(livePluginsDir, 'dm-context-filter.ts'),
     path.join(livePluginsDir, 'dm-agent-sync.ts'),
+    path.join(livePluginsDir, 'kimaki-session-attribution.ts'),
     path.join(liveConfigDir, 'post-upgrade.sh'),
     path.join(liveConfigDir, skillListName),
     liveLaunchdPlist,
@@ -183,6 +187,12 @@ async function recordLiveDriftEvidence() {
     label: 'dm-agent-sync installed copy matches repo',
     repoFile: path.join(repoPluginsDir, 'dm-agent-sync.ts'),
     liveFile: path.join(livePluginsDir, 'dm-agent-sync.ts'),
+    live,
+  })
+  compareFile({
+    label: 'kimaki-session-attribution installed copy matches repo',
+    repoFile: path.join(repoPluginsDir, 'kimaki-session-attribution.ts'),
+    liveFile: path.join(livePluginsDir, 'kimaki-session-attribution.ts'),
     live,
   })
 
@@ -207,6 +217,7 @@ async function recordLiveDriftEvidence() {
     live.opencode_plugins = pluginList
     liveCheck(pluginList.includes(path.join(livePluginsDir, 'dm-context-filter.ts')), 'opencode.json references live dm-context-filter path', live)
     liveCheck(pluginList.includes(path.join(livePluginsDir, 'dm-agent-sync.ts')), 'opencode.json references live dm-agent-sync path', live)
+    liveCheck(pluginList.includes(path.join(livePluginsDir, 'kimaki-session-attribution.ts')), 'opencode.json references live kimaki-session-attribution path', live)
   } else {
     liveCheck(false, 'live opencode.json exists', live, { file: opencodeJson })
   }
@@ -405,6 +416,7 @@ async function runCycle({ name, simulatePackageWipe }) {
   assert(fs.existsSync(path.join(stagedSkillsDir, 'upgrade-wp-coding-agents', 'SKILL.md')), `${name}: persistent upgrade skill source remains present`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-context-filter.ts')), `${name}: context filter present after restart`, cycle)
   assert(fs.existsSync(path.join(stagedPluginsDir, 'dm-agent-sync.ts')), `${name}: agent sync present after restart`, cycle)
+  assert(fs.existsSync(path.join(stagedPluginsDir, 'kimaki-session-attribution.ts')), `${name}: session attribution bridge present after restart`, cycle)
 
   const permission = expectedSkillPermission()
   assert(permission?.['*'] === 'deny', `${name}: generated skill permission denies unlisted skills`, cycle)

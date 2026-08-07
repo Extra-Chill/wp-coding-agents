@@ -73,7 +73,7 @@ import sys
 from typing import List, Tuple
 
 
-MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts"}
+MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "kimaki-session-attribution.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
 # Every installed path wp-coding-agents manages, as ready-made edit patterns in
@@ -138,6 +138,7 @@ def expected_plugins(
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
+        plugins.append(f"{kimaki_plugins_dir}/kimaki-session-attribution.ts")
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)

@@ -89,6 +89,10 @@ cat > "$SRC_PLUGINS/dm-agent-sync.ts" <<'EOF'
 // dm-agent-sync.ts
 export default async () => ({})
 EOF
+cat > "$SRC_PLUGINS/kimaki-session-attribution.ts" <<'EOF'
+// kimaki-session-attribution.ts
+export default async () => ({})
+EOF
 echo "obsolete" > "$SRC_PLUGINS/homeboy-notification-context.ts"
 
 TEST_SCRIPT_DIR="$TMP/kimaki-config-dir"
@@ -178,9 +182,11 @@ KIMAKI_PLUGIN_SOURCE_DIR="$SRC_PLUGINS" \
 
 assert_present "$LIVE_PLUGINS/dm-context-filter.ts"
 assert_present "$LIVE_PLUGINS/dm-agent-sync.ts"
+assert_present "$LIVE_PLUGINS/kimaki-session-attribution.ts"
 assert_missing "$LIVE_PLUGINS/homeboy-notification-context.ts"
 assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-context-filter.ts"
 assert_log_contains_file "$TMP/run-override.log" "restored plugin dm-agent-sync.ts"
+assert_log_contains_file "$TMP/run-override.log" "restored plugin kimaki-session-attribution.ts"
 
 # Idempotency: second run with the same state should restore zero plugins.
 KIMAKI_SKILLS_DIR="$LIVE_SKILLS" \
@@ -216,8 +222,8 @@ if [[ ! -f "$LIVE_PLUGINS/dm-context-filter.ts" ]]; then
   cat "$TMP/run3.log"
   exit 1
 fi
-if ! grep -q "2 plugins restored" "$TMP/run3.log"; then
-  echo "FAIL: rehydration run should report 2 plugins restored"
+if ! grep -q "3 plugins restored" "$TMP/run3.log"; then
+  echo "FAIL: rehydration run should report 3 plugins restored"
   cat "$TMP/run3.log"
   exit 1
 fi
@@ -288,6 +294,6 @@ KIMAKI_PLUGIN_SOURCE_DIR="$MISSING_SRC" \
 
 assert_log_contains_file "$TMP/missing.log" "WARNING: persistent plugin source dir not found at $MISSING_SRC; managed OpenCode plugins cannot be loaded"
 assert_log_contains_file "$TMP/missing.log" "WARNING: plugins dir not found at $MISSING_LIVE_PLUGINS; opencode.json plugin paths will be skipped by OpenCode"
-assert_log_contains_file "$TMP/missing.log" "2 required plugins missing"
+assert_log_contains_file "$TMP/missing.log" "3 required plugins missing"
 
 echo "PASS: tests/post-upgrade-restore.sh ($(grep -c '' "$TMP/run1.log" || true) lines run1, $(grep -c '' "$TMP/run3.log" || true) lines run3)"
