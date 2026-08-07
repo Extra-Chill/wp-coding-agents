@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.0] - 2026-08-07
+
+### Added
+- assert the cross-layer invariants with verify.sh
+
 ## [1.15.0] - 2026-08-06
 
 ### Added
