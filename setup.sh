@@ -521,6 +521,7 @@ setup_ai_gateway
 
 runtime_install
 runtime_discover_dm_paths
+discover_dm_workspace_dir
 runtime_generate_config
 ai_gateway_configure_opencode
 runtime_install_hooks
