@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.2] - 2026-08-07
+
+### Fixed
+- an hour is not a latency, it is a wall
+
 ## [1.16.1] - 2026-08-07
 
 ### Fixed
