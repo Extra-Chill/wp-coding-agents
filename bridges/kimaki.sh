@@ -998,6 +998,34 @@ bridge_sync_config() {
   # outside Kimaki's npm package so `npm update -g kimaki` cannot wipe them.
   _kimaki_sync_bin_helpers
 
+# Resolve a runtime that can import the harness AND the TypeScript filter it
+# loads. node cannot: dm-context-filter.ts is TypeScript, and node exits with
+# ERR_UNKNOWN_FILE_EXTENSION on import. Echoes nothing when none is available,
+# which the caller must treat as "unverified" rather than "failing".
+#
+# Checks PATH first, then the service home, then root's — a service-identity
+# migration moves the toolchain, and bun installed for one identity is not on
+# the PATH of a shell running as another.
+_kimaki_effective_prompt_runner() {
+  if command -v bun >/dev/null 2>&1; then
+    command -v bun
+    return 0
+  fi
+  # /root is checked because a service-identity migration leaves the toolchain
+  # behind while the upgrade itself still runs as root — h44lacrosse.com's exact
+  # shape. Overridable so a test can model a host with no bun anywhere.
+  local home
+  for home in "${SERVICE_HOME:-}" "$HOME" "${KIMAKI_BUN_FALLBACK_HOME:-/root}"; do
+    [ -n "$home" ] || continue
+    if [ -x "$home/.bun/bin/bun" ]; then
+      printf '%s' "$home/.bun/bin/bun"
+      return 0
+    fi
+  done
+  return 0
+}
+
+
   # On local, execute post-upgrade.sh inline to restore the upgrade skill.
   # On VPS, kimaki.service ExecStartPre runs it on next service restart.
   if [ "$LOCAL_MODE" = true ] && [ -x "$KIMAKI_CONFIG_DIR/post-upgrade.sh" ]; then
@@ -1026,13 +1054,25 @@ bridge_sync_config() {
   # underlying sync was successful. The signal is in UPDATED_ITEMS so the
   # final summary surfaces it.
   local TEST_SCRIPT="$SCRIPT_DIR/tests/effective-prompt/run.mjs"
-  if [ -f "$TEST_SCRIPT" ] && command -v node &>/dev/null; then
+  local TEST_RUNNER
+  TEST_RUNNER="$(_kimaki_effective_prompt_runner)"
+  if [ -f "$TEST_SCRIPT" ] && [ -z "$TEST_RUNNER" ]; then
+    # NOT a leak. The harness imports dm-context-filter.ts directly, and node
+    # cannot load TypeScript — it exits with ERR_UNKNOWN_FILE_EXTENSION before
+    # rendering a single prompt. Reporting that as a possible leak is how this
+    # warned on every upgrade of h44lacrosse.com while the filter was in fact
+    # clean, which is worse than silence: an alarm that is always wrong teaches
+    # everyone to scroll past the one time it is right.
+    warn "  effective-prompt test SKIPPED — needs a TypeScript-capable runtime (bun)"
+    warn "    the filter is UNVERIFIED on this host, not known to be leaking"
+    UPDATED_ITEMS+=("effective-prompt test skipped — install bun to verify the prompt filter")
+  elif [ -f "$TEST_SCRIPT" ]; then
     if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would run: node $TEST_SCRIPT"
+      echo -e "${BLUE}[dry-run]${NC} Would run: $TEST_RUNNER $TEST_SCRIPT"
     else
-      log "  Running effective-prompt regression test..."
+      log "  Running effective-prompt regression test ($TEST_RUNNER)..."
       local TEST_OUT
-      if TEST_OUT=$(node "$TEST_SCRIPT" 2>&1); then
+      if TEST_OUT=$("$TEST_RUNNER" "$TEST_SCRIPT" 2>&1); then
         # Pull the scenario count from the harness's "OK — N scenario(s)" line.
         local SCENARIO_LINE
         SCENARIO_LINE=$(echo "$TEST_OUT" | grep -E "^OK — [0-9]+ scenario" | head -1)
@@ -1040,8 +1080,8 @@ bridge_sync_config() {
         UPDATED_ITEMS+=("ran effective-prompt test (no filter leaks)")
       else
         warn "  effective-prompt test FAILED — dm-context-filter may be leaking banned phrases"
-        warn "    rerun with: node $TEST_SCRIPT --verbose"
-        warn "    if drift is intentional: node $TEST_SCRIPT --update"
+        warn "    rerun with: $TEST_RUNNER $TEST_SCRIPT --verbose"
+        warn "    if drift is intentional: $TEST_RUNNER $TEST_SCRIPT --update"
         # Surface the failure section of the test output (last ~12 lines).
         echo "$TEST_OUT" | tail -12 | sed 's/^/    /' >&2
         UPDATED_ITEMS+=("effective-prompt test FAILED — review filter or refresh snapshots")
