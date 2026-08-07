@@ -222,6 +222,7 @@ jobs:
           - opencode-claude-auth-refresh-hardening
           - owned-source-discovery
           - source-reconcile
+          - verify
           - path-helpers
           - post-upgrade-restore
           - runtime-signature

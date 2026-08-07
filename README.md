@@ -450,6 +450,29 @@ node tests/effective-prompt/run.mjs --verbose
 
 Use setup output and operator entrypoints for environment-specific verification commands. The generated summary is the source of truth for service names, paths, and bridge restart commands.
 
+## Verification
+
+```
+./verify.sh                 # exits non-zero on any disagreement
+./verify.sh --json          # machine-readable, for a scheduled check
+```
+
+Every defect that reached a live site during the managed-hosting rollout was a
+disagreement *between* layers, not a fault within one: a unit whose `User=` and
+`HOME=` described different identities, a manifest that had drifted from the
+recorded set, a declared source the permission surface did not allow, a function
+guarded by `declare -F` in a script that never sourced its library.
+
+Each component was internally correct and individually tested. Nothing owned the
+seam, so nothing failed until somebody looked — and the looking is what does not
+scale. An operator with two sites inspects a rendered systemd unit before
+starting services; an operator with two thousand does not.
+
+`verify.sh` owns the seams. It reports and never repairs: a check that fixes what
+it finds cannot be trusted to report honestly, and the failure it hides is the
+one worth seeing. An invariant it cannot evaluate is reported as skipped rather
+than passed.
+
 ## Upgrades
 
 Installed agents receive an `upgrade-wp-coding-agents` skill. The skill runs `upgrade.sh`, preserves user state, syncs managed bridge/runtime files, and prints verification and restart commands for the detected environment.
