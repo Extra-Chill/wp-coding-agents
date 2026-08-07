@@ -39,6 +39,7 @@ runtime_generate_config
 
 python3 - "$SITE_PATH/opencode.json" "$KIMAKI_DATA_DIR" <<'PY'
 import json
+import os
 import sys
 
 opencode_json, kimaki_data_dir = sys.argv[1], sys.argv[2]
@@ -54,6 +55,12 @@ expected = [
 actual = data.get("plugin")
 if actual != expected:
     raise SystemExit(f"unexpected local plugin paths: {actual}")
+
+external = data.get("permission", {}).get("external_directory", {})
+expected_workspace = f"{opencode_json.rsplit('/', 1)[0]}/../workspace"
+expected_workspace = os.path.normpath(expected_workspace) + "/**"
+if external != {expected_workspace: "allow"}:
+    raise SystemExit(f"unexpected workspace grant: {external}")
 
 edit = data.get("permission", {}).get("edit", {})
 for required in ("wp-admin/**", "wp-includes/**", "wp-content/plugins/**",

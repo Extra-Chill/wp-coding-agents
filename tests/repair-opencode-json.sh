@@ -231,6 +231,38 @@ if permission.get("bash") != "allow":
 PY
 grep -q '"edit_permission": "synced"' "$TMP/edit-permissions.out"
 
+cat > "$TMP/workspace-permission.json" <<'JSON'
+{
+  "permission": {
+    "external_directory": {
+      "/Users/example/.datamachine/workspace/**": "allow"
+    }
+  }
+}
+JSON
+
+python3 "$REPAIR" \
+  --file "$TMP/workspace-permission.json" \
+  --runtime opencode \
+  --chat-bridge none \
+  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --workspace-dir /Users/example/Developer \
+  --additive > "$TMP/workspace-permission.out"
+
+python3 - "$TMP/workspace-permission.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+external = data.get("permission", {}).get("external_directory", {})
+expected = {"/Users/example/Developer/**": "allow"}
+if external != expected:
+    raise SystemExit(f"stale workspace grant was not replaced: {external}")
+PY
+grep -q '"external_directory": "synced"' "$TMP/workspace-permission.out"
+
 cat > "$TMP/claude-code-auth-plugin.json" <<'JSON'
 {
   "plugin": []

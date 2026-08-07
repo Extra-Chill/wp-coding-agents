@@ -213,6 +213,7 @@ jobs:
           - codex-runtime
           - datamachine-worker
           - detect-site-domain
+          - dm-workspace-discovery
           - homeboy-codebox-canary
           - homeboy-components
           - homeboy-dmc-provider
