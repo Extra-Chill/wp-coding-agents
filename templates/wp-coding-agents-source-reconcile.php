@@ -226,9 +226,23 @@ function wp_coding_agents_not_owned_slugs() {
  *
  * @return string
  */
-function wp_coding_agents_inventory_hash() {
+function wp_coding_agents_inventory_hash( $fresh = false ) {
 	if ( ! function_exists( 'get_plugins' ) ) {
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	}
+	// get_plugins() caches its directory scan for the life of the process. In a
+	// web request that is exactly right — the cache is built and used within one
+	// request. In a long-lived WP-CLI process it is a trap: `wp scaffold plugin`
+	// loads WordPress BEFORE creating the directory, so the cache predates the
+	// new plugin, the hash comes out unchanged, and the reconcile returns early
+	// having seen nothing.
+	//
+	// That is precisely the case this file exists for, and it failed silently:
+	// the hook fired, WordPress was loaded, and the answer was still "unchanged".
+	// Busting the cache is scoped to callers that know the filesystem just
+	// changed, so the per-request path keeps its cached scan.
+	if ( $fresh ) {
+		wp_cache_delete( 'plugins', 'plugins' );
 	}
 	$parts = array_merge( array_keys( get_plugins() ), array_keys( wp_get_themes() ) );
 	sort( $parts );
@@ -241,12 +255,12 @@ function wp_coding_agents_inventory_hash() {
  * @param bool $force Reconcile even when the installed set looks unchanged.
  * @return array{status:string,owned?:string[],reason?:string}
  */
-function wp_coding_agents_reconcile_sources( $force = false ) {
+function wp_coding_agents_reconcile_sources( $force = false, $fresh = false ) {
 	if ( 'owned' !== get_option( WP_CODING_AGENTS_SOURCE_MODE_OPTION, '' ) ) {
 		return array( 'status' => 'skipped', 'reason' => 'not owned mode' );
 	}
 
-	$hash = wp_coding_agents_inventory_hash();
+	$hash = wp_coding_agents_inventory_hash( $fresh );
 	if ( ! $force && $hash === get_option( WP_CODING_AGENTS_INVENTORY_OPTION, '' ) ) {
 		return array( 'status' => 'unchanged' );
 	}
@@ -279,6 +293,30 @@ function wp_coding_agents_reconcile_sources( $force = false ) {
 }
 
 /**
+ * Restore group ownership and mode after an atomic replace.
+ *
+ * file_put_contents()+rename() creates a NEW inode owned by whoever ran it, at
+ * the process umask. When this reconcile runs as root during an upgrade it
+ * therefore replaced opencode.json with a root:root 0644 file — and the runtime
+ * user could no longer write it, so every LATER reconcile silently failed to
+ * update the permissions it exists to update.
+ *
+ * The reconcile broke the very file it needs to keep writing. Mirrors
+ * service_file_normalize_perms() in lib/common.sh: 0664, group taken from the
+ * containing directory, so both root and the web/runtime user can write.
+ *
+ * @param string $path
+ * @return void
+ */
+function wp_coding_agents_normalize_written_file( $path ) {
+	@chmod( $path, 0664 );
+	$gid = @filegroup( dirname( $path ) );
+	if ( false !== $gid ) {
+		@chgrp( $path, $gid );
+	}
+}
+
+/**
  * Project the owned set to the file out-of-band capture reads.
  *
  * Capture runs as a deliberately read-only identity that cannot read
@@ -299,8 +337,11 @@ function wp_coding_agents_write_manifest( array $owned ) {
 	if ( false === file_put_contents( $tmp, implode( "\n", $owned ) . "\n" ) ) {
 		return false;
 	}
-	@chmod( $tmp, 0644 );
-	return rename( $tmp, $path );
+	if ( ! rename( $tmp, $path ) ) {
+		return false;
+	}
+	wp_coding_agents_normalize_written_file( $path );
+	return true;
 }
 
 /**
@@ -364,7 +405,11 @@ function wp_coding_agents_write_edit_permissions( array $owned ) {
 	if ( false === file_put_contents( $tmp, $encoded . "\n" ) ) {
 		return false;
 	}
-	return rename( $tmp, $file );
+	if ( ! rename( $tmp, $file ) ) {
+		return false;
+	}
+	wp_coding_agents_normalize_written_file( $file );
+	return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -408,13 +453,46 @@ function wp_coding_agents_reconcile_on_change() {
  * fires in the SAME command that created the directory, so the reconcile lands
  * before the agent's next tool call — zero perceptible latency and no race.
  */
+/**
+ * Reconcile after a WP-CLI command, loading WordPress first if it is not.
+ *
+ * `wp scaffold plugin` does NOT load WordPress — verified with --debug on
+ * h44lacrosse.com: zero WordPress bootstrap steps, yet the hook fires and names
+ * this callback. WP-CLI includes the mu-plugin far enough to register the hook
+ * and no further, so the callback ran in a context with no get_option(), the
+ * reconcile bailed out, and a scaffolded plugin stayed uneditable — the exact
+ * failure the hook was added to fix, now silent instead of slow.
+ *
+ * Scaffolding is precisely the case that matters here, so the callback loads
+ * WordPress itself rather than declining. That cost is paid only on the handful
+ * of commands hooked above, and only when WordPress was not already loaded.
+ *
+ * @return void
+ */
+function wp_coding_agents_reconcile_after_cli() {
+	if ( ! function_exists( 'get_option' ) ) {
+		$runner = class_exists( 'WP_CLI' ) ? WP_CLI::get_runner() : null;
+		if ( ! $runner || ! method_exists( $runner, 'load_wordpress' ) ) {
+			// Nothing safe to do. The bootstrap hook below will pick this up on
+			// the next request that does load WordPress.
+			return;
+		}
+		$runner->load_wordpress();
+		if ( ! function_exists( 'get_option' ) ) {
+			return;
+		}
+	}
+	// $fresh: this fires immediately after a command that changed the plugin or
+	// theme directory, which is the one situation where the cached scan is known
+	// to be stale.
+	wp_coding_agents_reconcile_sources( false, true );
+}
+
 if ( class_exists( 'WP_CLI' ) && method_exists( 'WP_CLI', 'add_hook' ) ) {
 	foreach ( array( 'scaffold plugin', 'scaffold child-theme', 'plugin install', 'plugin delete', 'theme install', 'theme delete' ) as $wp_coding_agents_cli_cmd ) {
 		WP_CLI::add_hook(
 			'after_invoke:' . $wp_coding_agents_cli_cmd,
-			function () {
-				wp_coding_agents_reconcile_sources();
-			}
+			'wp_coding_agents_reconcile_after_cli'
 		);
 	}
 	unset( $wp_coding_agents_cli_cmd );
