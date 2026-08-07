@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.1] - 2026-08-07
+
+### Fixed
+- a crashed prompt test is not a leaking prompt filter
+
 ## [1.16.0] - 2026-08-07
 
 ### Added
