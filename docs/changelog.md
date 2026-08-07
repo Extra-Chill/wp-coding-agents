@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.3] - 2026-08-07
+
+### Fixed
+- make scaffold-to-editable actually work, three bugs deep
+
 ## [1.16.2] - 2026-08-07
 
 ### Fixed
