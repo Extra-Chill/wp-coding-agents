@@ -277,6 +277,19 @@ else
     fi
   done
 
+  # opencode.json must stay writable by the runtime user, or the reactive
+  # reconcile updates the option and the manifest while the permission surface
+  # silently freezes. That is not hypothetical: file_put_contents()+rename()
+  # creates a new inode owned by whoever ran it, so a reconcile run as root left
+  # this root:root 0644 and every later one failed without saying so.
+  if [ -f "$OPENCODE_JSON" ]; then
+    OJ_MODE="$(stat -c '%a' "$OPENCODE_JSON" 2>/dev/null)"
+    case "$OJ_MODE" in
+      *[67]*) pass "opencode.json is group-writable ($OJ_MODE) — the runtime can update permissions" ;;
+      *) fail "opencode.json mode $OJ_MODE is not group-writable — the reactive reconcile cannot update the permission surface" ;;
+    esac
+  fi
+
   # A reconcile that cannot write is a reconcile that reports success and
   # changes nothing.
   MANIFEST_DIR="${SOURCE_POLICY_MANIFEST_ROOT:-/var/lib/wp-coding-agents}/$(basename "$SITE_PATH")"

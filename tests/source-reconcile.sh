@@ -183,6 +183,21 @@ assert_contains "$tpl" "wp_coding_agents_reconcile_cron" "keeps the sweep as a b
 # be a filesystem scan in the hot path of every request.
 assert_contains "$tpl" "wp_coding_agents_inventory_hash" "the bootstrap path is hash-gated"
 
+# Three failures found only by running this on a live site, none visible to a
+# stubbed test:
+#
+#   wp scaffold plugin never loads WordPress, so the hook fired into a context
+#   with no get_option() and bailed silently;
+#   get_plugins() caches its directory scan, and WordPress loaded BEFORE the
+#   scaffold, so the hash came out unchanged;
+#   rename() creates a new inode owned by whoever ran it, so a root-run
+#   reconcile left opencode.json root:root 0644 and every later reconcile
+#   failed to update the permissions it exists to update.
+assert_contains "$tpl" "load_wordpress" "the CLI callback loads WordPress when the command did not"
+assert_contains "$tpl" "wp_cache_delete( 'plugins', 'plugins' )" "busts the cached plugin scan when the filesystem just changed"
+assert_contains "$tpl" "wp_coding_agents_normalize_written_file" "restores group-writability after an atomic replace"
+refute_contains "$tpl" "return rename( \$tmp, \$file );" "no write path returns before normalizing perms"
+
 # The shell must delegate, not re-derive: two implementations of the same safety
 # rule are free to drift, which is the failure this design removes.
 recon="$(cat lib/source-reconcile.sh)"
