@@ -134,6 +134,7 @@ for (const cycle of manifest.cycles) {
     `${cycle.name}: bundled critique skill removed from npm skills dir`,
     `${cycle.name}: package-local upgrade skill duplicate removed`,
     `${cycle.name}: persistent upgrade skill source remains present`,
+    `${cycle.name}: session attribution bridge present after restart`,
     `${cycle.name}: generated skill permission denies unlisted skills`,
     `${cycle.name}: generated skill permission allows upgrade skill`,
     `${cycle.name}: dm-context-filter hook executed`,

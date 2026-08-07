@@ -201,6 +201,7 @@ runtime_generate_config() {
         mkdir -p "$KIMAKI_PLUGINS_DIR"
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/bridges/kimaki/plugins/kimaki-session-attribution.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
       fi
     else
       KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
@@ -238,6 +239,7 @@ runtime_generate_config() {
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/kimaki-session-attribution.ts\","
   fi
   if opencode_claude_code_auth_enabled; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"$(opencode_claude_code_auth_plugin_path)\","

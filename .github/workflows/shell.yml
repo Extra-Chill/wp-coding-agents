@@ -56,6 +56,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Run tests/dm-agent-sync.mjs
         run: bun tests/dm-agent-sync.mjs
+      - name: Run tests/kimaki-session-attribution.mjs
+        run: bun tests/kimaki-session-attribution.mjs
 
   cli-transport:
     name: CLI dispatch transport runtime

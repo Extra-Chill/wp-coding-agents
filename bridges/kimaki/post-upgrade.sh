@@ -67,7 +67,7 @@ else
   SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
 fi
 
-REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
+REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts kimaki-session-attribution.ts)
 WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
 
 if [[ -n "${KIMAKI_DIST_DIR:-}" ]]; then
