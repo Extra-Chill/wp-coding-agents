@@ -226,3 +226,65 @@ fi
 
 echo
 echo "OK: all snapshots match"
+
+# ---------------------------------------------------------------------------
+echo "==> effective-prompt runner resolution"
+# ---------------------------------------------------------------------------
+#
+# The harness imports dm-context-filter.ts directly. node cannot load
+# TypeScript — it exits ERR_UNKNOWN_FILE_EXTENSION before rendering a single
+# prompt — and the upgrade reported that crash as
+# "dm-context-filter may be leaking banned phrases".
+#
+# It warned on every h44lacrosse.com upgrade while the filter was in fact clean
+# (verified: OK — 2 scenarios, 0 leaks, under bun). An alarm that is always
+# wrong is worse than silence, because it teaches everyone to scroll past the
+# one time it is right.
+
+_ep_probe() {
+  # Args: PATH_DIR SERVICE_HOME HOME
+  ( PATH="$1:/usr/bin:/bin"; SERVICE_HOME="$2"; HOME="$3"
+    # Model a host with no bun anywhere; this box really does have /root/.bun.
+    KIMAKI_BUN_FALLBACK_HOME="${4:-$3}"
+    # shellcheck disable=SC1090
+    eval "$(sed -n '/^_kimaki_effective_prompt_runner()/,/^}/p' "$SCRIPT_DIR/bridges/kimaki.sh")"
+    _kimaki_effective_prompt_runner )
+}
+
+EPT="$(mktemp -d)"
+trap 'rm -rf "$EPT"' EXIT
+mkdir -p "$EPT/onpath" "$EPT/svc/.bun/bin" "$EPT/root/.bun/bin" "$EPT/empty"
+printf '#!/bin/sh\n' > "$EPT/onpath/bun"; chmod +x "$EPT/onpath/bun"
+printf '#!/bin/sh\n' > "$EPT/svc/.bun/bin/bun"; chmod +x "$EPT/svc/.bun/bin/bun"
+
+got="$(_ep_probe "$EPT/onpath" "" "$EPT/empty" "$EPT/empty")"
+[ -n "$got" ] && echo "  ok   prefers bun on PATH" || { echo "  FAIL bun on PATH not found"; FAILED=$((FAILED+1)); }
+
+# A service-identity migration moves the toolchain: bun installed for one
+# identity is not on the PATH of a shell running as another.
+got="$(_ep_probe "$EPT/empty" "$EPT/svc" "$EPT/empty" "$EPT/empty")"
+case "$got" in
+  */svc/.bun/bin/bun) echo "  ok   falls back to the service home" ;;
+  *) echo "  FAIL did not find bun under SERVICE_HOME (got: ${got:-none})"; FAILED=$((FAILED+1)) ;;
+esac
+
+# No TypeScript-capable runtime: must report nothing, so the caller can say
+# "unverified" instead of alleging a leak.
+got="$(_ep_probe "$EPT/empty" "$EPT/empty" "$EPT/empty" "$EPT/empty")"
+[ -z "$got" ] && echo "  ok   reports nothing when no TS runtime exists" || { echo "  FAIL returned '$got'"; FAILED=$((FAILED+1)); }
+
+# And the caller must distinguish the two.
+kimaki_src="$(cat "$SCRIPT_DIR/bridges/kimaki.sh")"
+case "$kimaki_src" in
+  *"effective-prompt test SKIPPED"*) echo "  ok   a missing runtime is reported as skipped" ;;
+  *) echo "  FAIL no skipped path — a crash would still be called a leak"; FAILED=$((FAILED+1)) ;;
+esac
+case "$kimaki_src" in
+  *"not known to be leaking"*) echo "  ok   the skip message denies alleging a leak" ;;
+  *) echo "  FAIL the skip message does not disclaim a leak"; FAILED=$((FAILED+1)) ;;
+esac
+# node must not be invoked against the TypeScript import at all.
+case "$kimaki_src" in
+  *'TEST_OUT=$(node "$TEST_SCRIPT"'*) echo "  FAIL still runs the harness under node"; FAILED=$((FAILED+1)) ;;
+  *) echo "  ok   no longer runs the harness under node" ;;
+esac
