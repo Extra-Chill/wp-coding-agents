@@ -111,6 +111,8 @@ $valid_entry = array(
 );
 $normalized  = WpCodingAgents_Cli_Channel_Registry::normalize_entry( $valid_entry );
 $assert( 'valid entry normalizes', is_array( $normalized ) && $echo_bin === $normalized['command'] );
+$assert( 'legacy detach key is not part of normalized contract', is_array( $normalized ) && ! array_key_exists( 'detach', $normalized ) );
+$assert( 'non-positive timeout resets to bounded default', 30 === WpCodingAgents_Cli_Channel_Registry::normalize_entry( array( 'command' => $echo_bin, 'timeout' => 0 ) )['timeout'] );
 $assert( 'missing command is rejected', null === WpCodingAgents_Cli_Channel_Registry::normalize_entry( array( 'args' => array() ) ) );
 $assert( 'non-string arg is rejected', null === WpCodingAgents_Cli_Channel_Registry::normalize_entry( array( 'command' => $echo_bin, 'args' => array( 123 ) ) ) );
 
@@ -205,6 +207,17 @@ $safe_fixture  = 'token count: 5; secret sauce; Basic skills; https://example.co
 $safe_redacted = WpCodingAgents_Cli_Output_Redactor::redact( $safe_fixture );
 $assert( 'non-secret prose resists false positives', $safe_fixture === $safe_redacted );
 
+$tree_pid_file = tempnam( sys_get_temp_dir(), 'wpca-tree-pid-' );
+if ( false !== $tree_pid_file ) {
+	@unlink( $tree_pid_file );
+}
+$tree_parent_code = false !== $tree_pid_file
+	? '$descriptors = array( 0 => array( "file", "/dev/null", "r" ), 1 => array( "file", "/dev/null", "w" ), 2 => array( "file", "/dev/null", "w" ) );'
+		. '$child = proc_open( array( PHP_BINARY, "-r", "while ( true ) { usleep( 100000 ); }" ), $descriptors, $pipes );'
+		. '$status = proc_get_status( $child ); file_put_contents( ' . var_export( $tree_pid_file, true ) . ', (string) $status["pid"] );'
+		. 'while ( true ) { usleep( 100000 ); }'
+	: '';
+
 $wp_coding_agents_test_options = array(
 	'wp_coding_agents_cli_channels' => array(
 		'sync-echo'     => array(
@@ -225,6 +238,11 @@ $wp_coding_agents_test_options = array(
 			'detach'  => false,
 			'timeout' => 5,
 		),
+		'startup-fail'  => array(
+			'command' => '/definitely/missing/wpca-cli',
+			'args'    => array(),
+			'timeout' => 5,
+		),
 		'sync-sleep'    => array(
 			'command' => $sleep_bin,
 			'args'    => array( '5' ),
@@ -235,6 +253,16 @@ $wp_coding_agents_test_options = array(
 			'command' => $php_bin,
 			'args'    => array( '-r', 'fwrite(STDERR, "refresh_token=timeout-secret\\n"); sleep(5);' ),
 			'detach'  => false,
+			'timeout' => 1,
+		),
+		'long-running-success' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', 'usleep( 1100000 ); fwrite( STDOUT, "completed" );' ),
+			'timeout' => 3,
+		),
+		'tree-timeout' => array(
+			'command' => $php_bin,
+			'args'    => array( '-r', $tree_parent_code ),
 			'timeout' => 1,
 		),
 		'detached-true' => array(
@@ -328,10 +356,19 @@ if ( is_array( $ok ) ) {
 }
 
 $assert( 'sync true succeeds', is_array( WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-true', 'recipient' => 'r', 'message' => 'm' ) ) ) );
+$assert( 'successful completion is idempotent', is_array( WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-true', 'recipient' => 'r', 'message' => 'm' ) ) ) );
 $fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-false', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'nonzero exit returns WP_Error', $fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_nonzero_exit' === $fail->get_error_code() );
+$startup_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'startup-fail', 'recipient' => 'r', 'message' => 'm' ) );
+$startup_data = $startup_fail instanceof WP_Error ? (array) $startup_fail->get_error_data() : array();
+$assert( 'startup failure returns WP_Error', $startup_fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_nonzero_exit' === $startup_fail->get_error_code() );
+$assert( 'startup failure preserves stderr diagnostics', isset( $startup_data['stderr'] ) && '' !== $startup_data['stderr'] );
+$long_running = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'long-running-success', 'recipient' => 'r', 'message' => 'm' ) );
+$assert( 'long-running child succeeds within timeout', is_array( $long_running ) && 'synchronous-session-isolated' === ( $long_running['metadata']['mode'] ?? null ) );
+$timeout_started = microtime( true );
 $timed = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'sync-sleep', 'recipient' => 'r', 'message' => 'm' ) );
 $assert( 'timeout returns WP_Error', $timed instanceof WP_Error && 'wp_coding_agents_cli_dispatch_timeout' === $timed->get_error_code() );
+$assert( 'timeout return is bounded', microtime( true ) - $timeout_started < 3 );
 $timed_secret = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'timeout-secret', 'recipient' => 'r', 'message' => 'm' ) );
 $timed_data   = $timed_secret instanceof WP_Error ? (array) $timed_secret->get_error_data() : array();
 $assert( 'timeout structured stderr is redacted', isset( $timed_data['stderr'] ) && ! str_contains( (string) $timed_data['stderr'], 'timeout-secret' ) && str_contains( (string) $timed_data['stderr'], '[redacted]' ) );
@@ -339,17 +376,35 @@ $unknown = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'u
 $assert( 'execute unknown returns WP_Error', $unknown instanceof WP_Error );
 
 $detached = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-true', 'recipient' => 'r', 'message' => 'm' ) );
-$assert( 'detached returns array', is_array( $detached ) && true === ( $detached['sent'] ?? false ) );
+$assert( 'legacy detach config runs synchronously', is_array( $detached ) && 'synchronous-session-isolated' === ( $detached['metadata']['mode'] ?? null ) );
 
-// Regression: a detached child that exits non-zero must fail the dispatch
-// instead of being reported as delivered (data-machine-code#643).
+// Regression: a legacy detach key must not bypass exit acknowledgement.
 $detached_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-false', 'recipient' => 'r', 'message' => 'm' ) );
-$assert( 'detached early exit returns WP_Error', $detached_fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_exit_nonzero' === $detached_fail->get_error_code() );
+$assert( 'legacy detach early exit returns WP_Error', $detached_fail instanceof WP_Error && 'wp_coding_agents_cli_dispatch_nonzero_exit' === $detached_fail->get_error_code() );
 
 $detached_secret = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'detached-secret', 'recipient' => 'r', 'message' => 'm' ) );
 $detached_data   = $detached_secret instanceof WP_Error ? (array) $detached_secret->get_error_data() : array();
-$assert( 'detached error message omits child output', $detached_secret instanceof WP_Error && ! str_contains( $detached_secret->get_error_message(), 'detached-secret-token' ) );
-$assert( 'detached structured stderr is redacted', isset( $detached_data['stderr'] ) && ! str_contains( (string) $detached_data['stderr'], 'detached-secret-token' ) && str_contains( (string) $detached_data['stderr'], '[redacted]' ) );
+$assert( 'legacy detach error message omits child output', $detached_secret instanceof WP_Error && ! str_contains( $detached_secret->get_error_message(), 'detached-secret-token' ) );
+$assert( 'legacy detach structured stderr is redacted', isset( $detached_data['stderr'] ) && ! str_contains( (string) $detached_data['stderr'], 'detached-secret-token' ) && str_contains( (string) $detached_data['stderr'], '[redacted]' ) );
+
+if ( false === $tree_pid_file || ! function_exists( 'posix_kill' ) ) {
+	$assert( 'process-tree cleanup prerequisites available', false );
+} else {
+	$tree_timeout = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'tree-timeout', 'recipient' => 'r', 'message' => 'm' ) );
+	$assert( 'process-tree fixture times out', $tree_timeout instanceof WP_Error && 'wp_coding_agents_cli_dispatch_timeout' === $tree_timeout->get_error_code() );
+	$tree_pid = is_file( $tree_pid_file ) ? (int) file_get_contents( $tree_pid_file ) : 0;
+	$tree_running = $tree_pid > 0;
+	for ( $attempt = 0; $tree_running && $attempt < 50; $attempt++ ) {
+		$stat = @file_get_contents( '/proc/' . $tree_pid . '/stat' );
+		$fields = is_string( $stat ) ? explode( ' ', $stat ) : array();
+		$tree_running = @posix_kill( $tree_pid, 0 ) && 'Z' !== ( $fields[2] ?? null );
+		if ( $tree_running ) {
+			usleep( 20000 );
+		}
+	}
+	$assert( 'timeout terminates descendant process', $tree_pid > 0 && ! $tree_running );
+	@unlink( $tree_pid_file );
+}
 
 $diagnostic_fail = WpCodingAgents_Cli_Channel_Transport::execute( array( 'channel' => 'diagnostics-fail', 'recipient' => 'r', 'message' => 'm' ) );
 $diagnostic_data = $diagnostic_fail instanceof WP_Error ? (array) $diagnostic_fail->get_error_data() : array();

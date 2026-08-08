@@ -40,7 +40,7 @@
 #   cli_channel_mu_plugin_path                 — echo resolved file path
 #   cli_channel_ensure_mu_plugin_file          — create stub if missing
 #   cli_channel_register <name> <command> \
-#       <args_json> [detach] [timeout] \
+#       <args_json> [timeout] \
 #       [env_json]                             — upsert a bridge's block
 #   cli_channel_unregister <name>              — remove a bridge's block
 #
@@ -134,7 +134,6 @@ cli_channel_ensure_mu_plugin_file() {
  *   $channels['<name>'] = [
  *       'command' => '/absolute/path/to/cli',
  *       'args'    => [ 'send', '--channel', '{recipient}', '--prompt', '{message}' ],
- *       'detach'  => true,
  *       'timeout' => 600,
  *       'env'     => [ 'HOME' => '/home/<service-user>' ], // optional
  *   ];
@@ -185,7 +184,7 @@ PHP
 # Block render
 # ---------------------------------------------------------------------------
 
-# _cli_channel_render_block <name> <command> <args_json> <detach> <timeout> [env_json]
+# _cli_channel_render_block <name> <command> <args_json> <timeout> [env_json]
 #
 # Print the marker-delimited PHP block for a single bridge, including
 # surrounding BEGIN/END markers, indented to match the scaffold's filter
@@ -194,10 +193,9 @@ PHP
 # the caller has already constructed.
 #
 # When env_json is a non-empty JSON object, an 'env' => [ ... ] line is added
-# after 'timeout'. Omitting it (empty arg) keeps the block byte-identical to
-# the historical four-key form, so existing channels without env are unchanged.
+# after 'timeout'.
 _cli_channel_render_block() {
-  local name="$1" command="$2" args_json="$3" detach="$4" timeout="$5" env_json="${6:-}"
+  local name="$1" command="$2" args_json="$3" timeout="$4" env_json="${5:-}"
   local esc_name esc_command esc_args env_line=""
   esc_name=$(_cli_channel_php_escape "$name")
   esc_command=$(_cli_channel_php_escape "$command")
@@ -219,7 +217,6 @@ _cli_channel_render_block() {
     \$channels['${esc_name}'] = [
         'command' => '${esc_command}',
         'args'    => ${esc_args},
-        'detach'  => ${detach},
         'timeout' => ${timeout},${env_line}
     ];
     // END bridge:${esc_name}
@@ -302,21 +299,19 @@ PY
 # Register / unregister
 # ---------------------------------------------------------------------------
 
-# cli_channel_register <name> <command> <args_json> [detach] [timeout] [env_json]
+# cli_channel_register <name> <command> <args_json> [timeout] [env_json]
 #
 # Upsert <name>'s block in the mu-plugin file. Idempotent: re-running with the
 # same arguments leaves the file unchanged; re-running with different
 # arguments replaces just <name>'s block. Other bridges' blocks are preserved.
 #
 # Defaults:
-#   detach   — "true"  (CLI bridges dispatch fire-and-forget by default)
 #   timeout  — "600"   (10 minutes; matches DMC's default per #412)
-#   env_json — ""      (no 'env' key emitted; the four-key block is unchanged)
+#   env_json — ""      (no 'env' key emitted)
 cli_channel_register() {
   local name="$1" command="$2" args_json="$3"
-  local detach="${4:-true}"
-  local timeout="${5:-600}"
-  local env_json="${6:-}"
+  local timeout="${4:-600}"
+  local env_json="${5:-}"
 
   if [ -z "$name" ] || [ -z "$command" ] || [ -z "$args_json" ]; then
     warn "  cli_channel_register: missing required args (name=$name command=$command args=$args_json)"
@@ -332,7 +327,7 @@ cli_channel_register() {
   cli_channel_ensure_mu_plugin_file || return 1
 
   local new_block
-  new_block=$(_cli_channel_render_block "$name" "$command" "$args_json" "$detach" "$timeout" "$env_json")
+  new_block=$(_cli_channel_render_block "$name" "$command" "$args_json" "$timeout" "$env_json")
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would register CLI channel '$name' in $file"

@@ -102,13 +102,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 				$normalized_args[] = $arg;
 			}
 
-			$detach = $config['detach'] ?? true;
-			if ( ! is_bool( $detach ) ) {
-				$detach = (bool) $detach;
-			}
-
 			$timeout = $config['timeout'] ?? 30;
-			if ( ! is_int( $timeout ) || $timeout < 0 ) {
+			if ( ! is_int( $timeout ) || $timeout < 1 ) {
 				$timeout = 30;
 			}
 
@@ -132,7 +127,6 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 			return array(
 				'command' => $command,
 				'args'    => $normalized_args,
-				'detach'  => $detach,
 				'timeout' => $timeout,
 				'env'     => $normalized_env,
 				'cwd'     => $cwd,
@@ -270,6 +264,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 	 */
 	class WpCodingAgents_Cli_Channel_Transport {
 		private const DEFAULT_TIMEOUT_SECONDS = 30;
+		private const POLL_INTERVAL_MICROSECONDS = 20000;
+		private const TERMINATION_GRACE_MICROSECONDS = 200000;
 
 		/** Register the transport handler filter. */
 		public static function register(): void {
@@ -327,109 +323,12 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			$command_args = WpCodingAgents_Cli_Channel_Registry::substitute_tokens( $config['args'], $input );
 			array_unshift( $command_args, $config['command'] );
 
-			$detach = (bool) ( $config['detach'] ?? true );
 			$timeout = isset( $config['timeout'] ) && is_int( $config['timeout'] ) ? $config['timeout'] : self::DEFAULT_TIMEOUT_SECONDS;
 			$cwd     = isset( $config['cwd'] ) && is_string( $config['cwd'] ) && '' !== $config['cwd'] ? $config['cwd'] : null;
 			$configured_env = isset( $config['env'] ) && is_array( $config['env'] ) ? $config['env'] : array();
 			$env            = self::build_env_map( $configured_env );
 
-			if ( $detach ) {
-				return self::dispatch_detached( $channel, $recipient, $command_args, $cwd, $env, $configured_env );
-			}
-
 			return self::dispatch_sync( $channel, $recipient, $command_args, $cwd, $env, $timeout, $configured_env );
-		}
-
-		/**
-		 * @param array<int, string>         $argv Command argv.
-		 * @param array<string, string>|null $env  Environment map.
-		 * @return array<string, mixed>|WP_Error
-		 */
-		private static function dispatch_detached( string $channel, string $recipient, array $argv, ?string $cwd, ?array $env, array $configured_env ) {
-			// Capture stderr so an early-exiting child can report WHY it died.
-			// proc_close() below waits for the child either way (it always has —
-			// "detached" here means new session, not fire-and-forget), so the
-			// exit code is available for free. Discarding it caused scheduled
-			// dispatches to be marked delivered when the CLI crashed at startup
-			// (ENOSPC, bad binary path, auth failure). See data-machine-code#643.
-			$stderr_file = tempnam( sys_get_temp_dir(), 'wpca-dispatch-' );
-			$stderr_spec = false !== $stderr_file
-				? array( 'file', $stderr_file, 'w' )
-				: array( 'file', '/dev/null', 'w' );
-
-			$descriptors = array(
-				0 => array( 'file', '/dev/null', 'r' ),
-				1 => array( 'file', '/dev/null', 'w' ),
-				2 => $stderr_spec,
-			);
-
-			$started_at = microtime( true );
-			$process    = self::open_process( $argv, $descriptors, $cwd, $env, true );
-			if ( $process instanceof WP_Error ) {
-				if ( false !== $stderr_file ) {
-					@unlink( $stderr_file );
-				}
-				return $process;
-			}
-
-			$pid       = null;
-			$exit_code = null;
-			$status    = proc_get_status( $process );
-			if ( is_array( $status ) && isset( $status['pid'] ) ) {
-				$pid = (int) $status['pid'];
-			}
-			// exitcode is only valid the first time running flips false.
-			if ( is_array( $status ) && false === ( $status['running'] ?? true ) ) {
-				$exit_code = isset( $status['exitcode'] ) ? (int) $status['exitcode'] : null;
-			}
-
-			$close_code = proc_close( $process );
-			if ( null === $exit_code && is_int( $close_code ) && -1 !== $close_code ) {
-				$exit_code = $close_code;
-			}
-
-			$stderr = '';
-			if ( false !== $stderr_file ) {
-				$raw = @file_get_contents( $stderr_file );
-				if ( is_string( $raw ) ) {
-					$stderr = trim( $raw );
-				}
-				@unlink( $stderr_file );
-			}
-
-			$duration_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
-
-			if ( null !== $exit_code && 0 !== $exit_code ) {
-				$stderr = self::sanitize_output( $stderr, $configured_env );
-				return new WP_Error(
-					'wp_coding_agents_cli_dispatch_exit_nonzero',
-					sprintf(
-						'CLI dispatch process exited with code %d after %dms.',
-						$exit_code,
-						$duration_ms
-					),
-					array(
-						'channel'     => $channel,
-						'recipient'   => $recipient,
-						'exit_code'   => $exit_code,
-						'duration_ms' => $duration_ms,
-						'stderr'      => $stderr,
-					)
-				);
-			}
-
-			return array(
-				'sent'       => true,
-				'channel'    => $channel,
-				'recipient'  => $recipient,
-				'message_id' => null !== $pid ? (string) $pid : null,
-				'metadata'   => array(
-					'mode'        => 'detached',
-					'pid'         => $pid,
-					'exit_code'   => $exit_code,
-					'duration_ms' => $duration_ms,
-				),
-			);
 		}
 
 		/**
@@ -446,7 +345,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 
 			$pipes      = array();
 			$started_at = microtime( true );
-			$process    = self::open_process( $argv, $descriptors, $cwd, $env, false, $pipes );
+			$process    = self::open_process( $argv, $descriptors, $cwd, $env, $pipes );
 			if ( $process instanceof WP_Error ) {
 				return $process;
 			}
@@ -461,60 +360,44 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				stream_set_blocking( $pipes[2], false );
 			}
 
-			$stdout    = '';
-			$stderr    = '';
-			$timed_out = false;
-			$deadline  = $started_at + max( 1, $timeout );
+			$stdout       = '';
+			$stderr       = '';
+			$timed_out    = false;
+			$exit_code    = null;
+			$deadline     = $started_at + $timeout;
+			$pid          = null;
+			$first_status = proc_get_status( $process );
+			if ( is_array( $first_status ) && isset( $first_status['pid'] ) ) {
+				$pid = (int) $first_status['pid'];
+			}
+			$status = $first_status;
 
 			while ( true ) {
-				$status = proc_get_status( $process );
-
-				if ( isset( $pipes[1] ) && is_resource( $pipes[1] ) ) {
-					$chunk = stream_get_contents( $pipes[1] );
-					if ( is_string( $chunk ) && '' !== $chunk ) {
-						$stdout .= $chunk;
-					}
-				}
-				if ( isset( $pipes[2] ) && is_resource( $pipes[2] ) ) {
-					$chunk = stream_get_contents( $pipes[2] );
-					if ( is_string( $chunk ) && '' !== $chunk ) {
-						$stderr .= $chunk;
-					}
-				}
+				self::drain_output( $pipes, $stdout, $stderr );
 
 				if ( ! is_array( $status ) || false === $status['running'] ) {
+					if ( is_array( $status ) && isset( $status['exitcode'] ) && -1 !== (int) $status['exitcode'] ) {
+						$exit_code = (int) $status['exitcode'];
+					}
 					break;
 				}
 				if ( microtime( true ) >= $deadline ) {
 					$timed_out = true;
-					proc_terminate( $process, 15 );
-					usleep( 100000 );
-					$status = proc_get_status( $process );
-					if ( is_array( $status ) && true === $status['running'] ) {
-						proc_terminate( $process, 9 );
-					}
+					self::terminate_process_tree( $process, $pid, $pipes, $stdout, $stderr );
 					break;
 				}
 
-				usleep( 20000 );
+				usleep( self::POLL_INTERVAL_MICROSECONDS );
+				$status = proc_get_status( $process );
 			}
 
-			foreach ( array( 1, 2 ) as $fd ) {
-				if ( ! isset( $pipes[ $fd ] ) || ! is_resource( $pipes[ $fd ] ) ) {
-					continue;
-				}
-				$chunk = stream_get_contents( $pipes[ $fd ] );
-				if ( is_string( $chunk ) && '' !== $chunk ) {
-					if ( 1 === $fd ) {
-						$stdout .= $chunk;
-					} else {
-						$stderr .= $chunk;
-					}
-				}
-				fclose( $pipes[ $fd ] );
-			}
+			self::drain_output( $pipes, $stdout, $stderr );
+			self::close_output_pipes( $pipes );
 
-			$exit_code   = proc_close( $process );
+			$close_code = proc_close( $process );
+			if ( null === $exit_code && is_int( $close_code ) && -1 !== $close_code ) {
+				$exit_code = $close_code;
+			}
 			$duration_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
 			$stdout      = self::sanitize_output( $stdout, $configured_env );
 			$stderr      = self::sanitize_output( $stderr, $configured_env );
@@ -523,8 +406,9 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_timeout', sprintf( 'CLI channel "%s" exceeded the %d second timeout.', $channel, $timeout ), array( 'channel' => $channel, 'recipient' => $recipient, 'stdout' => $stdout, 'stderr' => $stderr, 'duration_ms' => $duration_ms ) );
 			}
 
-			if ( 0 !== $exit_code ) {
-				return new WP_Error( 'wp_coding_agents_cli_dispatch_nonzero_exit', sprintf( 'CLI channel "%s" exited with code %d.', $channel, $exit_code ), array( 'channel' => $channel, 'recipient' => $recipient, 'exit_code' => $exit_code, 'stdout' => $stdout, 'stderr' => $stderr, 'duration_ms' => $duration_ms ) );
+			if ( null === $exit_code || 0 !== $exit_code ) {
+				$exit_description = null === $exit_code ? 'without a readable exit code' : sprintf( 'with code %d', $exit_code );
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_nonzero_exit', sprintf( 'CLI channel "%s" exited %s.', $channel, $exit_description ), array( 'channel' => $channel, 'recipient' => $recipient, 'exit_code' => $exit_code, 'stdout' => $stdout, 'stderr' => $stderr, 'duration_ms' => $duration_ms ) );
 			}
 
 			return array(
@@ -533,7 +417,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				'recipient'  => $recipient,
 				'message_id' => null,
 				'metadata'   => array(
-					'mode'        => 'sync',
+					'mode'        => 'synchronous-session-isolated',
+					'pid'         => $pid,
 					'exit_code'   => $exit_code,
 					'duration_ms' => $duration_ms,
 				),
@@ -547,22 +432,123 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		 * @param array<int, resource>       $pipes       Output pipes.
 		 * @return resource|WP_Error
 		 */
-		private static function open_process( array $argv, array $descriptors, ?string $cwd, ?array $env, bool $detached, array &$pipes = array() ) {
+		private static function open_process( array $argv, array $descriptors, ?string $cwd, ?array $env, array &$pipes = array() ) {
 			if ( ! function_exists( 'proc_open' ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_proc_open', 'proc_open is not available on this host.' );
 			}
-
-			$options = array();
-			if ( $detached ) {
-				$options['start_new_session'] = true;
+			if ( ! function_exists( 'posix_kill' ) ) {
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_posix_kill', 'The POSIX process extension is required for bounded CLI process-tree cleanup.' );
 			}
 
-			$process = @proc_open( $argv, $descriptors, $pipes, $cwd, $env, $options );
+			$session_launcher = self::find_session_launcher();
+			if ( null === $session_launcher ) {
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_session_launcher', 'A POSIX setsid executable is required for bounded CLI process-tree cleanup.' );
+			}
+
+			array_unshift( $argv, $session_launcher, '--' );
+			$process = @proc_open( $argv, $descriptors, $pipes, $cwd, $env );
 			if ( ! is_resource( $process ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_spawn_failed', 'Failed to spawn CLI process.' );
 			}
 
 			return $process;
+		}
+
+		/** Locate the POSIX session launcher without invoking a shell. */
+		private static function find_session_launcher(): ?string {
+			$candidates = array( '/usr/bin/setsid', '/bin/setsid' );
+			$path       = getenv( 'PATH' );
+			if ( is_string( $path ) ) {
+				foreach ( explode( PATH_SEPARATOR, $path ) as $directory ) {
+					if ( '' !== $directory ) {
+						$candidates[] = rtrim( $directory, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR . 'setsid';
+					}
+				}
+			}
+
+			foreach ( array_unique( $candidates ) as $candidate ) {
+				if ( is_file( $candidate ) && is_executable( $candidate ) ) {
+					return $candidate;
+				}
+			}
+
+			return null;
+		}
+
+		/**
+		 * Drain currently available child output without blocking.
+		 *
+		 * @param array<int, resource> $pipes  Process pipes.
+		 * @param string               $stdout Collected standard output.
+		 * @param string               $stderr Collected standard error.
+		 */
+		private static function drain_output( array $pipes, string &$stdout, string &$stderr ): void {
+			foreach ( array( 1, 2 ) as $fd ) {
+				if ( ! isset( $pipes[ $fd ] ) || ! is_resource( $pipes[ $fd ] ) ) {
+					continue;
+				}
+				$chunk = stream_get_contents( $pipes[ $fd ] );
+				if ( is_string( $chunk ) && '' !== $chunk ) {
+					if ( 1 === $fd ) {
+						$stdout .= $chunk;
+					} else {
+						$stderr .= $chunk;
+					}
+				}
+			}
+		}
+
+		/** @param array<int, resource> $pipes Process pipes. */
+		private static function close_output_pipes( array $pipes ): void {
+			foreach ( array( 1, 2 ) as $fd ) {
+				if ( isset( $pipes[ $fd ] ) && is_resource( $pipes[ $fd ] ) ) {
+					fclose( $pipes[ $fd ] );
+				}
+			}
+		}
+
+		/**
+		 * Terminate the isolated process group, escalating after a short grace.
+		 *
+		 * @param resource             $process Child process resource.
+		 * @param array<int, resource> $pipes   Process pipes.
+		 */
+		private static function terminate_process_tree( $process, ?int $pid, array $pipes, string &$stdout, string &$stderr ): void {
+			self::signal_process_tree( $process, $pid, 15 );
+			$grace_deadline = microtime( true ) + ( self::TERMINATION_GRACE_MICROSECONDS / 1000000 );
+			while ( microtime( true ) < $grace_deadline ) {
+				self::drain_output( $pipes, $stdout, $stderr );
+				if ( ! self::process_tree_is_running( $process, $pid ) ) {
+					return;
+				}
+				usleep( self::POLL_INTERVAL_MICROSECONDS );
+			}
+
+			self::signal_process_tree( $process, $pid, 9 );
+			$kill_deadline = microtime( true ) + ( self::TERMINATION_GRACE_MICROSECONDS / 1000000 );
+			while ( microtime( true ) < $kill_deadline && self::process_tree_is_running( $process, $pid ) ) {
+				self::drain_output( $pipes, $stdout, $stderr );
+				usleep( self::POLL_INTERVAL_MICROSECONDS );
+			}
+		}
+
+		/** @param resource $process Child process resource. */
+		private static function signal_process_tree( $process, ?int $pid, int $signal ): void {
+			if ( null !== $pid && $pid > 0 && @posix_kill( -$pid, $signal ) ) {
+				return;
+			}
+
+			proc_terminate( $process, $signal );
+		}
+
+		/** @param resource $process Child process resource. */
+		private static function process_tree_is_running( $process, ?int $pid ): bool {
+			if ( null !== $pid && $pid > 0 ) {
+				return @posix_kill( -$pid, 0 );
+			}
+
+			$status = proc_get_status( $process );
+			return is_array( $status ) && true === ( $status['running'] ?? false );
 		}
 
 		/**

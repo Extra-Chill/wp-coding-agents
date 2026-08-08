@@ -145,7 +145,6 @@ _telegram_register_cli_channel() {
     "telegram" \
     "$curl_bin" \
     "[\"-sS\",\"-X\",\"POST\",\"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage\",\"--data-urlencode\",\"chat_id={recipient}\",\"--data-urlencode\",\"text={message}\"]" \
-    "true" \
     "60"
 }
 

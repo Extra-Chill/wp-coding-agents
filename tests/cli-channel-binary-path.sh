@@ -74,7 +74,7 @@ registered_command() {
 import sys
 with open(sys.argv[1], 'rb') as handle:
     parts = [p.decode() for p in handle.read().split(b'\0') if p]
-# cli_channel_register "kimaki" "<command>" "<args_json>" "<detach>" "<timeout>"
+# cli_channel_register "kimaki" "<command>" "<args_json>" "<timeout>"
 print(parts[1] if len(parts) > 1 else '')
 PY
 }
