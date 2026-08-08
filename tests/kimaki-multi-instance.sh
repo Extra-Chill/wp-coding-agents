@@ -172,7 +172,7 @@ KIMAKI_LOCK_PORT=6543
 AGENT_SLUG=site-b
 
 [ "$(_kimaki_instance_suffix)" = -site-b ]
-cli_channel_register() { printf '%s\n%s\n' "$2" "$6"; }
+cli_channel_register() { printf '%s\n%s\n' "$2" "$5"; }
 channel_registration=$(LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode KIMAKI_DATA_DIR=/home/opencode/.kimaki-site-b KIMAKI_BIN=/usr/bin/kimaki _kimaki_register_cli_channel)
 echo "$channel_registration" | grep -q '^/usr/local/bin/wp-coding-agents-kimaki-site-b-dispatch$'
 echo "$channel_registration" | grep -q '"HOME":"/home/opencode","KIMAKI_DATA_DIR":"/home/opencode/.kimaki-site-b"'

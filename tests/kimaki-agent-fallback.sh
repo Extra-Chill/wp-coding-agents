@@ -54,7 +54,6 @@ expected = [
     'kimaki',
     kimaki_bin,
     '["send","--channel","{recipient}","--prompt","{message}"]',
-    'true',
     '600',
 ]
 if actual != expected:

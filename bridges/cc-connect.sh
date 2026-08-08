@@ -76,7 +76,6 @@ _cc_connect_register_cli_channel() {
     "cc-connect" \
     "$cmd" \
     '["send","--project","{recipient}","{message}"]' \
-    "true" \
     "600"
 }
 

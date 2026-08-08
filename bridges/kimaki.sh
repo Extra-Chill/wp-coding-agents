@@ -237,7 +237,6 @@ _kimaki_register_cli_channel() {
     "kimaki" \
     "$cmd" \
     '["send","--channel","{recipient}","--prompt","{message}"]' \
-    "true" \
     "600" \
     "$env_json"
 }

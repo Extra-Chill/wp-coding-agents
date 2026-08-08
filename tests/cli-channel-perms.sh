@@ -97,6 +97,12 @@ echo "==> register kimaki (fresh scaffold, umask 077)"
 )
 assert_mode_0664 "$MU_FILE" "fresh scaffold lands as 0664 under umask 077"
 assert_group "$MU_FILE" "fresh scaffold inherits parent dir group"
+if grep -q "'detach'" "$MU_FILE"; then
+  echo "  FAIL generated channel block preserves misleading detach mode"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   generated channel block declares only bounded synchronous execution"
+fi
 
 # --- 2. Sibling register exercises mktemp + mv path; self-heal from 0600 ---
 echo "==> simulate legacy 0600 file and verify self-heal on next register"
