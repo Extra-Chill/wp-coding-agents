@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups; do
+for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -960,6 +960,7 @@ regenerate_agents_md() {
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
+    opencode_project_subagents
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -1413,6 +1414,7 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
+opencode_project_subagents
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 update_datamachine_worker_service
