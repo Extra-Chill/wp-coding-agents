@@ -40,6 +40,14 @@ jobs:
       - name: Run tests/opencode-wrapper-removal.sh
         run: ./tests/opencode-wrapper-removal.sh
 
+  opencode-subagents:
+    name: Data Machine graph OpenCode subagents (#355)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/opencode-subagents.sh
+        run: bash tests/opencode-subagents.sh
+
   managed-skill-targets:
     name: managed skill target deduplication (#306)
     runs-on: ubuntu-latest
