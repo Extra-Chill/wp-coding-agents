@@ -152,7 +152,7 @@ for plugin in data.get("plugin", []):
     if not plugin.startswith(root + "/"):
         raise SystemExit(f"plugin escaped runtime root: {plugin}")
 provider = data.get("provider", {}).get("wp-ai-gateway", {})
-if provider.get("options", {}).get("baseURL") != "${OPENAI_BASE_URL}":
+if provider.get("options", {}).get("baseURL") != "{env:OPENAI_BASE_URL}":
     raise SystemExit("gateway provider does not use the runtime base URL placeholder")
 if provider.get("env") != ["OPENAI_API_KEY"]:
     raise SystemExit("gateway provider does not declare runtime API key input")
