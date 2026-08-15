@@ -177,6 +177,7 @@ function compile(profile) {
   const effectiveBridge = bridge === "auto" && runtime.primary === "codex" ? "none" : bridge
 
   if (overlays.homeboy) addFlag(command, "--with-homeboy")
+  if (profile.codex_path === "external-openai-compatible-endpoint") addFlag(command, "--with-ai-gateway")
   if (overlays.multisite || overlays.subdomain_multisite) addFlag(command, "--multisite")
   if (overlays.subdomain_multisite) addFlag(command, "--subdomain")
   if (overlays.skip_deps) addFlag(command, "--skip-deps")

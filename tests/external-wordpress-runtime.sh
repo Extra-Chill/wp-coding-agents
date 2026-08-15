@@ -60,6 +60,8 @@ source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/wordpress.sh"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/ai-gateway.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/external-wordpress.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/source-policy.sh"
@@ -73,6 +75,11 @@ external_wordpress_prepare_transport
 external_wordpress_validate
 external_wordpress_project_context
 runtime_generate_config
+WITH_AI_GATEWAY=true
+OPENAI_BASE_URL='https://runtime-only.invalid/private-endpoint'
+OPENAI_API_KEY='runtime-only-secret-value'
+export WITH_AI_GATEWAY OPENAI_BASE_URL OPENAI_API_KEY
+ai_gateway_configure_opencode
 runtime_generate_instructions
 DETECTED_RUNTIMES=(opencode)
 INSTALL_SKILLS=true
@@ -101,6 +108,13 @@ if data.get("instructions") != expected:
 for plugin in data.get("plugin", []):
     if not plugin.startswith(root + "/"):
         raise SystemExit(f"plugin escaped runtime root: {plugin}")
+provider = data.get("provider", {}).get("wp-ai-gateway", {})
+if provider.get("options", {}).get("baseURL") != "${OPENAI_BASE_URL}":
+    raise SystemExit("gateway provider does not use the runtime base URL placeholder")
+if provider.get("env") != ["OPENAI_API_KEY"]:
+    raise SystemExit("gateway provider does not declare runtime API key input")
+if data.get("model") != "wp-ai-gateway/site-default":
+    raise SystemExit("gateway model is not the runtime default")
 PY
 
 while IFS= read -r argument; do
@@ -127,6 +141,11 @@ if grep -R -F -- "secret value with spaces" "$RUNTIME_PROJECT_ROOT" >/dev/null 2
   echo "FAIL: transport credential persisted below runtime root"
   exit 1
 fi
+if grep -R -E -- 'runtime-only\.invalid|runtime-only-secret-value' "$RUNTIME_PROJECT_ROOT" >/dev/null 2>&1; then
+  echo "FAIL: runtime gateway credentials persisted below runtime root"
+  exit 1
+fi
+[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/wp-ai-gateway.env" ] || { echo "FAIL: external profile wrote a gateway env file"; exit 1; }
 
 mkdir -p "$TMP/outside"
 printf 'outside-safe\n' > "$TMP/outside/SOUL.md"
@@ -162,6 +181,7 @@ external_wordpress_prepare_transport
 before="$(cksum "$RUNTIME_PROJECT_ROOT/opencode.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
 external_wordpress_project_context
 runtime_generate_config
+ai_gateway_configure_opencode
 runtime_generate_instructions
 after="$(cksum "$RUNTIME_PROJECT_ROOT/opencode.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
 [ "$before" = "$after" ] || { echo "FAIL: external profile is not idempotent"; exit 1; }
