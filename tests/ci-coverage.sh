@@ -83,9 +83,9 @@ else
   echo "  ok   all $(ls tests/*.sh | wc -l | tr -d ' ') shell tests are referenced"
 fi
 
-# Non-shell suites are invoked directly by their own jobs; assert the two that
+# Non-shell suites are invoked directly by their own jobs; assert the ones that
 # exist stay wired, since they are the easiest to lose in a restructure.
-for other in tests/dm-agent-sync.mjs tests/smoke-cli-transport.php; do
+for other in tests/dm-agent-sync.mjs tests/setup-profile-compiler.mjs tests/smoke-cli-transport.php; do
   [ -e "$other" ] || continue
   case "$workflow_text" in
     *"$(basename "$other")"*) echo "  ok   $(basename "$other") is referenced" ;;

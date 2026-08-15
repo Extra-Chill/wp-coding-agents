@@ -148,6 +148,46 @@ cd wp-coding-agents
 SITE_DOMAIN=example.com ./setup.sh
 ```
 
+### External WordPress Runtime
+
+Run the coding runtime on a host without a mounted WordPress tree. The control
+transport is a JSON argv array so paths and arguments are preserved without
+shell parsing. It is runtime input only; setup never writes it into generated
+files. Keep credentials out of argv: the transport executable should resolve
+them from its process environment or credential store.
+
+```bash
+RUNTIME_PROJECT_ROOT=/srv/agent \
+WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \
+./setup.sh --external-wordpress --wordpress-path '/srv/wordpress site' \
+  --wordpress-user agent --runtime opencode --chat kimaki
+```
+
+Setup validates `core is-installed` through the transport, then projects Data
+Machine injectable files below `$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context`.
+OpenCode, Kimaki state, skills, `AGENTS.md`, and `CLAUDE.md` stay below the
+runtime root. The transport must provide WordPress commands and must not be
+stored in project files.
+
+Start Kimaki from the same runtime environment so the generated
+`.wp-coding-agents/bin/wp-control` wrapper can read the transport variables.
+External profiles deliberately avoid writing those variables to launchd or
+systemd units. Re-run setup to refresh projected Data Machine context.
+
+```bash
+WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \
+  /srv/agent/.wp-coding-agents/bin/kimaki
+```
+
+The setup profile compiler emits this credential-bearing start command
+separately from the one-shot setup command. The first portable profile supports
+OpenCode; select `runtime.selection=opencode` explicitly.
+
+Use the same transport input when validating an external profile. `verify.sh`
+continues to validate colocated WordPress installs; external runtime validation
+is the transport's `core is-installed` check performed by setup plus inspection
+of the runtime-local config and projected context.
+
 For agent-assisted setup, give your local coding agent the setup entrypoint:
 
 ```text

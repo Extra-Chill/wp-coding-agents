@@ -114,7 +114,13 @@ detect_environment() {
   detect_php_version
 
   # Configuration
-  if [ "$MODE" = "existing" ]; then
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    # SITE_PATH remains the legacy runtime destination for modules that have not
+    # needed a distinct root. It never denotes the remote WordPress filesystem.
+    SITE_PATH="$RUNTIME_PROJECT_ROOT"
+    SITE_DOMAIN="${SITE_DOMAIN:-$(basename "$WORDPRESS_PATH")}"
+    log "External WordPress at: $WORDPRESS_PATH (runtime: $RUNTIME_PROJECT_ROOT)"
+  elif [ "$MODE" = "existing" ]; then
     if [ -z "$EXISTING_WP" ]; then
       error "EXISTING_WP must be set when using --existing mode or --wp-path"
     fi
@@ -178,6 +184,9 @@ detect_environment() {
   WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@$SITE_DOMAIN}"
 
   detect_service_identity
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ] && [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
+    KIMAKI_DATA_DIR="$RUNTIME_PROJECT_ROOT/.kimaki"
+  fi
 }
 
 # Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / DM_WORKSPACE_DIR from

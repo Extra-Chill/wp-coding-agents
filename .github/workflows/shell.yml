@@ -66,6 +66,8 @@ jobs:
         run: bun tests/dm-agent-sync.mjs
       - name: Run tests/kimaki-session-attribution.mjs
         run: bun tests/kimaki-session-attribution.mjs
+      - name: Run tests/setup-profile-compiler.mjs
+        run: node tests/setup-profile-compiler.mjs
 
   cli-transport:
     name: CLI dispatch transport runtime
@@ -221,6 +223,7 @@ jobs:
           - codex-runtime
           - datamachine-worker
           - detect-site-domain
+          - external-wordpress-runtime
           - dm-workspace-discovery
           - homeboy-codebox-canary
           - homeboy-components

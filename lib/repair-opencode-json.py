@@ -76,6 +76,7 @@ from typing import List, Tuple
 MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "kimaki-session-attribution.ts"}
 OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
 DM_MEMORY_MARKER = "/datamachine-files/"
+PROJECTED_MEMORY_MARKER = "/.wp-coding-agents/context/"
 # Every installed path wp-coding-agents manages, as ready-made edit patterns in
 # canonical order. Denied under BOTH modes.
 #
@@ -353,7 +354,10 @@ def read_managed_instructions(path: str) -> List[str]:
 
 
 def is_dm_managed_instruction(value: object) -> bool:
-    return isinstance(value, str) and DM_MEMORY_MARKER in value.replace("\\", "/")
+    if not isinstance(value, str):
+        return False
+    normalized = value.replace("\\", "/")
+    return DM_MEMORY_MARKER in normalized or PROJECTED_MEMORY_MARKER in normalized
 
 
 def check_instruction_sync(data: dict, desired: List[str]) -> dict:

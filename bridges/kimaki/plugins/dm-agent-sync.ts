@@ -35,6 +35,12 @@ interface InjectableFile {
 const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async (input) => {
+      if (process.env.EXTERNAL_WORDPRESS === "true") {
+        // Portable profiles project remote memory during setup. Replacing the
+        // configured local paths with WordPress-host paths would make every
+        // instruction unreachable from this runtime.
+        return;
+      }
       const wpCli = await resolveWpCli($);
       if (!wpCli) {
         return;

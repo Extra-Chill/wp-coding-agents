@@ -3,6 +3,12 @@
 
 # Run a WP-CLI command with the correct flags for the current platform.
 wp_cmd() {
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    local user_args=()
+    [ -z "${WORDPRESS_USER:-}" ] || user_args=("--user=$WORDPRESS_USER")
+    run_cmd "${WP_CONTROL_TRANSPORT[@]}" "$@" "${user_args[@]}" "--path=$WORDPRESS_PATH"
+    return
+  fi
   if [ "$IS_STUDIO" = true ]; then
     # shellcheck disable=SC2086
     run_cmd studio wp "$@" --path="$SITE_PATH"

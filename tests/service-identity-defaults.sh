@@ -159,8 +159,8 @@ echo "wiring"
 # that branch on RUN_AS_ROOT, or it decides nothing.
 apply_line=$(grep -n '^detect_apply_source_mode_identity_default' setup.sh | head -1 | cut -d: -f1)
 mode_line=$(grep -n '^source_policy_resolve_mode' setup.sh | head -1 | cut -d: -f1)
-user_line=$(grep -n '^  create_service_user' setup.sh | head -1 | cut -d: -f1)
-perms_line=$(grep -n '^  setup_service_permissions' setup.sh | head -1 | cut -d: -f1)
+user_line=$(grep -n '^[[:space:]]*create_service_user' setup.sh | head -1 | cut -d: -f1)
+perms_line=$(grep -n '^[[:space:]]*setup_service_permissions' setup.sh | head -1 | cut -d: -f1)
 if [ -n "$apply_line" ] && [ -n "$mode_line" ] && [ -n "$user_line" ] && [ -n "$perms_line" ] &&
    [ "$apply_line" -gt "$mode_line" ] && [ "$apply_line" -lt "$user_line" ] && [ "$apply_line" -lt "$perms_line" ]; then
   echo "  ok   setup.sh applies the default after the mode resolves and before it is used"
