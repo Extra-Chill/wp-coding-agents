@@ -146,7 +146,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 provider = data["provider"]["wp-ai-gateway"]
 assert provider["npm"] == "@ai-sdk/openai-compatible"
 assert provider["env"] == ["OPENAI_API_KEY"]
-assert provider["options"]["baseURL"] == "${OPENAI_BASE_URL}"
+assert provider["options"]["baseURL"] == "{env:OPENAI_BASE_URL}"
 assert "site-default" in provider["models"]
 assert data["model"] == "anthropic/claude-sonnet-4-5"
 assert "custom" in data["provider"]
