@@ -36,6 +36,30 @@ wp --allow-root plugin list --path=/path/to/site | grep data-machine
 
 ## Target Overlays
 
+### `verify-external-wordpress-transport`
+
+Run from the runtime environment that supplies `WP_CONTROL_TRANSPORT_JSON`,
+`WORDPRESS_PATH`, and optional `WORDPRESS_USER`:
+
+```bash
+/path/to/runtime/.wp-coding-agents/bin/wp-control core is-installed
+```
+
+### `verify-data-machine-projection`
+
+```bash
+test -s /path/to/runtime/opencode.json
+test -s /path/to/runtime/AGENTS.md
+test -d /path/to/runtime/.wp-coding-agents/context
+test -d /path/to/runtime/.opencode/skills
+test ! -e /path/to/runtime/wp-content
+```
+
+Every `instructions` entry in `opencode.json` must resolve below the runtime
+root. Start Kimaki from the same credential-bearing process environment;
+external profiles intentionally do not persist the transport in launchd or
+systemd configuration.
+
 ### `verify-wordpress-studio`
 
 ```bash

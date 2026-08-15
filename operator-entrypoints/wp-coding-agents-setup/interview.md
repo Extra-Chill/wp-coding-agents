@@ -10,6 +10,7 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - `fresh-vps` — new VPS, new WordPress site.
    - `existing-vps` — WordPress already exists on a server.
    - `migration` — site exists elsewhere and is moving before setup.
+   - `external-runtime` — the runtime reaches WordPress through an operator-supplied command transport without mounting its filesystem.
 
 2. **Target details**
    Collect only the fields relevant to the selected target:
@@ -17,6 +18,7 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - Fresh VPS: server host/IP, SSH user, domain, and whether SSL should be skipped.
    - Existing VPS: server host/IP, SSH user, WordPress root path, and domain if known.
    - Migration: source backup status, destination server host/IP, SSH user, final WordPress root path, and domain.
+   - External runtime: runtime project root, WordPress-side root path, optional WordPress user, and control transport argv. Keep credentials in the runtime environment or credential store rather than argv.
 
 3. **Runtime axis**
    Ask which runtime or runtimes the user wants:
@@ -26,6 +28,7 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - `multiple`
 
    If they choose multiple, collect the desired runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
+   External runtimes currently require an explicit `opencode` selection.
 
 4. **Chat bridge axis**
    Ask how the user wants to communicate with the agent:
@@ -66,12 +69,15 @@ Return the profile as JSON in this shape so the compiler script can map it deter
 
 ```json
 {
-  "install_target": "local | fresh-vps | existing-vps | migration",
+  "install_target": "local | fresh-vps | existing-vps | migration | external-runtime",
   "target": {
     "ssh_host": "",
     "ssh_user": "",
     "domain": "",
     "wordpress_path": "",
+    "runtime_project_root": "",
+    "wordpress_user": "",
+    "control_transport_argv": [],
     "wordpress_studio": false,
     "migration_backups_ready": false
   },

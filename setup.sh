@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents; do
+for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -83,6 +83,7 @@ SOURCE_LOG_PATHS_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
+EXTERNAL_WORDPRESS=false
 initialize_kimaki_overrides
 
 while [[ $# -gt 0 ]]; do
@@ -99,6 +100,27 @@ while [[ $# -gt 0 ]]; do
     --wp-path)
       MODE="existing"
       EXISTING_WP="$2"
+      shift 2
+      ;;
+    --external-wordpress)
+      EXTERNAL_WORDPRESS=true
+      MODE="existing"
+      LOCAL_MODE=true
+      SKIP_DEPS=true
+      SKIP_SSL=true
+      RUN_AS_ROOT=false
+      shift
+      ;;
+    --runtime-project-root)
+      RUNTIME_PROJECT_ROOT="$2"
+      shift 2
+      ;;
+    --wordpress-path)
+      WORDPRESS_PATH="$2"
+      shift 2
+      ;;
+    --wordpress-user)
+      WORDPRESS_USER="$2"
       shift 2
       ;;
     --local)
@@ -279,6 +301,13 @@ USAGE:
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
   --wp-path <path>   Path to WordPress root (implies --existing)
+  --external-wordpress Attach a local runtime to WordPress through a supplied control transport
+  --runtime-project-root <path>
+                      Local runtime root for config, skills, and projected context
+  --wordpress-path <path>
+                      WordPress-side path passed only to the control transport
+  --wordpress-user <user>
+                      Optional WordPress user passed only to the control transport
   --local            Local machine mode (skip infrastructure: no apt, nginx,
                      systemd, SSL, service users). Works with any local
                      WordPress install (Studio, MAMP, manual, etc.)
@@ -386,6 +415,7 @@ ENVIRONMENT VARIABLES:
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CMD             Override WP-CLI command (default: wp; e.g., "studio wp")
+  WP_CONTROL_TRANSPORT_JSON  JSON argv array used by --external-wordpress
   HOMEBOY_EXTENSIONS_SOURCE  Homeboy extensions git URL/path
                      (default: https://github.com/Extra-Chill/homeboy-extensions.git)
 
@@ -461,11 +491,17 @@ if [ "$RUNTIME" = "codex" ] && [ "$INSTALL_CHAT" = true ]; then
   CHAT_BRIDGE=""
 fi
 
+if [ "$EXTERNAL_WORDPRESS" = true ] && [ "$RUNTIME" != "opencode" ]; then
+  error "--external-wordpress currently requires --runtime opencode"
+fi
+
 # ============================================================================
 # Execute
 # ============================================================================
 
+external_wordpress_prepare_transport
 detect_environment
+external_wordpress_validate
 
 # The source mode must resolve BEFORE anything that enforces it: the plugin set, the
 # runtime permission surfaces, and the AGENTS.md guidance all derive from it.
@@ -495,47 +531,52 @@ fi
 # --runtime-only skips infrastructure phases (plugins, database, agent creation).
 # Use when adding a runtime to an existing agent that already has plugins installed.
 if [ "$RUNTIME_ONLY" != true ]; then
-  install_system_deps
-  setup_database
-  install_wordpress
-  setup_multisite
-  create_service_user
-  install_data_machine
-  create_dm_agent
-  sync_carried_plugins
-  install_extra_plugins
-  setup_homeboy_project
-  configure_homeboy_dmc_worktree_provider
-  setup_nginx
-  setup_ssl
-  setup_service_permissions
+  if [ "$EXTERNAL_WORDPRESS" = true ]; then
+    log "External WordPress profile: site installation and mutation phases are skipped"
+  else
+    install_system_deps
+    setup_database
+    install_wordpress
+    setup_multisite
+    create_service_user
+    install_data_machine
+    create_dm_agent
+    sync_carried_plugins
+    install_extra_plugins
+    setup_homeboy_project
+    configure_homeboy_dmc_worktree_provider
+    setup_nginx
+    setup_ssl
+    setup_service_permissions
+  fi
 fi
 
-source_policy_record_mode
-owned_discovery_record_exclusions
-source_policy_record_owned_sources
-source_policy_record_writable_paths
-source_policy_record_log_paths
-guidance_sync_all
-setup_ai_gateway
+if [ "$EXTERNAL_WORDPRESS" != true ]; then
+  source_policy_record_mode
+  owned_discovery_record_exclusions
+  source_policy_record_owned_sources
+  source_policy_record_writable_paths
+  source_policy_record_log_paths
+  guidance_sync_all
+  setup_ai_gateway
+fi
 
 runtime_install
 runtime_discover_dm_paths
+external_wordpress_project_context
 discover_dm_workspace_dir
 runtime_generate_config
-ai_gateway_configure_opencode
+if [ "$EXTERNAL_WORDPRESS" != true ]; then ai_gateway_configure_opencode; fi
 runtime_install_hooks
-configure_homeboy_wordpress_extension
+if [ "$EXTERNAL_WORDPRESS" != true ]; then configure_homeboy_wordpress_extension; fi
 runtime_generate_instructions
-opencode_project_subagents
+if [ "$EXTERNAL_WORDPRESS" != true ]; then opencode_project_subagents; fi
 runtime_merge_mcp_servers
 install_skills
-cli_transport_install
-runtime_guard_sync
+if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; runtime_guard_sync; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
-source_reconcile_sync
-source_reconcile_run
+if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
 install_chat_bridge
-datamachine_worker_install
+if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_install; fi
 print_summary

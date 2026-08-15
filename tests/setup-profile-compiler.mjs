@@ -12,6 +12,46 @@ function compile(profile) {
 
 {
   const plan = compile({
+    install_target: "external-runtime",
+    target: {
+      runtime_project_root: "/tmp/runtime root",
+      wordpress_path: "/remote/site root",
+      wordpress_user: "agent user",
+      control_transport_argv: ["/usr/local/bin/control transport", "--identity", "value with spaces"],
+    },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "kimaki" },
+    overlays: {},
+    agent: { slug: "remote" },
+  })
+  assert.match(plan.commands.apply, /RUNTIME_PROJECT_ROOT='\/tmp\/runtime root'/)
+  assert.match(plan.commands.apply, /WP_CONTROL_TRANSPORT_JSON='\["\/usr\/local\/bin\/control transport","--identity","value with spaces"\]'/)
+  assert.match(plan.commands.apply, /--external-wordpress --wordpress-path '\/remote\/site root' --wordpress-user 'agent user'/)
+  assert.match(plan.commands.start, /WP_CONTROL_TRANSPORT_JSON=.*\/tmp\/runtime root\/\.wp-coding-agents\/bin\/kimaki/)
+  assert.ok(plan.verification.overlays.includes("verify-external-wordpress-transport"))
+}
+
+for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
+  const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
+    input: JSON.stringify({
+      install_target: "external-runtime",
+      target: {
+        runtime_project_root: "/tmp/runtime",
+        wordpress_path: "/remote/site",
+        control_transport_argv: ["/usr/local/bin/control"],
+      },
+      runtime: { selection, runtimes: selection === "multiple" ? ["opencode", "codex"] : [] },
+      chat_bridge: { selection: "none" },
+      overlays: {},
+    }),
+    encoding: "utf8",
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /requires runtime\.selection=opencode/)
+}
+
+{
+  const plan = compile({
     install_target: "local",
     target: { wordpress_path: "~/Studio/site", wordpress_studio: true },
     runtime: { selection: "opencode", runtimes: [] },

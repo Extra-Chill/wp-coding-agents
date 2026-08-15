@@ -66,6 +66,7 @@ opencode_install_claude_code_auth_plugin() {
 # is idempotent and only mutates the mu-plugin file when the env-var map
 # actually differs.
 _opencode_register_runtime_signature() {
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
   if ! declare -F runtime_signature_register >/dev/null; then
     # The helper lives in lib/runtime-signature.sh, sourced by setup.sh and
     # upgrade.sh. When this function is invoked outside those entry points
@@ -196,8 +197,8 @@ runtime_generate_config() {
   KIMAKI_PLUGINS_DIR=""
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
-      KIMAKI_PLUGINS_DIR="${KIMAKI_DATA_DIR:-$HOME/.kimaki}/kimaki-config/plugins"
-      if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_PLUGINS_DIR" ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
+      KIMAKI_PLUGINS_DIR="${KIMAKI_DATA_DIR:-$(runtime_project_root)/.kimaki}/kimaki-config/plugins"
+      if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_PLUGINS_DIR" ]; then
         mkdir -p "$KIMAKI_PLUGINS_DIR"
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
         cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
@@ -397,7 +398,13 @@ _runtime_repair_opencode_json_additive() {
   local managed_args=()
   if [ -n "${DM_AGENT_FILES:-}" ]; then
     MANAGED_INSTRUCTIONS_FILE=$(mktemp)
-    printf '%s\n' "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
+    while IFS= read -r managed_instruction; do
+      [ -n "$managed_instruction" ] || continue
+      case "$managed_instruction" in
+        /*|http://*|https://*|~/*) printf '%s\n' "$managed_instruction" ;;
+        *) printf './%s\n' "$managed_instruction" ;;
+      esac
+    done <<< "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
     managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
   fi
   if opencode_claude_code_auth_enabled; then
@@ -412,7 +419,7 @@ _runtime_repair_opencode_json_additive() {
     --file "$SITE_PATH/opencode.json" \
     --runtime opencode \
     --chat-bridge "$BRIDGE_ARG" \
-    --posture "${SOURCE_MODE:-workspace}" \
+    --source-mode "${SOURCE_MODE:-workspace}" \
     "${_managed_source_args[@]}" \
     --kimaki-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
@@ -456,7 +463,7 @@ runtime_generate_instructions() {
   # Compose from Data Machine's SectionRegistry. DM is mandatory, and compose
   # handles WP-CLI prefix resolution, multisite detection, and plugin sections
   # (intelligence, etc.) automatically at runtime.
-  if [ "$DRY_RUN" = false ]; then
+  if [ "$DRY_RUN" = false ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
     sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
       service_file_normalize_perms "$SITE_PATH/AGENTS.md"
@@ -469,12 +476,19 @@ runtime_generate_instructions() {
 
   # Fallback for dry-run or compose failure: ship a minimal static template.
   local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.external.md"
+  fi
   if [ ! -f "$agents_tmpl" ]; then
     error "AGENTS.md template not found at $agents_tmpl"
   fi
 
   local wp_cli_display="wp"
-  if [ "$IS_STUDIO" = true ]; then
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    # This checked-in wrapper reads the operator-owned transport from process
+    # environment; no transport argv or credential is rendered into guidance.
+    wp_cli_display="./.wp-coding-agents/bin/wp-control"
+  elif [ "$IS_STUDIO" = true ]; then
     wp_cli_display="studio wp"
   elif [ "$LOCAL_MODE" = false ]; then
     wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"

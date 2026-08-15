@@ -79,7 +79,7 @@ install_skills_to_persistent_source() {
     return
   fi
 
-  if [ "$(id -u)" -ne 0 ] && [ ! -w "$persistent_dir" ]; then
+  if [ "$(id -u)" -ne 0 ] && [ -e "$persistent_dir" ] && [ ! -w "$persistent_dir" ]; then
     local skill_dir skill_name
     for skill_dir in "$SCRIPT_DIR/skills"/*/; do
       [ -d "$skill_dir" ] || continue

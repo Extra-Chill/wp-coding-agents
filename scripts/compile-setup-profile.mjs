@@ -139,6 +139,19 @@ function compile(profile) {
       env.EXISTING_WP = target.wordpress_path
       addFlag(command, "--existing")
       break
+    case "external-runtime":
+      if (!target.runtime_project_root) throw new Error("External runtime setup requires target.runtime_project_root")
+      if (!target.wordpress_path) throw new Error("External runtime setup requires target.wordpress_path")
+      if (!target.control_transport_argv) throw new Error("External runtime setup requires target.control_transport_argv")
+      if (!Array.isArray(target.control_transport_argv) || !target.control_transport_argv.length || target.control_transport_argv.some((value) => typeof value !== "string" || !value)) {
+        throw new Error("target.control_transport_argv must be a non-empty argv array")
+      }
+      env.RUNTIME_PROJECT_ROOT = target.runtime_project_root
+      env.WP_CONTROL_TRANSPORT_JSON = JSON.stringify(target.control_transport_argv)
+      addFlag(command, "--external-wordpress")
+      addFlag(command, "--wordpress-path", target.wordpress_path)
+      if (target.wordpress_user) addFlag(command, "--wordpress-user", target.wordpress_user)
+      break
     default:
       throw new Error(`Unknown install_target: ${installTarget}`)
   }
@@ -148,6 +161,9 @@ function compile(profile) {
   }
 
   const runtime = normalizeRuntime(profile, availableRuntimes, warnings)
+  if (installTarget === "external-runtime" && runtime.selection !== "opencode") {
+    throw new Error("External runtime setup currently requires runtime.selection=opencode")
+  }
   if (runtime.flag) {
     addFlag(command, "--runtime", runtime.flag)
   }
@@ -185,7 +201,7 @@ function compile(profile) {
     }
   }
 
-  const verification = new Set(["verify-wordpress", "verify-data-machine"])
+  const verification = new Set(installTarget === "external-runtime" ? ["verify-external-wordpress-transport", "verify-data-machine-projection"] : ["verify-wordpress", "verify-data-machine"])
   if (target.wordpress_studio || overlays.wordpress_studio) verification.add("verify-wordpress-studio")
   if (installTarget === "fresh-vps" || installTarget === "existing-vps") verification.add("verify-vps-reachable")
 
@@ -220,6 +236,14 @@ function compile(profile) {
     commands: {
       dry_run: formatCommand(env, command, true),
       apply: formatCommand(env, command, false),
+      ...(installTarget === "external-runtime"
+        ? {
+            start: formatCommand(
+              { WP_CONTROL_TRANSPORT_JSON: env.WP_CONTROL_TRANSPORT_JSON },
+              [`${target.runtime_project_root}/.wp-coding-agents/bin/kimaki`]
+            ),
+          }
+        : {}),
     },
     verification: {
       overlays: [...verification],

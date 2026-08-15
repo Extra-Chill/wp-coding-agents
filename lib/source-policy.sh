@@ -77,6 +77,10 @@ SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
 _source_policy_option_read() {
   local key="$1"
   [ -n "${SITE_PATH:-}" ] || return 0
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    wp_cmd option get "$key" 2>/dev/null || true
+    return 0
+  fi
   if [ "${IS_STUDIO:-false}" = true ]; then
     studio wp option get "$key" --path="$SITE_PATH" 2>/dev/null || true
     return 0

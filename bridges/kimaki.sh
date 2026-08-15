@@ -168,7 +168,10 @@ bridge_install() {
     log "Kimaki already installed: $(kimaki --version 2>/dev/null | head -1)"
   fi
 
-  if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    log "External WordPress profile: Kimaki installed. Start it from the runtime environment with:"
+    log "  WP_CONTROL_TRANSPORT_JSON='<argv-json>' $(external_wordpress_kimaki_command)"
+  elif [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
     _kimaki_install_launchd
   elif [ "$LOCAL_MODE" = true ]; then
     log "Local mode: Kimaki installed. Run manually with:"
@@ -178,6 +181,7 @@ bridge_install() {
   fi
 
   _kimaki_sync_bin_helpers
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
   _kimaki_register_cli_channel
   _kimaki_register_runtime_signature
 }
@@ -1340,6 +1344,10 @@ EOF
 }
 
 _kimaki_datamachine_wp_cmd() {
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    external_wordpress_control_command
+    return 0
+  fi
   if [ "${IS_STUDIO:-false}" = true ]; then
     printf '%s\n' "studio wp"
     return 0
