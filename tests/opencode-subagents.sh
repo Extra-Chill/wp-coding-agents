@@ -24,6 +24,10 @@ assert_python() { local name="$1"; shift; if python3 - "$@"; then printf '  ok  
 wp_cmd() { [ "$1" = eval-file ] && [ "$2" = "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php" ] && [ "$3" = -- ] && [ "$4" = "$AGENT_SLUG" ]; cat "$TMP/graph.json"; }
 
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php"
+php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded
+php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded outside
+php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded oversize
+php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded graph-limit
 
 printf '# Writer identity\n\nWrite exact prose.\n' > "$TMP/identity/writer-soul.md"
 mkdir -p "$TMP/identity-review"

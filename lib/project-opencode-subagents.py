@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Safely project a Data Machine coordinator graph into OpenCode files."""
 
+import base64
 import json
 import os
 import re
@@ -81,8 +82,23 @@ def map_sources(value, name, root, kind=None):
     return result
 
 
+def embedded_sources(value, name):
+    if not isinstance(value, dict): fail(f"{name} must be a source map")
+    result = {}
+    for target, content in value.items():
+        target = rel(target, f"{name} key")
+        if not isinstance(content, str): fail(f"{name}.{target} must be base64 content")
+        try: result[target] = base64.b64decode(content, validate=True)
+        except ValueError: fail(f"{name}.{target} must be base64 content")
+    return result
+
+
+def source_bytes(source):
+    return source if isinstance(source, bytes) else source.read_bytes()
+
+
 def skill_name(skill_file):
-    raw = skill_file.read_bytes()
+    raw = source_bytes(skill_file)
     if not raw.startswith(b"---\n"): fail(f"{skill_file} must have SKILL.md frontmatter")
     try: frontmatter = raw.split(b"\n---\n", 1)[0].decode("utf-8")
     except UnicodeDecodeError: fail(f"{skill_file} frontmatter must be UTF-8")
@@ -95,6 +111,8 @@ def graph(data):
     if not isinstance(data, dict) or data.get("success") is not True: fail("agent graph must be successful")
     coordinator, nodes = text(data.get("coordinator"), "graph.coordinator"), data.get("nodes")
     if not SLUG.fullmatch(coordinator) or not isinstance(nodes, list): fail("graph coordinator or nodes is invalid")
+    embedded = data.get("source_mode") == "embedded"
+    if data.get("source_mode") not in (None, "embedded"): fail("graph source mode is invalid")
     result, edges_by_node = {}, {}
     for index, node in enumerate(nodes):
         name = f"graph.nodes[{index}]"
@@ -110,18 +128,24 @@ def graph(data):
         if not isinstance(raw_instructions, dict): fail(f"{name}.sources.instructions must be a source map")
         raw_skills, raw_references = sources.get("skills"), sources.get("references")
         if not isinstance(raw_skills, dict) or not isinstance(raw_references, dict): fail(f"{name}.sources skills and references must be source maps")
-        candidates = []
-        for kind, raw in (("instructions", raw_instructions), ("skills", raw_skills), ("references", raw_references)):
-            for target, source in raw.items():
-                target = rel(target, f"{name}.sources.{kind} key")
-                source = Path(text(source, f"{name}.sources.{kind}.{target}"))
-                candidates.append(source.parent if kind == "instructions" else source.parents[len(target.parts)])
-        if not candidates: fail(f"{name}.sources must contain an artifact")
-        root = candidates[0]
-        if any(candidate != root for candidate in candidates): fail(f"{name}.sources do not share one agent root")
-        instructions = map_sources(raw_instructions, f"{name}.sources.instructions", root)
-        skills = map_sources(raw_skills, f"{name}.sources.skills", root, "skills")
-        references = map_sources(raw_references, f"{name}.sources.references", root, "references")
+        if embedded:
+            instructions = embedded_sources(raw_instructions, f"{name}.sources.instructions")
+            skills = embedded_sources(raw_skills, f"{name}.sources.skills")
+            references = embedded_sources(raw_references, f"{name}.sources.references")
+        else:
+            candidates = []
+            for kind, raw in (("instructions", raw_instructions), ("skills", raw_skills), ("references", raw_references)):
+                for target, source in raw.items():
+                    target = rel(target, f"{name}.sources.{kind} key")
+                    source = Path(text(source, f"{name}.sources.{kind}.{target}"))
+                    candidates.append(source.parent if kind == "instructions" else source.parents[len(target.parts)])
+            if not candidates: fail(f"{name}.sources must contain an artifact")
+            root = candidates[0]
+            if any(candidate != root for candidate in candidates): fail(f"{name}.sources do not share one agent root")
+            instructions = map_sources(raw_instructions, f"{name}.sources.instructions", root)
+            skills = map_sources(raw_skills, f"{name}.sources.skills", root, "skills")
+            references = map_sources(raw_references, f"{name}.sources.references", root, "references")
+        if not instructions and not skills and not references: fail(f"{name}.sources must contain an artifact")
         policy = translated_policy(node.get("tool_policy"), name)
         declared = node.get("skill_policy", {}).get("paths") if isinstance(node.get("skill_policy"), dict) else None
         if not isinstance(declared, list) or {rel(path, f"{name}.skill_policy.paths") for path in declared} != set(skills): fail(f"{name}.skill_policy.paths must exactly match sources.skills")
@@ -137,10 +161,10 @@ def graph(data):
 
 def wrapper(instructions):
     ordered = sorted(instructions.items())
-    if len(ordered) == 1: return ordered[0][1].read_bytes()
+    if len(ordered) == 1: return source_bytes(ordered[0][1])
     # Source copies remain byte-identical beside the agent; this wrapper only
     # defines their deterministic composition order for OpenCode's prompt.
-    return b"\n\n".join(b"# " + str(path).encode() + b"\n\n" + source.read_bytes() for path, source in ordered)
+    return b"\n\n".join(b"# " + str(path).encode() + b"\n\n" + source_bytes(source) for path, source in ordered)
 
 
 def agent_bytes(child, task_edges):
@@ -195,9 +219,10 @@ def manifest(path, root):
 
 
 def main():
-    if len(sys.argv) != 3: raise SystemExit("usage: project-opencode-subagents.py GRAPH_JSON PROJECT_ROOT")
+    if len(sys.argv) != 3: raise SystemExit("usage: project-opencode-subagents.py GRAPH_JSON|--stdin PROJECT_ROOT")
     try:
-        nodes, edges, coordinator = graph(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")))
+        raw = sys.stdin.read() if sys.argv[1] == "--stdin" else Path(sys.argv[1]).read_text(encoding="utf-8")
+        nodes, edges, coordinator = graph(json.loads(raw))
         project, root = Path(sys.argv[2]), Path(sys.argv[2]) / ".opencode"
         config_path, manifest_path = project / "opencode.json", root / MANIFEST_NAME
         if not config_path.is_file() or config_path.is_symlink(): fail("opencode.json must be a regular file")
@@ -217,20 +242,20 @@ def main():
             agents.append(str(agent))
             for relative, source in child["instructions"].items():
                 target = Path("agents") / f"{slug}.instructions" / relative
-                desired[root / target] = source.read_bytes(); artifacts.append(str(target))
+                desired[root / target] = source_bytes(source); artifacts.append(str(target))
             skill_roots = {path.parent: name for path, name in child["skill_names"].items()}
             for relative, source in child["skills"].items():
                 matching = [base for base in skill_roots if relative.is_relative_to(base)]
                 if not matching: fail(f"skill support file is not below a SKILL.md: {relative}")
                 base = max(matching, key=lambda value: len(value.parts))
                 target = Path("skills") / skill_roots[base] / relative.relative_to(base)
-                desired[root / target] = source.read_bytes(); artifacts.append(str(target))
+                desired[root / target] = source_bytes(source); artifacts.append(str(target))
             for relative, source in child["references"].items():
                 matching = [base for base in skill_roots if relative.is_relative_to(base)]
                 if len(matching) != 1: fail(f"reference must belong to exactly one skill: {relative}")
                 base = matching[0]
                 target = Path("skills") / skill_roots[base] / "references" / relative.relative_to(base)
-                desired[root / target] = source.read_bytes(); artifacts.append(str(target))
+                desired[root / target] = source_bytes(source); artifacts.append(str(target))
         coordinator_skill_names = sorted(nodes[coordinator]["skill_names"].values())
         coordinator_artifacts = nodes[coordinator]
         skill_roots = {path.parent: name for path, name in coordinator_artifacts["skill_names"].items()}
@@ -239,13 +264,13 @@ def main():
             if not matching: fail(f"skill support file is not below a SKILL.md: {relative}")
             base = max(matching, key=lambda value: len(value.parts))
             target = Path("skills") / skill_roots[base] / relative.relative_to(base)
-            desired[root / target] = source.read_bytes(); artifacts.append(str(target))
+            desired[root / target] = source_bytes(source); artifacts.append(str(target))
         for relative, source in coordinator_artifacts["references"].items():
             matching = [base for base in skill_roots if relative.is_relative_to(base)]
             if len(matching) != 1: fail(f"reference must belong to exactly one skill: {relative}")
             base = matching[0]
             target = Path("skills") / skill_roots[base] / "references" / relative.relative_to(base)
-            desired[root / target] = source.read_bytes(); artifacts.append(str(target))
+            desired[root / target] = source_bytes(source); artifacts.append(str(target))
         # Only the coordinator's own task configuration belongs in opencode.json.
         task = {"*": "deny", **{edge: "allow" for edge in edges[coordinator]}}
         current = config["permission"].get("task")

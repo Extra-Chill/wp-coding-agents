@@ -11,8 +11,28 @@ WORDPRESS_USER="agent user"
 TRANSPORT="$TMP/control transport"
 ARGS="$TMP/transport-args"
 KIMAKI_ENV="$TMP/kimaki-env"
+GRAPH="$TMP/remote-subagent-graph.json"
 
 mkdir -p "$RUNTIME_PROJECT_ROOT"
+python3 - "$GRAPH" <<'PY'
+import base64, json, sys
+encode = lambda value: base64.b64encode(value).decode()
+artifact = lambda value: encode(value.encode())
+graph = {
+  "success": True, "coordinator": "coordinator", "source_mode": "embedded", "nodes": [
+    {"slug":"coordinator", "description":"Routes work", "model":"", "subagents":["writer", "reviewer"],
+     "sources":{"instructions":{"SOUL.md":artifact("# Coordinator\n")}, "skills":{"root/SKILL.md":artifact("---\nname: root-skill\n---\n")}, "references":{}},
+     "tool_policy":{"default":"deny", "allow":["bash"]}, "skill_policy":{"paths":["root/SKILL.md"]}},
+    {"slug":"writer", "description":"Writes safely", "model":"openai/gpt-5", "subagents":["reviewer"],
+     "sources":{"instructions":{"SOUL.md":artifact("# Writer\n")}, "skills":{"writer/SKILL.md":artifact("---\nname: editorial\n---\n\nWrite exact prose.\n")}, "references":{"writer/context.bin":encode(b"reference\x00bytes")}},
+     "tool_policy":{"default":"deny", "allow":["bash"]}, "skill_policy":{"paths":["writer/SKILL.md"]}},
+    {"slug":"reviewer", "description":"Reviews safely", "model":"", "subagents":[],
+     "sources":{"instructions":{"SOUL.md":artifact("# Reviewer\n")}, "skills":{"review/SKILL.md":artifact("---\nname: review\n---\n")}, "references":{}},
+     "tool_policy":{"default":"deny", "allow":["webfetch"]}, "skill_policy":{"paths":["review/SKILL.md"]}}
+  ]
+}
+json.dump(graph, open(sys.argv[1], "w"))
+PY
 cat > "$TRANSPORT" <<'SH'
 #!/bin/bash
 printf '%s\n' "$@" >> "$WP_TEST_ARGS"
@@ -30,6 +50,21 @@ case "$3:$4" in
         ;;
     esac
     ;;
+  eval:*)
+    [ "$#" -eq 6 ] && [ "$5" = "--user=$WORDPRESS_USER" ] && [ "$6" = "--path=$WORDPRESS_PATH" ] || {
+      echo "wp eval received unsupported positional arguments" >&2
+      exit 9
+    }
+    case "$4" in
+      *"require base64_decode"*) echo "decoded PHP source was treated as a filename" >&2; exit 9 ;;
+    esac
+    printf '%s' "$4" | grep -F "\$args=array(base64_decode('" >/dev/null || { echo "wp eval did not initialize reader arguments" >&2; exit 9; }
+    printf '%s' "$4" | grep -F "'),'embedded');eval('?>'.base64_decode('" >/dev/null || { echo "wp eval did not execute embedded source" >&2; exit 9; }
+    python3 - "$WP_TEST_GRAPH" <<'PY'
+import sys
+sys.stdout.write(open(sys.argv[1]).read())
+PY
+    ;;
 esac
 SH
 chmod +x "$TRANSPORT"
@@ -40,9 +75,10 @@ printf '%s\n%s\n%s\n' "$EXTERNAL_WORDPRESS" "$WORDPRESS_PATH" "$WORDPRESS_USER" 
 SH
 chmod +x "$TMP/bin/kimaki"
 
-export SCRIPT_DIR RUNTIME_PROJECT_ROOT WORDPRESS_PATH WORDPRESS_USER
+export SCRIPT_DIR RUNTIME_PROJECT_ROOT WORDPRESS_PATH WORDPRESS_USER AGENT_SLUG=coordinator
 export WP_TEST_ARGS="$ARGS"
 export WP_TEST_KIMAKI_ENV="$KIMAKI_ENV"
+export WP_TEST_GRAPH="$GRAPH"
 export PATH="$TMP/bin:$PATH"
 export WP_CONTROL_TRANSPORT_JSON="[\"$TRANSPORT\",\"--identity\",\"secret value with spaces\"]"
 export EXTERNAL_WORDPRESS=true DRY_RUN=false LOCAL_MODE=true IS_STUDIO=false
@@ -68,6 +104,8 @@ source "$SCRIPT_DIR/lib/source-policy.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/skills.sh"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/opencode-subagents.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/opencode.sh"
 error() { printf '%s\n' "$*" >&2; return 1; }
 
@@ -84,6 +122,7 @@ runtime_generate_instructions
 DETECTED_RUNTIMES=(opencode)
 INSTALL_SKILLS=true
 install_skills
+opencode_project_subagents
 
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-config.php" ] || { echo "FAIL: test created a local WordPress tree"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/shared/SITE.md")" = "site context" ] || { echo "FAIL: site context not projected"; exit 1; }
@@ -92,6 +131,10 @@ install_skills
 [ -f "$RUNTIME_PROJECT_ROOT/.kimaki/kimaki-config/plugins/dm-context-filter.ts" ] || { echo "FAIL: Kimaki config was not installed below runtime root"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }
 [ -L "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context" ] || { echo "FAIL: projected context is not atomically activated"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" ] || { echo "FAIL: embedded writer was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md" ] || { echo "FAIL: embedded reviewer was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/editorial/SKILL.md" ] || { echo "FAIL: embedded skill was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/editorial/references/context.bin" ] || { echo "FAIL: embedded reference was not projected"; exit 1; }
 grep -F -- 'WordPress control: `./.wp-coding-agents/bin/wp-control`' "$RUNTIME_PROJECT_ROOT/AGENTS.md" >/dev/null
 if grep -F -- 'grep it as needed' "$RUNTIME_PROJECT_ROOT/AGENTS.md" >/dev/null; then
   echo "FAIL: external guidance claims installed source is mounted"
@@ -116,6 +159,19 @@ if provider.get("env") != ["OPENAI_API_KEY"]:
 if data.get("model") != "wp-ai-gateway/site-default":
     raise SystemExit("gateway model is not the runtime default")
 PY
+
+python3 - "$RUNTIME_PROJECT_ROOT" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+assert root.joinpath(".opencode/skills/editorial/references/context.bin").read_bytes() == b"reference\x00bytes"
+manifest = json.loads(root.joinpath(".opencode/.wp-coding-agents-subagents.json").read_text())
+assert manifest["agents"] == ["agents/reviewer.md", "agents/writer.md"]
+config = json.loads(root.joinpath("opencode.json").read_text())
+assert config["permission"]["task"] == {"*": "deny", "writer": "allow", "reviewer": "allow"}
+writer = root.joinpath(".opencode/agents/writer.md").read_text()
+assert '"task":{"*":"deny","reviewer":"allow"}' in writer
+PY
+grep -x 'eval' "$ARGS" >/dev/null || { echo "FAIL: external graph reader did not use wp eval"; exit 1; }
 
 while IFS= read -r argument; do
   case "$argument" in
@@ -145,7 +201,50 @@ if grep -R -E -- 'runtime-only\.invalid|runtime-only-secret-value' "$RUNTIME_PRO
   echo "FAIL: runtime gateway credentials persisted below runtime root"
   exit 1
 fi
+[ ! -e "$RUNTIME_PROJECT_ROOT/.wp-coding-agents-subagent-graph.json" ] || { echo "FAIL: graph payload persisted below runtime root"; exit 1; }
+if grep -R -F -- '/remote/wp-content/uploads/datamachine-files' "$RUNTIME_PROJECT_ROOT" >/dev/null 2>&1; then
+  echo "FAIL: remote artifact paths persisted below runtime root"
+  exit 1
+fi
 [ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/wp-ai-gateway.env" ] || { echo "FAIL: external profile wrote a gateway env file"; exit 1; }
+
+before_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+opencode_project_subagents
+after_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+[ "$before_subagents" = "$after_subagents" ] || { echo "FAIL: embedded subagent projection is not byte-stable"; exit 1; }
+python3 - "$GRAPH" <<'PY'
+import json, sys
+path = sys.argv[1]
+graph = json.load(open(path))
+graph["nodes"] = [node for node in graph["nodes"] if node["slug"] != "reviewer"]
+graph["nodes"][0]["subagents"] = ["writer"]
+graph["nodes"][1]["subagents"] = []
+json.dump(graph, open(path, "w"))
+PY
+opencode_project_subagents
+[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md" ] || { echo "FAIL: stale embedded child survived"; exit 1; }
+python3 - "$GRAPH" <<'PY'
+import json, sys
+path = sys.argv[1]
+graph = json.load(open(path))
+graph["nodes"][1]["sources"]["instructions"] = {"../escape.md": "aGVsbG8="}
+json.dump(graph, open(path, "w"))
+PY
+if opencode_project_subagents; then echo "FAIL: traversal graph projected"; exit 1; fi
+printf 'human configuration\n' > "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md"
+python3 - "$GRAPH" <<'PY'
+import base64, json, sys
+path = sys.argv[1]
+graph = json.load(open(path))
+graph["nodes"][1]["sources"]["instructions"] = {"SOUL.md": base64.b64encode(b"# Writer\n").decode()}
+graph["nodes"].append({"slug":"reviewer", "description":"Reviewer", "model":"", "subagents":[], "sources":{"instructions":{"SOUL.md":base64.b64encode(b"# Reviewer\n").decode()}, "skills":{}, "references":{}}, "tool_policy":{}, "skill_policy":{"paths":[]}})
+graph["nodes"][0]["subagents"] = ["writer", "reviewer"]
+json.dump(graph, open(path, "w"))
+PY
+if opencode_project_subagents; then echo "FAIL: user-owned collision projected"; exit 1; fi
+[ "$(<"$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md")" = 'human configuration' ] || { echo "FAIL: collision changed user file"; exit 1; }
+printf '%s\n' '{"success":true,"coordinator":"coordinator","source_mode":"embedded","nodes":[{"slug":"bad_slug"}]}' > "$GRAPH"
+if opencode_project_subagents; then echo "FAIL: malformed graph projected"; exit 1; fi
 
 mkdir -p "$TMP/outside"
 printf 'outside-safe\n' > "$TMP/outside/SOUL.md"
