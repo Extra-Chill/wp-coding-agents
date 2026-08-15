@@ -91,17 +91,22 @@ while ( ! empty( $pending ) ) {
 		$pending[] = $child;
 	}
 
+	$description = trim( $agent->get_description() );
+	if ( '' === $description ) {
+		$description = $agent->get_label();
+	}
+
 	$nodes[] = array(
 		'slug'         => $slug,
-		'description'  => $agent->get_description(),
+		'description'  => $description,
 		'model'        => is_string( $config['default_model'] ?? null ) ? $config['default_model'] : '',
 		'subagents'    => $subagents,
 		'sources'      => array(
-			'instructions' => $instructions,
-			'skills'       => $skills,
-			'references'   => $references,
+			'instructions' => (object) $instructions,
+			'skills'       => (object) $skills,
+			'references'   => (object) $references,
 		),
-		'tool_policy'  => is_array( $config['tool_policy'] ?? null ) ? $config['tool_policy'] : array(),
+		'tool_policy'  => (object) ( is_array( $config['tool_policy'] ?? null ) ? $config['tool_policy'] : array() ),
 		'skill_policy' => array( 'paths' => array_keys( $skills ) ),
 	);
 }

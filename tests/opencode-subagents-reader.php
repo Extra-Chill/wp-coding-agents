@@ -9,6 +9,7 @@ final class WP_Agent {
 		private array $meta
 	) {}
 	public function get_description(): string { return $this->description; }
+	public function get_label(): string { return '' !== $this->description ? $this->description : 'Fallback label'; }
 	public function get_subagents(): array { return $this->subagents; }
 	public function get_default_config(): array { return $this->config; }
 	public function get_meta(): array { return $this->meta; }
@@ -29,7 +30,7 @@ $outside = $root . '/outside.md';
 file_put_contents( $outside, "must not leave WordPress\n" );
 
 $agents = array(
-	'coordinator' => new WP_Agent( 'Routes work', array( 'writer' ), array(), array( 'datamachine_agent_id' => 1 ) ),
+	'coordinator' => new WP_Agent( '', array( 'writer' ), array(), array( 'datamachine_agent_id' => 1 ) ),
 	'writer'      => new WP_Agent( 'Writes prose', array(), array(
 		'default_model' => 'openai/gpt-5',
 		'skills'        => array( 'writer/SKILL.md' => $root . '/writer/skills/writer/SKILL.md' ),
@@ -93,9 +94,11 @@ if ( '' !== $scenario ) {
 if ( $rejected ) {
 	throw $error;
 }
-$graph = json_decode( ob_get_clean(), true, 512, JSON_THROW_ON_ERROR );
+$encoded = ob_get_clean();
+$graph   = json_decode( $encoded, true, 512, JSON_THROW_ON_ERROR );
 
-if ( array( 'writer' ) !== $graph['nodes'][0]['subagents'] ||
+if ( 'Fallback label' !== $graph['nodes'][0]['description'] ||
+	array( 'writer' ) !== $graph['nodes'][0]['subagents'] ||
 	'openai/gpt-5' !== $graph['nodes'][1]['model'] ||
 	array( 'writer/SKILL.md' ) !== $graph['nodes'][1]['skill_policy']['paths'] ) {
 	fwrite( STDERR, "FAIL: reader did not project the registered relationship and declared artifacts\n" );
@@ -104,6 +107,9 @@ if ( array( 'writer' ) !== $graph['nodes'][0]['subagents'] ||
 
 if ( $embedded ) {
 	if ( 'embedded' !== $graph['source_mode'] ||
+		false === strpos( $encoded, '"skills":{}' ) ||
+		false === strpos( $encoded, '"references":{}' ) ||
+		false === strpos( $encoded, '"tool_policy":{}' ) ||
 		"---\nname: writer\n---\n" !== base64_decode( $graph['nodes'][1]['sources']['skills']['writer/SKILL.md'], true ) ||
 		"# Nested context\n" !== base64_decode( $graph['nodes'][1]['sources']['instructions']['contexts/chat.md'], true ) ||
 		false !== strpos( wp_json_encode( $graph ), $root ) ) {
