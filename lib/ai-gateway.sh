@@ -197,7 +197,11 @@ PY
 
   UPDATED_ITEMS+=("opencode.json WP AI Gateway provider")
   log "Merged WP AI Gateway provider into $config_file"
-  log "OpenCode env file: $env_file"
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    log "OpenCode gateway credentials: runtime environment (OPENAI_BASE_URL and OPENAI_API_KEY)"
+  else
+    log "OpenCode env file: $env_file"
+  fi
 }
 
 setup_ai_gateway() {

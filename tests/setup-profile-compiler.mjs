@@ -21,12 +21,14 @@ function compile(profile) {
     },
     runtime: { selection: "opencode" },
     chat_bridge: { selection: "kimaki" },
+    codex_path: "external-openai-compatible-endpoint",
     overlays: {},
     agent: { slug: "remote" },
   })
   assert.match(plan.commands.apply, /RUNTIME_PROJECT_ROOT='\/tmp\/runtime root'/)
   assert.match(plan.commands.apply, /WP_CONTROL_TRANSPORT_JSON='\["\/usr\/local\/bin\/control transport","--identity","value with spaces"\]'/)
   assert.match(plan.commands.apply, /--external-wordpress --wordpress-path '\/remote\/site root' --wordpress-user 'agent user'/)
+  assert.match(plan.commands.apply, /--with-ai-gateway/)
   assert.match(plan.commands.start, /WP_CONTROL_TRANSPORT_JSON=.*\/tmp\/runtime root\/\.wp-coding-agents\/bin\/kimaki/)
   assert.ok(plan.verification.overlays.includes("verify-external-wordpress-transport"))
 }

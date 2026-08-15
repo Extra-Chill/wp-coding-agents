@@ -183,6 +183,12 @@ The setup profile compiler emits this credential-bearing start command
 separately from the one-shot setup command. The first portable profile supports
 OpenCode; select `runtime.selection=opencode` explicitly.
 
+Add `--with-ai-gateway` to generate the credential-free
+`wp-ai-gateway/site-default` OpenCode provider. External mode does not install
+gateway plugins, configure a route, mint a token, or write an env file. Supply
+`OPENAI_BASE_URL` and `OPENAI_API_KEY` in the runtime environment when starting
+Kimaki.
+
 Use the same transport input when validating an external profile. `verify.sh`
 continues to validate colocated WordPress installs; external runtime validation
 is the transport's `core is-installed` check performed by setup plus inspection

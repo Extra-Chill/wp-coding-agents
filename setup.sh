@@ -566,7 +566,7 @@ runtime_discover_dm_paths
 external_wordpress_project_context
 discover_dm_workspace_dir
 runtime_generate_config
-if [ "$EXTERNAL_WORDPRESS" != true ]; then ai_gateway_configure_opencode; fi
+ai_gateway_configure_opencode
 runtime_install_hooks
 if [ "$EXTERNAL_WORDPRESS" != true ]; then configure_homeboy_wordpress_extension; fi
 runtime_generate_instructions
