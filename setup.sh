@@ -570,7 +570,7 @@ ai_gateway_configure_opencode
 runtime_install_hooks
 if [ "$EXTERNAL_WORDPRESS" != true ]; then configure_homeboy_wordpress_extension; fi
 runtime_generate_instructions
-if [ "$EXTERNAL_WORDPRESS" != true ]; then opencode_project_subagents; fi
+opencode_project_subagents
 runtime_merge_mcp_servers
 install_skills
 if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; runtime_guard_sync; fi
