@@ -1,8 +1,9 @@
 #!/bin/bash
 # Optional WP AI Gateway integration for OpenCode runtimes.
 
-AI_GATEWAY_PROVIDER_ID="wp-ai-gateway"
+AI_GATEWAY_PROVIDER_ID="${AI_GATEWAY_PROVIDER_ID:-wp-ai-gateway}"
 AI_GATEWAY_MODEL_ID="${AI_GATEWAY_MODEL_ID:-site-default}"
+AI_GATEWAY_API_MODEL_ID="${AI_GATEWAY_API_MODEL_ID:-}"
 AI_GATEWAY_ROUTE_PROVIDER="${AI_GATEWAY_ROUTE_PROVIDER:-openai}"
 AI_GATEWAY_ROUTE_MODEL="${AI_GATEWAY_ROUTE_MODEL:-gpt-4o-mini}"
 AI_GATEWAY_ENV_FILE="${AI_GATEWAY_ENV_FILE:-}"
@@ -57,6 +58,10 @@ ai_gateway_base_url() {
   fi
 
   printf '%s/wp-json/wp-ai-gateway/v1' "${site_url%/}"
+}
+
+ai_gateway_api_model_id() {
+  printf '%s' "${AI_GATEWAY_API_MODEL_ID:-$AI_GATEWAY_MODEL_ID}"
 }
 
 ai_gateway_env_file() {
@@ -147,14 +152,15 @@ ai_gateway_write_env() {
 ai_gateway_configure_opencode() {
   ai_gateway_enabled_for_opencode || return 0
 
-  local config_file env_file base_url
+  local config_file env_file base_url api_model_id
   config_file="$SITE_PATH/opencode.json"
   env_file="$(ai_gateway_env_file)"
   base_url="$(ai_gateway_base_url)"
+  api_model_id="$(ai_gateway_api_model_id)"
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would merge WP AI Gateway provider into $config_file"
-    echo -e "${BLUE}[dry-run]${NC} Provider: $AI_GATEWAY_PROVIDER_ID/$AI_GATEWAY_MODEL_ID via OPENAI_BASE_URL=$base_url and OPENAI_API_KEY=<redacted>"
+    echo -e "${BLUE}[dry-run]${NC} Provider: $AI_GATEWAY_PROVIDER_ID/$AI_GATEWAY_MODEL_ID (API model: $api_model_id) via OPENAI_BASE_URL=$base_url and OPENAI_API_KEY=<redacted>"
     return 0
   fi
 
@@ -163,7 +169,7 @@ ai_gateway_configure_opencode() {
     return 0
   fi
 
-  python3 - "$config_file" "$AI_GATEWAY_PROVIDER_ID" "$AI_GATEWAY_MODEL_ID" <<'PY'
+  python3 - "$config_file" "$AI_GATEWAY_PROVIDER_ID" "$AI_GATEWAY_MODEL_ID" "$api_model_id" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -171,6 +177,7 @@ from pathlib import Path
 path = Path(sys.argv[1])
 provider_id = sys.argv[2]
 model_id = sys.argv[3]
+api_model_id = sys.argv[4]
 
 data = json.loads(path.read_text(encoding="utf-8"))
 provider = data.setdefault("provider", {}).setdefault(provider_id, {})
@@ -183,7 +190,7 @@ provider["options"].setdefault("name", "wp-ai-gateway")
 models = provider.setdefault("models", {})
 model = models.setdefault(model_id, {})
 model.setdefault("name", "WP AI Gateway site default")
-model.setdefault("id", model_id)
+model["id"] = api_model_id
 model.setdefault("tool_call", True)
 model.setdefault("temperature", True)
 model.setdefault("limit", {"context": 128000, "output": 8192})

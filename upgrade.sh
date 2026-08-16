@@ -154,7 +154,9 @@ while [[ $# -gt 0 ]]; do
     --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
     --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
+    --ai-gateway-opencode-provider) AI_GATEWAY_PROVIDER_ID="$2"; shift 2 ;;
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
+    --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
     --not-owned)     owned_discovery_add_exclusion "$2"; shift 2 ;;
@@ -238,7 +240,10 @@ USAGE:
   ./upgrade.sh --with-ai-gateway --rotate-ai-gateway-token
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
-                                Configure the WordPress gateway backend route.
+                                 Configure the WordPress gateway backend route.
+  ./upgrade.sh --with-ai-gateway --ai-gateway-opencode-provider openai --ai-gateway-opencode-model gpt-5.6-sol --ai-gateway-api-model site-default
+                                 Show the resolved provider/model identity in
+                                 OpenCode while routing through site-default.
   ./upgrade.sh --no-claude-code-auth
                                 Skip direct OpenCode Claude Pro/Max auth.
                                 The managed auth plugin is installed by default
@@ -1322,6 +1327,7 @@ print_summary() {
     log "  Base URL:  $(ai_gateway_base_url)"
     log "  Env file:  $(ai_gateway_env_file)"
     log "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
+    log "  API model: $(ai_gateway_api_model_id)"
     log "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
   fi
 
