@@ -29,6 +29,7 @@ print_summary() {
     echo "  Base URL:  $(ai_gateway_base_url)"
     echo "  Env file:  $(ai_gateway_env_file)"
     echo "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
+    echo "  API model: $(ai_gateway_api_model_id)"
     echo "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
     echo ""
   fi

@@ -199,8 +199,16 @@ while [[ $# -gt 0 ]]; do
       AI_GATEWAY_ROUTE_MODEL="$2"
       shift 2
       ;;
+    --ai-gateway-opencode-provider)
+      AI_GATEWAY_PROVIDER_ID="$2"
+      shift 2
+      ;;
     --ai-gateway-opencode-model)
       AI_GATEWAY_MODEL_ID="$2"
+      shift 2
+      ;;
+    --ai-gateway-api-model)
+      AI_GATEWAY_API_MODEL_ID="$2"
       shift 2
       ;;
     --rotate-ai-gateway-token)
@@ -363,11 +371,17 @@ OPTIONS:
                      Backend WordPress AI Client provider for site-default
                      routing (default: openai)
   --ai-gateway-model <id>
-                     Backend provider model for site-default routing
-                     (default: gpt-4o-mini)
+                      Backend provider model for site-default routing
+                      (default: gpt-4o-mini)
+  --ai-gateway-opencode-provider <id>
+                      Provider identity shown by OpenCode
+                      (default: wp-ai-gateway)
   --ai-gateway-opencode-model <id>
-                     OpenCode model ID exposed by the gateway provider
-                     (default: site-default)
+                      Model identity shown by OpenCode
+                      (default: site-default)
+  --ai-gateway-api-model <id>
+                      Model ID sent to WP AI Gateway (default: the OpenCode
+                      model identity)
   --rotate-ai-gateway-token
                       Mint a new gateway token instead of reusing the existing
                       .opencode/wp-ai-gateway.env value
@@ -401,7 +415,9 @@ ENVIRONMENT VARIABLES:
   OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
   AI_GATEWAY_ROUTE_PROVIDER  Backend provider used by --with-ai-gateway
   AI_GATEWAY_ROUTE_MODEL     Backend model used by --with-ai-gateway
-  AI_GATEWAY_MODEL_ID        OpenCode gateway model id (default: site-default)
+  AI_GATEWAY_PROVIDER_ID     Provider identity shown by OpenCode
+  AI_GATEWAY_MODEL_ID        Model identity shown by OpenCode
+  AI_GATEWAY_API_MODEL_ID    Model ID sent to WP AI Gateway
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
   WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
   KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)

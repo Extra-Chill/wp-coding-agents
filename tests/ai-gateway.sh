@@ -148,8 +148,41 @@ assert provider["npm"] == "@ai-sdk/openai-compatible"
 assert provider["env"] == ["OPENAI_API_KEY"]
 assert provider["options"]["baseURL"] == "{env:OPENAI_BASE_URL}"
 assert "site-default" in provider["models"]
+assert provider["models"]["site-default"]["id"] == "site-default"
 assert data["model"] == "anthropic/claude-sonnet-4-5"
 assert "custom" in data["provider"]
+PY
+
+echo "==> visible gateway identity is separate from the API model"
+AI_GATEWAY_PROVIDER_ID="openai"
+AI_GATEWAY_MODEL_ID="gpt-5.6-sol"
+AI_GATEWAY_API_MODEL_ID="site-default"
+cat > "$SITE_PATH/opencode.json" <<'JSON'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.6-sol": {
+          "id": "stale-model"
+        }
+      }
+    }
+  }
+}
+JSON
+
+ai_gateway_configure_opencode
+python3 - "$SITE_PATH/opencode.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+model = data["provider"]["openai"]["models"]["gpt-5.6-sol"]
+assert data["model"] == "openai/gpt-5.6-sol"
+assert model["id"] == "site-default"
 PY
 
 echo
