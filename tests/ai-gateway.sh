@@ -181,6 +181,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
 model = data["provider"]["openai"]["models"]["gpt-5.6-sol"]
+assert data["provider"]["openai"]["npm"] == "@ai-sdk/openai"
 assert data["model"] == "openai/gpt-5.6-sol"
 assert model["id"] == "site-default"
 PY
