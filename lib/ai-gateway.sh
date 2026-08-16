@@ -182,7 +182,10 @@ api_model_id = sys.argv[4]
 data = json.loads(path.read_text(encoding="utf-8"))
 provider = data.setdefault("provider", {}).setdefault(provider_id, {})
 provider.setdefault("name", "WP AI Gateway")
-provider.setdefault("npm", "@ai-sdk/openai-compatible")
+if provider_id == "openai":
+    provider["npm"] = "@ai-sdk/openai"
+else:
+    provider.setdefault("npm", "@ai-sdk/openai-compatible")
 provider.setdefault("env", ["OPENAI_API_KEY"])
 provider.setdefault("options", {})
 provider["options"].setdefault("baseURL", "{env:OPENAI_BASE_URL}")
