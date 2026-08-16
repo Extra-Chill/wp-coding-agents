@@ -30,9 +30,10 @@ wordpress_path = os.environ.get("WORDPRESS_PATH", "") or profile.get("wordpress_
 if not wordpress_path:
     fail("WORDPRESS_PATH is required")
 
-command = [*transport, *sys.argv[1:]]
 wordpress_user = os.environ.get("WORDPRESS_USER", "") or profile.get("wordpress_user", "")
+global_args = []
 if wordpress_user:
-    command.append(f"--user={wordpress_user}")
-command.append(f"--path={wordpress_path}")
+    global_args.append(f"--user={wordpress_user}")
+global_args.append(f"--path={wordpress_path}")
+command = [*transport, *global_args, *sys.argv[1:]]
 os.execvpe(command[0], command, os.environ)

@@ -6,7 +6,7 @@ wp_cmd() {
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     local user_args=()
     [ -z "${WORDPRESS_USER:-}" ] || user_args=("--user=$WORDPRESS_USER")
-    run_cmd "${WP_CONTROL_TRANSPORT[@]}" "$@" "${user_args[@]}" "--path=$WORDPRESS_PATH"
+    run_cmd "${WP_CONTROL_TRANSPORT[@]}" "${user_args[@]}" "--path=$WORDPRESS_PATH" "$@"
     return
   fi
   if [ "$IS_STUDIO" = true ]; then
