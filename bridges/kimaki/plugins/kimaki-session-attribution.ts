@@ -12,7 +12,7 @@ type SessionAwareHooks = Awaited<ReturnType<Plugin>> & {
 };
 
 const DISCORD_THREAD_URL = /^https:\/\/discord\.com\/channels\/\d{17,20}\/(\d{17,20})\/?$/;
-const LOOKUP_TIMEOUT_MS = 2_000;
+const LOOKUP_TIMEOUT_MS = 5_000;
 const OUTPUT_LIMIT = 1_024;
 
 const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHooks> => {

@@ -36,13 +36,16 @@ PY
 cat > "$TRANSPORT" <<'SH'
 #!/bin/bash
 printf '%s\n' "$@" >> "$WP_TEST_ARGS"
-case "$3:$4" in
-  core:is-installed) exit 0 ;;
+case "$#:$1:$2:$3:$4:$5:$6" in
+  "6:--identity:secret value with spaces:--user=$WORDPRESS_USER:--path=$WORDPRESS_PATH:core:is-installed") exit 0 ;;
+  "5:--identity:secret value with spaces:--path=$WORDPRESS_PATH:core:is-installed:") exit 0 ;;
+esac
+case "$5:$6" in
   datamachine:memory)
-    case "$5" in
+    case "$7" in
       injectable-files) printf '%s\n' '[{"filename":"SITE.md","layer":"shared","priority":10,"path":"/remote/wp-content/uploads/datamachine-files/shared/SITE.md"},{"filename":"SOUL.md","layer":"agent","priority":20,"path":"/remote/wp-content/uploads/datamachine-files/agents/remote/SOUL.md"}]' ;;
       read)
-        case "$6" in
+        case "$8" in
           SITE.md) printf '%s\n' 'site context' ;;
           SOUL.md) printf '%s\n' 'agent context' ;;
           *) exit 7 ;;
@@ -51,10 +54,11 @@ case "$3:$4" in
     esac
     ;;
   eval:*)
-    [ "$#" -eq 6 ] && [ "$5" = "--user=$WORDPRESS_USER" ] && [ "$6" = "--path=$WORDPRESS_PATH" ] || {
+    [ "$#" -eq 6 ] && [ "$3" = "--user=$WORDPRESS_USER" ] && [ "$4" = "--path=$WORDPRESS_PATH" ] || {
       echo "wp eval received unsupported positional arguments" >&2
       exit 9
     }
+    set -- "$1" "$2" "$3" "$6"
     case "$4" in
       *"require base64_decode"*) echo "decoded PHP source was treated as a filename" >&2; exit 9 ;;
     esac
@@ -111,6 +115,7 @@ error() { printf '%s\n' "$*" >&2; return 1; }
 
 external_wordpress_prepare_transport
 external_wordpress_validate
+"$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/wp-control" core is-installed >/dev/null
 external_wordpress_project_context
 runtime_generate_config
 WITH_AI_GATEWAY=true
@@ -192,6 +197,13 @@ after_wrapper_calls="$(wc -l < "$ARGS" | tr -d ' ')"
 [ "$(sed -n '2p' "$KIMAKI_ENV")" = "/remote/site root" ] || { echo "FAIL: Kimaki launcher lost WordPress path"; exit 1; }
 [ "$(sed -n '3p' "$KIMAKI_ENV")" = "agent user" ] || { echo "FAIL: Kimaki launcher lost WordPress user"; exit 1; }
 export WORDPRESS_PATH="/remote/site root" WORDPRESS_USER="agent user"
+
+# Userless profiles retain the transport prefix and emit only the path global.
+printf '%s\n' '{"wordpress_path":"/remote/site root","wordpress_user":""}' > "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/wordpress.json"
+unset WORDPRESS_USER
+"$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/wp-control" core is-installed >/dev/null
+external_wordpress_validate
+export WORDPRESS_USER="agent user"
 
 if grep -R -F -- "secret value with spaces" "$RUNTIME_PROJECT_ROOT" >/dev/null 2>&1; then
   echo "FAIL: transport credential persisted below runtime root"

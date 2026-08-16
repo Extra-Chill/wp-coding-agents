@@ -24,7 +24,10 @@ value = json.loads(sys.argv[1])
 if not isinstance(value, list) or not value or any(not isinstance(item, str) or not item or "\0" in item for item in value):
     raise SystemExit(1)
 PY
-  mapfile -d '' -t WP_CONTROL_TRANSPORT < <(python3 - "$WP_CONTROL_TRANSPORT_JSON" <<'PY'
+  WP_CONTROL_TRANSPORT=()
+  while IFS= read -r -d '' transport_argument; do
+    WP_CONTROL_TRANSPORT+=("$transport_argument")
+  done < <(python3 - "$WP_CONTROL_TRANSPORT_JSON" <<'PY'
 import json, sys
 for item in json.loads(sys.argv[1]):
     sys.stdout.buffer.write(item.encode() + b"\0")
