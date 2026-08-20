@@ -64,6 +64,10 @@ case "$5:$6" in
     esac
     printf '%s' "$4" | grep -F "\$args=array(base64_decode('" >/dev/null || { echo "wp eval did not initialize reader arguments" >&2; exit 9; }
     printf '%s' "$4" | grep -F "'),'embedded');eval('?>'.base64_decode('" >/dev/null || { echo "wp eval did not execute embedded source" >&2; exit 9; }
+    if [ "${WP_TEST_GRAPH_HANG_ONCE:-}" = 1 ] && [ ! -e "$WP_TEST_GRAPH_HANG_MARKER" ]; then
+      touch "$WP_TEST_GRAPH_HANG_MARKER"
+      sleep 10
+    fi
     python3 - "$WP_TEST_GRAPH" "$4" <<'PY'
 import base64, json, os, re, sys
 value = open(sys.argv[1], "rb").read()
@@ -194,6 +198,13 @@ fi
 unset WP_TEST_GRAPH_SIZE_DRIFT
 after_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
 [ "$before_drift" = "$after_drift" ] || { echo "FAIL: graph size drift mutated projected files"; exit 1; }
+
+export WP_TEST_GRAPH_HANG_ONCE=1
+export WP_TEST_GRAPH_HANG_MARKER="$TMP/graph-hung-once"
+export OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS=1
+opencode_project_subagents
+unset WP_TEST_GRAPH_HANG_ONCE WP_TEST_GRAPH_HANG_MARKER OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS
+[ -e "$TMP/graph-hung-once" ] || { echo "FAIL: graph retry fixture did not exercise its timeout"; exit 1; }
 
 while IFS= read -r argument; do
   case "$argument" in
