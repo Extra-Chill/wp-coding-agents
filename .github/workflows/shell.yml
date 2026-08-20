@@ -230,6 +230,7 @@ jobs:
           - homeboy-components
           - homeboy-dmc-provider
           - homeboy-project-id
+          - kimaki-install-existing
           - kimaki-launchd-start
           - kimaki-managed-plugin-rig
           - kimaki-multi-instance
