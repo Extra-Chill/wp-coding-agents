@@ -64,9 +64,15 @@ case "$5:$6" in
     esac
     printf '%s' "$4" | grep -F "\$args=array(base64_decode('" >/dev/null || { echo "wp eval did not initialize reader arguments" >&2; exit 9; }
     printf '%s' "$4" | grep -F "'),'embedded');eval('?>'.base64_decode('" >/dev/null || { echo "wp eval did not execute embedded source" >&2; exit 9; }
-    python3 - "$WP_TEST_GRAPH" <<'PY'
-import sys
-sys.stdout.write(open(sys.argv[1]).read())
+    python3 - "$WP_TEST_GRAPH" "$4" <<'PY'
+import base64, json, os, re, sys
+value = open(sys.argv[1], "rb").read()
+match = re.search(r"substr\(\$graph,(\d+),(\d+)\)", sys.argv[2])
+if not match:
+    raise SystemExit("chunk bounds missing from graph reader")
+offset, length = map(int, match.groups())
+size = len(value) + (1 if offset and os.environ.get("WP_TEST_GRAPH_SIZE_DRIFT") == "1" else 0)
+sys.stdout.write(json.dumps({"size": size, "chunk": base64.b64encode(value[offset:offset + length]).decode()}))
 PY
     ;;
 esac
@@ -177,6 +183,17 @@ writer = root.joinpath(".opencode/agents/writer.md").read_text()
 assert '"task":{"*":"deny","reviewer":"allow"}' in writer
 PY
 grep -x 'eval' "$ARGS" >/dev/null || { echo "FAIL: external graph reader did not use wp eval"; exit 1; }
+[ "$(grep -xc 'eval' "$ARGS")" -gt 1 ] || { echo "FAIL: external graph reader did not use bounded chunks"; exit 1; }
+
+before_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+export WP_TEST_GRAPH_SIZE_DRIFT=1
+if opencode_project_subagents; then
+  echo "FAIL: graph size drift was accepted"
+  exit 1
+fi
+unset WP_TEST_GRAPH_SIZE_DRIFT
+after_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+[ "$before_drift" = "$after_drift" ] || { echo "FAIL: graph size drift mutated projected files"; exit 1; }
 
 while IFS= read -r argument; do
   case "$argument" in
