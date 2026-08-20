@@ -1,6 +1,41 @@
 #!/bin/bash
 # Project Data Machine's persisted portable agent graph for OpenCode.
 
+opencode_external_graph_eval() {
+  local reader_code="$1"
+  local timeout_seconds="${OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS:-120}"
+  local response_file pid elapsed status attempt
+  case "$timeout_seconds" in
+    ''|*[!0-9]*) timeout_seconds=120 ;;
+  esac
+  [ "$timeout_seconds" -gt 0 ] || timeout_seconds=120
+  response_file="$(mktemp)" || return 1
+  for attempt in 1 2 3; do
+    : > "$response_file"
+    wp_cmd eval "$reader_code" > "$response_file" 2>/dev/null &
+    pid=$!
+    elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do
+      if [ "$elapsed" -ge "$timeout_seconds" ]; then
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        kill -9 "$pid" 2>/dev/null || true
+        break
+      fi
+      sleep 1
+      elapsed=$((elapsed + 1))
+    done
+    if wait "$pid" 2>/dev/null; then status=0; else status=$?; fi
+    if [ "$status" -eq 0 ]; then
+      cat "$response_file"
+      rm -f "$response_file"
+      return 0
+    fi
+  done
+  rm -f "$response_file"
+  return 1
+}
+
 opencode_project_subagents() {
   [ "${DRY_RUN:-false}" = true ] && return 0
   local runtime has_opencode=false
@@ -29,7 +64,7 @@ opencode_project_subagents() {
     slug_payload="$(printf '%s' "$AGENT_SLUG" | base64 | tr -d '\n')"
     while [ -z "$expected_size" ] || [ "$offset" -lt "$expected_size" ]; do
       reader_code="ob_start();\$args=array(base64_decode('$slug_payload'),'embedded');eval('?>'.base64_decode('$reader_payload'));\$graph=ob_get_clean();echo json_encode(array('size'=>strlen(\$graph),'chunk'=>base64_encode(substr(\$graph,$offset,$chunk_size))));"
-      response="$(wp_cmd eval "$reader_code" 2>/dev/null)" || {
+      response="$(opencode_external_graph_eval "$reader_code")" || {
         warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
         return 1
       }
