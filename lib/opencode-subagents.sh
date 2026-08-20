@@ -24,11 +24,44 @@ opencode_project_subagents() {
   # argv-safe PHP expression and request a self-contained graph.
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     local reader_code reader_payload slug_payload
+    local chunk_size=1024 offset=0 expected_size='' response reported_size encoded_chunk encoded_chunks=''
     reader_payload="$(base64 < "$graph_helper" | tr -d '\n')"
     slug_payload="$(printf '%s' "$AGENT_SLUG" | base64 | tr -d '\n')"
-    reader_code="\$args=array(base64_decode('$slug_payload'),'embedded');eval('?>'.base64_decode('$reader_payload'));"
-    agent_json="$(wp_cmd eval "$reader_code" 2>/dev/null)" || {
-      warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
+    while [ -z "$expected_size" ] || [ "$offset" -lt "$expected_size" ]; do
+      reader_code="ob_start();\$args=array(base64_decode('$slug_payload'),'embedded');eval('?>'.base64_decode('$reader_payload'));\$graph=ob_get_clean();echo json_encode(array('size'=>strlen(\$graph),'chunk'=>base64_encode(substr(\$graph,$offset,$chunk_size))));"
+      response="$(wp_cmd eval "$reader_code" 2>/dev/null)" || {
+        warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
+        return 1
+      }
+      IFS=$'\t' read -r reported_size encoded_chunk < <(printf '%s' "$response" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+size, chunk = value.get("size"), value.get("chunk")
+if not isinstance(size, int) or size < 0 or size > 4 * 1024 * 1024 or not isinstance(chunk, str):
+    raise SystemExit(1)
+print(f"{size}\t{chunk}")
+') || {
+        warn "External subagent graph returned an invalid chunk"
+        return 1
+      }
+      if [ -z "$expected_size" ]; then
+        expected_size="$reported_size"
+      elif [ "$reported_size" != "$expected_size" ]; then
+        warn "External subagent graph changed during chunked transfer"
+        return 1
+      fi
+      encoded_chunks+="$encoded_chunk"$'\n'
+      offset=$((offset + chunk_size))
+    done
+    agent_json="$(printf '%s' "$encoded_chunks" | python3 -c '
+import base64, sys
+expected = int(sys.argv[1])
+value = b"".join(base64.b64decode(line, validate=True) for line in sys.stdin.buffer.read().splitlines())
+if len(value) != expected:
+    raise SystemExit(1)
+sys.stdout.buffer.write(value)
+' "$expected_size")" || {
+      warn "External subagent graph transfer was incomplete"
       return 1
     }
   else
