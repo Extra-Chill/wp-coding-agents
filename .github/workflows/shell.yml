@@ -222,6 +222,7 @@ jobs:
           - ci-coverage
           - codex-runtime
           - datamachine-worker
+          - detect-php-version
           - detect-site-domain
           - external-wordpress-runtime
           - dm-workspace-discovery

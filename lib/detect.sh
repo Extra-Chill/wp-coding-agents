@@ -8,6 +8,12 @@ detect_php_version() {
     return
   fi
 
+  if [ "${SKIP_DEPS:-false}" = true ]; then
+    PHP_VERSION=""
+    warn "PHP is unavailable and dependency installation is disabled"
+    return
+  fi
+
   if [ "$DRY_RUN" = true ]; then
     PHP_VERSION="8.3"
     log "PHP version (dry-run assumed): $PHP_VERSION"
