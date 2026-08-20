@@ -165,7 +165,7 @@ bridge_install() {
   if ! command -v kimaki &> /dev/null || [ "$DRY_RUN" = true ]; then
     run_cmd npm install -g kimaki
   else
-    log "Kimaki already installed: $(kimaki --version 2>/dev/null | head -1)"
+    log "Kimaki already installed: $(command -v kimaki)"
   fi
 
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
