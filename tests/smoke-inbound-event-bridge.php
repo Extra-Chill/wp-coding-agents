@@ -47,11 +47,13 @@ class FakeDb {
 $wpdb = new FakeDb();
 require __DIR__ . '/../templates/wp-coding-agents-inbound-events.php';
 $failures = array(); $assert = static function( string $name, bool $ok ) use ( &$failures ): void { echo ($ok ? 'PASS' : 'FAIL') . ": $name\n"; if ( ! $ok ) $failures[] = $name; };
-$event = array( 'source' => 'signed-source', 'external_id' => 'event-1', 'type' => 'message', 'conversation_id' => 'conversation-1', 'runtime_id' => 'runtime-opaque-1', 'message' => 'hello' );
+$event = array( 'source' => 'signed-source', 'external_id' => 'event-1', 'type' => 'message', 'conversation_id' => 'conversation-1', 'runtime_id' => 'runtime-opaque-1', 'message' => 'hello', 'attributes' => array() );
 $normalized = WpCodingAgents_Inbound_Events::normalize( $event );
 $assert( 'normalizes the minimal envelope', is_array( $normalized ) && $normalized === $event );
 $with_auth = WpCodingAgents_Inbound_Events::normalize( $event + array( 'signature' => 'secret', 'authorization' => 'Bearer secret' ) );
 $assert( 'normalization drops adapter authentication material', is_array( $with_auth ) && ! array_key_exists( 'signature', $with_auth ) && ! array_key_exists( 'authorization', $with_auth ) );
+$attributes = WpCodingAgents_Inbound_Events::normalize( array_merge( $event, array( 'attributes' => array( 'provider_id' => 'verified', 'signature' => 'secret' ) ) ) );
+$assert( 'attributes are bounded scalar strings and drop authentication material', is_array( $attributes ) && array( 'provider_id' => 'verified' ) === $attributes['attributes'] && is_wp_error( WpCodingAgents_Inbound_Events::normalize( array_merge( $event, array( 'attributes' => array( 'Bad-Key' => 'value' ) ) ) ) ) );
 $assert( 'runtime ID is required and bounded', is_wp_error( WpCodingAgents_Inbound_Events::normalize( array_diff_key( $event, array( 'runtime_id' => true ) ) ) ) && is_wp_error( WpCodingAgents_Inbound_Events::normalize( array_merge( $event, array( 'runtime_id' => str_repeat( 'x', 192 ) ) ) ) ) );
 $first = WpCodingAgents_Inbound_Events::enqueue( $event ); $second = WpCodingAgents_Inbound_Events::enqueue( $event );
 $assert( 'durably deduplicates source and external ID', $first['new'] && ! $second['new'] && $first['id'] === $second['id'] );
@@ -71,7 +73,7 @@ WpCodingAgents_Inbound_Events::install(); WpCodingAgents_Inbound_Events::install
 $assert( 'schema installation is version-gated', 1 === $db_delta_calls );
 
 add_filter( 'wp_coding_agents_inbound_event_adapter_config', static function( array $config, string $adapter ): array { $config['slack'] = array( 'signing_secret' => 'test-signing-secret', 'runtime_id' => 'opaque-runtime-id', 'allowed_team_ids' => array( 'T123' ), 'allowed_channel_ids' => array( 'C123' ) ); return $config; } );
-$payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-1', 'event' => array( 'type' => 'message', 'channel' => 'C123', 'ts' => '1710000000.000001', 'text' => 'signed hello' ) ) );
+$payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-1', 'event' => array( 'type' => 'message', 'user' => 'U123', 'channel' => 'C123', 'ts' => '1710000000.000001', 'text' => 'signed hello' ) ) );
 $timestamp = (string) time(); $signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $payload, 'test-signing-secret' );
 $request = new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $signature ), $payload );
 $response = WpCodingAgents_Inbound_Events::ingress( $request );
@@ -81,7 +83,7 @@ $assert( 'ingress does not synchronously execute the runtime action', 1 === coun
 $duplicate = WpCodingAgents_Inbound_Events::ingress( $request );
 $assert( 'duplicate coalesces the pending runtime wake', is_array( $duplicate ) && true === $duplicate['duplicate'] && 1 === count( $schedule_calls ) && 1 === count( $actions ) );
 $scheduled = array(); $schedule_fail = true;
-$repair_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-repair', 'event' => array( 'type' => 'message', 'channel' => 'C123', 'ts' => '1710000001.000001', 'text' => 'repair wake' ) ) ); $repair_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $repair_payload, 'test-signing-secret' ); $repair_request = new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $repair_signature ), $repair_payload );
+$repair_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-repair', 'event' => array( 'type' => 'message', 'user' => 'U123', 'channel' => 'C123', 'ts' => '1710000001.000001', 'text' => 'repair wake' ) ) ); $repair_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $repair_payload, 'test-signing-secret' ); $repair_request = new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $repair_signature ), $repair_payload );
 $failed_wake = WpCodingAgents_Inbound_Events::ingress( $repair_request );
 $assert( 'failed scheduling returns retryable error after durable queueing', is_wp_error( $failed_wake ) && 3 === count( $wpdb->rows ) && 2 === count( $schedule_calls ) );
 $schedule_fail = false; $repaired_wake = WpCodingAgents_Inbound_Events::ingress( $repair_request );
@@ -97,14 +99,16 @@ $assert( 'Slack rejects invalid signatures before queueing', is_wp_error( $bad_s
 $stale_timestamp = (string) ( time() - 301 ); $stale_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $stale_timestamp . ':' . $payload, 'test-signing-secret' );
 $stale = WpCodingAgents_Inbound_Events::ingress( new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $stale_timestamp, 'x-slack-signature' => $stale_signature ), $payload ) );
 $assert( 'Slack rejects stale timestamps before queueing', is_wp_error( $stale ) && 3 === count( $wpdb->rows ) );
-$bot_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-bot', 'event' => array( 'type' => 'message', 'channel' => 'C123', 'ts' => '1710000002.000001', 'text' => 'ignore', 'bot_id' => 'B1' ) ) ); $bot_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $bot_payload, 'test-signing-secret' );
+$bot_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-bot', 'event' => array( 'type' => 'message', 'user' => 'U123', 'channel' => 'C123', 'ts' => '1710000002.000001', 'text' => 'ignore', 'bot_id' => 'B1' ) ) ); $bot_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $bot_payload, 'test-signing-secret' );
 $bot_response = WpCodingAgents_Inbound_Events::ingress( new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $bot_signature ), $bot_payload ) );
 $assert( 'Slack bot events are acknowledged without queueing', is_array( $bot_response ) && true === $bot_response['accepted'] && 3 === count( $wpdb->rows ) );
-$foreign_team_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T999', 'event_id' => 'slack-event-foreign', 'event' => array( 'type' => 'message', 'channel' => 'C123', 'ts' => '1710000004.000001', 'text' => 'ignore foreign team' ) ) ); $foreign_team_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $foreign_team_payload, 'test-signing-secret' );
+$foreign_team_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T999', 'event_id' => 'slack-event-foreign', 'event' => array( 'type' => 'message', 'user' => 'U123', 'channel' => 'C123', 'ts' => '1710000004.000001', 'text' => 'ignore foreign team' ) ) ); $foreign_team_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $foreign_team_payload, 'test-signing-secret' );
 $foreign_team_response = WpCodingAgents_Inbound_Events::ingress( new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $foreign_team_signature ), $foreign_team_payload ) );
 $assert( 'Slack events from a different team are acknowledged without queueing', is_array( $foreign_team_response ) && true === $foreign_team_response['accepted'] && 3 === count( $wpdb->rows ) );
 $root = WpCodingAgents_Inbound_Events::slack( $request );
-$reply_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-reply', 'event' => array( 'type' => 'message', 'channel' => 'C123', 'ts' => '1710000003.000001', 'thread_ts' => '1710000000.000001', 'text' => 'thread reply' ) ) ); $reply_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $reply_payload, 'test-signing-secret' );
+$reply_payload = json_encode( array( 'type' => 'event_callback', 'team_id' => 'T123', 'event_id' => 'slack-event-reply', 'event' => array( 'type' => 'app_mention', 'user' => 'W123', 'channel' => 'C123', 'ts' => '1710000003.000001', 'thread_ts' => '1710000000.000001', 'text' => 'thread reply' ) ) ); $reply_signature = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $reply_payload, 'test-signing-secret' );
 $reply = WpCodingAgents_Inbound_Events::slack( new WP_REST_Request( array( 'adapter' => 'slack' ), array( 'x-slack-request-timestamp' => $timestamp, 'x-slack-signature' => $reply_signature ), $reply_payload ) );
 $assert( 'Slack root and replies retain stable thread conversation identity', is_array( $root ) && is_array( $reply ) && 'C123:1710000000.000001' === $root['conversation_id'] && $root['conversation_id'] === $reply['conversation_id'] );
+$assert( 'Slack preserves message and app mention event types', is_array( $root ) && is_array( $reply ) && 'message' === $root['type'] && 'app_mention' === $reply['type'] && 'W123' === $reply['attributes']['actor_id'] );
+$assert( 'Slack envelope retains only reconstruction attributes', is_array( $root ) && array( 'team_id' => 'T123', 'channel_id' => 'C123', 'actor_id' => 'U123', 'message_ts' => '1710000000.000001', 'thread_ts' => '1710000000.000001' ) === $root['attributes'] );
 exit( $failures ? 1 : 0 );

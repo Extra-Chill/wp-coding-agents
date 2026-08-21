@@ -6,7 +6,7 @@
  * Adapters register through `wp_coding_agents_inbound_event_adapters`. Each
  * adapter receives a WP_REST_Request and must authenticate it before returning
  * either a WP_Error, an immediate `response`, or a normalized event array:
- * source, external_id, type, conversation_id, runtime_id, message. Authentication material
+ * source, external_id, type, conversation_id, runtime_id, message, attributes. Authentication material
  * remains in the request and is never passed to the queue or diagnostics.
  */
 
@@ -88,7 +88,7 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			return true;
 		}
 
-		/** @return array<string,string>|WP_Error */
+		/** @return array<string,string|array<string,string>>|WP_Error */
 		public static function normalize( array $event ) {
 			$normalized = array();
 			foreach ( array( 'source', 'external_id', 'type', 'conversation_id', 'runtime_id', 'message' ) as $key ) {
@@ -97,18 +97,27 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 				$normalized[ $key ] = (string) $value;
 			}
 			if ( ! preg_match( '/^[a-z0-9][a-z0-9_-]{0,63}$/', $normalized['source'] ) || strlen( $normalized['external_id'] ) > 191 || strlen( $normalized['runtime_id'] ) > 191 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid identifiers.', array( 'status' => 400 ) ); }
+			$attributes = $event['attributes'] ?? array();
+			if ( ! is_array( $attributes ) || count( $attributes ) > 8 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid attributes.', array( 'status' => 400 ) ); }
+			$clean_attributes = array();
+			foreach ( $attributes as $key => $value ) {
+				if ( ! is_string( $key ) || ! preg_match( '/^[a-z][a-z0-9_]{0,63}$/', $key ) || ! is_string( $value ) || '' === $value || strlen( $value ) > 191 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid attributes.', array( 'status' => 400 ) ); }
+				if ( in_array( $key, array( 'authorization', 'signature', 'signing_secret', 'token', 'raw_body', 'raw_payload' ), true ) ) { continue; }
+				$clean_attributes[ $key ] = $value;
+			}
+			$normalized['attributes'] = $clean_attributes;
+			$json = wp_json_encode( $normalized );
+			if ( false === $json || strlen( $json ) > 8192 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event is too large.', array( 'status' => 400 ) ); }
 			return $normalized;
 		}
 
 		/**
-		 * Validate and normalize Slack's signed Events API request.
-		 *
-		 * Configuration comes only from the generic adapter-config filter, or the
-		 * optional WP_CODING_AGENTS_INBOUND_EVENT_ADAPTER_CONFIG constant. Its
- * `slack` entry contains signing_secret, runtime_id, allowed_team_ids, and
- * allowed_channel_ids.
-		 * The connector deliberately remains absent: the installed Kimaki contract
-		 * proves outbound send only, not inbound event injection or mapping.
+			 * Validate and normalize Slack's signed Events API request.
+			 *
+			 * Configuration comes only from the generic adapter-config filter, or the
+			 * optional WP_CODING_AGENTS_INBOUND_EVENT_ADAPTER_CONFIG constant. Its
+			 * `slack` entry contains signing_secret, runtime_id, allowed_team_ids, and
+			 * allowed_channel_ids.
 		 */
 		public static function slack( WP_REST_Request $request ) {
 			$config = self::adapter_config( 'slack' );
@@ -127,15 +136,19 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			if ( ! is_array( $payload ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
 			if ( 'url_verification' === ( $payload['type'] ?? null ) && is_string( $payload['challenge'] ?? null ) ) { return array( 'response' => array( 'challenge' => $payload['challenge'] ) ); }
 			$event = $payload['event'] ?? null;
-			if ( 'event_callback' !== ( $payload['type'] ?? null ) || ! is_array( $event ) || 'message' !== ( $event['type'] ?? null ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			if ( 'event_callback' !== ( $payload['type'] ?? null ) || ! is_array( $event ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			$event_type = $event['type'] ?? null;
+			if ( ! in_array( $event_type, array( 'message', 'app_mention' ), true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$team = $payload['team_id'] ?? null;
 			if ( ! is_string( $team ) || ! preg_match( '/^T[A-Z0-9]{1,63}$/', $team ) || ! in_array( $team, $teams, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			if ( isset( $event['bot_id'] ) || ! empty( $event['subtype'] ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$channel = $event['channel'] ?? null;
+			$actor = $event['user'] ?? null;
+			$message_ts = $event['ts'] ?? null;
 			$thread = $event['thread_ts'] ?? $event['ts'] ?? null;
 			if ( ! is_string( $channel ) || ! preg_match( '/^[A-Z0-9]{1,64}$/', $channel ) || ! in_array( $channel, $allowed, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
-			if ( ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) || ! is_string( $event['text'] ?? null ) || '' === trim( $event['text'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
-			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => 'message', 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => $event['text'] );
+			if ( ! is_string( $actor ) || ! preg_match( '/^[UW][A-Z0-9]{1,63}$/', $actor ) || ! is_string( $message_ts ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $message_ts ) || ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) || ! is_string( $event['text'] ?? null ) || '' === trim( $event['text'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
+			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => $event_type, 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => $event['text'], 'attributes' => array( 'team_id' => $team, 'channel_id' => $channel, 'actor_id' => $actor, 'message_ts' => $message_ts, 'thread_ts' => $thread ) );
 		}
 
 		/** @param mixed $ids */
@@ -188,6 +201,7 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 		public static function cli( array $args, array $assoc ): void {
 			$verb = $args[0] ?? '';
 			if ( 'claim' === $verb ) { $claim = self::claim(); $claim ? WP_CLI::print_value( $claim, array( 'format' => $assoc['format'] ?? 'json' ) ) : WP_CLI::halt( 1 ); return; }
+			if ( 'poll' === $verb ) { $claim = self::claim(); WP_CLI::print_value( $claim ? array( 'status' => 'claimed', 'claim' => $claim ) : array( 'status' => 'empty' ), array( 'format' => $assoc['format'] ?? 'json' ) ); return; }
 			$id = isset( $args[1] ) ? (int) $args[1] : 0; $token = isset( $assoc['lease-token'] ) ? (string) $assoc['lease-token'] : '';
 			$ok = 'ack' === $verb ? self::acknowledge( $id, $token ) : ( 'retry' === $verb ? self::retry( $id, $token, isset( $assoc['delay'] ) ? (int) $assoc['delay'] : 0 ) : false );
 			$ok ? WP_CLI::success( $verb . 'nowledged.' ) : WP_CLI::halt( 1 );

@@ -24,3 +24,14 @@ inbound_event_bridge_install() {
   fi
   service_file_normalize_perms "$file"
 }
+
+inbound_event_connector_install() {
+  [ "${EXTERNAL_WORDPRESS:-false}" = true ] || return 0
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  local root file
+  root="$(runtime_project_root)/.wp-coding-agents/bin"
+  file="$root/inbound-event-connector"
+  mkdir -p "$root"
+  cp "$SCRIPT_DIR/scripts/inbound-event-connector.py" "$file"
+  chmod 0755 "$file"
+}
