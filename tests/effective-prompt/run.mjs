@@ -286,6 +286,44 @@ async function runScenario(name, scenario) {
 
   const failures = []
 
+  // A patched install cannot produce meaningful snapshots.
+  //
+  // `raw` is imported from the INSTALLED kimaki's dist/system-message.js — the
+  // same file post-upgrade.sh rewrites to inject the managed bridge prompt. On a
+  // patched box `getOpencodeSystemMessage()` therefore returns that managed
+  // prompt, and raw, baseline and filtered all collapse to identical bytes.
+  //
+  // This is not hypothetical. Every committed snapshot was recorded in exactly
+  // that state: six files, one md5, all 726 bytes. The suite still reported
+  // itself healthy because it was comparing the filtered output against a copy
+  // of the filtered output — structurally incapable of catching a regression in
+  // the thing it exists to guard.
+  //
+  // Refuse in BOTH modes. `--update` is what writes the corruption, but checking
+  // against a patched install is equally meaningless, and a green run on a
+  // degenerate fixture is worse than a red one.
+  if (raw === filteredOut) {
+    failures.push(
+      "raw prompt is identical to the filtered prompt, so this kimaki install is " +
+      "already patched and snapshots taken here would be degenerate. Point " +
+      "KIMAKI_DIST_DIR at a pristine tree (npm install kimaki@<version> --prefix " +
+      "<tmp>) and re-run.",
+    )
+    return {
+      name,
+      description: scenario.description,
+      raw_chars: raw.length,
+      baseline_chars: baselineOut.length,
+      filtered_chars: filteredOut.length,
+      stripped_baseline: raw.length - baselineOut.length,
+      stripped_filtered: raw.length - filteredOut.length,
+      baseline_leaks: baselineLeaks,
+      filtered_leaks: filteredLeaks,
+      failures,
+      diffPath: { beforePath, afterPath },
+    }
+  }
+
   function checkSnapshot(path, label, content) {
     if (UPDATE) {
       writeSnapshot(path, content)
