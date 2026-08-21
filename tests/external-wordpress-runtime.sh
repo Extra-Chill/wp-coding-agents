@@ -144,6 +144,7 @@ opencode_project_subagents
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/agent/SOUL.md")" = "agent context" ] || { echo "FAIL: agent context not projected"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents/SKILL.md" ] || { echo "FAIL: skills were not installed below runtime root"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.kimaki/kimaki-config/plugins/dm-context-filter.ts" ] || { echo "FAIL: Kimaki config was not installed below runtime root"; exit 1; }
+[ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/kimaki-seed-credential" ] || { echo "FAIL: managed Kimaki credential helper was not installed"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }
 [ -L "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context" ] || { echo "FAIL: projected context is not atomically activated"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" ] || { echo "FAIL: embedded writer was not projected"; exit 1; }

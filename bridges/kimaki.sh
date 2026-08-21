@@ -169,6 +169,7 @@ bridge_install() {
   fi
 
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    _kimaki_seed_external_credential
     log "External WordPress profile: Kimaki installed. Start it from the runtime environment with:"
     log "  WP_CONTROL_TRANSPORT_JSON='<argv-json>' $(external_wordpress_kimaki_command)"
   elif [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
@@ -184,6 +185,17 @@ bridge_install() {
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
   _kimaki_register_cli_channel
   _kimaki_register_runtime_signature
+}
+
+_kimaki_seed_external_credential() {
+  [ -n "${KIMAKI_BOT_TOKEN:-}" ] || return 0
+  [ -n "${KIMAKI_DATA_DIR:-}" ] || error "KIMAKI_DATA_DIR is required to seed an external Kimaki credential"
+
+  local helper
+  helper="$(external_wordpress_kimaki_credential_command)"
+  [ "${DRY_RUN:-false}" = true ] || [ -x "$helper" ] || error "Managed Kimaki credential helper is unavailable: $helper"
+  run_cmd node "$helper"
+  log "External Kimaki credential configured"
 }
 
 # _kimaki_register_cli_channel
