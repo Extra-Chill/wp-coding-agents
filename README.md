@@ -182,6 +182,7 @@ the runtime environment:
 
 ```bash
 WP_CODING_AGENTS_INBOUND_SLACK_ENABLED=1 \
+WP_CODING_AGENTS_RUNTIME_ID='runtime-opaque-1' \
 WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT='http://127.0.0.1:3710/slack/events' \
 WP_CODING_AGENTS_INBOUND_SLACK_SIGNING_SECRET_ENV=LOCAL_SLACK_SIGNING_SECRET \
 LOCAL_SLACK_SIGNING_SECRET='...' \
@@ -196,6 +197,9 @@ only verified `team_id`, `channel_id`, `actor_id`, `message_ts`, and root
 `thread_ts`; it does not persist request signatures, secrets, tokens, or raw
 payloads. Queue adapters can add bounded scalar-string `attributes` without
 changing the generic queue envelope.
+`WP_CODING_AGENTS_RUNTIME_ID` is required and must match the runtime ID in the
+queued envelope; the connector includes it in every queue poll so runtimes only
+lease their own events.
 
 ```bash
 WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \

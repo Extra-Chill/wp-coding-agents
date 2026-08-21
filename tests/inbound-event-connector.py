@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory() as temp:
     fake.chmod(0o755)
     server = http.server.HTTPServer(("127.0.0.1", 0), Receiver)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    env = os.environ | {"STATE": str(state), "LOG": str(log), "HTTP_PROXY": "http://198.51.100.1:1", "HTTPS_PROXY": "http://198.51.100.1:1", "WP_CODING_AGENTS_INBOUND_SLACK_ENABLED": "1", "WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT": f"http://127.0.0.1:{server.server_port}/hook", "WP_CODING_AGENTS_INBOUND_SLACK_SIGNING_SECRET_ENV": "TEST_SLACK_SECRET", "TEST_SLACK_SECRET": SECRET}
+    env = os.environ | {"STATE": str(state), "LOG": str(log), "HTTP_PROXY": "http://198.51.100.1:1", "HTTPS_PROXY": "http://198.51.100.1:1", "WP_CODING_AGENTS_RUNTIME_ID": "runtime", "WP_CODING_AGENTS_INBOUND_SLACK_ENABLED": "1", "WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT": f"http://127.0.0.1:{server.server_port}/hook", "WP_CODING_AGENTS_INBOUND_SLACK_SIGNING_SECRET_ENV": "TEST_SLACK_SECRET", "TEST_SLACK_SECRET": SECRET}
     outputs = []
     for event in (claim("1710000000.000001", "1710000000.000001"), claim("1710000001.000001", "1710000000.000001", "app_mention", "W123")):
         state.write_text(json.dumps({"status": "claimed", "claim": event}))
@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert root_payload["event"]["type"] == "message" and root_payload["event"]["ts"] == root_payload["event"]["thread_ts"]
     assert reply_payload["event"]["type"] == "app_mention" and reply_payload["event"]["ts"] != reply_payload["event"]["thread_ts"] and reply_payload["event"]["user"] == "W123"
     assert log.read_text().count(" ack 9 --lease-token=lease-9") == 2
+    assert "poll --format=json --runtime-id=runtime" in log.read_text()
     state.write_text(json.dumps({"status": "empty"}))
     assert subprocess.run([str(connector), "--once"], env=env, capture_output=True).returncode == 0
     for status in (500, 302):
@@ -71,6 +72,12 @@ with tempfile.TemporaryDirectory() as temp:
     result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
     outputs.append(result.stdout + result.stderr)
     assert result.returncode == 1
+    mismatched = claim("1710000004.000001", "1710000000.000001")
+    mismatched["event"]["runtime_id"] = "other-runtime"
+    state.write_text(json.dumps({"status": "claimed", "claim": mismatched}))
+    result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
+    outputs.append(result.stdout + result.stderr)
+    assert result.returncode == 1 and len(Receiver.requests) == 4
     observed = connector.read_text() + log.read_text() + "".join(outputs)
     assert SECRET not in observed and MESSAGE not in observed
     server.shutdown()

@@ -18,6 +18,7 @@ STOP = False
 REQUIRED = {"source", "external_id", "type", "conversation_id", "runtime_id", "message", "attributes"}
 ATTRIBUTE_KEYS = {"team_id", "channel_id", "actor_id", "message_ts", "thread_ts"}
 TIMESTAMP = re.compile(r"^\d{1,20}\.\d{1,6}$")
+RUNTIME_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$")
 CONTROL_TIMEOUT = 15
 
 def stop(signum, frame):
@@ -30,13 +31,13 @@ def control(argv):
     except (OSError, subprocess.TimeoutExpired):
         return None
 
-def valid_claim(value):
+def valid_claim(value, runtime_id):
     if not isinstance(value, dict) or set(value) != {"id", "lease_token", "event"} or not isinstance(value["id"], int) or value["id"] <= 0 or not isinstance(value["lease_token"], str) or not value["lease_token"]:
         return False
     event = value["event"]
     if not isinstance(event, dict) or set(event) != REQUIRED or not all(isinstance(event[key], str) and event[key] and len(event[key]) <= 65535 for key in REQUIRED - {"attributes"}):
         return False
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", event["source"]) or len(event["external_id"]) > 191 or len(event["runtime_id"]) > 191:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", event["source"]) or len(event["external_id"]) > 191 or not RUNTIME_ID.fullmatch(event["runtime_id"]) or event["runtime_id"] != runtime_id:
         return False
     attributes = event["attributes"]
     return isinstance(attributes, dict) and len(attributes) <= 8 and all(isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", k) and isinstance(v, str) and v and len(v) <= 191 for k, v in attributes.items()) and len(json.dumps(event, separators=(",", ":")).encode()) <= 8192
@@ -81,9 +82,12 @@ def retry(claim, delay):
 
 def main():
     once = "--once" in sys.argv[1:]
+    runtime_id = os.environ.get("WP_CODING_AGENTS_RUNTIME_ID", "")
+    if not RUNTIME_ID.fullmatch(runtime_id):
+        return 1
     delay = 1
     while not STOP:
-        result = control(["poll", "--format=json"])
+        result = control(["poll", "--format=json", "--runtime-id=" + runtime_id])
         try:
             poll = json.loads(result.stdout) if result is not None else None
         except json.JSONDecodeError:
@@ -98,7 +102,7 @@ def main():
             delay = 1
             continue
         claim = poll.get("claim")
-        if not valid_claim(claim):
+        if not valid_claim(claim, runtime_id):
             if isinstance(claim, dict) and isinstance(claim.get("id"), int) and isinstance(claim.get("lease_token"), str): retry(claim, delay)
             if once: return 1
             time.sleep(delay); delay = min(delay * 2, 30); continue
