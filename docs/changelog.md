@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.17.0] - 2026-08-21
+
+### Added
+- separate gateway model identity
+- project subagents into external runtimes
+- support portable external WordPress runtimes
+- project Agents API subagents for OpenCode
+
+### Changed
+- repair degenerate snapshots and refuse to record them
+- Scope inbound claims by runtime
+- Add external inbound event delivery
+- Add durable inbound event bridge
+
+### Fixed
+- seed external Kimaki credentials
+- avoid hanging Kimaki version probe
+- retry stalled external graph reads
+- bound external subagent graph reads
+- skip PHP package detection with dependencies
+- use native OpenAI gateway provider
+- tolerate Kimaki lookup startup latency
+- order external WordPress global flags
+- use OpenCode environment interpolation
+- serialize empty subagent maps
+- configure gateway for external runtimes
+- bound CLI dispatch process trees
+- Fix canonical OpenCode workspace permissions
+- bridge Kimaki session attribution
+
 ## [1.16.3] - 2026-08-07
 
 ### Fixed
