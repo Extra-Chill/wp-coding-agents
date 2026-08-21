@@ -28,7 +28,7 @@
 #      Each unit's existing Environment= lines are preserved (host custom
 #      values, secrets) while structural lines are refreshed from the same
 #      template the install path uses (bridges/<name>.sh::bridge_render_*).
-#   7. Remove legacy opencode-claude-auth bash wrapper, if any (#117)
+#   7. Refresh the opencode runtime signature
 #   8. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
@@ -1244,18 +1244,22 @@ update_datamachine_worker_service() {
 }
 
 # ============================================================================
-# Phase 7: Remove legacy opencode-claude-auth wrapper, if any
+# Phase 7: Refresh the opencode runtime signature
 #
-# wp-coding-agents used to install a bash wrapper at the global `opencode`
-# binary path that synced Kimaki's Anthropic OAuth credentials into
-# ~/.claude/.credentials.json so the third-party `opencode-claude-auth`
-# plugin could read them. That whole integration was retired (see #117):
-# Kimaki has a built-in AnthropicAuthPlugin and non-kimaki bridges use
-# opencode's native auth flow. This phase deletes any leftover wrapper
-# left behind by older upgrades and restores the npm-shipped binary.
+# Keeps the worktree runtime-signature registration current, so existing
+# installs pick up the opencode entry on upgrade and track any future
+# signature drift. Idempotent — only mutates the mu-plugin file when the
+# env-var map actually differs from what is already on disk.
+#
+# This phase also used to strip a legacy opencode-claude-auth bash wrapper.
+# That integration was retired in #117 on 2026-05-03, and the strip could only
+# ever fire on an install that had skipped every upgrade since — so it was
+# removed rather than carried as a check that runs forever and never matches.
+# The repo-level guards against reintroducing the plugin live in
+# tests/opencode-claude-auth-retired.sh and are the durable half of #117.
 # ============================================================================
 
-remove_legacy_opencode_wrapper_phase() {
+refresh_opencode_runtime_signature_phase() {
   _run_filter_active patch || return 0
 
   if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "kimaki" ]; then
@@ -1263,20 +1267,14 @@ remove_legacy_opencode_wrapper_phase() {
     return 0
   fi
 
-  log "Phase 7: Checking for legacy opencode wrapper..."
+  log "Phase 7: Refreshing opencode runtime signature..."
 
-  if ! declare -F _remove_legacy_opencode_wrapper >/dev/null; then
+  if ! declare -F _opencode_register_runtime_signature >/dev/null; then
     # Source runtime file for the helper without running a full install.
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/opencode.sh"
   fi
 
-  _remove_legacy_opencode_wrapper
-
-  # Refresh the worktree runtime-signature registration so existing installs
-  # pick up the opencode entry on upgrade (and any future signature drift).
-  # Idempotent — only mutates the mu-plugin file when the env-var map
-  # actually differs from what is already on disk.
   if declare -F _opencode_register_runtime_signature >/dev/null; then
     _opencode_register_runtime_signature
   fi
@@ -1425,5 +1423,5 @@ opencode_project_subagents
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 update_datamachine_worker_service
-remove_legacy_opencode_wrapper_phase
+refresh_opencode_runtime_signature_phase
 print_summary

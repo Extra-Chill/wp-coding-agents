@@ -1,12 +1,19 @@
 #!/bin/bash
-# tests/opencode-wrapper-removal.sh — regression for #117 cleanup.
+# tests/opencode-claude-auth-retired.sh — regression for #117.
 #
 # wp-coding-agents previously installed a `wp-coding-agents-opencode-wrapper-v2`
-# bash shim at the global `opencode` binary path on every Kimaki VPS upgrade.
-# That whole integration was retired (Kimaki ships its own AnthropicAuthPlugin
-# and non-kimaki bridges use opencode's native auth). The runtime now only
-# removes legacy wrappers — it must never re-install one. These tests pin
-# both behaviors.
+# bash shim at the global `opencode` binary path so the third-party
+# opencode-claude-auth plugin could read Anthropic OAuth credentials. That whole
+# integration was retired in #117 on 2026-05-03: Kimaki ships its own
+# AnthropicAuthPlugin and non-kimaki bridges use opencode native auth.
+#
+# The upgrade-time strip that removed leftover wrappers is gone too. It could
+# only fire on an install that had skipped every upgrade since May, so it was a
+# check that ran forever and could never match.
+#
+# What remains worth pinning is the DECISION: the install machinery must never
+# come back. These assertions are cheap, have no runtime dependencies, and fail
+# loudly if someone reintroduces the plugin or its patcher.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -97,44 +104,6 @@ EOF
   chmod +x "$wrapper"
 }
 
-echo "==> legacy wrapper is removed and real binary linked back"
-REAL_BIN="$(make_real_opencode)"
-BIN_DIR="$TMPDIR_TEST/bin"
-mkdir -p "$BIN_DIR"
-LEGACY_WRAPPER="$BIN_DIR/opencode"
-make_legacy_wrapper "$LEGACY_WRAPPER" "$REAL_BIN"
-# Simulate stale .bak file from a prior upgrade run.
-cp "$LEGACY_WRAPPER" "${LEGACY_WRAPPER}.bak.20240101000000"
-
-CHAT_BRIDGE=kimaki
-LOCAL_MODE=false
-DRY_RUN=false
-PATH="$BIN_DIR:$PATH"
-
-_remove_legacy_opencode_wrapper
-
-assert_file_lacks "wrapper sentinel removed" "$LEGACY_WRAPPER" "wp-coding-agents-opencode-wrapper"
-assert_file_absent "stale .bak file removed" "${LEGACY_WRAPPER}.bak.20240101000000"
-assert_eq "global opencode runs the real binary" "real opencode" "$("$LEGACY_WRAPPER" 2>/dev/null | head -1)"
-
-# Idempotent: running again on a clean (non-wrapper) binary is a no-op.
-_remove_legacy_opencode_wrapper
-assert_eq "rerun is idempotent" "real opencode" "$("$LEGACY_WRAPPER" 2>/dev/null | head -1)"
-
-echo "==> non-wrapper binaries are never touched"
-NON_WRAPPER_DIR="$TMPDIR_TEST/non-wrapper/bin"
-mkdir -p "$NON_WRAPPER_DIR"
-NON_WRAPPER="$NON_WRAPPER_DIR/opencode"
-cat > "$NON_WRAPPER" <<'EOF'
-#!/bin/sh
-echo not-a-wrapper
-EOF
-chmod +x "$NON_WRAPPER"
-NON_WRAPPER_HASH_BEFORE="$(cat "$NON_WRAPPER")"
-PATH="$NON_WRAPPER_DIR:$PATH"
-_remove_legacy_opencode_wrapper
-assert_eq "non-wrapper binary untouched" "$NON_WRAPPER_HASH_BEFORE" "$(cat "$NON_WRAPPER")"
-
 echo "==> repo no longer ships legacy install machinery"
 assert_file_absent "lib/patch-claude-auth.py is gone" lib/patch-claude-auth.py
 assert_file_lacks "runtimes/opencode.sh has no _install_opencode_wrapper" runtimes/opencode.sh "_install_opencode_wrapper"
@@ -142,7 +111,8 @@ assert_file_lacks "runtimes/opencode.sh has no _patch_claude_auth_plugin" runtim
 assert_file_lacks "runtimes/opencode.sh does not list opencode-claude-auth as a managed plugin" runtimes/opencode.sh '"opencode-claude-auth@latest"'
 assert_file_lacks "lib/repair-opencode-json.py does not append opencode-claude-auth" lib/repair-opencode-json.py 'plugins.append("opencode-claude-auth@latest")'
 assert_file_lacks "upgrade.sh has no reapply_claude_auth_patch" upgrade.sh "reapply_claude_auth_patch"
-assert_file_contains "upgrade.sh wires the removal phase" upgrade.sh "remove_legacy_opencode_wrapper_phase"
+assert_file_lacks "upgrade.sh no longer carries the wrapper-removal phase" upgrade.sh "remove_legacy_opencode_wrapper"
+assert_file_lacks "runtimes/opencode.sh no longer defines the wrapper remover" runtimes/opencode.sh "_remove_legacy_opencode_wrapper"
 
 echo
 if [ "$FAIL" -gt 0 ]; then
