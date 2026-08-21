@@ -420,10 +420,15 @@ ENVIRONMENT VARIABLES:
   AI_GATEWAY_API_MODEL_ID    Model ID sent to WP AI Gateway
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
   WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
-  KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
+  KIMAKI_BOT_TOKEN          Bot token or gateway clientId:clientSecret
+                            (skip interactive setup)
   KIMAKI_UNIT               Kimaki systemd unit (default: kimaki.service)
   KIMAKI_DATA_DIR           Kimaki state directory
   KIMAKI_LOCK_PORT          Kimaki lock port
+  KIMAKI_PACKAGE_ROOT       Kimaki dist directory used for external credential setup
+  KIMAKI_GATEWAY_APP_ID     Gateway application ID override
+  KIMAKI_GATEWAY_PROXY_REST_URL
+                            Gateway REST URL override
   TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
   TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
   OPENCODE_MODEL_PROVIDER   Default model provider for Telegram bot (default: opencode)

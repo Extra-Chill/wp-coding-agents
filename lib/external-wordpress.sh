@@ -13,6 +13,10 @@ external_wordpress_kimaki_command() {
   printf '%s' "$(runtime_project_root)/.wp-coding-agents/bin/kimaki"
 }
 
+external_wordpress_kimaki_credential_command() {
+  printf '%s' "$(runtime_project_root)/.wp-coding-agents/bin/kimaki-seed-credential"
+}
+
 external_wordpress_prepare_transport() {
   [ "${EXTERNAL_WORDPRESS:-false}" = true ] || return 0
   [ -n "${RUNTIME_PROJECT_ROOT:-}" ] || error "--external-wordpress requires --runtime-project-root or RUNTIME_PROJECT_ROOT"
@@ -37,9 +41,10 @@ PY
   if [ "${DRY_RUN:-false}" != true ]; then
     mkdir -p "$RUNTIME_PROJECT_ROOT"
     RUNTIME_PROJECT_ROOT=$(cd "$RUNTIME_PROJECT_ROOT" && pwd)
-    local control_dir control_command kimaki_command profile_file
+    local control_dir control_command kimaki_command kimaki_credential_command profile_file
     control_command="$(external_wordpress_control_command)"
     kimaki_command="$(external_wordpress_kimaki_command)"
+    kimaki_credential_command="$(external_wordpress_kimaki_credential_command)"
     control_dir="${control_command%/*}"
     profile_file="$(runtime_project_root)/.wp-coding-agents/wordpress.json"
     if [ -L "$(runtime_project_root)/.wp-coding-agents" ]; then
@@ -48,8 +53,10 @@ PY
     mkdir -p "$control_dir"
     cp "$SCRIPT_DIR/scripts/wp-control-transport.py" "$control_command"
     cp "$SCRIPT_DIR/scripts/external-wordpress-kimaki.py" "$kimaki_command"
+    cp "$SCRIPT_DIR/scripts/seed-kimaki-credential.mjs" "$kimaki_credential_command"
     chmod 0755 "$control_command"
     chmod 0755 "$kimaki_command"
+    chmod 0755 "$kimaki_credential_command"
     python3 - "$profile_file" "$WORDPRESS_PATH" "${WORDPRESS_USER:-}" <<'PY'
 import json, sys
 path, wordpress_path, wordpress_user = sys.argv[1:]
