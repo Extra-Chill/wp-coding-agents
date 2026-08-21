@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents; do
+for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -594,7 +594,7 @@ runtime_generate_instructions
 opencode_project_subagents
 runtime_merge_mcp_servers
 install_skills
-if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; runtime_guard_sync; fi
+if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; runtime_guard_sync; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi

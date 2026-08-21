@@ -458,6 +458,10 @@ Kimaki is the Discord surface for OpenCode. Managed installs replace Kimaki's ge
 
 Kimaki-specific OpenCode plugins are synced into Kimaki's config directory and restored across package updates. The managed-plugin rig verifies that contract:
 
+Inbound events queue independently of a runtime. The queue intentionally has no Kimaki connector: the supported Kimaki CLI proves outbound `send --channel <id> --prompt <text>`, but not inbound event injection or a durable conversation-to-runtime mapping. A connector can be added only after that contract exists; missing mappings fail closed.
+
+The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists.
+
 ```bash
 bash tests/kimaki-managed-plugin-rig.sh
 ```

@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents; do
+for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -567,6 +567,7 @@ sync_cli_transport_runtime() {
 
   log "Phase 2b: Syncing CLI dispatch transport..."
   cli_transport_install
+  inbound_event_bridge_install
   runtime_guard_sync
   source_reconcile_sync
   source_reconcile_run

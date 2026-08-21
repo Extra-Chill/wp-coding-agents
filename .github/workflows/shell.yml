@@ -79,6 +79,16 @@ jobs:
       - name: Run tests/smoke-cli-transport.php
         run: php tests/smoke-cli-transport.php
 
+  inbound-event-bridge:
+    name: durable inbound event bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/inbound-event-bridge.sh
+        run: bash tests/inbound-event-bridge.sh
+      - name: Run tests/smoke-inbound-event-bridge.php
+        run: php tests/smoke-inbound-event-bridge.php
+
   cli-channel-registry:
     name: CLI channel registry permissions
     runs-on: ubuntu-latest
