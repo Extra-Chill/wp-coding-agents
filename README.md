@@ -174,6 +174,33 @@ Start Kimaki from the same runtime environment so the generated
 External profiles deliberately avoid writing those variables to launchd or
 systemd units. Re-run setup to refresh projected Data Machine context.
 
+External setup also installs `.wp-coding-agents/bin/inbound-event-connector`.
+It continuously polls the durable inbound queue through `wp-control`, delivers
+supported events locally, and acknowledges only after a successful local HTTP
+response. It is disabled until its Slack delivery contract is explicitly set in
+the runtime environment:
+
+```bash
+WP_CODING_AGENTS_INBOUND_SLACK_ENABLED=1 \
+WP_CODING_AGENTS_RUNTIME_ID='runtime-opaque-1' \
+WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT='http://127.0.0.1:3710/slack/events' \
+WP_CODING_AGENTS_INBOUND_SLACK_SIGNING_SECRET_ENV=LOCAL_SLACK_SIGNING_SECRET \
+LOCAL_SLACK_SIGNING_SECRET='...' \
+/srv/agent/.wp-coding-agents/bin/inbound-event-connector
+```
+
+The endpoint must be an `http` or `https` literal loopback IP URL. When explicitly
+enabled, the endpoint defaults to `http://127.0.0.1:3710/slack/events`.
+The signing-secret variable name is explicit so secrets remain in the process
+environment, never generated files or command arguments. Slack ingress persists
+only verified `team_id`, `channel_id`, `actor_id`, `message_ts`, and root
+`thread_ts`; it does not persist request signatures, secrets, tokens, or raw
+payloads. Queue adapters can add bounded scalar-string `attributes` without
+changing the generic queue envelope.
+`WP_CODING_AGENTS_RUNTIME_ID` is required and must match the runtime ID in the
+queued envelope; the connector includes it in every queue poll so runtimes only
+lease their own events.
+
 ```bash
 WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \
   /srv/agent/.wp-coding-agents/bin/kimaki

@@ -6,7 +6,7 @@
  * Adapters register through `wp_coding_agents_inbound_event_adapters`. Each
  * adapter receives a WP_REST_Request and must authenticate it before returning
  * either a WP_Error, an immediate `response`, or a normalized event array:
- * source, external_id, type, conversation_id, runtime_id, message. Authentication material
+ * source, external_id, type, conversation_id, runtime_id, message, attributes. Authentication material
  * remains in the request and is never passed to the queue or diagnostics.
  */
 
@@ -15,7 +15,7 @@ defined( 'ABSPATH' ) || exit;
 if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 	class WpCodingAgents_Inbound_Events {
 		private const TABLE_SUFFIX = 'wp_coding_agents_inbound_events';
-		private const SCHEMA_VERSION = 1;
+		private const SCHEMA_VERSION = 2;
 		private const SCHEMA_OPTION = 'wp_coding_agents_inbound_events_schema';
 		private const LEASE_SECONDS = 300;
 
@@ -34,10 +34,11 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			if ( (int) get_option( self::SCHEMA_OPTION, 0 ) >= self::SCHEMA_VERSION ) { return; }
 			$table = self::table();
 			$charset = method_exists( $wpdb, 'get_charset_collate' ) ? $wpdb->get_charset_collate() : '';
-			$sql = "CREATE TABLE {$table} (id bigint unsigned NOT NULL AUTO_INCREMENT, source varchar(64) NOT NULL, external_id varchar(191) NOT NULL, envelope longtext NOT NULL, status varchar(16) NOT NULL DEFAULT 'queued', attempts int unsigned NOT NULL DEFAULT 0, available_at datetime NOT NULL, lease_token varchar(64) NULL, lease_expires_at datetime NULL, created_at datetime NOT NULL, updated_at datetime NOT NULL, PRIMARY KEY (id), UNIQUE KEY source_external (source, external_id), KEY claim (status, available_at, lease_expires_at)) {$charset};";
+			$sql = "CREATE TABLE {$table} (id bigint unsigned NOT NULL AUTO_INCREMENT, source varchar(64) NOT NULL, external_id varchar(191) NOT NULL, runtime_id varchar(191) NOT NULL DEFAULT '', envelope longtext NOT NULL, status varchar(16) NOT NULL DEFAULT 'queued', attempts int unsigned NOT NULL DEFAULT 0, available_at datetime NOT NULL, lease_token varchar(64) NULL, lease_expires_at datetime NULL, created_at datetime NOT NULL, updated_at datetime NOT NULL, PRIMARY KEY (id), UNIQUE KEY source_external (source, external_id), KEY claim (runtime_id, status, available_at, lease_expires_at)) {$charset};";
 			if ( ! function_exists( 'dbDelta' ) ) { require_once ABSPATH . 'wp-admin/includes/upgrade.php'; }
 			dbDelta( $sql );
 			if ( $table === $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) ) {
+				self::backfill_runtime_ids();
 				update_option( self::SCHEMA_OPTION, self::SCHEMA_VERSION, false );
 			}
 		}
@@ -88,7 +89,7 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			return true;
 		}
 
-		/** @return array<string,string>|WP_Error */
+		/** @return array<string,string|array<string,string>>|WP_Error */
 		public static function normalize( array $event ) {
 			$normalized = array();
 			foreach ( array( 'source', 'external_id', 'type', 'conversation_id', 'runtime_id', 'message' ) as $key ) {
@@ -97,18 +98,27 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 				$normalized[ $key ] = (string) $value;
 			}
 			if ( ! preg_match( '/^[a-z0-9][a-z0-9_-]{0,63}$/', $normalized['source'] ) || strlen( $normalized['external_id'] ) > 191 || strlen( $normalized['runtime_id'] ) > 191 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid identifiers.', array( 'status' => 400 ) ); }
+			$attributes = $event['attributes'] ?? array();
+			if ( ! is_array( $attributes ) || count( $attributes ) > 8 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid attributes.', array( 'status' => 400 ) ); }
+			$clean_attributes = array();
+			foreach ( $attributes as $key => $value ) {
+				if ( ! is_string( $key ) || ! preg_match( '/^[a-z][a-z0-9_]{0,63}$/', $key ) || ! is_string( $value ) || '' === $value || strlen( $value ) > 191 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid attributes.', array( 'status' => 400 ) ); }
+				if ( in_array( $key, array( 'authorization', 'signature', 'signing_secret', 'token', 'raw_body', 'raw_payload' ), true ) ) { continue; }
+				$clean_attributes[ $key ] = $value;
+			}
+			$normalized['attributes'] = $clean_attributes;
+			$json = wp_json_encode( $normalized );
+			if ( false === $json || strlen( $json ) > 8192 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event is too large.', array( 'status' => 400 ) ); }
 			return $normalized;
 		}
 
 		/**
-		 * Validate and normalize Slack's signed Events API request.
-		 *
-		 * Configuration comes only from the generic adapter-config filter, or the
-		 * optional WP_CODING_AGENTS_INBOUND_EVENT_ADAPTER_CONFIG constant. Its
- * `slack` entry contains signing_secret, runtime_id, allowed_team_ids, and
- * allowed_channel_ids.
-		 * The connector deliberately remains absent: the installed Kimaki contract
-		 * proves outbound send only, not inbound event injection or mapping.
+			 * Validate and normalize Slack's signed Events API request.
+			 *
+			 * Configuration comes only from the generic adapter-config filter, or the
+			 * optional WP_CODING_AGENTS_INBOUND_EVENT_ADAPTER_CONFIG constant. Its
+			 * `slack` entry contains signing_secret, runtime_id, allowed_team_ids, and
+			 * allowed_channel_ids.
 		 */
 		public static function slack( WP_REST_Request $request ) {
 			$config = self::adapter_config( 'slack' );
@@ -127,15 +137,19 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			if ( ! is_array( $payload ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
 			if ( 'url_verification' === ( $payload['type'] ?? null ) && is_string( $payload['challenge'] ?? null ) ) { return array( 'response' => array( 'challenge' => $payload['challenge'] ) ); }
 			$event = $payload['event'] ?? null;
-			if ( 'event_callback' !== ( $payload['type'] ?? null ) || ! is_array( $event ) || 'message' !== ( $event['type'] ?? null ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			if ( 'event_callback' !== ( $payload['type'] ?? null ) || ! is_array( $event ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			$event_type = $event['type'] ?? null;
+			if ( ! in_array( $event_type, array( 'message', 'app_mention' ), true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$team = $payload['team_id'] ?? null;
 			if ( ! is_string( $team ) || ! preg_match( '/^T[A-Z0-9]{1,63}$/', $team ) || ! in_array( $team, $teams, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			if ( isset( $event['bot_id'] ) || ! empty( $event['subtype'] ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$channel = $event['channel'] ?? null;
+			$actor = $event['user'] ?? null;
+			$message_ts = $event['ts'] ?? null;
 			$thread = $event['thread_ts'] ?? $event['ts'] ?? null;
 			if ( ! is_string( $channel ) || ! preg_match( '/^[A-Z0-9]{1,64}$/', $channel ) || ! in_array( $channel, $allowed, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
-			if ( ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) || ! is_string( $event['text'] ?? null ) || '' === trim( $event['text'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
-			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => 'message', 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => $event['text'] );
+			if ( ! is_string( $actor ) || ! preg_match( '/^[UW][A-Z0-9]{1,63}$/', $actor ) || ! is_string( $message_ts ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $message_ts ) || ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) || ! is_string( $event['text'] ?? null ) || '' === trim( $event['text'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
+			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => $event_type, 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => $event['text'], 'attributes' => array( 'team_id' => $team, 'channel_id' => $channel, 'actor_id' => $actor, 'message_ts' => $message_ts, 'thread_ts' => $thread ) );
 		}
 
 		/** @param mixed $ids */
@@ -160,7 +174,7 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			$now = current_time( 'mysql', true );
 			$json = wp_json_encode( $event );
 			if ( false === $json ) { return new WP_Error( 'wp_coding_agents_inbound_encode_failed', 'Could not queue event.' ); }
-			$inserted = $wpdb->query( $wpdb->prepare( 'INSERT IGNORE INTO ' . self::table() . ' (source, external_id, envelope, available_at, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)', $event['source'], $event['external_id'], $json, $now, $now, $now ) );
+			$inserted = $wpdb->query( $wpdb->prepare( 'INSERT IGNORE INTO ' . self::table() . ' (source, external_id, runtime_id, envelope, available_at, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s)', $event['source'], $event['external_id'], $event['runtime_id'], $json, $now, $now, $now ) );
 			if ( false === $inserted ) { return new WP_Error( 'wp_coding_agents_inbound_queue_failed', 'Could not queue event.' ); }
 			if ( 1 === $inserted ) { return array( 'id' => (int) $wpdb->insert_id, 'new' => true ); }
 			$id = $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . self::table() . ' WHERE source = %s AND external_id = %s', $event['source'], $event['external_id'] ) );
@@ -168,13 +182,14 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 		}
 
 		/** Atomically recover stale leases and claim one available event. */
-		public static function claim(): ?array {
+		public static function claim( ?string $runtime_id = null ): ?array {
 			global $wpdb;
 			$now = current_time( 'mysql', true ); $token = wp_generate_uuid4(); $until = gmdate( 'Y-m-d H:i:s', time() + self::LEASE_SECONDS );
 			$wpdb->query( $wpdb->prepare( "UPDATE " . self::table() . " SET status = 'queued', lease_token = NULL, lease_expires_at = NULL, updated_at = %s WHERE status = 'leased' AND lease_expires_at < %s", $now, $now ) );
-			$row = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM " . self::table() . " WHERE status = 'queued' AND available_at <= %s ORDER BY id ASC LIMIT 1", $now ), ARRAY_A );
+			$owner = null === $runtime_id ? "runtime_id <> ''" : $wpdb->prepare( 'runtime_id = %s', $runtime_id );
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM " . self::table() . " WHERE {$owner} AND status = 'queued' AND available_at <= %s ORDER BY id ASC LIMIT 1", $now ), ARRAY_A );
 			if ( ! is_array( $row ) ) { return null; }
-			$changed = $wpdb->query( $wpdb->prepare( "UPDATE " . self::table() . " SET status = 'leased', lease_token = %s, lease_expires_at = %s, attempts = attempts + 1, updated_at = %s WHERE id = %d AND status = 'queued'", $token, $until, $now, $row['id'] ) );
+			$changed = $wpdb->query( $wpdb->prepare( "UPDATE " . self::table() . " SET status = 'leased', lease_token = %s, lease_expires_at = %s, attempts = attempts + 1, updated_at = %s WHERE id = %d AND status = 'queued' AND {$owner}", $token, $until, $now, $row['id'] ) );
 			if ( 1 !== $changed ) { return null; }
 			$event = $wpdb->get_row( $wpdb->prepare( 'SELECT id, envelope FROM ' . self::table() . ' WHERE id = %d AND lease_token = %s', $row['id'], $token ), ARRAY_A );
 			$envelope = is_array( $event ) ? json_decode( $event['envelope'], true ) : null;
@@ -184,10 +199,25 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 		public static function acknowledge( int $id, string $token ): bool { global $wpdb; return 1 === $wpdb->query( $wpdb->prepare( "UPDATE " . self::table() . " SET status = 'acked', lease_token = NULL, lease_expires_at = NULL, updated_at = %s WHERE id = %d AND status = 'leased' AND lease_token = %s", current_time( 'mysql', true ), $id, $token ) ); }
 		public static function retry( int $id, string $token, int $delay = 0 ): bool { global $wpdb; $at = gmdate( 'Y-m-d H:i:s', time() + max( 0, $delay ) ); return 1 === $wpdb->query( $wpdb->prepare( "UPDATE " . self::table() . " SET status = 'queued', lease_token = NULL, lease_expires_at = NULL, available_at = %s, updated_at = %s WHERE id = %d AND status = 'leased' AND lease_token = %s", $at, current_time( 'mysql', true ), $id, $token ) ); }
 		private static function table(): string { global $wpdb; return $wpdb->prefix . self::TABLE_SUFFIX; }
+		private static function valid_runtime_id( string $runtime_id ): bool { return (bool) preg_match( '/^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/', $runtime_id ); }
+
+		/** Backfill v1 rows only when their persisted envelope has a valid owner. */
+		private static function backfill_runtime_ids(): void {
+			global $wpdb;
+			$rows = $wpdb->get_results( "SELECT id, envelope FROM " . self::table() . " WHERE runtime_id = ''", ARRAY_A );
+			foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+				$envelope = json_decode( $row['envelope'] ?? '', true );
+				$runtime_id = is_array( $envelope ) && is_string( $envelope['runtime_id'] ?? null ) ? $envelope['runtime_id'] : '';
+				if ( self::valid_runtime_id( $runtime_id ) ) { $wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET runtime_id = %s WHERE id = %d AND runtime_id = %s', $runtime_id, $row['id'], '' ) ); }
+			}
+		}
 
 		public static function cli( array $args, array $assoc ): void {
 			$verb = $args[0] ?? '';
-			if ( 'claim' === $verb ) { $claim = self::claim(); $claim ? WP_CLI::print_value( $claim, array( 'format' => $assoc['format'] ?? 'json' ) ) : WP_CLI::halt( 1 ); return; }
+			$runtime_id = isset( $assoc['runtime-id'] ) ? (string) $assoc['runtime-id'] : null;
+			if ( null !== $runtime_id && ! self::valid_runtime_id( $runtime_id ) ) { WP_CLI::halt( 1 ); }
+			if ( 'claim' === $verb ) { $claim = self::claim( $runtime_id ); $claim ? WP_CLI::print_value( $claim, array( 'format' => $assoc['format'] ?? 'json' ) ) : WP_CLI::halt( 1 ); return; }
+			if ( 'poll' === $verb ) { if ( null === $runtime_id ) { WP_CLI::halt( 1 ); } $claim = self::claim( $runtime_id ); WP_CLI::print_value( $claim ? array( 'status' => 'claimed', 'claim' => $claim ) : array( 'status' => 'empty' ), array( 'format' => $assoc['format'] ?? 'json' ) ); return; }
 			$id = isset( $args[1] ) ? (int) $args[1] : 0; $token = isset( $assoc['lease-token'] ) ? (string) $assoc['lease-token'] : '';
 			$ok = 'ack' === $verb ? self::acknowledge( $id, $token ) : ( 'retry' === $verb ? self::retry( $id, $token, isset( $assoc['delay'] ) ? (int) $assoc['delay'] : 0 ) : false );
 			$ok ? WP_CLI::success( $verb . 'nowledged.' ) : WP_CLI::halt( 1 );

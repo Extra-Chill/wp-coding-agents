@@ -88,6 +88,8 @@ jobs:
         run: bash tests/inbound-event-bridge.sh
       - name: Run tests/smoke-inbound-event-bridge.php
         run: php tests/smoke-inbound-event-bridge.php
+      - name: Run tests/inbound-event-connector.py
+        run: python3 tests/inbound-event-connector.py
 
   cli-channel-registry:
     name: CLI channel registry permissions

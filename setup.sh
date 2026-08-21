@@ -594,7 +594,7 @@ runtime_generate_instructions
 opencode_project_subagents
 runtime_merge_mcp_servers
 install_skills
-if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; runtime_guard_sync; fi
+if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; runtime_guard_sync; else inbound_event_connector_install; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
