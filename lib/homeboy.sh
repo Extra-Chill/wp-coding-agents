@@ -121,9 +121,9 @@ homeboy_dmc_command_json() {
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{path}'
       ;;
     ensure)
-      # DMC derives the canonical handle from repo + branch and validates the
-      # task/base intent before returning the checkout to Homeboy.
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--base-branch={base}' '--task-url={task_url}' --format=json "${wp_flags[@]}"
+      # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
+      # contract on creation and on owner-identical retries.
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
       ;;
     list)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree list --with-status --format=json "${wp_flags[@]}"
