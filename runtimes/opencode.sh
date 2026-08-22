@@ -10,7 +10,6 @@ runtime_install() {
     log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
   fi
 
-  _remove_legacy_opencode_wrapper
   _opencode_register_runtime_signature
 }
 
@@ -77,66 +76,6 @@ _opencode_register_runtime_signature() {
   runtime_signature_register \
     "opencode" \
     '{"run_id":"OPENCODE_RUN_ID"}'
-}
-
-# Remove any legacy wp-coding-agents-opencode-wrapper-v2 bash shim that prior
-# upgrades installed at the global `opencode` path. The wrapper existed to
-# feed Anthropic OAuth credentials into ~/.claude/.credentials.json for the
-# opencode-claude-auth plugin. wp-coding-agents no longer ships, installs, or
-# patches that plugin: Kimaki's built-in AnthropicAuthPlugin handles OAuth
-# (token refresh, multi-account rotation, request rewriting), and non-kimaki
-# bridges authenticate via opencode's native auth flow. The wrapper is purely
-# legacy and must not be re-installed by any future upgrade run.
-_remove_legacy_opencode_wrapper() {
-  local OPENCODE_BIN
-  OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "")
-  [ -n "$OPENCODE_BIN" ] || return 0
-  [ -f "$OPENCODE_BIN" ] || return 0
-
-  # Only act on the known wp-coding-agents wrapper sentinel — never touch a
-  # binary or a wrapper installed by anything else.
-  if ! grep -q "wp-coding-agents-opencode-wrapper" "$OPENCODE_BIN" 2>/dev/null; then
-    return 0
-  fi
-
-  # Recover the real binary path from the wrapper's `exec` line so we can
-  # restore the global `opencode` symlink/hardlink to it.
-  local REAL_BIN=""
-  while IFS= read -r line; do
-    case "$line" in
-      exec\ *opencode*|exec\ /*opencode*)
-        set -- $line
-        REAL_BIN="${2#\'}"
-        REAL_BIN="${REAL_BIN%\'}"
-        REAL_BIN="${REAL_BIN#\"}"
-        REAL_BIN="${REAL_BIN%\"}"
-        ;;
-    esac
-  done < "$OPENCODE_BIN"
-
-  # Fall back to the npm-shipped layout: opencode-ai keeps the real binary at
-  # bin/.opencode and ships a wrapper at bin/opencode in older versions; newer
-  # versions hardlink them. Either way, .opencode is the canonical real binary.
-  if [ -z "$REAL_BIN" ] || [ ! -f "$REAL_BIN" ]; then
-    REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/.opencode"
-  fi
-
-  if [ ! -f "$REAL_BIN" ]; then
-    warn "Legacy opencode wrapper detected at $OPENCODE_BIN but real binary not found — leaving alone"
-    return 0
-  fi
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would remove legacy opencode wrapper at $OPENCODE_BIN and link to $REAL_BIN"
-    return 0
-  fi
-
-  log "Removing legacy opencode wrapper at $OPENCODE_BIN (real binary: $REAL_BIN)"
-  rm -f "$OPENCODE_BIN" "${OPENCODE_BIN}.bak."* 2>/dev/null || true
-  if ! ln "$REAL_BIN" "$OPENCODE_BIN" 2>/dev/null; then
-    ln -s "$REAL_BIN" "$OPENCODE_BIN"
-  fi
-  UPDATED_ITEMS+=("removed legacy opencode wrapper")
 }
 
 runtime_discover_dm_paths() {

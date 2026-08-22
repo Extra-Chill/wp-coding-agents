@@ -32,13 +32,13 @@ jobs:
       - name: Run tests/bridge-render.sh
         run: ./tests/bridge-render.sh
 
-  opencode-wrapper-removal:
-    name: opencode wrapper removal regression (#117)
+  opencode-claude-auth-retired:
+    name: opencode-claude-auth stays retired (#117)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/opencode-wrapper-removal.sh
-        run: ./tests/opencode-wrapper-removal.sh
+      - name: Run tests/opencode-claude-auth-retired.sh
+        run: ./tests/opencode-claude-auth-retired.sh
 
   opencode-subagents:
     name: Data Machine graph OpenCode subagents (#355)
