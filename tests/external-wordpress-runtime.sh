@@ -12,6 +12,7 @@ TRANSPORT="$TMP/control transport"
 ARGS="$TMP/transport-args"
 KIMAKI_ENV="$TMP/kimaki-env"
 GRAPH="$TMP/remote-subagent-graph.json"
+TRANSIENT_READ_MARKER="$TMP/transient-read"
 
 mkdir -p "$RUNTIME_PROJECT_ROOT"
 python3 - "$GRAPH" <<'PY'
@@ -46,6 +47,10 @@ case "$5:$6" in
       injectable-files) printf '%s\n' '[{"filename":"SITE.md","layer":"shared","priority":10,"path":"/remote/wp-content/uploads/datamachine-files/shared/SITE.md"},{"filename":"SOUL.md","layer":"agent","priority":20,"path":"/remote/wp-content/uploads/datamachine-files/agents/remote/SOUL.md"}]' ;;
       read)
         cat >/dev/null
+        if [ ! -e "$WP_TEST_TRANSIENT_READ_MARKER" ]; then
+          touch "$WP_TEST_TRANSIENT_READ_MARKER"
+          exit 255
+        fi
         case "$8" in
           SITE.md) printf '%s\n' 'site context' ;;
           SOUL.md) printf '%s\n' 'agent context' ;;
@@ -94,6 +99,7 @@ export SCRIPT_DIR RUNTIME_PROJECT_ROOT WORDPRESS_PATH WORDPRESS_USER AGENT_SLUG=
 export WP_TEST_ARGS="$ARGS"
 export WP_TEST_KIMAKI_ENV="$KIMAKI_ENV"
 export WP_TEST_GRAPH="$GRAPH"
+export WP_TEST_TRANSIENT_READ_MARKER="$TRANSIENT_READ_MARKER"
 export PATH="$TMP/bin:$PATH"
 export WP_CONTROL_TRANSPORT_JSON="[\"$TRANSPORT\",\"--identity\",\"secret value with spaces\"]"
 export EXTERNAL_WORDPRESS=true DRY_RUN=false LOCAL_MODE=true IS_STUDIO=false
