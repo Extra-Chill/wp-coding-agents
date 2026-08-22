@@ -81,7 +81,7 @@ provider = json.loads(payload)
 commands = provider["commands"]
 expected_resolve = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
 expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{path}"]
-expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--base-branch={base}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
+expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}"]
 if provider.get("lookup_timeout_ms") != 10000:
@@ -113,7 +113,7 @@ import sys
 line = open(sys.argv[1], encoding="utf-8").read().strip()
 _, payload = line.split("|", 1)
 commands = json.loads(payload)["commands"]
-intent = {"handle": "fixture@fix-310-dmc-cook", "repo": "fixture", "base": "main", "head": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/310", "idempotency_key": "fixture@fix-310-dmc-cook:fixture:main:fix/310-dmc-cook"}
+intent = {"handle": "fixture@fix-310-dmc-cook", "repo": "fixture", "base": "origin/main", "head": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/310", "idempotency_key": "fixture@fix-310-dmc-cook:fixture:origin/main:fix/310-dmc-cook", "purpose": "agent-task-cook", "owner_run_ref": "homeboy://agent-task/run/cook-310", "cleanup_policy": "remove_on_success"}
 
 def run(name, values):
     return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
@@ -206,7 +206,7 @@ fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
   [ "$6" = "fixture" ] && [ "$7" = "fix/310-dmc-cook" ] || exit 2
   case "$*" in
-    *--base-branch=main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--format=json*) ;;
+    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-310*--cleanup-policy=remove_on_success*--format=json*) ;;
     *) exit 2 ;;
   esac
   : > "$DMC_STATE"
@@ -243,7 +243,7 @@ assert_contains "\"attest_safety\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-pr
 assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
-assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--base-branch={base}\",\"--task-url={task_url}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
