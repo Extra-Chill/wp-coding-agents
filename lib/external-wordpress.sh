@@ -124,7 +124,7 @@ external_wordpress_project_context() {
     case "$layer" in ''|*[!A-Za-z0-9_-]*) error "Unsafe injectable context layer: $layer" ;; esac
     destination="$staging/$layer/$filename"
     mkdir -p "$(dirname "$destination")"
-    content="$(wp_cmd datamachine memory read "$filename" "${agent_args[@]}" 2>/dev/null)" || error "Could not read injectable Data Machine context '$filename' through the external control transport"
+    content="$(wp_cmd datamachine memory read "$filename" "${agent_args[@]}" </dev/null 2>/dev/null)" || error "Could not read injectable Data Machine context '$filename' through the external control transport"
     printf '%s\n' "$content" > "$destination"
     DM_AGENT_FILES="${DM_AGENT_FILES}${DM_AGENT_FILES:+$'\n'}.wp-coding-agents/context/$layer/$filename"
   done < <(printf '%s' "$json" | python3 -c 'import json,sys; [print(item["filename"] + "\t" + item["layer"]) for item in json.load(sys.stdin) if isinstance(item, dict) and isinstance(item.get("filename"), str) and isinstance(item.get("layer"), str)]')

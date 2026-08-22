@@ -45,6 +45,7 @@ case "$5:$6" in
     case "$7" in
       injectable-files) printf '%s\n' '[{"filename":"SITE.md","layer":"shared","priority":10,"path":"/remote/wp-content/uploads/datamachine-files/shared/SITE.md"},{"filename":"SOUL.md","layer":"agent","priority":20,"path":"/remote/wp-content/uploads/datamachine-files/agents/remote/SOUL.md"}]' ;;
       read)
+        cat >/dev/null
         case "$8" in
           SITE.md) printf '%s\n' 'site context' ;;
           SOUL.md) printf '%s\n' 'agent context' ;;
