@@ -16,13 +16,14 @@ ORIGINAL_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
 
 SITE_PATH="$TMP/site"
+DM_WORKSPACE_DIR="$TMP/workspace"
 WP_CMD="wp"
 WP_ROOT_FLAG=""
 IS_STUDIO=true
 LOCAL_MODE=true
 HOMEBOY_MODE="auto"
 WITH_HOMEBOY=false
-mkdir -p "$SITE_PATH"
+mkdir -p "$SITE_PATH/wp-content/plugins/data-machine-code/bin" "$DM_WORKSPACE_DIR"
 touch "$SITE_PATH/wp-config.php"
 
 assert_contains() {
@@ -70,16 +71,23 @@ PY
 }
 
 assert_provider_contract() {
-  python3 - "$1" "$2" "$3" <<'PY'
+  python3 - "$1" "$2" "$3" "$DM_WORKSPACE_DIR" <<'PY'
 import json
 import sys
 
 line = open(sys.argv[1], encoding="utf-8").read().strip()
 _, payload = line.split("|", 1)
-commands = json.loads(payload)["commands"]
-expected_resolve = ["bash", f"{sys.argv[2]}/scripts/homeboy-dmc-resolve.sh", "studio", "wp", "datamachine-code", "workspace", "worktree", "get", "{handle}", "--format=json", f"--path={sys.argv[3]}"]
-expected_resolve_path = ["bash", f"{sys.argv[2]}/scripts/homeboy-dmc-resolve.sh", "studio", "wp", "datamachine-code", "workspace", "worktree", "get", "{path}", "--format=json", f"--path={sys.argv[3]}"]
+provider = json.loads(payload)
+commands = provider["commands"]
+expected_resolve = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
+expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{path}"]
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--base-branch={base}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
+expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
+expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}"]
+if provider.get("lookup_timeout_ms") != 10000:
+    raise SystemExit("FAIL: standalone DMC lookups must retain a bounded timeout")
+if provider.get("mutation_timeout_ms") != 120000:
+    raise SystemExit("FAIL: DMC mutation timeout must accommodate worktree creation and bootstrap")
 if commands.get("resolve_not_found_exit_codes") != [42]:
     raise SystemExit("FAIL: DMC typed-not-found classification must be exactly [42]")
 if commands.get("resolve") != expected_resolve:
@@ -88,6 +96,10 @@ if commands.get("resolve_path") != expected_resolve_path:
     raise SystemExit(f"FAIL: DMC path resolve adapter mapping mismatch: {commands.get('resolve_path')!r}")
 if commands.get("ensure") != expected_ensure:
     raise SystemExit(f"FAIL: DMC ensure mapping mismatch: {commands.get('ensure')!r}")
+if commands.get("resolve_identity") != expected_identity:
+    raise SystemExit(f"FAIL: DMC standalone identity mapping mismatch: {commands.get('resolve_identity')!r}")
+if commands.get("attest_safety") != expected_safety:
+    raise SystemExit(f"FAIL: DMC standalone safety mapping mismatch: {commands.get('attest_safety')!r}")
 PY
 }
 
@@ -106,26 +118,65 @@ intent = {"handle": "fixture@fix-310-dmc-cook", "repo": "fixture", "base": "main
 def run(name, values):
     return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
 
-first = run("resolve", intent)
-if first.returncode != 42 or json.loads(first.stdout)["error"]["code"] != "worktree_not_found":
-    raise SystemExit(f"FAIL: absent resolve did not return DMC's typed status: {first!r}")
+first = run("resolve_identity", intent)
+if first.returncode or json.loads(first.stdout).get("status") != "not_owned":
+    raise SystemExit(f"FAIL: absent identity did not return a typed decline: {first!r}")
 ensured = run("ensure", intent)
 if ensured.returncode or not json.loads(ensured.stdout).get("success"):
     raise SystemExit(f"FAIL: DMC ensure failed: {ensured!r}")
-resolved = run("resolve", intent)
-if resolved.returncode or json.loads(resolved.stdout)[0]["handle"] != intent["handle"]:
-    raise SystemExit(f"FAIL: resolve -> ensure -> resolve did not converge: {resolved!r}")
+resolved = run("resolve_identity", intent)
+identity = json.loads(resolved.stdout)
+if resolved.returncode or identity.get("handle") != intent["handle"]:
+    raise SystemExit(f"FAIL: identity -> ensure -> identity did not converge: {resolved!r}")
+safety = run("attest_safety", {**intent, "identity": identity["token"]})
+if safety.returncode or json.loads(safety.stdout).get("fresh") is not True:
+    raise SystemExit(f"FAIL: split safety attestation failed: {safety!r}")
 
-before = open(sys.argv[2], encoding="utf-8").read()
-failed = run("resolve", {**intent, "handle": "fixture@unrelated-exit-one"})
-after = open(sys.argv[2], encoding="utf-8").read()
-if failed.returncode != 1 or before != after:
-    raise SystemExit("FAIL: unrelated DMC exit 1 was not fail-closed")
 PY
 }
 
 FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
+
+cat > "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" <<'PHP'
+#!/usr/bin/env php
+<?php
+$operation = $argv[1] ?? '';
+$value = $argv[3] ?? '';
+if ('identity' === $operation) {
+    if (!file_exists(getenv('DMC_STATE'))) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-identity/v1', 'status' => 'not_owned', 'ownership' => 'not_owned')) . "\n";
+        exit(0);
+    }
+    echo json_encode(array(
+        'schema' => 'datamachine-code/worktree-identity/v1',
+        'status' => 'owned',
+        'token' => 'fixture-token',
+        'handle' => $value,
+        'path' => getenv('DMC_STATE'),
+        'branch' => 'fix/310-dmc-cook',
+        'primary' => false,
+        'latency_ms' => 1,
+    )) . "\n";
+    exit(0);
+}
+if ('safety' === $operation && 'fixture-token' === $value) {
+    echo json_encode(array(
+        'schema' => 'datamachine-code/worktree-safety/v1',
+        'status' => 'attested',
+        'identity_token' => $value,
+        'observed_at' => '2026-08-22T00:00:00Z',
+        'dirty' => false,
+        'unpushed' => false,
+        'fresh' => true,
+        'latency_ms' => 2,
+    )) . "\n";
+    exit(0);
+}
+fwrite(STDERR, "unsupported fixture request\n");
+exit(1);
+PHP
+chmod +x "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider"
 
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/sh
@@ -187,8 +238,10 @@ DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
-assert_contains "\"resolve\":[\"bash\",\"$SCRIPT_DIR/scripts/homeboy-dmc-resolve.sh\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
-assert_contains "\"resolve_path\":[\"bash\",\"$SCRIPT_DIR/scripts/homeboy-dmc-resolve.sh\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{path}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_identity\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"identity\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
+assert_contains "\"attest_safety\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"safety\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{identity}\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--base-branch={base}\",\"--task-url={task_url}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
