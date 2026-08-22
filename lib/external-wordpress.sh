@@ -70,7 +70,20 @@ PY
 external_wordpress_validate() {
   [ "${EXTERNAL_WORDPRESS:-false}" = true ] || return 0
   [ "${DRY_RUN:-false}" = true ] && return 0
-  wp_cmd core is-installed >/dev/null 2>&1 || error "External WordPress validation failed through the supplied control transport"
+  external_wordpress_wp_cmd core is-installed >/dev/null 2>&1 || error "External WordPress validation failed through the supplied control transport"
+}
+
+external_wordpress_wp_cmd() {
+  local attempt=1 delay=1
+  while [ "$attempt" -le 5 ]; do
+    if wp_cmd "$@" </dev/null; then
+      return 0
+    fi
+    [ "$attempt" -lt 5 ] || return 1
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
 }
 
 # Materialize remote Data Machine files locally. Validated paths cannot escape
@@ -110,7 +123,7 @@ external_wordpress_project_context() {
   done
   printf '%s\n' "$lock_owner" > "$lock/pid"
 
-  raw="$(wp_cmd datamachine memory injectable-files --format=json "${agent_args[@]}" 2>/dev/null)" || error "Could not list injectable Data Machine context through the external control transport"
+  raw="$(external_wordpress_wp_cmd datamachine memory injectable-files --format=json "${agent_args[@]}" 2>/dev/null)" || error "Could not list injectable Data Machine context through the external control transport"
   json="$(printf '%s\n' "$raw" | sed -n '/^\[/,/^\]/p')"
   [ -n "$json" ] || error "External Data Machine context listing returned no JSON"
   mkdir -p "$generations"
@@ -124,7 +137,7 @@ external_wordpress_project_context() {
     case "$layer" in ''|*[!A-Za-z0-9_-]*) error "Unsafe injectable context layer: $layer" ;; esac
     destination="$staging/$layer/$filename"
     mkdir -p "$(dirname "$destination")"
-    content="$(wp_cmd datamachine memory read "$filename" "${agent_args[@]}" 2>/dev/null)" || error "Could not read injectable Data Machine context '$filename' through the external control transport"
+    content="$(external_wordpress_wp_cmd datamachine memory read "$filename" "${agent_args[@]}" 2>/dev/null)" || error "Could not read injectable Data Machine context '$filename' through the external control transport"
     printf '%s\n' "$content" > "$destination"
     DM_AGENT_FILES="${DM_AGENT_FILES}${DM_AGENT_FILES:+$'\n'}.wp-coding-agents/context/$layer/$filename"
   done < <(printf '%s' "$json" | python3 -c 'import json,sys; [print(item["filename"] + "\t" + item["layer"]) for item in json.load(sys.stdin) if isinstance(item, dict) and isinstance(item.get("filename"), str) and isinstance(item.get("layer"), str)]')
