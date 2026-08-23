@@ -44,32 +44,6 @@ assert_not_contains() {
   fi
 }
 
-assert_provider_mapping() {
-  python3 - "$1" <<'PY'
-import json
-import sys
-
-line = open(sys.argv[1], encoding="utf-8").read().strip()
-_, payload = line.split("|", 1)
-try:
-    provider = json.loads(payload)
-except json.JSONDecodeError as error:
-    raise SystemExit(f"FAIL: provider config is not valid JSON: {error}: {payload!r}")
-expected = {
-    "items": "$",
-    "handle": "$.handle",
-    "path": "$.path",
-    "branch": "$.branch",
-    "dirty": "$.safety.dirty",
-    "unpushed": "$.safety.unpushed",
-    "primary": "$.safety.primary",
-}
-
-if provider.get("list_result_mapping") != expected:
-    raise SystemExit("FAIL: provider list_result_mapping does not match the DMC safety output")
-PY
-}
-
 assert_provider_contract() {
   python3 - "$1" "$2" "$3" "$DM_WORKSPACE_DIR" <<'PY'
 import json
@@ -100,6 +74,8 @@ if commands.get("resolve_identity") != expected_identity:
     raise SystemExit(f"FAIL: DMC standalone identity mapping mismatch: {commands.get('resolve_identity')!r}")
 if commands.get("attest_safety") != expected_safety:
     raise SystemExit(f"FAIL: DMC standalone safety mapping mismatch: {commands.get('attest_safety')!r}")
+if "list" in commands or "list_result_mapping" in provider:
+    raise SystemExit("FAIL: DMC provider must not advertise unsupported generic list capability")
 PY
 }
 
@@ -143,6 +119,7 @@ cat > "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider
 <?php
 $operation = $argv[1] ?? '';
 $value = $argv[3] ?? '';
+file_put_contents(getenv('DMC_PROVIDER_LOG'), $operation . "|" . $value . "\n", FILE_APPEND);
 if ('identity' === $operation) {
     if (!file_exists(getenv('DMC_STATE'))) {
         echo json_encode(array('schema' => 'datamachine-code/worktree-identity/v1', 'status' => 'not_owned', 'ownership' => 'not_owned')) . "\n";
@@ -214,10 +191,6 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
   printf '{"success":true,"handle":"fixture@fix-310-dmc-cook"}\n'
   exit 0
 fi
-if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
-  printf '{"success":true,"data":[]}\n'
-  exit 0
-fi
 exit 2
 SH
 chmod +x "$FAKE_BIN/studio"
@@ -227,8 +200,10 @@ HOMEBOY_CONFIG_LOG="$TMP/homeboy-config.log"
 STUDIO_LOG="$TMP/studio.log"
 DMC_STATE="$TMP/dmc-state"
 DMC_ENSURE_LOG="$TMP/dmc-ensure.log"
+DMC_PROVIDER_LOG="$TMP/dmc-provider.log"
 : > "$DMC_ENSURE_LOG"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG
+: > "$STUDIO_LOG"
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PROVIDER_LOG
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
@@ -244,7 +219,8 @@ assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
-assert_contains "\"list\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_not_contains '"list":' "$TMP/dry-run.log"
+assert_not_contains '"list_result_mapping":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 if [ -f "$HOMEBOY_CONFIG_LOG" ]; then
@@ -256,9 +232,9 @@ fi
 DRY_RUN=false
 configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 
-assert_contains "wp datamachine-code workspace worktree list --format=json --path=$SITE_PATH" "$STUDIO_LOG"
+assert_contains 'identity|homeboy-readiness@probe' "$DMC_PROVIDER_LOG"
+assert_not_contains 'workspace worktree list' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
-assert_provider_mapping "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
