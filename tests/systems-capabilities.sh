@@ -12,7 +12,7 @@ ok() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1"; failures=$((failures + 1)); }
 
 source lib/common.sh
-wp_run_as_service_user() { return 0; }
+wp_run_as_service_user() { printf '%s\n' "$*" > "$TMP/wp-call"; }
 source lib/systems-capabilities.sh
 SITE_PATH="$TMP/site"
 DM_WORKSPACE_DIR="$TMP/workspace"
@@ -25,6 +25,7 @@ SYSTEMS_CAPABILITIES_LIB_DIR="$TMP/lib"
 SYSTEMS_CAPABILITIES_BIN_DIR="$TMP/bin"
 SYSTEMS_CAPABILITIES_JOURNALD_FILE="$TMP/journald.conf"
 SYSTEMS_CAPABILITIES_LOGROTATE_DIR="$TMP/logrotate"
+SYSTEMS_CAPABILITIES_SYSTEMD_DIR="$TMP/systemd"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="$TMP/sudoers"
 mkdir -p "$SITE_PATH/wp-content" "$DM_WORKSPACE_DIR/repo"
 
@@ -34,6 +35,11 @@ policy="$(systems_capabilities_logrotate_content)"
 for directive in daily 'maxsize 100M' 'rotate 7' compress copytruncate 'su www-data www-data' 'create 0640 www-data www-data'; do
   case "$policy" in *"$directive"*) ;; *) fail "logrotate policy misses $directive" ;; esac
 done
+timer="$(systems_capabilities_logrotate_timer_content)"
+for directive in 'OnCalendar=' 'OnCalendar=*:0/5' 'AccuracySec=1min' 'RandomizedDelaySec=0' 'Persistent=true'; do
+  case "$timer" in *"$directive"*) ;; *) fail "logrotate timer misses $directive" ;; esac
+done
+[ "$(systems_capabilities_logrotate_timer_file)" = "$SYSTEMS_CAPABILITIES_SYSTEMD_DIR/logrotate.timer.d/wp-coding-agents.conf" ] && ok "logrotate cadence extends the owner timer" || fail "logrotate timer path is not fixed"
 [ "$(systems_capabilities_sudoers_content)" = "opencode ALL=(root) NOPASSWD: $SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect $(systems_capabilities_profile_file)" ] && ok "sudo rule binds the adapter to one profile" || fail "sudo rule is not exact"
 SITE_PATH="$TMP/example.com"
 case "$(basename "$(systems_capabilities_sudoers_file)")" in *.*) fail "sudoers filename contains an ignored dot" ;; *) ok "sudoers filename is include-safe" ;; esac
@@ -43,6 +49,14 @@ mkdir -p "$SITE_PATH"
 [ "$first_key" != "$(systems_capabilities_profile_key)" ] && ok "same-basename sites have collision-resistant keys" || fail "site profile keys collide"
 SITE_PATH="$TMP/site"
 case "$(systems_capabilities_profile_content)" in *'"invocation":"printf candidate-path | sudo -n '* ) ok "discovery records DMC's fixed stdin sudo contract" ;; *) fail "DMC invocation contract missing" ;; esac
+case "$(systems_capabilities_profile_content)" in *'"timer":"logrotate.timer"'*'"schedule":"*:0/5"'* ) ok "discovery records frequent owner-policy evaluation" ;; *) fail "logrotate timer contract missing" ;; esac
+
+echo "DMC consumer wiring uses the fixed adapter contract"
+DRY_RUN=false
+systems_capabilities_configure_dmc
+expected_argv="$(systems_capabilities_process_probe_argv)"
+[ "$(cat "$TMP/wp-call")" = "option update datamachine_code_external_process_path_probe_argv $expected_argv --format=json" ] && ok "DMC option receives the fixed probe argv" || fail "DMC option wiring drifted"
+DRY_RUN=true
 
 echo "adapter rejects ambient paths and reports only configured workspace processes"
 printf '{"workspace_roots":["%s"]}\n' "$DM_WORKSPACE_DIR" > "$TMP/profile.json"
