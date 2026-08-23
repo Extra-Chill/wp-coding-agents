@@ -6,6 +6,7 @@ SYSTEMS_CAPABILITIES_BIN_DIR="${SYSTEMS_CAPABILITIES_BIN_DIR:-/usr/local/bin}"
 SYSTEMS_CAPABILITIES_LIB_DIR="${SYSTEMS_CAPABILITIES_LIB_DIR:-/usr/local/lib/wp-coding-agents}"
 SYSTEMS_CAPABILITIES_JOURNALD_FILE="${SYSTEMS_CAPABILITIES_JOURNALD_FILE:-/etc/systemd/journald.conf.d/wp-coding-agents.conf}"
 SYSTEMS_CAPABILITIES_LOGROTATE_DIR="${SYSTEMS_CAPABILITIES_LOGROTATE_DIR:-/etc/logrotate.d}"
+SYSTEMS_CAPABILITIES_SYSTEMD_DIR="${SYSTEMS_CAPABILITIES_SYSTEMD_DIR:-/etc/systemd/system}"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="${SYSTEMS_CAPABILITIES_SUDOERS_DIR:-/etc/sudoers.d}"
 
 systems_capabilities_profile_name() { printf '%s' "$(basename "$SITE_PATH")"; }
@@ -18,6 +19,7 @@ systems_capabilities_profile_key() {
 }
 systems_capabilities_profile_file() { printf '%s/%s.json' "$SYSTEMS_CAPABILITIES_PROFILE_ROOT" "$(systems_capabilities_profile_key)"; }
 systems_capabilities_logrotate_file() { printf '%s/wp-coding-agents-%s-debug-log' "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR" "$(systems_capabilities_profile_key)"; }
+systems_capabilities_logrotate_timer_file() { printf '%s/logrotate.timer.d/wp-coding-agents.conf' "$SYSTEMS_CAPABILITIES_SYSTEMD_DIR"; }
 systems_capabilities_sudoers_file() { printf '%s/wp-coding-agents-dmc-process-inspect-%s' "$SYSTEMS_CAPABILITIES_SUDOERS_DIR" "$(systems_capabilities_profile_key)"; }
 
 systems_capabilities_workspace_roots() {
@@ -46,10 +48,12 @@ systems_capabilities_resolve_profile() {
 }
 
 systems_capabilities_profile_content() {
-  local log="$SITE_PATH/wp-content/debug.log" roots_json adapter
+  local log="$SITE_PATH/wp-content/debug.log" roots_json adapter logrotate timer_dropin
   roots_json="$(systems_capabilities_workspace_roots | python3 -c 'import json,sys; print(json.dumps([line.rstrip("\n") for line in sys.stdin if line.strip()]))')"
   adapter="$SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect"
-  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"workspace_roots":json.loads(sys.argv[2]),"process_inspection":{"adapter":sys.argv[3],"invocation":"printf candidate-path | sudo -n " + sys.argv[3] + " " + sys.argv[4],"stdin":"one absolute candidate path","output":"JSON process references"}}, separators=(",",":")))' "$log" "$roots_json" "$adapter" "$(systems_capabilities_profile_file)"
+  logrotate="$(systems_capabilities_logrotate_file)"
+  timer_dropin="$(systems_capabilities_logrotate_timer_file)"
+  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"workspace_roots":json.loads(sys.argv[2]),"logrotate":{"config":sys.argv[5],"timer":"logrotate.timer","timer_dropin":sys.argv[6],"schedule":"*:0/5"},"process_inspection":{"adapter":sys.argv[3],"invocation":"printf candidate-path | sudo -n " + sys.argv[3] + " " + sys.argv[4],"stdin":"one absolute candidate path","output":"JSON process references"}}, separators=(",",":")))' "$log" "$roots_json" "$adapter" "$(systems_capabilities_profile_file)" "$logrotate" "$timer_dropin"
 }
 
 systems_capabilities_logrotate_content() {
@@ -72,6 +76,17 @@ systems_capabilities_journald_content() {
   cat <<'EOF'
 [Journal]
 SystemMaxUse=1G
+EOF
+}
+
+systems_capabilities_logrotate_timer_content() {
+  cat <<'EOF'
+[Timer]
+OnCalendar=
+OnCalendar=*:0/5
+AccuracySec=1min
+RandomizedDelaySec=0
+Persistent=true
 EOF
 }
 
@@ -136,15 +151,17 @@ systems_capabilities_report_root_repair() {
 }
 
 systems_capabilities_status() {
-  local profile logrotate adapter sudoers journal
+  local profile logrotate logrotate_timer adapter sudoers journal
   profile="$(systems_capabilities_profile_file)"
   logrotate="$(systems_capabilities_logrotate_file)"
+  logrotate_timer="$(systems_capabilities_logrotate_timer_file)"
   adapter="$SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect"
   sudoers="$(systems_capabilities_sudoers_file)"
   journal="$SYSTEMS_CAPABILITIES_JOURNALD_FILE"
   local missing=()
   systems_capabilities_drift "$profile" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER" || missing+=(profile)
   systems_capabilities_drift "$logrotate" "$(systems_capabilities_logrotate_content)" 0644 || missing+=(logrotate)
+  systems_capabilities_drift "$logrotate_timer" "$(systems_capabilities_logrotate_timer_content)" 0644 || missing+=(logrotate_timer)
   systems_capabilities_drift "$journal" "$(systems_capabilities_journald_content)" 0644 || missing+=(journald)
   systems_capabilities_drift "$adapter" "$(cat "$SCRIPT_DIR/scripts/dmc-process-inspect.py")" 0755 || missing+=(adapter)
   systems_capabilities_drift "$sudoers" "$(systems_capabilities_sudoers_content)" 0440 || missing+=(sudoers)
@@ -167,6 +184,7 @@ systems_capabilities_apply() {
     systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER"
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644
     systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
+    systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect" "$(cat "$SCRIPT_DIR/scripts/dmc-process-inspect.py")" 0755
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_BIN_DIR/wp-coding-agents-systems-capabilities" "$(cat "$SCRIPT_DIR/scripts/systems-capabilities-status.py")" 0755
     systems_capabilities_install_sudoers "$(systems_capabilities_sudoers_file)" "$(systems_capabilities_sudoers_content)"
@@ -178,17 +196,26 @@ systems_capabilities_apply() {
     return 0
   fi
   log "Provisioning managed VPS systems capabilities..."
-  local journald_changed=false
+  local journald_changed=false logrotate_timer_changed=false
   systems_capabilities_drift "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644 || journald_changed=true
+  systems_capabilities_drift "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644 || logrotate_timer_changed=true
   systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER"
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
+  systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect" "$(cat "$SCRIPT_DIR/scripts/dmc-process-inspect.py")" 0755
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_BIN_DIR/wp-coding-agents-systems-capabilities" "$(cat "$SCRIPT_DIR/scripts/systems-capabilities-status.py")" 0755
   systems_capabilities_install_sudoers "$(systems_capabilities_sudoers_file)" "$(systems_capabilities_sudoers_content)"
   systems_capabilities_configure_dmc
   if [ "$journald_changed" = true ]; then
     systemctl restart systemd-journald
+  fi
+  if [ "$logrotate_timer_changed" = true ]; then
+    systemctl daemon-reload
+  fi
+  systemctl enable --now logrotate.timer
+  if [ "$logrotate_timer_changed" = true ]; then
+    systemctl restart logrotate.timer
   fi
   systems_capabilities_status
 }
