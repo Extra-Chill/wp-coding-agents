@@ -3,6 +3,54 @@
 declare(strict_types=1);
 
 $operation = (string) ( $argv[1] ?? '' );
+
+if ( 'plan' === $operation ) {
+	$command = array_slice($argv, 2);
+	if ( array() === $command ) {
+		fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan <dmc-worktree-plan-command...>\n");
+		exit(2);
+	}
+	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+	if ( ! is_resource($process) ) {
+		fwrite(STDERR, "Could not start the DMC worktree plan command.\n");
+		exit(1);
+	}
+	$stdout = stream_get_contents($pipes[1]);
+	$stderr = stream_get_contents($pipes[2]);
+	fclose($pipes[1]);
+	fclose($pipes[2]);
+	$status = proc_close($process);
+	if ( 0 !== $status ) {
+		fwrite(STDERR, 'DMC worktree plan failed: ' . trim($stderr) . "\n");
+		exit($status > 0 && $status < 256 ? $status : 1);
+	}
+	try {
+		$plan = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+	} catch (Throwable $error) {
+		fwrite(STDERR, 'DMC worktree plan returned invalid JSON: ' . $error->getMessage() . "\n");
+		exit(1);
+	}
+	if ( ! is_array($plan) || 1 !== ( $plan['version'] ?? null ) || ! is_string($plan['digest'] ?? null) || '' === $plan['digest'] ) {
+		fwrite(STDERR, "DMC worktree plan returned an unsupported typed envelope.\n");
+		exit(1);
+	}
+	$disposition = (string) ( $plan['disposition'] ?? '' );
+	if ( ! in_array($disposition, array( 'create', 'exact_reuse', 'adoptable' ), true) ) {
+		fwrite(STDERR, 'DMC worktree plan refused the requested destination: ' . ( $disposition ?: 'unknown' ) . "\n");
+		exit(1);
+	}
+	$handle = $plan['handle'] ?? null;
+	$path   = $plan['path'] ?? null;
+	$branch = $plan['branch'] ?? null;
+	if ( ! is_string($handle) || '' === $handle || ! is_string($path) || '' === $path || ! is_string($branch) || '' === $branch ) {
+		fwrite(STDERR, "DMC worktree plan returned an incomplete typed destination.\n");
+		exit(1);
+	}
+	$result = array( array( 'handle' => $handle, 'path' => $path, 'branch' => $branch, 'safety' => array( 'dirty' => false, 'unpushed' => false, 'primary' => false ) ) );
+	fwrite(STDOUT, json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+	exit(0);
+}
+
 $provider  = (string) ( $argv[2] ?? '' );
 $workspace = (string) ( $argv[3] ?? '' );
 $value     = (string) ( $argv[4] ?? '' );

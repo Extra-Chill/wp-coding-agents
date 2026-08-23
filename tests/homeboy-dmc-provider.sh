@@ -49,13 +49,16 @@ assert_provider_contract() {
 import json
 import sys
 
-line = open(sys.argv[1], encoding="utf-8").read().strip()
-_, payload = line.split("|", 1)
+lines = [line for line in open(sys.argv[1], encoding="utf-8").read().splitlines() if line.startswith("/worktree_providers/dmc|")]
+if not lines:
+    raise SystemExit("FAIL: missing DMC provider config write")
+_, payload = lines[-1].split("|", 1)
 provider = json.loads(payload)
 commands = provider["commands"]
 expected_resolve = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
 expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{path}"]
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
+expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}"]
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}", "{base}"]
@@ -71,6 +74,8 @@ if commands.get("resolve_path") != expected_resolve_path:
     raise SystemExit(f"FAIL: DMC path resolve adapter mapping mismatch: {commands.get('resolve_path')!r}")
 if commands.get("ensure") != expected_ensure:
     raise SystemExit(f"FAIL: DMC ensure mapping mismatch: {commands.get('ensure')!r}")
+if commands.get("plan") != expected_plan:
+    raise SystemExit(f"FAIL: DMC plan mapping mismatch: {commands.get('plan')!r}")
 if commands.get("resolve_identity") != expected_identity:
     raise SystemExit(f"FAIL: DMC standalone identity mapping mismatch: {commands.get('resolve_identity')!r}")
 if commands.get("attest_safety") != expected_safety:
@@ -116,16 +121,20 @@ PY
 }
 
 assert_provisioning_contract() {
-  python3 - "$1" "$DMC_ENSURE_LOG" <<'PY'
+  python3 - "$1" "$DMC_ENSURE_LOG" "$DMC_PLAN_PATH" <<'PY'
 import json
 import os
 import subprocess
 import sys
 
-line = open(sys.argv[1], encoding="utf-8").read().strip()
-_, payload = line.split("|", 1)
+lines = [line for line in open(sys.argv[1], encoding="utf-8").read().splitlines() if line.startswith("/worktree_providers/dmc|")]
+if not lines:
+    raise SystemExit("FAIL: missing DMC provider config write")
+_, payload = lines[-1].split("|", 1)
 commands = json.loads(payload)["commands"]
-intent = {"handle": "fixture@fix-310-dmc-cook", "repo": "fixture", "base": "origin/main", "head": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/310", "idempotency_key": "fixture@fix-310-dmc-cook:fixture:origin/main:fix/310-dmc-cook", "purpose": "agent-task-cook", "owner_run_ref": "homeboy://agent-task/run/cook-310", "cleanup_policy": "remove_on_success"}
+# Homeboy normalizes the configured php-transformer component to its canonical
+# blocks-engine repository before the provider sees the worktree intent.
+intent = {"handle": "blocks-engine@fix-406-dmc-provider-plan", "repo": "blocks-engine", "base": "origin/main", "head": "fix/406-dmc-provider-plan", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/406", "idempotency_key": "blocks-engine@fix-406-dmc-provider-plan:blocks-engine:origin/main:fix/406-dmc-provider-plan", "purpose": "agent-task-cook", "owner_run_ref": "homeboy://agent-task/run/cook-406", "cleanup_policy": "remove_on_success"}
 
 def run(name, values):
     return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
@@ -133,6 +142,11 @@ def run(name, values):
 first = run("resolve_identity", intent)
 if first.returncode or json.loads(first.stdout).get("status") != "not_owned":
     raise SystemExit(f"FAIL: absent identity did not return a typed decline: {first!r}")
+planned = run("plan", intent)
+if planned.returncode or json.loads(planned.stdout) != [{"handle": intent["handle"], "path": sys.argv[3], "branch": intent["head"], "safety": {"dirty": False, "unpushed": False, "primary": False}}]:
+    raise SystemExit(f"FAIL: DMC plan did not project the canonical destination: {planned!r}")
+if os.path.exists(sys.argv[3]):
+    raise SystemExit("FAIL: DMC plan created its destination")
 ensured = run("ensure", intent)
 if ensured.returncode or not json.loads(ensured.stdout).get("success"):
     raise SystemExit(f"FAIL: DMC ensure failed: {ensured!r}")
@@ -143,6 +157,16 @@ if resolved.returncode or identity.get("handle") != intent["handle"]:
 safety = run("attest_safety", {**intent, "identity": identity["token"]})
 if safety.returncode or json.loads(safety.stdout).get("fresh") is not True:
     raise SystemExit(f"FAIL: split safety attestation failed: {safety!r}")
+
+for disposition in ("exact_reuse", "capacity_blocked", "owner_conflict"):
+    env = os.environ.copy()
+    env["DMC_PLAN_DISPOSITION"] = disposition
+    result = subprocess.run([part.format(**intent) for part in commands["plan"]], text=True, capture_output=True, env=env)
+    if disposition == "exact_reuse":
+        if result.returncode or not json.loads(result.stdout):
+            raise SystemExit(f"FAIL: exact compatible reuse was not plannable: {result!r}")
+    elif result.returncode == 0 or f"{disposition}" not in result.stderr:
+        raise SystemExit(f"FAIL: {disposition} was not an exact plan refusal: {result!r}")
 
 PY
 }
@@ -236,15 +260,25 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree get" ]; then
   printf '{"success":false,"error":{"code":"worktree_not_found"}}\n'
   exit 1
 fi
-if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
-  [ "$6" = "fixture" ] && [ "$7" = "fix/310-dmc-cook" ] || exit 2
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree plan" ]; then
+  [ "$6" = "blocks-engine" ] && [ "$7" = "fix/406-dmc-provider-plan" ] || exit 2
   case "$*" in
-    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/310*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-310*--cleanup-policy=remove_on_success*--format=json*) ;;
+    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
+    *) exit 2 ;;
+  esac
+  printf 'plan\n' >> "$DMC_ENSURE_LOG"
+  printf '{"version":1,"digest":"fixture-plan-digest","handle":"blocks-engine@fix-406-dmc-provider-plan","path":"%s","branch":"fix/406-dmc-provider-plan","disposition":"%s"}\n' "$DMC_PLAN_PATH" "${DMC_PLAN_DISPOSITION:-create}"
+  exit 0
+fi
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
+  [ "$6" = "blocks-engine" ] && [ "$7" = "fix/406-dmc-provider-plan" ] || exit 2
+  case "$*" in
+    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
     *) exit 2 ;;
   esac
   : > "$DMC_STATE"
   printf 'ensure\n' >> "$DMC_ENSURE_LOG"
-  printf '{"success":true,"handle":"fixture@fix-310-dmc-cook"}\n'
+  printf '{"success":true,"handle":"blocks-engine@fix-406-dmc-provider-plan"}\n'
   exit 0
 fi
 exit 2
@@ -256,10 +290,11 @@ HOMEBOY_CONFIG_LOG="$TMP/homeboy-config.log"
 STUDIO_LOG="$TMP/studio.log"
 DMC_STATE="$TMP/dmc-state"
 DMC_ENSURE_LOG="$TMP/dmc-ensure.log"
+DMC_PLAN_PATH="$DM_WORKSPACE_DIR/blocks-engine@fix-406-dmc-provider-plan"
 DMC_PROVIDER_LOG="$TMP/dmc-provider.log"
 : > "$DMC_ENSURE_LOG"
 : > "$STUDIO_LOG"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PROVIDER_LOG
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
@@ -276,6 +311,7 @@ assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"plan\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_not_contains '"list_result_mapping":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -296,6 +332,13 @@ assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
+
+# The same generated set operation is used during upgrade, replacing stale
+# installed provider objects rather than retaining their missing plan command.
+printf '/worktree_providers/dmc|{"commands":{"ensure":["stale"]}}\n' > "$HOMEBOY_CONFIG_LOG"
+rm -f "$DMC_STATE"
+configure_homeboy_dmc_worktree_provider > "$TMP/upgrade.log"
+assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 
 HOMEBOY_MODE="disabled"
 HOMEBOY_CONFIG_LOG="$TMP/disabled-homeboy-config.log"
