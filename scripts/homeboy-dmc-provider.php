@@ -6,14 +6,19 @@ $operation = (string) ( $argv[1] ?? '' );
 $provider  = (string) ( $argv[2] ?? '' );
 $workspace = (string) ( $argv[3] ?? '' );
 $value     = (string) ( $argv[4] ?? '' );
+$base      = (string) ( $argv[5] ?? '' );
 
-if ( ! in_array($operation, array( 'identity', 'safety', 'resolve' ), true) || '' === $provider || '' === $workspace || '' === $value ) {
-	fwrite(STDERR, "Usage: homeboy-dmc-provider.php <identity|safety|resolve> <dmc-provider> <workspace-root> <handle|path|identity-token>\n");
+if ( ! in_array($operation, array( 'identity', 'safety', 'resolve', 'converge' ), true) || '' === $provider || '' === $workspace || '' === $value || ( 'converge' === $operation && '' === $base ) ) {
+	fwrite(STDERR, "Usage: homeboy-dmc-provider.php <identity|safety|resolve|converge> <dmc-provider> <workspace-root> <handle|path|identity-token> [base-sha]\n");
 	exit(2);
 }
 
-$run_provider = static function ( string $provider_operation, string $provider_value ) use ( $provider, $workspace ): array {
-	$process = proc_open(array( PHP_BINARY, $provider, $provider_operation, $workspace, $provider_value ), array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+$run_provider = static function ( string $provider_operation, string $provider_value, string $provider_base = '' ) use ( $provider, $workspace ): array {
+	$command = array( PHP_BINARY, $provider, $provider_operation, $workspace, $provider_value );
+	if ( '' !== $provider_base ) {
+		$command[] = $provider_base;
+	}
+	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
 	if ( ! is_resource($process) ) {
 		throw new RuntimeException('Could not start the DMC worktree provider.');
 	}
@@ -34,7 +39,7 @@ $run_provider = static function ( string $provider_operation, string $provider_v
 
 try {
 	$identity_input = 'resolve' === $operation && str_starts_with($value, '/') ? basename($value) : $value;
-	$payload        = $run_provider('resolve' === $operation ? 'identity' : $operation, $identity_input);
+	$payload        = $run_provider('resolve' === $operation ? 'identity' : $operation, $identity_input, 'converge' === $operation ? $base : '');
 } catch (Throwable $error) {
 	fwrite(STDERR, $error->getMessage() . "\n");
 	exit($error->getCode() > 0 && $error->getCode() < 256 ? $error->getCode() : 1);
@@ -64,6 +69,12 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 		'fresh'          => $payload['fresh'] ?? false,
 		'latency_ms'     => $payload['latency_ms'] ?? 0,
 		'budget_ms'      => 0,
+	);
+} elseif ( 'converge' === $operation && 'datamachine-code/worktree-convergence/v1' === ( $payload['schema'] ?? null ) && 'converged' === ( $payload['status'] ?? null ) && $value === ( $payload['identity_token'] ?? null ) && $base === ( $payload['base_sha'] ?? null ) ) {
+	$result = array(
+		'schema'         => 'homeboy/worktree-provider-convergence/v1',
+		'identity_token' => $value,
+		'base_sha'       => $base,
 	);
 } elseif ( 'resolve' === $operation && in_array((string) ( $payload['status'] ?? '' ), array( 'not_owned', 'not_found' ), true) ) {
 	$result = array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC does not own the requested worktree.' ) );

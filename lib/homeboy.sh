@@ -125,6 +125,9 @@ homeboy_dmc_command_json() {
       # contract on creation and on owner-identical retries.
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
       ;;
+    converge)
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" converge "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{identity}' '{base}'
+      ;;
     cleanup_preview)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
       ;;
@@ -135,12 +138,13 @@ homeboy_dmc_command_json() {
 }
 
 homeboy_dmc_worktree_provider_json() {
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":10000,"mutation_timeout_ms":120000,"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":10000,"mutation_timeout_ms":120000,"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json resolve_identity)" \
     "$(homeboy_dmc_command_json attest_safety)" \
     "$(homeboy_dmc_command_json resolve)" \
     "$(homeboy_dmc_command_json resolve_path)" \
     "$(homeboy_dmc_command_json ensure)" \
+    "$(homeboy_dmc_command_json converge)" \
     "$(homeboy_dmc_command_json cleanup_preview)" \
     "$(homeboy_dmc_command_json cleanup_apply)"
 }
