@@ -115,10 +115,10 @@ homeboy_dmc_command_json() {
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" safety "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{identity}'
       ;;
     resolve)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{handle}'
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{handle}' "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
       ;;
     resolve_path)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{path}'
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$DM_WORKSPACE_DIR" '{path}' "${wp_argv[@]}" datamachine-code workspace worktree get '{path}' --format=json "${wp_flags[@]}"
       ;;
     ensure)
       # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
@@ -143,7 +143,7 @@ homeboy_dmc_command_json() {
 }
 
 homeboy_dmc_worktree_provider_json() {
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":10000,"mutation_timeout_ms":120000,"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":10000,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json resolve_identity)" \
     "$(homeboy_dmc_command_json attest_safety)" \
     "$(homeboy_dmc_command_json resolve)" \
