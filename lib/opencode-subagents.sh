@@ -100,7 +100,11 @@ sys.stdout.buffer.write(value)
       return 1
     }
   else
-    agent_json="$(wp_cmd eval-file "$graph_helper" -- "$AGENT_SLUG" 2>/dev/null)" || {
+    local reader_code reader_payload slug_payload
+    reader_payload="$(base64 < "$graph_helper" | tr -d '\n')"
+    slug_payload="$(printf '%s' "$AGENT_SLUG" | base64 | tr -d '\n')"
+    reader_code="\$args=array(base64_decode('$slug_payload'));eval('?>'.base64_decode('$reader_payload'));"
+    agent_json="$(wp_cmd eval "$reader_code" 2>/dev/null)" || {
       warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
       return 1
     }

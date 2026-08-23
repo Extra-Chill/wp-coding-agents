@@ -21,7 +21,7 @@ warn() { printf '%s\n' "$*" >&2; }
 FAILED=0
 assert() { if "$@"; then printf '  ok   %s\n' "$*"; else printf '  FAIL %s\n' "$*"; FAILED=$((FAILED + 1)); fi; }
 assert_python() { local name="$1"; shift; if python3 - "$@"; then printf '  ok   %s\n' "$name"; else printf '  FAIL %s\n' "$name"; FAILED=$((FAILED + 1)); fi; }
-wp_cmd() { [ "$1" = eval-file ] && [ "$2" = "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php" ] && [ "$3" = -- ] && [ "$4" = "$AGENT_SLUG" ]; cat "$TMP/graph.json"; }
+wp_cmd() { [ "$1" = eval ] && [ "$#" -eq 2 ] || return 1; cat "$TMP/graph.json"; }
 
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php"
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded
