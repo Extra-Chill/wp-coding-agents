@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.1] - 2026-08-22
+
+### Fixed
+- evaluate bounded log policies frequently
+- bound unreadable proc descriptor evidence
+- probe standalone DMC provider readiness
+
 ## [1.18.0] - 2026-08-22
 
 ### Added
