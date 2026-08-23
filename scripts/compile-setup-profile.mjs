@@ -112,6 +112,7 @@ function compile(profile) {
   const installTarget = profile.install_target
   const target = profile.target ?? {}
   const overlays = profile.overlays ?? {}
+  const systemsCapabilities = profile.systems_capabilities ?? {}
   const agent = profile.agent ?? {}
 
   if (!installTarget) {
@@ -187,6 +188,13 @@ function compile(profile) {
   if (overlays.root === false) addFlag(command, "--non-root")
   if (agent.slug) addFlag(command, "--agent-slug", agent.slug)
   if (agent.name) addFlag(command, "--agent-name", agent.name)
+  if (systemsCapabilities.profile && systemsCapabilities.profile !== "none") {
+    if (systemsCapabilities.profile !== "managed-vps") throw new Error(`Unknown systems capability profile: ${systemsCapabilities.profile}`)
+    if (!["fresh-vps", "existing-vps", "migration"].includes(installTarget)) {
+      throw new Error("The managed-vps systems capability profile requires a colocated VPS install")
+    }
+    addFlag(command, "--systems-capabilities", systemsCapabilities.profile)
+  }
 
   if (runtime.selection === "multiple" && runtime.requested.length > 1) {
     const runtimeOnlyEnv = {}
@@ -233,6 +241,7 @@ function compile(profile) {
       overlays: Object.entries(overlays)
         .filter(([, value]) => value === true)
         .map(([key]) => key),
+      systems_capabilities: systemsCapabilities.profile || "none",
     },
     commands: {
       dry_run: formatCommand(env, command, true),

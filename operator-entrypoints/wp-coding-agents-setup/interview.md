@@ -61,7 +61,10 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - Skills install skip.
 
 7. **Agent identity**
-   Ask for the agent slug and display name only when the user wants to override defaults. Defaults come from the site domain or blog name.
+    Ask for the agent slug and display name only when the user wants to override defaults. Defaults come from the site domain or blog name.
+
+8. **Systems capabilities**
+   For a dedicated VPS whose agent is expected to perform bounded host maintenance, ask whether to provision the `managed-vps` systems capability profile. Record `none` for local, external-runtime, and operator-managed hosts.
 
 ## Output Shape
 
@@ -104,6 +107,9 @@ Return the profile as JSON in this shape so the compiler script can map it deter
   "agent": {
     "slug": "",
     "name": ""
+  },
+  "systems_capabilities": {
+    "profile": "none | managed-vps"
   },
   "notes": []
 }
