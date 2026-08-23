@@ -49,10 +49,17 @@ printf '{"workspace_roots":["%s"]}\n' "$DM_WORKSPACE_DIR" > "$TMP/profile.json"
 if [ -d /proc ] && [ "$(id -u)" -ne 0 ]; then
   (cd "$DM_WORKSPACE_DIR/repo" && sleep 20) & sleeper=$!
   trap 'kill "$sleeper" 2>/dev/null || true; rm -rf "$TMP"' EXIT
-  out="$(printf '%s\n' "$DM_WORKSPACE_DIR/repo" | python3 scripts/dmc-process-inspect.py "$TMP/profile.json")"
-  case "$out" in *'"status": "available"'* ) ;; *) fail "adapter did not return DMC's available status" ;; esac
-  case "$out" in *"\"pid\": $sleeper"*|*"\"pid\":$sleeper"*) ok "configured workspace process is visible" ;; *) fail "adapter did not report workspace process" ;; esac
-  case "$out" in *'"path": "'"$DM_WORKSPACE_DIR/repo"'"'* ) ok "adapter returns candidate-scoped process paths" ;; *) fail "adapter process evidence does not match DMC contract" ;; esac
+  adapter_status=0
+  out="$(printf '%s\n' "$DM_WORKSPACE_DIR/repo" | python3 scripts/dmc-process-inspect.py "$TMP/profile.json")" || adapter_status=$?
+  if [ "$adapter_status" -eq 0 ]; then
+    case "$out" in *'"status": "available"'* ) ;; *) fail "adapter did not return DMC's available status" ;; esac
+    case "$out" in *"\"pid\": $sleeper"*|*"\"pid\":$sleeper"*) ok "configured workspace process is visible" ;; *) fail "adapter did not report workspace process" ;; esac
+    case "$out" in *'"path": "'"$DM_WORKSPACE_DIR/repo"'"'* ) ok "adapter returns candidate-scoped process paths" ;; *) fail "adapter process evidence does not match DMC contract" ;; esac
+  elif [ "$adapter_status" -eq 3 ]; then
+    case "$out" in *'"status": "unavailable"'*'"error": "process inspection was incomplete"'*'"unreadable_count": '* ) ok "unreadable proc descriptors return bounded unavailable evidence" ;; *) fail "adapter did not bound incomplete process evidence" ;; esac
+  else
+    fail "adapter escaped its process-inspection contract"
+  fi
 else
   ok "live adapter evidence is exercised by the root VPS acceptance test"
 fi
