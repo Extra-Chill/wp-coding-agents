@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine dmc-managed-release dmc-managed-release-integration carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -104,6 +104,7 @@ WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
+DMC_MANAGED_RELEASE_STATUS=false
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
 OWNED_SOURCES=""
@@ -178,6 +179,7 @@ while [[ $# -gt 0 ]]; do
     --migrate-user)  MIGRATE_TARGET_USER="$2"; shift 2 ;;
     --migrate-extra) service_migration_add_extra_path "$2"; shift 2 ;;
     --help|-h)       SHOW_HELP=true; shift ;;
+    --dmc-managed-release-status) DMC_MANAGED_RELEASE_STATUS=true; shift ;;
     *)               shift ;;
   esac
 done
@@ -331,6 +333,15 @@ OPT-IN TOUCHES:
     authenticate with Claude Pro/Max OAuth. Use --no-claude-code-auth to skip.
 HELP
   exit 0
+fi
+
+# The DMC runtime integration invokes this narrow, read-only status endpoint to
+# inspect the same official-release channel used by --plugins-only.
+if [ "$DMC_MANAGED_RELEASE_STATUS" = true ]; then
+  SITE_PATH="${EXISTING_WP:-${SITE_PATH:-}}"
+  [ -n "$SITE_PATH" ] || error "--dmc-managed-release-status requires --wp-path <path>"
+  dmc_managed_release_status
+  exit $?
 fi
 
 if [ "$PLUGINS_ONLY" = true ] && [ "$SKIP_PLUGINS" = true ]; then
@@ -571,6 +582,7 @@ _run_filter_active() {
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
   upgrade_data_machine_plugins
+  dmc_managed_release_integration_sync
   sync_carried_plugins
   update_wp_codebox_plugin_subtree
 }

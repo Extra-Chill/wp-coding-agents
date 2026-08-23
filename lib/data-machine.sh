@@ -77,7 +77,13 @@ upgrade_data_machine_plugins() {
   # silently reinstalls and reactivates it, because update_plugin_to_latest_tag
   # activates — which is exactly why hand-deactivating DMC never stuck.
   if source_policy_workspace_enabled; then
-    update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+    local dmc_plugin_dir="$SITE_PATH/wp-content/plugins/data-machine-code"
+    if [ -d "$dmc_plugin_dir/.git" ] || [ ! -d "$dmc_plugin_dir" ]; then
+      # Preserve setup's git-checkout contract, including first installation.
+      update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+    else
+      update_data_machine_code_copied_release
+    fi
   else
     log "  Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned})"
   fi

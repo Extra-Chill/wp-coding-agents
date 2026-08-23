@@ -236,6 +236,8 @@ jobs:
           - datamachine-worker
           - detect-php-version
           - detect-site-domain
+          - dmc-managed-release
+          - dmc-managed-release-integration
           - external-wordpress-runtime
           - dm-workspace-discovery
           - homeboy-codebox-canary
