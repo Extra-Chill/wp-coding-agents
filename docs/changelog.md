@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.18.0] - 2026-08-22
+
+### Added
+- provision managed VPS capabilities
+
+### Changed
+- drop the opencode-claude-auth wrapper strip, keep the decision pinned
+
+### Fixed
+- pass Homeboy lifecycle to DMC ensure
+- use standalone DMC worktree provider
+- retry external WordPress transport
+- preserve external context records
+
 ## [1.17.0] - 2026-08-21
 
 ### Added
