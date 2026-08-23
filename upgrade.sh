@@ -504,6 +504,7 @@ echo ""
 
 # Track what was touched for the summary
 UPDATED_ITEMS=()
+PENDING_ITEMS=()
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
@@ -996,7 +997,7 @@ regenerate_agents_md() {
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
-    opencode_project_subagents
+    opencode_project_subagents_optional
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -1337,6 +1338,14 @@ print_summary() {
     done
   fi
 
+  if [ ${#PENDING_ITEMS[@]} -gt 0 ]; then
+    echo ""
+    warn "Pending:"
+    for item in "${PENDING_ITEMS[@]}"; do
+      warn "  - $item"
+    done
+  fi
+
   if [ "$OPENCODE_JSON_DRIFT" = true ]; then
     echo ""
     warn "opencode.json: managed entries were added, but unexpected plugins remain."
@@ -1450,7 +1459,7 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
-opencode_project_subagents
+opencode_project_subagents_optional
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 update_datamachine_worker_service

@@ -251,6 +251,7 @@ jobs:
           - kimaki-multi-instance
           - kimaki-system-message-patch
           - opencode-claude-auth-refresh-hardening
+          - opencode-subagents-optional
           - owned-source-discovery
           - source-reconcile
           - systems-capabilities

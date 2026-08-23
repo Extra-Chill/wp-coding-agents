@@ -127,3 +127,18 @@ sys.stdout.buffer.write(value)
     warn "OpenCode subagent graph changed. Restart OpenCode; it does not hot-reload agent files or task permissions."
   fi
 }
+
+# Subagent projection augments an already-valid OpenCode runtime. A missing
+# Agents API coordinator must not discard an upgrade summary after earlier
+# phases have applied their changes.
+opencode_project_subagents_optional() {
+  if opencode_project_subagents; then
+    return 0
+  fi
+
+  warn "OpenCode subagent projection is pending; register the configured Data Machine agent as an Agents API coordinator, then re-run setup or upgrade."
+  if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+    PENDING_ITEMS+=("OpenCode subagent projection (configured coordinator is not registered)")
+  fi
+  return 0
+}
