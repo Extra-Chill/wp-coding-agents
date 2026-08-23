@@ -1,0 +1,128 @@
+#!/bin/bash
+# Deterministic coverage for copied DMC official-release updates.
+set -eu
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/dmc-managed-release.sh"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+SITE_PATH="$TMP/site"
+TIMESTAMP="test"
+DRY_RUN=false
+INSTALL_DATA_MACHINE=true
+BLUE=""; NC=""
+declare -a UPDATED_ITEMS=()
+LOG=""
+log() { LOG="$LOG$*\n"; }
+warn() { LOG="$LOG$*\n"; }
+fix_ownership() { :; }
+ACTIVATIONS=0
+ACTIVE=true
+activate_plugin() { ACTIVATIONS=$((ACTIVATIONS + 1)); ACTIVE=true; }
+wp_cmd() { [ "$ACTIVE" = true ] && [ "$1 $2 $3" = "plugin is-active data-machine-code" ]; }
+fail() { echo "FAIL: $1" >&2; exit 1; }
+
+PLUGIN="$SITE_PATH/wp-content/plugins/data-machine-code"
+mkdir -p "$PLUGIN"
+printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+
+FAKE_BIN="$TMP/bin"
+mkdir -p "$FAKE_BIN" "$TMP/release/data-machine-code"
+printf '<?php\n/*\n * Version: 2.0.0\n */\n' > "$TMP/release/data-machine-code/data-machine-code.php"
+(cd "$TMP/release" && zip -qr "$TMP/dmc.zip" data-machine-code)
+SHA="$(shasum -a 256 "$TMP/dmc.zip" | awk '{print $1}')"
+printf '%s  dmc.zip\n' "$SHA" > "$TMP/dmc.zip.sha256"
+cat > "$FAKE_BIN/curl" <<'SH'
+#!/bin/bash
+set -eu
+if [[ "$*" == *"releases/latest"* ]]; then
+  printf '%s' "$DMC_TEST_RELEASE_JSON"
+elif [[ "$*" == *"dmc.zip.sha256"* ]]; then cp "$DMC_TEST_CHECKSUM" "${@: -1}"
+elif [[ "$*" == *"dmc.zip"* ]]; then cp "$DMC_TEST_ARCHIVE" "${@: -1}"
+else exit 1
+fi
+SH
+chmod +x "$FAKE_BIN/curl"
+export PATH="$FAKE_BIN:$PATH" DMC_TEST_ARCHIVE="$TMP/dmc.zip" DMC_TEST_CHECKSUM="$TMP/dmc.zip.sha256"
+DMC_TEST_RELEASE_JSON='{"tag_name":"v2.0.0","assets":[{"name":"dmc.zip","browser_download_url":"https://release/dmc.zip"},{"name":"dmc.zip.sha256","browser_download_url":"https://release/dmc.zip.sha256"}]}'
+export DMC_TEST_RELEASE_JSON
+DMC_MANAGED_RELEASE_API="https://test/releases/latest"
+
+# copied + dry-run: resolves the channel but leaves the deployment untouched.
+DRY_RUN=true
+before="$(shasum -a 256 "$PLUGIN/data-machine-code.php")"
+out="$(update_data_machine_code_copied_release)"
+case "$out" in *"SHA-256 verify"*) : ;; *) fail "dry-run did not describe checksum verification";; esac
+[ "$before" = "$(shasum -a 256 "$PLUGIN/data-machine-code.php")" ] || fail "dry-run mutated copied plugin"
+
+# current copied install: no download/deploy and no update record.
+DRY_RUN=false
+printf '<?php\n/*\n * Version: 2.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+UPDATED_ITEMS=(); LOG=""
+update_data_machine_code_copied_release
+case "$LOG" in *"already at official release 2.0.0"*) : ;; *) fail "current copied install was not recognized";; esac
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ] || fail "current copied install recorded an update"
+
+# checksum failure: preserve the old deployment.
+printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+printf '0%.0s' {1..64} > "$TMP/dmc.zip.sha256"
+printf '  dmc.zip\n' >> "$TMP/dmc.zip.sha256"
+LOG=""
+update_data_machine_code_copied_release
+[ "$(dmc_managed_release_header_version "$PLUGIN")" = "1.0.0" ] || fail "checksum failure replaced deployment"
+case "$LOG" in *"SHA-256 verification"*) : ;; *) fail "checksum failure was not reported";; esac
+printf '%s  dmc.zip\n' "$SHA" > "$TMP/dmc.zip.sha256"
+
+# copied deployment: stage, preserve a fallback, activate, and record provenance.
+mkdir -p "$PLUGIN/obsolete"
+UPDATED_ITEMS=()
+update_data_machine_code_copied_release
+[ "$(dmc_managed_release_header_version "$PLUGIN")" = "2.0.0" ] || fail "copied release did not deploy target version"
+[ -f "$(dmc_managed_release_provenance_file)" ] || fail "copied release provenance missing"
+[ -f "$PLUGIN/.wp-coding-agents-release-current/data-machine-code.php" ] || fail "copied release current pointer missing"
+[ ! -e "$PLUGIN/.wp-coding-agents-release-current/obsolete" ] || fail "copied release included stale files"
+[ "${#UPDATED_ITEMS[@]}" -eq 1 ] || fail "copied release was not recorded"
+
+# An inactive plugin remains inactive; deployment does not call activation.
+rm -rf "$PLUGIN"
+mkdir -p "$PLUGIN"
+printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+ACTIVE=false; ACTIVATIONS=0; UPDATED_ITEMS=()
+update_data_machine_code_copied_release
+[ "$ACTIVE" = false ] || fail "inactive plugin became active"
+[ "$ACTIVATIONS" -eq 0 ] || fail "inactive plugin activation was attempted"
+
+# Simulate interruption after current -> previous. Recovery restores a complete
+# release pointer before the next deployment attempt.
+mv "$PLUGIN/.wp-coding-agents-release-current" "$PLUGIN/.wp-coding-agents-release-previous"
+dmc_managed_release_recover "$PLUGIN"
+[ -f "$PLUGIN/.wp-coding-agents-release-current/data-machine-code.php" ] || fail "interrupted update recovery left no runnable release"
+
+# Malformed tags are rejected before download/deployment.
+rm -rf "$PLUGIN"
+mkdir -p "$PLUGIN"
+printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+DMC_TEST_RELEASE_JSON='{"tag_name":"release-latest","assets":[{"name":"dmc.zip","browser_download_url":"https://release/dmc.zip"},{"name":"dmc.zip.sha256","browser_download_url":"https://release/dmc.zip.sha256"}]}'
+LOG=""
+update_data_machine_code_copied_release
+[ "$(dmc_managed_release_header_version "$PLUGIN")" = "1.0.0" ] || fail "malformed tag replaced deployment"
+case "$LOG" in *"Could not resolve"*) : ;; *) fail "malformed tag was not rejected";; esac
+DMC_TEST_RELEASE_JSON='{"tag_name":"v2.0.0","assets":[{"name":"dmc.zip","browser_download_url":"https://release/dmc.zip"},{"name":"dmc.zip.sha256","browser_download_url":"https://release/dmc.zip.sha256"}]}'
+
+# Channel status uses the same resolver and exposes the official target.
+status="$(dmc_managed_release_status)"
+case "$status" in *'"deployment":"copied_deploy"'*'"latest_version":"2.0.0"'*) : ;; *) fail "copied channel status incorrect: $status";; esac
+
+# git checkout: preserve the existing tagged-release path, never resolve assets.
+mkdir -p "$PLUGIN/.git"
+LOG=""
+update_data_machine_code_copied_release
+[ -z "$LOG" ] || fail "git checkout entered copied-release updater"
+
+# The channel helper distinguishes copied installs from git installs.
+status="$(dmc_managed_release_status)"
+case "$status" in *'"deployment":"git_checkout"'*) : ;; *) fail "git channel status incorrect: $status";; esac
+
+echo "dmc-managed-release tests passed"
