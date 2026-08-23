@@ -58,6 +58,7 @@ expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}"]
+expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", f"{sys.argv[3]}/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider", sys.argv[4], "{identity}", "{base}"]
 if provider.get("lookup_timeout_ms") != 10000:
     raise SystemExit("FAIL: standalone DMC lookups must retain a bounded timeout")
 if provider.get("mutation_timeout_ms") != 120000:
@@ -74,8 +75,43 @@ if commands.get("resolve_identity") != expected_identity:
     raise SystemExit(f"FAIL: DMC standalone identity mapping mismatch: {commands.get('resolve_identity')!r}")
 if commands.get("attest_safety") != expected_safety:
     raise SystemExit(f"FAIL: DMC standalone safety mapping mismatch: {commands.get('attest_safety')!r}")
+if commands.get("converge") != expected_converge:
+    raise SystemExit(f"FAIL: DMC convergence mapping must bind the opaque identity and pinned base: {commands.get('converge')!r}")
 if "list" in commands or "list_result_mapping" in provider:
     raise SystemExit("FAIL: DMC provider must not advertise unsupported generic list capability")
+PY
+}
+
+assert_convergence_contract() {
+  python3 - "$1" "$DMC_PROVIDER_LOG" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+line = open(sys.argv[1], encoding="utf-8").read().strip()
+_, payload = line.split("|", 1)
+command = json.loads(payload)["commands"]["converge"]
+identity = "fixture-token"
+base = "0123456789012345678901234567890123456789"
+
+def run(mode):
+    env = os.environ.copy()
+    env["DMC_CONVERGENCE_MODE"] = mode
+    return subprocess.run([part.replace("{identity}", identity).replace("{base}", base) for part in command], text=True, capture_output=True, env=env)
+
+success = run("success")
+expected = {"schema": "homeboy/worktree-provider-convergence/v1", "identity_token": identity, "base_sha": base}
+if success.returncode or json.loads(success.stdout) != expected:
+    raise SystemExit(f"FAIL: DMC convergence success did not preserve exact Homeboy evidence: {success!r}")
+for mode in ("mismatched", "stale", "refused"):
+    result = run(mode)
+    if result.returncode == 0 or result.stdout:
+        raise SystemExit(f"FAIL: DMC {mode} convergence response must fail closed: {result!r}")
+
+log = open(sys.argv[2], encoding="utf-8").read()
+if f"converge|{identity}|{base}" not in log:
+    raise SystemExit("FAIL: DMC converge did not receive the opaque identity and pinned base")
 PY
 }
 
@@ -119,7 +155,8 @@ cat > "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider
 <?php
 $operation = $argv[1] ?? '';
 $value = $argv[3] ?? '';
-file_put_contents(getenv('DMC_PROVIDER_LOG'), $operation . "|" . $value . "\n", FILE_APPEND);
+$base = $argv[4] ?? '';
+file_put_contents(getenv('DMC_PROVIDER_LOG'), $operation . "|" . $value . ('' === $base ? '' : "|" . $base) . "\n", FILE_APPEND);
 if ('identity' === $operation) {
     if (!file_exists(getenv('DMC_STATE'))) {
         echo json_encode(array('schema' => 'datamachine-code/worktree-identity/v1', 'status' => 'not_owned', 'ownership' => 'not_owned')) . "\n";
@@ -149,6 +186,25 @@ if ('safety' === $operation && 'fixture-token' === $value) {
         'latency_ms' => 2,
     )) . "\n";
     exit(0);
+}
+if ('converge' === $operation && 'fixture-token' === $value) {
+    $mode = getenv('DMC_CONVERGENCE_MODE');
+    if ('success' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'converged', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
+    if ('mismatched' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'converged', 'identity_token' => 'other-token', 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
+    if ('stale' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'stale', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
+    if ('refused' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
 }
 fwrite(STDERR, "unsupported fixture request\n");
 exit(1);
@@ -215,6 +271,7 @@ configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
 assert_contains "homeboy config set /worktree_providers/dmc '{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$TMP/dry-run.log"
 assert_contains "\"resolve_identity\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"identity\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
 assert_contains "\"attest_safety\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"safety\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{identity}\"]" "$TMP/dry-run.log"
+assert_contains "\"converge\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"converge\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{identity}\",\"{base}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
@@ -237,6 +294,7 @@ assert_not_contains 'workspace worktree list' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
+assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 
 HOMEBOY_MODE="disabled"
