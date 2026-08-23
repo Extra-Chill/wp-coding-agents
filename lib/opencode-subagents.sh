@@ -37,6 +37,7 @@ opencode_external_graph_eval() {
 }
 
 opencode_project_subagents() {
+  OPENCODE_SUBAGENT_PROJECTION_FAILURE=''
   [ "${DRY_RUN:-false}" = true ] && return 0
   local runtime has_opencode=false
   for runtime in "${DETECTED_RUNTIMES[@]:-}"; do
@@ -50,8 +51,8 @@ opencode_project_subagents() {
   local graph_helper projector agent_json
   graph_helper="$SCRIPT_DIR/lib/read-opencode-subagent-graph.php"
   projector="$SCRIPT_DIR/lib/project-opencode-subagents.py"
-  [ -f "$graph_helper" ] || { warn "OpenCode subagent graph reader not found: $graph_helper"; return 1; }
-  [ -f "$projector" ] || { warn "OpenCode subagent projector not found: $projector"; return 1; }
+  [ -f "$graph_helper" ] || { OPENCODE_SUBAGENT_PROJECTION_FAILURE=missing_reader; warn "OpenCode subagent graph reader not found: $graph_helper"; return 1; }
+  [ -f "$projector" ] || { OPENCODE_SUBAGENT_PROJECTION_FAILURE=missing_projector; warn "OpenCode subagent projector not found: $projector"; return 1; }
 
   # The Agents API registry owns child topology. Data Machine owns the
   # registered identity files and declared skill artifacts used by the reader.
@@ -65,6 +66,7 @@ opencode_project_subagents() {
     while [ -z "$expected_size" ] || [ "$offset" -lt "$expected_size" ]; do
       reader_code="ob_start();\$args=array(base64_decode('$slug_payload'),'embedded');eval('?>'.base64_decode('$reader_payload'));\$graph=ob_get_clean();echo json_encode(array('size'=>strlen(\$graph),'chunk'=>base64_encode(substr(\$graph,$offset,$chunk_size))));"
       response="$(opencode_external_graph_eval "$reader_code")" || {
+        OPENCODE_SUBAGENT_PROJECTION_FAILURE=wp_cli_read
         warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
         return 1
       }
@@ -76,12 +78,14 @@ if not isinstance(size, int) or size < 0 or size > 4 * 1024 * 1024 or not isinst
     raise SystemExit(1)
 print(f"{size}\t{chunk}")
 ') || {
+        OPENCODE_SUBAGENT_PROJECTION_FAILURE=invalid_transport_response
         warn "External subagent graph returned an invalid chunk"
         return 1
       }
       if [ -z "$expected_size" ]; then
         expected_size="$reported_size"
       elif [ "$reported_size" != "$expected_size" ]; then
+        OPENCODE_SUBAGENT_PROJECTION_FAILURE=unstable_transport_response
         warn "External subagent graph changed during chunked transfer"
         return 1
       fi
@@ -96,25 +100,41 @@ if len(value) != expected:
     raise SystemExit(1)
 sys.stdout.buffer.write(value)
 ' "$expected_size")" || {
+      OPENCODE_SUBAGENT_PROJECTION_FAILURE=incomplete_transport_response
       warn "External subagent graph transfer was incomplete"
       return 1
     }
   else
-    agent_json="$(wp_cmd eval-file "$graph_helper" -- "$AGENT_SLUG" 2>/dev/null)" || {
-      warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'"
+    local reader_error
+    reader_error="$(mktemp)" || { OPENCODE_SUBAGENT_PROJECTION_FAILURE=temporary_file; warn "Could not prepare OpenCode subagent graph diagnostics"; return 1; }
+    agent_json="$(wp_cmd eval-file "$graph_helper" -- "$AGENT_SLUG" 2>"$reader_error")" || {
+      cat "$reader_error" >&2
+      if grep -Fq 'The coordinator is not a registered Agents API agent.' "$reader_error"; then
+        OPENCODE_SUBAGENT_PROJECTION_FAILURE=unregistered_coordinator
+        warn "Configured Data Machine agent '$AGENT_SLUG' is not a registered Agents API coordinator"
+      else
+        OPENCODE_SUBAGENT_PROJECTION_FAILURE=wp_cli_read
+        warn "Could not read the Agents API subagent graph for coordinator '$AGENT_SLUG'; inspect the WP-CLI error above"
+      fi
+      rm -f "$reader_error"
       return 1
     }
+    rm -f "$reader_error"
   fi
   local source
   local before after
   before="$(tar -cf - -C "$SITE_PATH" opencode.json .opencode 2>/dev/null | shasum || true)"
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
-    printf '%s' "$agent_json" | python3 "$projector" --stdin "$SITE_PATH" || return 1
+    if ! printf '%s' "$agent_json" | python3 "$projector" --stdin "$SITE_PATH"; then
+      OPENCODE_SUBAGENT_PROJECTION_FAILURE=projector
+      return 1
+    fi
   else
     source="$(mktemp)"
     printf '%s' "$agent_json" > "$source"
     if ! python3 "$projector" "$source" "$SITE_PATH"; then
       rm -f "$source"
+      OPENCODE_SUBAGENT_PROJECTION_FAILURE=projector
       return 1
     fi
     rm -f "$source"
@@ -136,9 +156,14 @@ opencode_project_subagents_optional() {
     return 0
   fi
 
-  warn "OpenCode subagent projection is pending; register the configured Data Machine agent as an Agents API coordinator, then re-run setup or upgrade."
-  if declare -p PENDING_ITEMS >/dev/null 2>&1; then
-    PENDING_ITEMS+=("OpenCode subagent projection (configured coordinator is not registered)")
+  if [ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = unregistered_coordinator ]; then
+    warn "OpenCode subagent projection is pending; register the configured Data Machine agent as an Agents API coordinator, then re-run setup or upgrade."
+    if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+      PENDING_ITEMS+=("OpenCode subagent projection (configured coordinator is not registered)")
+    fi
+    return 0
   fi
-  return 0
+
+  warn "OpenCode subagent projection failed (${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-unknown}); correct the reported failure before retrying."
+  return 1
 }

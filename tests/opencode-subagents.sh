@@ -21,7 +21,15 @@ warn() { printf '%s\n' "$*" >&2; }
 FAILED=0
 assert() { if "$@"; then printf '  ok   %s\n' "$*"; else printf '  FAIL %s\n' "$*"; FAILED=$((FAILED + 1)); fi; }
 assert_python() { local name="$1"; shift; if python3 - "$@"; then printf '  ok   %s\n' "$name"; else printf '  FAIL %s\n' "$name"; FAILED=$((FAILED + 1)); fi; }
-wp_cmd() { [ "$1" = eval-file ] && [ "$2" = "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php" ] && [ "$3" = -- ] && [ "$4" = "$AGENT_SLUG" ]; cat "$TMP/graph.json"; }
+WP_CMD_MODE=graph
+wp_cmd() {
+  [ "$1" = eval-file ] && [ "$2" = "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php" ] && [ "$3" = -- ] && [ "$4" = "$AGENT_SLUG" ] || return 1
+  case "$WP_CMD_MODE" in
+    graph) cat "$TMP/graph.json" ;;
+    unregistered) printf '%s\n' 'The coordinator is not a registered Agents API agent.' >&2; return 1 ;;
+    read-failure) printf '%s\n' 'WP-CLI bootstrap failed' >&2; return 1 ;;
+  esac
+}
 
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php"
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded
@@ -102,6 +110,35 @@ if command -v opencode >/dev/null 2>&1; then
   printf '  ok   OpenCode parses generated agent and skill files\n'
 fi
 
+echo '==> reader failure classification'
+WP_CMD_MODE=unregistered
+PENDING_ITEMS=()
+if ! opencode_project_subagents_optional; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = unregistered_coordinator ] || FAILED=$((FAILED + 1))
+[ "${#PENDING_ITEMS[@]}" -eq 1 ] || FAILED=$((FAILED + 1))
+WP_CMD_MODE=read-failure
+PENDING_ITEMS=()
+if opencode_project_subagents_optional; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = wp_cli_read ] || FAILED=$((FAILED + 1))
+[ "${#PENDING_ITEMS[@]}" -eq 0 ] || FAILED=$((FAILED + 1))
+WP_CMD_MODE=graph
+printf '  ok   only an unregistered coordinator is pending; WP-CLI failures stay hard\n'
+
+echo '==> missing projection dependencies stay hard'
+ORIGINAL_SCRIPT_DIR="$SCRIPT_DIR"
+SCRIPT_DIR="$TMP/missing-reader"
+PENDING_ITEMS=()
+if opencode_project_subagents_optional; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = missing_reader ] || FAILED=$((FAILED + 1))
+[ "${#PENDING_ITEMS[@]}" -eq 0 ] || FAILED=$((FAILED + 1))
+mkdir -p "$SCRIPT_DIR/lib"
+touch "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php"
+if opencode_project_subagents_optional; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = missing_projector ] || FAILED=$((FAILED + 1))
+[ "${#PENDING_ITEMS[@]}" -eq 0 ] || FAILED=$((FAILED + 1))
+SCRIPT_DIR="$ORIGINAL_SCRIPT_DIR"
+printf '  ok   missing reader and projector stay hard\n'
+
 echo '==> idempotency and stale managed removal'
 before="$(shasum "$SITE_PATH/.opencode/agents/writer.md" "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json")"
 opencode_project_subagents
@@ -130,6 +167,7 @@ echo '==> malformed graph and user-owned collision reject without mutation'
 before="$(shasum "$SITE_PATH/.opencode/agents/writer.md")"
 printf '%s\n' '{"success":true,"coordinator":"coordinator","nodes":[{"slug":"bad_slug"}]}' > "$TMP/graph.json"
 if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = projector ] || FAILED=$((FAILED + 1))
 after="$(shasum "$SITE_PATH/.opencode/agents/writer.md")"
 [ "$before" = "$after" ] || FAILED=$((FAILED + 1))
 printf '  ok   malformed graph leaves managed state unchanged\n'
