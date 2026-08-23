@@ -129,7 +129,9 @@ for entry in Path("/proc").iterdir():
         except (FileNotFoundError, ProcessLookupError):
             continue
         except (OSError, PermissionError):
-            if fd.exists() and process_still_exists(entry) and not process_is_zombie(entry):
+            # The descriptor itself is known to be unreadable. Probing it again
+            # can raise the same PermissionError and escape this handler.
+            if process_still_exists(entry) and not process_is_zombie(entry):
                 incomplete.append({"pid": int(pid), "resource": "fd"})
                 break
     if matches:
