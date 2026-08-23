@@ -21,7 +21,17 @@ warn() { printf '%s\n' "$*" >&2; }
 FAILED=0
 assert() { if "$@"; then printf '  ok   %s\n' "$*"; else printf '  FAIL %s\n' "$*"; FAILED=$((FAILED + 1)); fi; }
 assert_python() { local name="$1"; shift; if python3 - "$@"; then printf '  ok   %s\n' "$name"; else printf '  FAIL %s\n' "$name"; FAILED=$((FAILED + 1)); fi; }
-wp_cmd() { [ "$1" = eval ] && [ "$#" -eq 2 ] || return 1; cat "$TMP/graph.json"; }
+wp_cmd() {
+  [ "$1" = eval ] && [ "$#" -eq 2 ] || return 1
+  php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --payload "$2" > "$TMP/colocated-payload-graph.json"
+  python3 - "$TMP/colocated-payload-graph.json" <<'PY'
+import json, sys
+graph = json.load(open(sys.argv[1]))
+assert graph['coordinator'] == 'coordinator'
+assert graph['nodes'][0]['slug'] == 'coordinator'
+PY
+  cat "$TMP/graph.json"
+}
 
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php"
 php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --embedded

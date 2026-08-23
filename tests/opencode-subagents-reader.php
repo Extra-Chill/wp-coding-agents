@@ -60,6 +60,32 @@ function wp_get_ability( string $slug ): object {
 	};
 }
 
+$payload = $argv[1] ?? '';
+if ( '--payload' === $payload ) {
+	$reader_code = $argv[2] ?? '';
+	if ( ! is_string( $reader_code ) || '' === $reader_code ) {
+		fwrite( STDERR, "FAIL: missing generated reader payload\n" );
+		exit( 1 );
+	}
+
+	ob_start();
+	try {
+		eval( $reader_code );
+	} catch ( Throwable $error ) {
+		ob_end_clean();
+		throw $error;
+	}
+	$encoded = ob_get_clean();
+	$graph   = json_decode( $encoded, true, 512, JSON_THROW_ON_ERROR );
+	if ( 'coordinator' !== ( $graph['coordinator'] ?? null ) || 'coordinator' !== ( $graph['nodes'][0]['slug'] ?? null ) ) {
+		fwrite( STDERR, "FAIL: generated reader payload did not resolve the coordinator graph\n" );
+		exit( 1 );
+	}
+
+	echo $encoded;
+	exit( 0 );
+}
+
 $embedded = isset( $argv[1] ) && '--embedded' === $argv[1];
 $scenario = $argv[2] ?? '';
 if ( 'outside' === $scenario ) {
