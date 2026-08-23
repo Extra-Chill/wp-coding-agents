@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents; do
+for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -256,6 +256,10 @@ while [[ $# -gt 0 ]]; do
       SOURCE_LOG_PATHS_EXPLICIT=true
       shift 2
       ;;
+    --systems-capabilities)
+      SYSTEMS_CAPABILITIES_PROFILE="$2"
+      shift 2
+      ;;
     --agent-slug)
       AGENT_SLUG="$2"
       AGENT_SLUG_EXPLICIT=true
@@ -289,6 +293,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+systems_capabilities_validate_profile
 
 if [ "$SHOW_HELP" = true ]; then
   cat << HELP
@@ -361,6 +367,9 @@ OPTIONS:
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip installing the wp-coding-agents upgrade skill
+  --systems-capabilities managed-vps
+                      Opt in to root-managed journald, debug-log rotation, and
+                      DMC process-inspection capabilities on a VPS.
   --with-homeboy     Create/update a Homeboy project and install/verify the
                       WordPress Homeboy extension
   --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
@@ -586,6 +595,7 @@ runtime_install
 runtime_discover_dm_paths
 external_wordpress_project_context
 discover_dm_workspace_dir
+systems_capabilities_apply
 runtime_generate_config
 ai_gateway_configure_opencode
 runtime_install_hooks

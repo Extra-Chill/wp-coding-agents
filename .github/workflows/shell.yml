@@ -251,6 +251,7 @@ jobs:
           - opencode-claude-auth-refresh-hardening
           - owned-source-discovery
           - source-reconcile
+          - systems-capabilities
           - verify
           - path-helpers
           - post-upgrade-restore

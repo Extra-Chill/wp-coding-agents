@@ -33,6 +33,36 @@ function compile(profile) {
   assert.ok(plan.verification.overlays.includes("verify-external-wordpress-transport"))
 }
 
+{
+  const plan = compile({
+    install_target: "existing-vps",
+    target: { wordpress_path: "/var/www/example.com" },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "kimaki" },
+    overlays: {},
+    systems_capabilities: { profile: "managed-vps" },
+    agent: {},
+  })
+  assert.match(plan.commands.apply, /--systems-capabilities managed-vps/)
+  assert.equal(plan.summary.systems_capabilities, "managed-vps")
+}
+
+{
+  const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
+    input: JSON.stringify({
+      install_target: "local",
+      target: { wordpress_path: "/tmp/site" },
+      runtime: { selection: "opencode" },
+      chat_bridge: { selection: "none" },
+      overlays: {},
+      systems_capabilities: { profile: "managed-vps" },
+    }),
+    encoding: "utf8",
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /requires a colocated VPS install/)
+}
+
 for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
     input: JSON.stringify({

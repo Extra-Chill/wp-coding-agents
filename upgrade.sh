@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents; do
+for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -163,6 +163,8 @@ while [[ $# -gt 0 ]]; do
     --owned-source|--managed-source) OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"; OWNED_SOURCES_EXPLICIT=true; shift 2 ;;
     --owned-writable|--managed-writable) OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"; OWNED_WRITABLE_EXPLICIT=true; shift 2 ;;
     --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
+    --systems-capabilities) SYSTEMS_CAPABILITIES_PROFILE="$2"; shift 2 ;;
+    --systems-capabilities-only) SYSTEMS_CAPABILITIES_ONLY=true; shift ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
@@ -179,6 +181,8 @@ while [[ $# -gt 0 ]]; do
     *)               shift ;;
   esac
 done
+
+systems_capabilities_validate_profile
 
 if [ "$SHOW_HELP" = true ]; then
   cat << HELP
@@ -207,6 +211,12 @@ USAGE:
                                 only adds missing managed entries, never
                                 removes user-added plugins.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
+  ./upgrade.sh --systems-capabilities managed-vps
+                                 Provision or repair the opt-in managed VPS
+                                 systems-capability profile.
+  ./upgrade.sh --systems-capabilities managed-vps --systems-capabilities-only
+                                 Repair only the managed VPS host capability
+                                 profile and its DMC provider configuration.
   ./upgrade.sh --source-mode <name>
                                Where code changes land: workspace | owned
                                (default: the mode recorded at setup time).
@@ -407,6 +417,7 @@ owned_discovery_record_exclusions
 source_policy_record_owned_sources
 source_policy_record_writable_paths
 source_policy_record_log_paths
+systems_capabilities_resolve_profile
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
@@ -482,6 +493,13 @@ echo ""
 
 # Track what was touched for the summary
 UPDATED_ITEMS=()
+
+if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
+  [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
+  discover_dm_workspace_dir
+  systems_capabilities_apply
+  exit 0
+fi
 
 # Service identity migration (#93). Runs before any phase that renders a unit or
 # writes into the service home, so everything downstream sees the new identity.
@@ -1412,6 +1430,7 @@ sync_cli_transport_runtime
 update_ai_gateway
 sync_chat_bridge_config
 discover_dm_workspace_dir
+systems_capabilities_apply
 check_opencode_json_drift
 ai_gateway_configure_opencode
 sync_skills
