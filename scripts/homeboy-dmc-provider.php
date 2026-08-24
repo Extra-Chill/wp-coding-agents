@@ -69,10 +69,14 @@ if ( ! in_array($operation, array( 'identity', 'safety', 'resolve', 'converge' )
 }
 
 /** @return array<string,mixed> */
-$read_inventory = static function ( array $command ) use ( $value ): array {
+$read_inventory = static function ( array $command, string $repo = '' ): array {
 	if ( array() === $command ) {
 		throw new RuntimeException('DMC aggregate inventory command is required for resolve.');
 	}
+	if ( '' === $repo || 1 !== count(array_filter($command, static fn ( string $part ): bool => '{repo}' === $part))) {
+		throw new RuntimeException('DMC worktree list requires the repository resolved from identity.');
+	}
+	$command = array_map(static fn ( string $part ): string => '{repo}' === $part ? $repo : $part, $command);
 	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
 	if ( ! is_resource($process) ) {
 		throw new RuntimeException('Could not start the DMC aggregate inventory command.');
@@ -163,7 +167,12 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 	} else {
 		try {
 			$safety = $run_provider('safety', (string) ( $payload['token'] ?? '' ));
-			$inventory = $read_inventory(array_slice($argv, 5));
+			$handle = (string) ( $payload['handle'] ?? '' );
+			$repo = strstr($handle, '@', true);
+			if ( false === $repo || '' === $repo ) {
+				throw new RuntimeException('DMC identity did not provide a repository-scoped handle.');
+			}
+			$inventory = $read_inventory(array_slice($argv, 5), $repo);
 		} catch (Throwable $error) {
 			fwrite(STDERR, $error->getMessage() . "\n");
 			exit($error->getCode() > 0 && $error->getCode() < 256 ? $error->getCode() : 1);

@@ -116,10 +116,10 @@ homeboy_dmc_command_json() {
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" safety "$provider" "$DM_WORKSPACE_DIR" '{identity}'
       ;;
     resolve)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{handle}' "${wp_argv[@]}" datamachine-code workspace worktree get '{handle}' --format=json "${wp_flags[@]}"
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{handle}' "${wp_argv[@]}" datamachine-code workspace worktree list '{repo}' --all --full --format=json "${wp_flags[@]}"
       ;;
     resolve_path)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{path}' "${wp_argv[@]}" datamachine-code workspace worktree get '{path}' --format=json "${wp_flags[@]}"
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{path}' "${wp_argv[@]}" datamachine-code workspace worktree list '{repo}' --all --full --format=json "${wp_flags[@]}"
       ;;
     ensure)
       # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
