@@ -29,7 +29,7 @@ service_file_normalize_perms() { :; }
 # shellcheck disable=SC1091
 source "$ROOT_DIR/lib/dmc-managed-release-integration.sh"
 dmc_managed_release_integration_sync
-rendered_script="${SPECIAL_SCRIPT_DIR//\'/\\\'}/upgrade.sh"
+rendered_script="$TMP/with & | \\' special/upgrade.sh"
 grep -Fq "$rendered_script" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" || { echo "FAIL: special-character script path was not rendered safely" >&2; exit 1; }
 php -l "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" >/dev/null || { echo "FAIL: rendered special-character path produced invalid PHP" >&2; exit 1; }
 
