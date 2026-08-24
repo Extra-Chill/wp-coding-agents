@@ -23,10 +23,19 @@ assert() { if "$@"; then printf '  ok   %s\n' "$*"; else printf '  FAIL %s\n' "$
 assert_python() { local name="$1"; shift; if python3 - "$@"; then printf '  ok   %s\n' "$name"; else printf '  FAIL %s\n' "$name"; FAILED=$((FAILED + 1)); fi; }
 WP_CMD_MODE=graph
 wp_cmd() {
-  [ "$1" = eval-file ] && [ "$2" = "$SCRIPT_DIR/lib/read-opencode-subagent-graph.php" ] && [ "$3" = -- ] && [ "$4" = "$AGENT_SLUG" ] || return 1
+  [ "$1" = eval ] && [ "$#" -eq 2 ] || return 1
   case "$WP_CMD_MODE" in
-    graph) cat "$TMP/graph.json" ;;
-    unregistered) printf '%s\n' 'The coordinator is not a registered Agents API agent.' >&2; return 1 ;;
+    graph)
+      php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --payload "$2" > "$TMP/colocated-payload-graph.json"
+      python3 - "$TMP/colocated-payload-graph.json" <<'PY'
+import json, sys
+graph = json.load(open(sys.argv[1]))
+assert graph['coordinator'] == 'coordinator'
+assert graph['nodes'][0]['slug'] == 'coordinator'
+PY
+      cat "$TMP/graph.json"
+      ;;
+    unregistered) php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --payload-unregistered "$2" ;;
     read-failure) printf '%s\n' 'WP-CLI bootstrap failed' >&2; return 1 ;;
   esac
 }

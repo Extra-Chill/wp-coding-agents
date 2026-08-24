@@ -105,9 +105,12 @@ sys.stdout.buffer.write(value)
       return 1
     }
   else
-    local reader_error
+    local reader_code reader_payload slug_payload reader_error
+    reader_payload="$(base64 < "$graph_helper" | tr -d '\n')"
+    slug_payload="$(printf '%s' "$AGENT_SLUG" | base64 | tr -d '\n')"
+    reader_code="\$args=array(base64_decode('$slug_payload'));eval('?>'.base64_decode('$reader_payload'));"
     reader_error="$(mktemp)" || { OPENCODE_SUBAGENT_PROJECTION_FAILURE=temporary_file; warn "Could not prepare OpenCode subagent graph diagnostics"; return 1; }
-    agent_json="$(wp_cmd eval-file "$graph_helper" -- "$AGENT_SLUG" 2>"$reader_error")" || {
+    agent_json="$(wp_cmd eval "$reader_code" 2>"$reader_error")" || {
       cat "$reader_error" >&2
       if grep -Fq 'The coordinator is not a registered Agents API agent.' "$reader_error"; then
         OPENCODE_SUBAGENT_PROJECTION_FAILURE=unregistered_coordinator
