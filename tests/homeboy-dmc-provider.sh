@@ -267,9 +267,9 @@ largest_rows = json.loads(largest_success.stdout) if largest_success.returncode 
 largest_size = len(largest_success.stdout.encode("utf-8"))
 if len(largest_rows) != 200 or largest_rows[0]["handle"] != "fixture@task-425-001" or largest_rows[-1]["handle"] != "fixture@task-425-200" or not 100000 < largest_size < 131072 or largest_size >= 262144:
     raise SystemExit(f"FAIL: largest successful task projection did not stay below both adapter and Homeboy caps: {largest_success!r}")
-for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", "aggregate_over_budget", "escaping_over_budget"):
+for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", "aggregate_over_budget", "escaping_over_budget", "oversized_stdout", "oversized_stderr"):
     result = run(mode)
-    expected_error = "complete candidate bound" if mode == "overflow" else "bounded projection output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
+    expected_error = "bounded stdout capture" if mode == "oversized_stdout" else "bounded stderr capture" if mode == "oversized_stderr" else "complete candidate bound" if mode == "overflow" else "bounded projection output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 PY
@@ -414,6 +414,12 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
     over_budget)
       oversized="$(python3 -c 'print("x" * 4097)')"
       printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}]\n' "$oversized"
+      ;;
+    oversized_stdout)
+      python3 -c 'import sys; sys.stdout.write("x" * 1048577)'
+      ;;
+    oversized_stderr)
+      python3 -c 'import sys; sys.stderr.write("x" * 65537)'
       ;;
     *) exit 2 ;;
   esac

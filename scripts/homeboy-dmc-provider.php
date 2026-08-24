@@ -7,6 +7,55 @@ $operation = (string) ( $argv[1] ?? '' );
 const HOMEBOY_DMC_TASK_MAX_CANDIDATES = 200;
 const HOMEBOY_DMC_TASK_MAX_FIELD_BYTES = 4096;
 const HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES = 131072;
+const HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES = 1048576;
+const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
+
+/** @return array{status:int,stdout:string,stderr:string,overflow:?string} */
+$run_bounded_command = static function ( array $command, int $stdout_limit, int $stderr_limit ): array {
+	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+	if ( ! is_resource($process) ) {
+		throw new RuntimeException('Could not start the DMC task worktree lookup.');
+	}
+	foreach ( $pipes as $pipe ) {
+		stream_set_blocking($pipe, false);
+	}
+	$stdout = '';
+	$stderr = '';
+	while ( ! feof($pipes[1]) || ! feof($pipes[2]) ) {
+		$read = array( $pipes[1], $pipes[2] );
+		$write = null;
+		$except = null;
+		$ready = stream_select($read, $write, $except, 1);
+		if ( false === $ready ) {
+			foreach ( $pipes as $pipe ) { fclose($pipe); }
+			proc_terminate($process);
+			proc_close($process);
+			throw new RuntimeException('Could not read the DMC task worktree lookup output.');
+		}
+		foreach ( $read as $pipe ) {
+			$chunk = fread($pipe, 8192);
+			if ( false === $chunk || '' === $chunk ) {
+				continue;
+			}
+			$is_stdout = $pipe === $pipes[1];
+			$current = $is_stdout ? $stdout : $stderr;
+			$limit = $is_stdout ? $stdout_limit : $stderr_limit;
+			if ( strlen($current) + strlen($chunk) > $limit ) {
+				foreach ( $pipes as $open_pipe ) { fclose($open_pipe); }
+				proc_terminate($process);
+				$status = proc_close($process);
+				return array( 'status' => $status, 'stdout' => $stdout, 'stderr' => $stderr, 'overflow' => $is_stdout ? 'stdout' : 'stderr' );
+			}
+			if ( $is_stdout ) {
+				$stdout .= $chunk;
+			} else {
+				$stderr .= $chunk;
+			}
+		}
+	}
+	foreach ( $pipes as $pipe ) { fclose($pipe); }
+	return array( 'status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr, 'overflow' => null );
+};
 
 $canonical_task_url = static function ( string $task_url ): string {
 	$task_url = trim($task_url);
@@ -45,16 +94,19 @@ if ( 'resolve_task' === $operation ) {
 			$command[ $index ] = '--task-ref=' . $task_url;
 		}
 	}
-	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
-	if ( ! is_resource($process) ) {
-		fwrite(STDERR, "Could not start the DMC task worktree lookup.\n");
+	try {
+		$capture = $run_bounded_command($command, HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES);
+	} catch (Throwable $error) {
+		fwrite(STDERR, $error->getMessage() . "\n");
 		exit(1);
 	}
-	$stdout = stream_get_contents($pipes[1]);
-	$stderr = stream_get_contents($pipes[2]);
-	fclose($pipes[1]);
-	fclose($pipes[2]);
-	$status = proc_close($process);
+	if ( null !== $capture['overflow'] ) {
+		fwrite(STDERR, 'DMC task worktree lookup exceeded its bounded ' . $capture['overflow'] . " capture.\n");
+		exit(1);
+	}
+	$stdout = $capture['stdout'];
+	$stderr = $capture['stderr'];
+	$status = $capture['status'];
 	if ( 0 !== $status ) {
 		$overflow = json_decode($stdout, true);
 		if ( is_array($overflow) && 'worktree_task_candidates_overflow' === ( $overflow['error']['code'] ?? $overflow['code'] ?? null ) ) {
