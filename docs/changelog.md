@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.19.1] - 2026-08-24
+
+### Fixed
+- embed local subagent graph sources
+- discover DMC workspace before Homeboy config
+
 ## [1.19.0] - 2026-08-24
 
 ### Added
