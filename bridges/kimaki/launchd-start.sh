@@ -13,4 +13,11 @@ if [ -x "$config_dir/post-upgrade.sh" ]; then
   "$config_dir/post-upgrade.sh" || true
 fi
 
+if [ -x "$config_dir/restart-continuation.py" ]; then
+  "$config_dir/restart-continuation.py" consume \
+    --site-path "${DATAMACHINE_SITE_PATH:-$PWD}" \
+    --data-dir "${KIMAKI_DATA_DIR:-$HOME/.kimaki}" \
+    --kimaki-bin "$1" >/dev/null 2>&1 &
+fi
+
 exec "$@"
