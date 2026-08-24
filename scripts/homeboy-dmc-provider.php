@@ -309,38 +309,6 @@ if ( ! in_array($operation, array( 'identity', 'safety', 'resolve', 'converge' )
 	exit(2);
 }
 
-/** @return array<string,mixed> */
-$read_inventory = static function ( array $command, string $repo = '', string $handle = '' ): array {
-	if ( array() === $command ) {
-		throw new RuntimeException('DMC aggregate inventory command is required for resolve.');
-	}
-	if ( '' === $repo || '' === $handle || 1 !== count(array_filter($command, static fn ( string $part ): bool => '{repo}' === $part))) {
-		throw new RuntimeException('DMC worktree list requires the repository resolved from identity.');
-	}
-	$command = array_map(static fn ( string $part ): string => '{repo}' === $part ? $repo : $part, $command);
-	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
-	if ( ! is_resource($process) ) {
-		throw new RuntimeException('Could not start the DMC aggregate inventory command.');
-	}
-	$stdout = stream_get_contents($pipes[1]);
-	$stderr = stream_get_contents($pipes[2]);
-	fclose($pipes[1]);
-	fclose($pipes[2]);
-	$status = proc_close($process);
-	if ( 0 !== $status ) {
-		throw new RuntimeException('DMC aggregate inventory failed: ' . trim($stderr), $status);
-	}
-	$inventory = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-	if ( ! is_array($inventory) ) {
-		throw new RuntimeException('DMC aggregate inventory did not return typed worktree records.');
-	}
-	$matches = array_values(array_filter($inventory, static fn ( mixed $record ): bool => is_array($record) && $handle === ( $record['handle'] ?? null )));
-	if ( 1 !== count($matches) ) {
-		throw new RuntimeException('DMC aggregate inventory did not return one matching typed worktree record.');
-	}
-	return $matches[0];
-};
-
 $run_provider = static function ( string $provider_operation, string $provider_value, string $provider_base = '' ) use ( $provider, $workspace ): array {
 	$command = array( PHP_BINARY, $provider, $provider_operation, $workspace, $provider_value );
 	if ( '' !== $provider_base ) {
@@ -412,12 +380,6 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 	} else {
 		try {
 			$safety = $run_provider('safety', (string) ( $payload['token'] ?? '' ));
-			$handle = (string) ( $payload['handle'] ?? '' );
-			$repo = strstr($handle, '@', true);
-			if ( false === $repo || '' === $repo ) {
-				throw new RuntimeException('DMC identity did not provide a repository-scoped handle.');
-			}
-			$inventory = $read_inventory(array_slice($argv, 5), $repo, $handle);
 		} catch (Throwable $error) {
 			fwrite(STDERR, $error->getMessage() . "\n");
 			exit($error->getCode() > 0 && $error->getCode() < 256 ? $error->getCode() : 1);
@@ -426,24 +388,14 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 			fwrite(STDERR, "DMC worktree provider returned an unsupported safety envelope.\n");
 			exit(1);
 		}
-		$task_url = $inventory['task_full']['task_url'] ?? null;
-		$owner_site = $inventory['owner_full']['site'] ?? null;
-		$owner_agent = $inventory['owner_full']['agent'] ?? null;
-		$lineage_task_url = $inventory['metadata']['origin_task']['task_url'] ?? null;
-		$lineage_site = $inventory['metadata']['origin_site'] ?? null;
-		$lineage_agent = $inventory['metadata']['origin_agent'] ?? null;
+		$task_url = $canonical_task_url((string) ( $payload['task_url'] ?? '' ));
 		if (
-			! is_string($task_url) || '' === $task_url
-			|| ! is_string($owner_site) || '' === $owner_site
-			|| ! is_string($owner_agent) || '' === $owner_agent
-			|| $payload['handle'] !== ( $inventory['handle'] ?? null )
-			|| $payload['path'] !== ( $inventory['path'] ?? null )
-			|| $payload['branch'] !== ( $inventory['branch'] ?? null )
-			|| $canonical_task_url($task_url) !== $canonical_task_url((string) $lineage_task_url)
-			|| $owner_site !== $lineage_site
-			|| $owner_agent !== $lineage_agent
+			'' === $task_url
+			|| ! is_string($payload['handle'] ?? null) || '' === $payload['handle']
+			|| ! is_string($payload['path'] ?? null) || '' === $payload['path']
+			|| ! is_string($payload['branch'] ?? null) || '' === $payload['branch']
 		) {
-			fwrite(STDERR, "DMC aggregate inventory does not prove tracker ownership for the standalone identity.\n");
+			fwrite(STDERR, "DMC standalone identity does not provide tracker ownership.\n");
 			exit(1);
 		}
 		$result = array(
@@ -451,7 +403,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 				'handle'  => $payload['handle'] ?? '',
 				'path'    => $payload['path'] ?? '',
 				'branch'  => $payload['branch'] ?? '',
-				'task_url' => $canonical_task_url($task_url),
+				'task_url' => $task_url,
 				'safety'  => array(
 					'dirty'    => $safety['dirty'] ?? true,
 					'unpushed' => $safety['unpushed'] ?? true,
