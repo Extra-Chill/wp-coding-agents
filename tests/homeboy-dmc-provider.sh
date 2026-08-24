@@ -225,6 +225,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 _, payload = open(sys.argv[1], encoding="utf-8").read().strip().split("|", 1)
 command = json.loads(payload)["commands"]["resolve_task"]
@@ -272,6 +273,33 @@ for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", 
     expected_error = "bounded stdout capture" if mode == "oversized_stdout" else "bounded stderr capture" if mode == "oversized_stderr" else "complete candidate bound" if mode == "overflow" else "bounded projection output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
+
+def assert_descendant_stopped(mode, expected_error, timeout):
+    marker = os.environ["DMC_DESCENDANT_PID"]
+    try:
+        os.unlink(marker)
+    except FileNotFoundError:
+        pass
+    started = time.monotonic()
+    result = run(mode)
+    elapsed = time.monotonic() - started
+    if result.returncode == 0 or expected_error not in result.stderr or elapsed >= timeout:
+        raise SystemExit(f"FAIL: {mode} lookup did not fail closed within its bound: {result!r}, elapsed={elapsed}")
+    try:
+        pid = int(open(marker, encoding="utf-8").read())
+    except (FileNotFoundError, ValueError) as error:
+        raise SystemExit(f"FAIL: {mode} fixture did not record its descendant PID: {error}")
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        raise SystemExit(f"FAIL: {mode} lookup left descendant {pid} alive")
+
+assert_descendant_stopped("descendant_both", "bounded ", 5)
+assert_descendant_stopped("descendant_silent", "bounded execution time", 15)
 PY
 }
 
@@ -421,6 +449,22 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
     oversized_stderr)
       python3 -c 'import sys; sys.stderr.write("x" * 65537)'
       ;;
+    descendant_both)
+      python3 -c 'import os, sys
+marker = os.environ["DMC_DESCENDANT_PID"]
+open(marker, "w").write(str(os.getpid()))
+while True:
+    os.write(sys.stdout.fileno(), b"x" * 8192)
+    os.write(sys.stderr.fileno(), b"y" * 8192)' &
+      wait "$!"
+      ;;
+    descendant_silent)
+      python3 -c 'import os, time
+open(os.environ["DMC_DESCENDANT_PID"], "w").write(str(os.getpid()))
+while True:
+    time.sleep(1)' &
+      wait "$!"
+      ;;
     *) exit 2 ;;
   esac
   exit 0
@@ -466,9 +510,10 @@ DMC_ENSURE_LOG="$TMP/dmc-ensure.log"
 DMC_PLAN_PATH="$DM_WORKSPACE_DIR/blocks-engine@fix-406-dmc-provider-plan"
 DMC_PROVIDER_LOG="$TMP/dmc-provider.log"
 DMC_PROVIDER_EXECUTABLE="$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider"
+DMC_DESCENDANT_PID="$TMP/dmc-descendant.pid"
 : > "$DMC_ENSURE_LOG"
 : > "$STUDIO_LOG"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE DMC_DESCENDANT_PID
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.

@@ -9,26 +9,91 @@ const HOMEBOY_DMC_TASK_MAX_FIELD_BYTES = 4096;
 const HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES = 131072;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES = 1048576;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
+const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 10;
+const HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = 1;
 
-/** @return array{status:int,stdout:string,stderr:string,overflow:?string} */
+if ( '_session_exec' === $operation ) {
+	$command = array_slice($argv, 2);
+	if ( array() === $command || ! function_exists('posix_setsid') || ! function_exists('pcntl_exec') || -1 === posix_setsid() ) {
+		fwrite(STDERR, "Could not isolate the DMC task worktree lookup session.\n");
+		exit(1);
+	}
+	$ready = fopen('php://fd/3', 'w');
+	if ( false === $ready ) {
+		fwrite(STDERR, "Could not confirm the isolated DMC task worktree lookup session.\n");
+		exit(1);
+	}
+	fwrite($ready, "ready\n");
+	fclose($ready);
+	$executable = $command[0];
+	if ( ! str_contains($executable, DIRECTORY_SEPARATOR) ) {
+		foreach ( explode(PATH_SEPARATOR, (string) getenv('PATH')) as $directory ) {
+			$candidate = rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $executable;
+			if ( is_file($candidate) && is_executable($candidate) ) {
+				$executable = $candidate;
+				break;
+			}
+		}
+	}
+	pcntl_exec($executable, array_slice($command, 1));
+	fwrite(STDERR, "Could not start the isolated DMC task worktree lookup.\n");
+	exit(1);
+}
+
+/** @return array{status:int,stdout:string,stderr:string,failure:?string} */
 $run_bounded_command = static function ( array $command, int $stdout_limit, int $stderr_limit ): array {
-	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+	$launcher = array_merge(array( PHP_BINARY, __FILE__, '_session_exec' ), $command);
+	$process = proc_open($launcher, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ), 3 => array( 'pipe', 'w' ) ), $pipes);
 	if ( ! is_resource($process) ) {
 		throw new RuntimeException('Could not start the DMC task worktree lookup.');
 	}
+	$state = proc_get_status($process);
+	$pid = is_array($state) && is_int($state['pid'] ?? null) ? $state['pid'] : null;
 	foreach ( $pipes as $pipe ) {
 		stream_set_blocking($pipe, false);
 	}
 	$stdout = '';
 	$stderr = '';
-	while ( ! feof($pipes[1]) || ! feof($pipes[2]) ) {
-		$read = array( $pipes[1], $pipes[2] );
+	$session_ready = false;
+	$failure = null;
+	$termination_started_at = null;
+	$started_at = microtime(true);
+	while ( true ) {
+		$tree_running = $session_ready && null !== $pid && $pid > 0 ? @posix_kill(-$pid, 0) : (bool) ( proc_get_status($process)['running'] ?? false );
+		if ( feof($pipes[1]) && feof($pipes[2]) && feof($pipes[3]) && ! $tree_running ) {
+			break;
+		}
+		if ( ! $session_ready && feof($pipes[3]) && null === $failure ) {
+			$failure = 'session';
+			$termination_started_at = microtime(true);
+		}
+		if ( null === $failure && microtime(true) - $started_at >= HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS ) {
+			$failure = 'timeout';
+			$termination_started_at = microtime(true);
+		}
+		if ( null !== $failure ) {
+			$signal = microtime(true) - (float) $termination_started_at >= HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS ? SIGKILL : SIGTERM;
+			if ( $session_ready && null !== $pid && $pid > 0 ) {
+				@posix_kill(-$pid, $signal);
+			} else {
+				proc_terminate($process, $signal);
+			}
+		}
+		$read = array_filter($pipes, static fn ( $pipe ): bool => is_resource($pipe) && ! feof($pipe));
+		if ( array() === $read ) {
+			usleep(100000);
+			continue;
+		}
 		$write = null;
 		$except = null;
-		$ready = stream_select($read, $write, $except, 1);
+		$ready = stream_select($read, $write, $except, 0, 100000);
 		if ( false === $ready ) {
-			foreach ( $pipes as $pipe ) { fclose($pipe); }
-			proc_terminate($process);
+			foreach ( $pipes as $pipe ) { if ( is_resource($pipe) ) { fclose($pipe); } }
+			if ( $session_ready && null !== $pid && $pid > 0 ) {
+				@posix_kill(-$pid, SIGKILL);
+			} else {
+				proc_terminate($process, SIGKILL);
+			}
 			proc_close($process);
 			throw new RuntimeException('Could not read the DMC task worktree lookup output.');
 		}
@@ -37,14 +102,24 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 			if ( false === $chunk || '' === $chunk ) {
 				continue;
 			}
+			if ( $pipe === $pipes[3] ) {
+				$session_ready = 'ready' === trim($chunk);
+				if ( ! $session_ready ) {
+					$failure = 'session';
+					$termination_started_at = microtime(true);
+				}
+				continue;
+			}
+			if ( null !== $failure ) {
+				continue;
+			}
 			$is_stdout = $pipe === $pipes[1];
 			$current = $is_stdout ? $stdout : $stderr;
 			$limit = $is_stdout ? $stdout_limit : $stderr_limit;
 			if ( strlen($current) + strlen($chunk) > $limit ) {
-				foreach ( $pipes as $open_pipe ) { fclose($open_pipe); }
-				proc_terminate($process);
-				$status = proc_close($process);
-				return array( 'status' => $status, 'stdout' => $stdout, 'stderr' => $stderr, 'overflow' => $is_stdout ? 'stdout' : 'stderr' );
+				$failure = $is_stdout ? 'stdout' : 'stderr';
+				$termination_started_at = microtime(true);
+				continue;
 			}
 			if ( $is_stdout ) {
 				$stdout .= $chunk;
@@ -53,8 +128,8 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 			}
 		}
 	}
-	foreach ( $pipes as $pipe ) { fclose($pipe); }
-	return array( 'status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr, 'overflow' => null );
+	foreach ( $pipes as $pipe ) { if ( is_resource($pipe) ) { fclose($pipe); } }
+	return array( 'status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr, 'failure' => $failure );
 };
 
 $canonical_task_url = static function ( string $task_url ): string {
@@ -100,8 +175,9 @@ if ( 'resolve_task' === $operation ) {
 		fwrite(STDERR, $error->getMessage() . "\n");
 		exit(1);
 	}
-	if ( null !== $capture['overflow'] ) {
-		fwrite(STDERR, 'DMC task worktree lookup exceeded its bounded ' . $capture['overflow'] . " capture.\n");
+	if ( null !== $capture['failure'] ) {
+		$message = 'timeout' === $capture['failure'] ? 'DMC task worktree lookup exceeded its bounded execution time.' : ( 'session' === $capture['failure'] ? 'Could not isolate the DMC task worktree lookup session.' : 'DMC task worktree lookup exceeded its bounded ' . $capture['failure'] . ' capture.' );
+		fwrite(STDERR, $message . "\n");
 		exit(1);
 	}
 	$stdout = $capture['stdout'];
