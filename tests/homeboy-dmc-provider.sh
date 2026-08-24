@@ -57,7 +57,7 @@ provider = json.loads(payload)
 commands = provider["commands"]
 expected_resolve = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", sys.argv[5], sys.argv[4], "{handle}", "studio", "wp", "datamachine-code", "workspace", "worktree", "get", "{handle}", "--format=json", f"--path={sys.argv[3]}"]
 expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", sys.argv[5], sys.argv[4], "{path}", "studio", "wp", "datamachine-code", "workspace", "worktree", "get", "{path}", "--format=json", f"--path={sys.argv[3]}"]
-expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--with-status", "--limit=200", "--envelope", "--format=json", f"--path={sys.argv[3]}"]
+expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--all", "--with-status", "--format=json", f"--path={sys.argv[3]}"]
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
@@ -78,8 +78,8 @@ if commands.get("resolve_path") != expected_resolve_path:
     raise SystemExit(f"FAIL: DMC path resolve adapter mapping mismatch: {commands.get('resolve_path')!r}")
 if commands.get("resolve_task") != expected_resolve_task:
     raise SystemExit(f"FAIL: DMC task resolve adapter mapping mismatch: {commands.get('resolve_task')!r}")
-if commands.get("resolve_task_not_found_exit_codes") != [42]:
-    raise SystemExit("FAIL: DMC task lookup must declare only its typed-not-found exit")
+if "resolve_task_not_found_exit_codes" in commands:
+    raise SystemExit("FAIL: Homeboy does not recognize a task-specific not-found configuration")
 if commands.get("ensure") != expected_ensure:
     raise SystemExit(f"FAIL: DMC ensure mapping mismatch: {commands.get('ensure')!r}")
 if commands.get("plan") != expected_plan:
@@ -204,7 +204,7 @@ def run(mode=""):
     return subprocess.run([part.format(**intent) for part in commands["resolve"]], text=True, capture_output=True, env=env)
 
 resolved = run()
-expected = [{"handle": intent["handle"], "path": intent["path"], "branch": "fix/310-dmc-cook", "task_url": "https://github.com/extra-chill/wp-coding-agents/issues/419", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
+expected = [{"handle": intent["handle"], "path": intent["path"], "branch": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/419", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
 if resolved.returncode or json.loads(resolved.stdout) != expected:
     raise SystemExit(f"FAIL: resolve did not join typed tracker inventory to exact identity: {resolved!r}")
 canonical = run("canonical_task")
@@ -237,18 +237,19 @@ zero = run("zero")
 if zero.returncode != 42 or json.loads(zero.stdout).get("error", {}).get("code") != "worktree_not_found":
     raise SystemExit(f"FAIL: zero task candidates must return the task-specific typed absence: {zero!r}")
 one = run("one")
-expected = [{"handle": "fixture@task-425", "path": os.environ["DMC_STATE"], "branch": "fix/425-resolve-task", "task_url": "https://github.com/extra-chill/wp-coding-agents/issues/425", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
+expected = [{"handle": "fixture@task-425", "path": os.environ["DMC_STATE"], "branch": "fix/425-resolve-task", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/425", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
 if one.returncode or json.loads(one.stdout) != expected:
     raise SystemExit(f"FAIL: one task candidate did not retain its full identity: {one!r}")
 ambiguous = run("ambiguous")
 if ambiguous.returncode or [item["handle"] for item in json.loads(ambiguous.stdout)] != ["fixture@task-425", "fixture@task-425-other"]:
-    raise SystemExit(f"FAIL: ambiguous task candidates must traverse DMC cursors before reaching Homeboy: {ambiguous!r}")
+    raise SystemExit(f"FAIL: ambiguous task candidates must retain DMC's complete bounded set: {ambiguous!r}")
 canonical = run("canonical", " HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/425/?query=value#fragment ")
-if canonical.returncode or json.loads(canonical.stdout) != expected:
+canonical_expected = [{**expected[0], "task_url": "https://github.com/Extra-Chill/WP-Coding-Agents/issues/425"}]
+if canonical.returncode or json.loads(canonical.stdout) != canonical_expected:
     raise SystemExit(f"FAIL: task lookup did not canonicalize requested and stored task URLs: {canonical!r}")
-for mode in ("mismatched_task", "incomplete_safety", "repeated_cursor"):
+for mode in ("mismatched_task", "incomplete_safety", "overflow"):
     result = run(mode)
-    expected_error = "invalid bounded envelope" if mode == "repeated_cursor" else "incomplete or mismatched task candidate"
+    expected_error = "complete candidate bound" if mode == "overflow" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 PY
@@ -350,7 +351,7 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree get" ]; then
         printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Other Site","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
       canonical_task)
-        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":" HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/419/?query=value#fragment "},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/extra-chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
+        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":" HTTPS://GITHUB.COM/Extra-Chill/wp-coding-agents/issues/419/?query=value#fragment "},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
       *)
         printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
@@ -363,27 +364,28 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree get" ]; then
 fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
   case "$*" in
-    *--task-ref=https://github.com/extra-chill/wp-coding-agents/issues/425*--with-status*--limit=200*--envelope*--format=json*) ;;
+    *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--all*--with-status*--format=json*) ;;
     *) exit 2 ;;
   esac
   case "${DMC_TASK_LOOKUP_MODE:-zero}" in
     zero)
-      printf '{"success":true,"worktrees":[],"next_cursor":null}\n'
+      printf '[]\n'
       ;;
-    one|ambiguous|canonical|mismatched_task|incomplete_safety|repeated_cursor)
+    one|ambiguous|canonical|mismatched_task|incomplete_safety)
       task='https://github.com/Extra-Chill/wp-coding-agents/issues/425'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = mismatched_task ] && task='https://github.com/Extra-Chill/wp-coding-agents/issues/other'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = canonical ] && task='HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/425/?query=value#fragment'
       safety='{"dirty":false,"unpushed":false,"primary":false}'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = incomplete_safety ] && safety='{"dirty":false,"primary":false}'
-      if [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && case "$*" in *--cursor=page-2*) true;; *) false;; esac; then
-        printf '{"success":true,"worktrees":[{"handle":"fixture@task-425-other","path":"%s-other","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":{"dirty":false,"unpushed":false,"primary":false}}],"next_cursor":null}\n' "$DMC_STATE" "$task"
-      else
-        next='null'
-        [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && next='"page-2"'
-        [ "${DMC_TASK_LOOKUP_MODE:-}" = repeated_cursor ] && next='"page-1"'
-        printf '{"success":true,"worktrees":[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}],"next_cursor":%s}\n' "$DMC_STATE" "$task" "$safety" "$next"
+      printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}' "$DMC_STATE" "$task" "$safety"
+      if [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ]; then
+        printf ',{"handle":"fixture@task-425-other","path":"%s-other","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":{"dirty":false,"unpushed":false,"primary":false}}' "$DMC_STATE" "$task"
       fi
+      printf ']\n'
+      ;;
+    overflow)
+      printf '{"success":false,"error":{"code":"worktree_task_candidates_overflow","total":201,"limit":200}}\n'
+      exit 1
       ;;
     *) exit 2 ;;
   esac
@@ -447,9 +449,8 @@ assert_contains "\"attest_safety\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-pr
 assert_contains "\"converge\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"converge\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{identity}\",\"{base}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{handle}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{handle}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{path}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"get\",\"{path}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
-assert_contains "\"resolve_task\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve_task\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--task-ref={task_url}\",\"--with-status\",\"--limit=200\",\"--envelope\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_task\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve_task\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--task-ref={task_url}\",\"--all\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
-assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"plan\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"

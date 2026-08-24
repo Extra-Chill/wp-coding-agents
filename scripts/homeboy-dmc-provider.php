@@ -7,7 +7,20 @@ $operation = (string) ( $argv[1] ?? '' );
 $canonical_task_url = static function ( string $task_url ): string {
 	$task_url = trim($task_url);
 	$task_url = preg_split('/[?#]/', $task_url, 2)[0] ?? '';
-	return strtolower(rtrim($task_url, '/'));
+	$task_url = rtrim($task_url, '/');
+	return preg_replace_callback(
+		'~^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]+)~',
+		static function ( array $matches ): string {
+			$authority = $matches[2];
+			$prefix    = '';
+			if ( str_contains($authority, '@') ) {
+				list($prefix, $authority) = explode('@', $authority, 2);
+				$prefix .= '@';
+			}
+			return strtolower($matches[1]) . '://' . $prefix . strtolower($authority);
+		},
+		$task_url
+	) ?? '';
 };
 
 if ( 'resolve_task' === $operation ) {
@@ -22,41 +35,37 @@ if ( 'resolve_task' === $operation ) {
 			$command[ $index ] = '--task-ref=' . $task_url;
 		}
 	}
-	$result = array();
-	$cursor = null;
-	$seen_cursors = array();
-	do {
-		$page_command = $command;
-		if ( null !== $cursor ) {
-			$page_command[] = '--cursor=' . $cursor;
-		}
-		$process = proc_open($page_command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
-		if ( ! is_resource($process) ) {
-			fwrite(STDERR, "Could not start the DMC task worktree lookup.\n");
-			exit(1);
-		}
-		$stdout = stream_get_contents($pipes[1]);
-		$stderr = stream_get_contents($pipes[2]);
-		fclose($pipes[1]);
-		fclose($pipes[2]);
-		$status = proc_close($process);
-		if ( 0 !== $status ) {
+	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+	if ( ! is_resource($process) ) {
+		fwrite(STDERR, "Could not start the DMC task worktree lookup.\n");
+		exit(1);
+	}
+	$stdout = stream_get_contents($pipes[1]);
+	$stderr = stream_get_contents($pipes[2]);
+	fclose($pipes[1]);
+	fclose($pipes[2]);
+	$status = proc_close($process);
+	if ( 0 !== $status ) {
+		$overflow = json_decode($stdout, true);
+		if ( is_array($overflow) && 'worktree_task_candidates_overflow' === ( $overflow['error']['code'] ?? $overflow['code'] ?? null ) ) {
+			fwrite(STDERR, "DMC task worktree lookup exceeded its complete candidate bound.\n");
+		} else {
 			fwrite(STDERR, 'DMC task worktree lookup failed: ' . trim($stderr) . "\n");
-			exit($status > 0 && $status < 256 ? $status : 1);
 		}
-		try {
-			$page = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-		} catch (Throwable $error) {
-			fwrite(STDERR, 'DMC task worktree lookup returned invalid JSON: ' . $error->getMessage() . "\n");
-			exit(1);
-		}
-		$rows = is_array($page) ? ( $page['worktrees'] ?? null ) : null;
-		$next_cursor = is_array($page) ? ( $page['next_cursor'] ?? null ) : null;
-		if ( true !== ( $page['success'] ?? null ) || ! is_array($rows) || ( ! is_string($next_cursor) && null !== $next_cursor ) || ( is_string($next_cursor) && ( '' === $next_cursor || isset($seen_cursors[ $next_cursor ]) ) ) ) {
-			fwrite(STDERR, "DMC task worktree lookup returned an invalid bounded envelope.\n");
-			exit(1);
-		}
-		foreach ( $rows as $row ) {
+		exit($status > 0 && $status < 256 ? $status : 1);
+	}
+	try {
+		$rows = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+	} catch (Throwable $error) {
+		fwrite(STDERR, 'DMC task worktree lookup returned invalid JSON: ' . $error->getMessage() . "\n");
+		exit(1);
+	}
+	if ( ! is_array($rows) || ! array_is_list($rows) ) {
+		fwrite(STDERR, "DMC task worktree lookup did not return a complete row array.\n");
+		exit(1);
+	}
+	$result = array();
+	foreach ( $rows as $row ) {
 			$task   = is_array($row) && is_array($row['task_full'] ?? null) ? $row['task_full'] : null;
 			$safety = is_array($row) && is_array($row['safety'] ?? null) ? $row['safety'] : null;
 			if (
@@ -77,11 +86,6 @@ if ( 'resolve_task' === $operation ) {
 				'safety'   => $safety,
 			);
 		}
-		if ( is_string($next_cursor) ) {
-			$seen_cursors[ $next_cursor ] = true;
-		}
-		$cursor = $next_cursor;
-	} while ( null !== $cursor );
 	if ( array() === $result ) {
 		fwrite(STDOUT, json_encode(array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC has no worktrees for the requested task.' ) ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 		exit(42);
