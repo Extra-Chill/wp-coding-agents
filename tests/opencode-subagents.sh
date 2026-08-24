@@ -32,6 +32,7 @@ import json, sys
 graph = json.load(open(sys.argv[1]))
 assert graph['coordinator'] == 'coordinator'
 assert graph['nodes'][0]['slug'] == 'coordinator'
+assert graph['source_mode'] == 'embedded'
 PY
       cat "$TMP/graph.json"
       ;;

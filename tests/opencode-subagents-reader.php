@@ -21,9 +21,11 @@ $root = realpath( $root );
 mkdir( $root . '/writer/skills/writer', 0777, true );
 mkdir( $root . '/writer/references/writer', 0777, true );
 mkdir( $root . '/writer/contexts', 0777, true );
+mkdir( $root . '/shared', 0777, true );
 file_put_contents( $root . '/coordinator/SOUL.md', "# Coordinator\n" );
 file_put_contents( $root . '/writer/SOUL.md', "# Writer\n" );
 file_put_contents( $root . '/writer/contexts/chat.md', "# Nested context\n" );
+file_put_contents( $root . '/shared/SITE.md', "# Shared site context\n" );
 file_put_contents( $root . '/writer/skills/writer/SKILL.md', "---\nname: writer\n---\n" );
 file_put_contents( $root . '/writer/references/writer/context.md', "reference\x00bytes" );
 $outside = $root . '/outside.md';
@@ -54,6 +56,7 @@ function wp_get_ability( string $slug ): object {
 			$files     = array( array( 'filename' => 'SOUL.md', 'layer' => 'agent', 'path' => $directory . '/SOUL.md' ) );
 			if ( 2 === $input['agent_id'] ) {
 				$files[] = array( 'filename' => 'contexts/chat.md', 'layer' => 'agent', 'path' => $directory . '/contexts/chat.md' );
+				$files[] = array( 'filename' => 'SITE.md', 'layer' => 'shared', 'path' => $GLOBALS['root'] . '/shared/SITE.md' );
 			}
 			return array( 'success' => true, 'files' => $files );
 		}
@@ -142,6 +145,7 @@ if ( $embedded ) {
 		false === strpos( $encoded, '"tool_policy":{}' ) ||
 		"---\nname: writer\n---\n" !== base64_decode( $graph['nodes'][1]['sources']['skills']['writer/SKILL.md'], true ) ||
 		"# Nested context\n" !== base64_decode( $graph['nodes'][1]['sources']['instructions']['contexts/chat.md'], true ) ||
+		"# Shared site context\n" !== base64_decode( $graph['nodes'][1]['sources']['instructions']['SITE.md'], true ) ||
 		false !== strpos( wp_json_encode( $graph ), $root ) ) {
 		fwrite( STDERR, "FAIL: embedded reader did not return self-contained artifact content\n" );
 		exit( 1 );
