@@ -1446,11 +1446,11 @@ _print_verify_block() {
 # ============================================================================
 
 update_data_machine_plugins
+discover_dm_workspace_dir
 configure_homeboy_dmc_worktree_provider_phase
 sync_cli_transport_runtime
 update_ai_gateway
 sync_chat_bridge_config
-discover_dm_workspace_dir
 systems_capabilities_apply
 check_opencode_json_drift
 ai_gateway_configure_opencode
