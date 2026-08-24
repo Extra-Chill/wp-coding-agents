@@ -22,8 +22,10 @@ $canonical_task_url = static function ( string $task_url ): string {
 				$prefix .= '@';
 			}
 			$scheme = strtolower($matches[1]);
-			if ( ( 'http' === $scheme && str_ends_with($authority, ':80') ) || ( 'https' === $scheme && str_ends_with($authority, ':443') ) ) {
-				$authority = substr($authority, 0, strrpos($authority, ':'));
+			$port_separator = strrpos($authority, ':');
+			$port = false === $port_separator ? '' : substr($authority, $port_separator + 1);
+			if ( '' !== $port && ctype_digit($port) && ( ( 'http' === $scheme && 80 === (int) $port ) || ( 'https' === $scheme && 443 === (int) $port ) ) ) {
+				$authority = substr($authority, 0, $port_separator);
 			}
 			return $scheme . '://' . $prefix . strtolower($authority);
 		},

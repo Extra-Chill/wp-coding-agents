@@ -252,17 +252,24 @@ if canonical.returncode or json.loads(canonical.stdout) != canonical_expected:
 https_default_port = run("one", " HTTPS://GITHUB.COM:443/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
 if https_default_port.returncode or json.loads(https_default_port.stdout) != expected:
     raise SystemExit(f"FAIL: HTTPS default port was not removed without changing path case: {https_default_port!r}")
+https_zero_padded_port = run("one", " HTTPS://GITHUB.COM:0443/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
+if https_zero_padded_port.returncode or json.loads(https_zero_padded_port.stdout) != expected:
+    raise SystemExit(f"FAIL: zero-padded HTTPS default port did not round-trip through the adapter: {https_zero_padded_port!r}")
 http_default_port = run("default_http", " HTTP://GITHUB.COM:80/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
 http_expected = [{**expected[0], "task_url": "http://github.com/Extra-Chill/wp-coding-agents/issues/425"}]
 if http_default_port.returncode or json.loads(http_default_port.stdout) != http_expected:
     raise SystemExit(f"FAIL: HTTP default port was not removed without changing path case: {http_default_port!r}")
-near_bound = run("near_bound")
-near_bound_rows = json.loads(near_bound.stdout) if near_bound.returncode == 0 else []
-if len(near_bound_rows) != 200 or near_bound_rows[0]["handle"] != "fixture@task-425-001" or near_bound_rows[-1]["handle"] != "fixture@task-425-200":
-    raise SystemExit(f"FAIL: 200 bounded-complete task candidates were not projected deterministically: {near_bound!r}")
-for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget"):
+http_zero_padded_port = run("default_http", " HTTP://GITHUB.COM:080/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
+if http_zero_padded_port.returncode or json.loads(http_zero_padded_port.stdout) != http_expected:
+    raise SystemExit(f"FAIL: zero-padded HTTP default port did not round-trip through the adapter: {http_zero_padded_port!r}")
+largest_success = run("largest_success")
+largest_rows = json.loads(largest_success.stdout) if largest_success.returncode == 0 else []
+largest_size = len(largest_success.stdout.encode("utf-8"))
+if len(largest_rows) != 200 or largest_rows[0]["handle"] != "fixture@task-425-001" or largest_rows[-1]["handle"] != "fixture@task-425-200" or not 100000 < largest_size < 131072 or largest_size >= 262144:
+    raise SystemExit(f"FAIL: largest successful task projection did not stay below both adapter and Homeboy caps: {largest_success!r}")
+for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", "aggregate_over_budget", "escaping_over_budget"):
     result = run(mode)
-    expected_error = "complete candidate bound" if mode == "overflow" else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
+    expected_error = "complete candidate bound" if mode == "overflow" else "bounded projection output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 PY
@@ -397,15 +404,8 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
       fi
       printf ']\n'
       ;;
-    near_bound)
-      printf '['
-      i=1
-      while [ "$i" -le 200 ]; do
-        [ "$i" -gt 1 ] && printf ','
-        printf '{"handle":"fixture@task-425-%03d","path":"%s/%03d","branch":"fix/425-resolve-task-%03d","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}' "$i" "$DMC_STATE" "$i" "$i"
-        i=$((i + 1))
-      done
-      printf ']\n'
+    largest_success|aggregate_over_budget|escaping_over_budget)
+      python3 -c 'import json, sys; mode, path = sys.argv[1:]; task = "https://github.com/Extra-Chill/wp-coding-agents/issues/425"; fill = "x" * (340 if mode == "largest_success" else 1024); fill = "\\\\" * 400 if mode == "escaping_over_budget" else fill; rows = [{"handle": f"fixture@task-425-{index:03d}", "path": f"{path}/{fill}", "branch": f"fix/425-resolve-task-{index:03d}", "task_full": {"task_url": task}, "safety": {"dirty": False, "unpushed": False, "primary": False}} for index in range(1, 201)]; print(json.dumps(rows, separators=(",", ":")))' "${DMC_TASK_LOOKUP_MODE:-}" "$DMC_STATE"
       ;;
     overflow)
       printf '{"success":false,"error":{"code":"worktree_task_candidates_overflow","message":"Task worktree lookup exceeded the complete bounded candidate limit.","data":{"status":409,"task_ref":"https://github.com/Extra-Chill/wp-coding-agents/issues/425","total":201,"limit":200}}}\n'
