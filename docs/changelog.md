@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.19.2] - 2026-08-24
+
+### Fixed
+- resolve DMC worktree from scoped inventory
+
 ## [1.19.1] - 2026-08-24
 
 ### Fixed
