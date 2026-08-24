@@ -62,8 +62,8 @@ expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", sys.argv[5], sys.argv[4], "{identity}"]
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
-if provider.get("lookup_timeout_ms") != 10000:
-    raise SystemExit("FAIL: standalone DMC lookups must retain a bounded timeout")
+if provider.get("lookup_timeout_ms") != 60000:
+    raise SystemExit("FAIL: standalone DMC planning must have a realistic bounded timeout")
 if provider.get("mutation_timeout_ms") != 120000:
     raise SystemExit("FAIL: DMC mutation timeout must accommodate worktree creation and bootstrap")
 if commands.get("resolve_not_found_exit_codes") != [42]:
