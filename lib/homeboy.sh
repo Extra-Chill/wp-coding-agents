@@ -658,7 +658,7 @@ recompose_agents_md_for_homeboy() {
   # correct file the main compose phase just wrote.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     log "AGENTS.md recomposed after Homeboy availability sync."
-    opencode_project_subagents
+    opencode_project_subagents_optional
   else
     homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy availability sync."
   fi
