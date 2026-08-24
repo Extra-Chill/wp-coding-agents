@@ -59,8 +59,8 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 	$termination_started_at = null;
 	$started_at = microtime(true);
 	while ( true ) {
-		$tree_running = $session_ready && null !== $pid && $pid > 0 ? @posix_kill(-$pid, 0) : (bool) ( proc_get_status($process)['running'] ?? false );
-		if ( feof($pipes[1]) && feof($pipes[2]) && feof($pipes[3]) && ! $tree_running ) {
+		$child_running = (bool) ( proc_get_status($process)['running'] ?? false );
+		if ( feof($pipes[1]) && feof($pipes[2]) && feof($pipes[3]) && ! $child_running ) {
 			break;
 		}
 		if ( ! $session_ready && feof($pipes[3]) && null === $failure ) {
@@ -129,7 +129,20 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 		}
 	}
 	foreach ( $pipes as $pipe ) { if ( is_resource($pipe) ) { fclose($pipe); } }
-	return array( 'status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr, 'failure' => $failure );
+	// Reap the leader before probing its group so a Linux zombie cannot keep kill(-pgid, 0) true.
+	$status = proc_close($process);
+	while ( $session_ready && null !== $pid && $pid > 0 && @posix_kill(-$pid, 0) ) {
+		if ( null === $failure && microtime(true) - $started_at >= HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS ) {
+			$failure = 'timeout';
+			$termination_started_at = microtime(true);
+		}
+		if ( null !== $failure ) {
+			$signal = microtime(true) - (float) $termination_started_at >= HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS ? SIGKILL : SIGTERM;
+			@posix_kill(-$pid, $signal);
+		}
+		usleep(100000);
+	}
+	return array( 'status' => $status, 'stdout' => $stdout, 'stderr' => $stderr, 'failure' => $failure );
 };
 
 $canonical_task_url = static function ( string $task_url ): string {

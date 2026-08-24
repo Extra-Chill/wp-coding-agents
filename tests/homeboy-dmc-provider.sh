@@ -234,18 +234,38 @@ assert_task_resolution_contract() {
   python3 - "$1" <<'PY'
 import json
 import os
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 _, payload = open(sys.argv[1], encoding="utf-8").read().strip().split("|", 1)
 command = json.loads(payload)["commands"]["resolve_task"]
 task_url = "https://github.com/Extra-Chill/wp-coding-agents/issues/425"
 
-def run(mode, requested_task_url=task_url):
+def run(mode, requested_task_url=task_url, watchdog=None):
     env = os.environ.copy()
     env["DMC_TASK_LOOKUP_MODE"] = mode
-    return subprocess.run([part.replace("{task_url}", requested_task_url) for part in command], text=True, capture_output=True, env=env)
+    args = [part.replace("{task_url}", requested_task_url) for part in command]
+    if watchdog is None:
+        return subprocess.run(args, text=True, capture_output=True, env=env)
+    with tempfile.TemporaryFile(mode="w+") as stdout, tempfile.TemporaryFile(mode="w+") as stderr:
+        process = subprocess.Popen(args, text=True, stdout=stdout, stderr=stderr, env=env)
+        try:
+            returncode = process.wait(timeout=watchdog)
+        except subprocess.TimeoutExpired:
+            try:
+                child_pid = int(open(os.environ["DMC_CHILD_PID"], encoding="utf-8").read())
+                os.killpg(child_pid, signal.SIGKILL)
+            except (FileNotFoundError, ProcessLookupError, ValueError):
+                pass
+            process.kill()
+            process.wait(timeout=2)
+            raise SystemExit(f"FAIL: {mode} lookup exceeded independent {watchdog}s fixture watchdog")
+        stdout.seek(0)
+        stderr.seek(0)
+        return subprocess.CompletedProcess(args, returncode, stdout.read(), stderr.read())
 
 zero = run("zero")
 if zero.returncode != 42 or json.loads(zero.stdout).get("error", {}).get("code") != "worktree_not_found":
@@ -286,28 +306,30 @@ for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", 
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 
 def assert_descendant_stopped(mode, expected_error, timeout):
-    marker = os.environ["DMC_DESCENDANT_PID"]
-    try:
-        os.unlink(marker)
-    except FileNotFoundError:
-        pass
+    markers = (os.environ["DMC_CHILD_PID"], os.environ["DMC_DESCENDANT_PID"])
+    for marker in markers:
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
     started = time.monotonic()
-    result = run(mode)
+    result = run(mode, watchdog=20)
     elapsed = time.monotonic() - started
     if result.returncode == 0 or expected_error not in result.stderr or elapsed >= timeout:
         raise SystemExit(f"FAIL: {mode} lookup did not fail closed within its bound: {result!r}, elapsed={elapsed}")
-    try:
-        pid = int(open(marker, encoding="utf-8").read())
-    except (FileNotFoundError, ValueError) as error:
-        raise SystemExit(f"FAIL: {mode} fixture did not record its descendant PID: {error}")
-    for _ in range(50):
+    for marker in markers:
         try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.1)
-    else:
-        raise SystemExit(f"FAIL: {mode} lookup left descendant {pid} alive")
+            pid = int(open(marker, encoding="utf-8").read())
+        except (FileNotFoundError, ValueError) as error:
+            raise SystemExit(f"FAIL: {mode} fixture did not record {marker}: {error}")
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            raise SystemExit(f"FAIL: {mode} lookup left process {pid} alive")
 
 assert_descendant_stopped("descendant_both", "bounded ", 5)
 assert_descendant_stopped("descendant_silent", "bounded execution time", 15)
@@ -401,6 +423,7 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
     *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--all*--with-status*--format=json*|*--task-ref=http://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*) ;;
     *) exit 2 ;;
   esac
+  printf '%s\n' "$$" > "$DMC_CHILD_PID"
   case "${DMC_TASK_LOOKUP_MODE:-zero}" in
     zero)
       printf '[]\n'
@@ -496,10 +519,11 @@ DMC_ENSURE_LOG="$TMP/dmc-ensure.log"
 DMC_PLAN_PATH="$DM_WORKSPACE_DIR/blocks-engine@fix-406-dmc-provider-plan"
 DMC_PROVIDER_LOG="$TMP/dmc-provider.log"
 DMC_PROVIDER_EXECUTABLE="$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider"
+DMC_CHILD_PID="$TMP/dmc-child.pid"
 DMC_DESCENDANT_PID="$TMP/dmc-descendant.pid"
 : > "$DMC_ENSURE_LOG"
 : > "$STUDIO_LOG"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE DMC_DESCENDANT_PID
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE DMC_CHILD_PID DMC_DESCENDANT_PID
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
