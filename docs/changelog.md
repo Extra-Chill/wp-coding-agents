@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.19.0] - 2026-08-24
+
+### Added
+- manage copied DMC releases
+
+### Changed
+- defer Data Machine memory composition
+- stabilize DMC integration path assertion
+- execute colocated subagent reader payload
+
+### Fixed
+- allow bounded DMC worktree planning
+- scope DMC worktree inventory by repository
+- verify DMC release asset digests
+- preserve DMC tracker evidence in resolve
+- classify OpenCode projection failures
+- resolve DMC provider from source contract
+- preserve upgrade recovery summaries
+- bootstrap colocated OpenCode subagent graph
+- plan DMC worktrees for Homeboy
+- expose DMC provider convergence
+
 ## [1.18.1] - 2026-08-22
 
 ### Fixed
