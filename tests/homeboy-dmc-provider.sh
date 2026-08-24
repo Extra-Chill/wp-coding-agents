@@ -65,6 +65,8 @@ expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "sa
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
 if provider.get("lookup_timeout_ms") != 10000:
     raise SystemExit("FAIL: standalone DMC lookups must retain a bounded timeout")
+if provider.get("lookup_output_limit_bytes") != 262144:
+    raise SystemExit("FAIL: DMC task lookup output must have an explicit finite Homeboy cap")
 if provider.get("mutation_timeout_ms") != 120000:
     raise SystemExit("FAIL: DMC mutation timeout must accommodate worktree creation and bootstrap")
 if commands.get("resolve_not_found_exit_codes") != [42]:
@@ -247,9 +249,20 @@ canonical = run("canonical", " HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/i
 canonical_expected = [{**expected[0], "task_url": "https://github.com/Extra-Chill/WP-Coding-Agents/issues/425"}]
 if canonical.returncode or json.loads(canonical.stdout) != canonical_expected:
     raise SystemExit(f"FAIL: task lookup did not canonicalize requested and stored task URLs: {canonical!r}")
-for mode in ("mismatched_task", "incomplete_safety", "overflow"):
+https_default_port = run("one", " HTTPS://GITHUB.COM:443/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
+if https_default_port.returncode or json.loads(https_default_port.stdout) != expected:
+    raise SystemExit(f"FAIL: HTTPS default port was not removed without changing path case: {https_default_port!r}")
+http_default_port = run("default_http", " HTTP://GITHUB.COM:80/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
+http_expected = [{**expected[0], "task_url": "http://github.com/Extra-Chill/wp-coding-agents/issues/425"}]
+if http_default_port.returncode or json.loads(http_default_port.stdout) != http_expected:
+    raise SystemExit(f"FAIL: HTTP default port was not removed without changing path case: {http_default_port!r}")
+near_bound = run("near_bound")
+near_bound_rows = json.loads(near_bound.stdout) if near_bound.returncode == 0 else []
+if len(near_bound_rows) != 200 or near_bound_rows[0]["handle"] != "fixture@task-425-001" or near_bound_rows[-1]["handle"] != "fixture@task-425-200":
+    raise SystemExit(f"FAIL: 200 bounded-complete task candidates were not projected deterministically: {near_bound!r}")
+for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget"):
     result = run(mode)
-    expected_error = "complete candidate bound" if mode == "overflow" else "incomplete or mismatched task candidate"
+    expected_error = "complete candidate bound" if mode == "overflow" else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 PY
@@ -364,17 +377,18 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ] && [ "${
 fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
   case "$*" in
-    *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--all*--with-status*--format=json*) ;;
+    *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--all*--with-status*--format=json*|*--task-ref=http://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*) ;;
     *) exit 2 ;;
   esac
   case "${DMC_TASK_LOOKUP_MODE:-zero}" in
     zero)
       printf '[]\n'
       ;;
-    one|ambiguous|canonical|mismatched_task|incomplete_safety)
+    one|ambiguous|canonical|mismatched_task|incomplete_safety|default_http)
       task='https://github.com/Extra-Chill/wp-coding-agents/issues/425'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = mismatched_task ] && task='https://github.com/Extra-Chill/wp-coding-agents/issues/other'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = canonical ] && task='HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/425/?query=value#fragment'
+      [ "${DMC_TASK_LOOKUP_MODE:-}" = default_http ] && task='http://github.com/Extra-Chill/wp-coding-agents/issues/425'
       safety='{"dirty":false,"unpushed":false,"primary":false}'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = incomplete_safety ] && safety='{"dirty":false,"primary":false}'
       printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}' "$DMC_STATE" "$task" "$safety"
@@ -383,9 +397,23 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
       fi
       printf ']\n'
       ;;
+    near_bound)
+      printf '['
+      i=1
+      while [ "$i" -le 200 ]; do
+        [ "$i" -gt 1 ] && printf ','
+        printf '{"handle":"fixture@task-425-%03d","path":"%s/%03d","branch":"fix/425-resolve-task-%03d","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}' "$i" "$DMC_STATE" "$i" "$i"
+        i=$((i + 1))
+      done
+      printf ']\n'
+      ;;
     overflow)
       printf '{"success":false,"error":{"code":"worktree_task_candidates_overflow","message":"Task worktree lookup exceeded the complete bounded candidate limit.","data":{"status":409,"task_ref":"https://github.com/Extra-Chill/wp-coding-agents/issues/425","total":201,"limit":200}}}\n'
       exit 1
+      ;;
+    over_budget)
+      oversized="$(python3 -c 'print("x" * 4097)')"
+      printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}]\n' "$oversized"
       ;;
     *) exit 2 ;;
   esac

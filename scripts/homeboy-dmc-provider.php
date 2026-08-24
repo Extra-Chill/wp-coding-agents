@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 $operation = (string) ( $argv[1] ?? '' );
 
+const HOMEBOY_DMC_TASK_MAX_CANDIDATES = 200;
+const HOMEBOY_DMC_TASK_MAX_FIELD_BYTES = 4096;
+const HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES = 131072;
+
 $canonical_task_url = static function ( string $task_url ): string {
 	$task_url = trim($task_url);
 	$task_url = preg_split('/[?#]/', $task_url, 2)[0] ?? '';
@@ -17,7 +21,11 @@ $canonical_task_url = static function ( string $task_url ): string {
 				list($prefix, $authority) = explode('@', $authority, 2);
 				$prefix .= '@';
 			}
-			return strtolower($matches[1]) . '://' . $prefix . strtolower($authority);
+			$scheme = strtolower($matches[1]);
+			if ( ( 'http' === $scheme && str_ends_with($authority, ':80') ) || ( 'https' === $scheme && str_ends_with($authority, ':443') ) ) {
+				$authority = substr($authority, 0, strrpos($authority, ':'));
+			}
+			return $scheme . '://' . $prefix . strtolower($authority);
 		},
 		$task_url
 	) ?? '';
@@ -64,6 +72,10 @@ if ( 'resolve_task' === $operation ) {
 		fwrite(STDERR, "DMC task worktree lookup did not return a complete row array.\n");
 		exit(1);
 	}
+	if ( count($rows) > HOMEBOY_DMC_TASK_MAX_CANDIDATES ) {
+		fwrite(STDERR, "DMC task worktree lookup exceeded its complete candidate bound.\n");
+		exit(1);
+	}
 	$result = array();
 	foreach ( $rows as $row ) {
 			$task   = is_array($row) && is_array($row['task_full'] ?? null) ? $row['task_full'] : null;
@@ -72,12 +84,16 @@ if ( 'resolve_task' === $operation ) {
 				! is_array($row) || ! is_array($task) || $task_url !== $canonical_task_url((string) ( $task['task_url'] ?? '' ))
 				|| ! is_string($row['handle'] ?? null) || '' === $row['handle']
 				|| ! is_string($row['path'] ?? null) || '' === $row['path']
-				|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
-				|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
-			) {
+			|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
+			|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
+		) {
 				fwrite(STDERR, "DMC task worktree lookup returned an incomplete or mismatched task candidate.\n");
-				exit(1);
-			}
+			exit(1);
+		}
+		if ( strlen($row['handle']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($row['path']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($row['branch']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($task_url) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES ) {
+			fwrite(STDERR, "DMC task worktree lookup field exceeds its bounded projection limit.\n");
+			exit(1);
+		}
 			$result[] = array(
 				'handle'   => $row['handle'],
 				'path'     => $row['path'],
@@ -90,7 +106,12 @@ if ( 'resolve_task' === $operation ) {
 		fwrite(STDOUT, json_encode(array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC has no worktrees for the requested task.' ) ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 		exit(42);
 	}
-	fwrite(STDOUT, json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+	$serialized = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+	if ( strlen($serialized) > HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES ) {
+		fwrite(STDERR, "DMC task worktree lookup exceeds its bounded projection output.\n");
+		exit(1);
+	}
+	fwrite(STDOUT, $serialized . "\n");
 	exit(0);
 }
 
