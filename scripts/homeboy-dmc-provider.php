@@ -310,11 +310,11 @@ if ( ! in_array($operation, array( 'identity', 'safety', 'resolve', 'converge' )
 }
 
 /** @return array<string,mixed> */
-$read_inventory = static function ( array $command, string $repo = '' ): array {
+$read_inventory = static function ( array $command, string $repo = '', string $handle = '' ): array {
 	if ( array() === $command ) {
 		throw new RuntimeException('DMC aggregate inventory command is required for resolve.');
 	}
-	if ( '' === $repo || 1 !== count(array_filter($command, static fn ( string $part ): bool => '{repo}' === $part))) {
+	if ( '' === $repo || '' === $handle || 1 !== count(array_filter($command, static fn ( string $part ): bool => '{repo}' === $part))) {
 		throw new RuntimeException('DMC worktree list requires the repository resolved from identity.');
 	}
 	$command = array_map(static fn ( string $part ): string => '{repo}' === $part ? $repo : $part, $command);
@@ -331,10 +331,14 @@ $read_inventory = static function ( array $command, string $repo = '' ): array {
 		throw new RuntimeException('DMC aggregate inventory failed: ' . trim($stderr), $status);
 	}
 	$inventory = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-	if ( ! is_array($inventory) || 1 !== count($inventory) || ! is_array($inventory[0] ?? null) ) {
-		throw new RuntimeException('DMC aggregate inventory did not return one typed worktree record.');
+	if ( ! is_array($inventory) ) {
+		throw new RuntimeException('DMC aggregate inventory did not return typed worktree records.');
 	}
-	return $inventory[0];
+	$matches = array_values(array_filter($inventory, static fn ( mixed $record ): bool => is_array($record) && $handle === ( $record['handle'] ?? null )));
+	if ( 1 !== count($matches) ) {
+		throw new RuntimeException('DMC aggregate inventory did not return one matching typed worktree record.');
+	}
+	return $matches[0];
 };
 
 $run_provider = static function ( string $provider_operation, string $provider_value, string $provider_base = '' ) use ( $provider, $workspace ): array {
@@ -413,7 +417,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 			if ( false === $repo || '' === $repo ) {
 				throw new RuntimeException('DMC identity did not provide a repository-scoped handle.');
 			}
-			$inventory = $read_inventory(array_slice($argv, 5), $repo);
+			$inventory = $read_inventory(array_slice($argv, 5), $repo, $handle);
 		} catch (Throwable $error) {
 			fwrite(STDERR, $error->getMessage() . "\n");
 			exit($error->getCode() > 0 && $error->getCode() < 256 ? $error->getCode() : 1);

@@ -574,7 +574,6 @@ if [ "$RUNTIME_ONLY" != true ]; then
     sync_carried_plugins
     install_extra_plugins
     setup_homeboy_project
-    configure_homeboy_dmc_worktree_provider
     setup_nginx
     setup_ssl
     setup_service_permissions
@@ -595,6 +594,9 @@ runtime_install
 runtime_discover_dm_paths
 external_wordpress_project_context
 discover_dm_workspace_dir
+if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
+  configure_homeboy_dmc_worktree_provider
+fi
 systems_capabilities_apply
 runtime_generate_config
 ai_gateway_configure_opencode

@@ -11,6 +11,15 @@ source "$SCRIPT_DIR/lib/wordpress.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/homeboy.sh"
 
+for entrypoint in setup.sh upgrade.sh; do
+  discover_line=$(grep -n '^discover_dm_workspace_dir$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  configure_line=$(grep -n '^\(  \)\?configure_homeboy_dmc_worktree_provider\(_phase\)\?$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  if [ -z "$discover_line" ] || [ -z "$configure_line" ] || [ "$discover_line" -ge "$configure_line" ]; then
+    echo "FAIL: $entrypoint must discover the authoritative DMC workspace before configuring Homeboy" >&2
+    exit 1
+  fi
+done
+
 TMP="$(mktemp -d)"
 ORIGINAL_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
@@ -212,10 +221,14 @@ if resolved.returncode or json.loads(resolved.stdout) != expected:
 canonical = run("canonical_task")
 if canonical.returncode or json.loads(canonical.stdout) != expected:
     raise SystemExit(f"FAIL: exact resolution did not canonicalize persisted task identity: {canonical!r}")
-for mode in ("missing_task", "mismatched_identity", "conflicting_lineage"):
+for mode in ("missing_task", "conflicting_lineage"):
     result = run(mode)
     if result.returncode == 0 or "does not prove tracker ownership" not in result.stderr:
         raise SystemExit(f"FAIL: {mode} inventory evidence must fail closed: {result!r}")
+for mode in ("mismatched_identity", "duplicate_identity"):
+    result = run(mode)
+    if result.returncode == 0 or "did not return one matching typed worktree record" not in result.stderr:
+        raise SystemExit(f"FAIL: {mode} inventory identity must fail closed: {result!r}")
 PY
 }
 
@@ -395,6 +408,9 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ] && [ "${
       mismatched_identity)
         printf '[{"handle":"other@worktree","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
+      duplicate_identity)
+        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook"},{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook"}]\n' "$DMC_STATE" "$DMC_STATE"
+        ;;
       conflicting_lineage)
         printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Other Site","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
@@ -402,7 +418,7 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ] && [ "${
         printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":" HTTPS://GITHUB.COM/Extra-Chill/wp-coding-agents/issues/419/?query=value#fragment "},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
       *)
-        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
+        printf '[{"handle":"other@worktree","path":"%s-other","branch":"other"},{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE" "$DMC_STATE"
         ;;
     esac
     exit 0
