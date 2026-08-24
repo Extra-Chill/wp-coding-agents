@@ -211,10 +211,14 @@ resolved = run()
 expected = [{"handle": intent["handle"], "path": intent["path"], "branch": "fix/310-dmc-cook", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/419", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
 if resolved.returncode or json.loads(resolved.stdout) != expected:
     raise SystemExit(f"FAIL: resolve did not join typed tracker inventory to exact identity: {resolved!r}")
-for mode in ("missing_task", "mismatched_identity", "conflicting_lineage"):
+for mode in ("missing_task", "conflicting_lineage"):
     result = run(mode)
     if result.returncode == 0 or "does not prove tracker ownership" not in result.stderr:
         raise SystemExit(f"FAIL: {mode} inventory evidence must fail closed: {result!r}")
+for mode in ("mismatched_identity", "duplicate_identity"):
+    result = run(mode)
+    if result.returncode == 0 or "did not return one matching typed worktree record" not in result.stderr:
+        raise SystemExit(f"FAIL: {mode} inventory identity must fail closed: {result!r}")
 PY
 }
 
@@ -312,11 +316,14 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
       mismatched_identity)
         printf '[{"handle":"other@worktree","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
+      duplicate_identity)
+        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook"},{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook"}]\n' "$DMC_STATE" "$DMC_STATE"
+        ;;
       conflicting_lineage)
         printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Other Site","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
         ;;
       *)
-        printf '[{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE"
+        printf '[{"handle":"other@worktree","path":"%s-other","branch":"other"},{"handle":"fixture@fix-310-dmc-cook","path":"%s","branch":"fix/310-dmc-cook","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"},"owner_full":{"site":"Home Page","agent":"intelligence-chubes4"},"metadata":{"origin_site":"Home Page","origin_agent":"intelligence-chubes4","origin_task":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/419"}}}]\n' "$DMC_STATE" "$DMC_STATE"
         ;;
     esac
     exit 0
