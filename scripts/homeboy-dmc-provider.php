@@ -4,58 +4,87 @@ declare(strict_types=1);
 
 $operation = (string) ( $argv[1] ?? '' );
 
+$canonical_task_url = static function ( string $task_url ): string {
+	$task_url = trim($task_url);
+	$task_url = preg_split('/[?#]/', $task_url, 2)[0] ?? '';
+	return strtolower(rtrim($task_url, '/'));
+};
+
 if ( 'resolve_task' === $operation ) {
-	$task_url = (string) ( $argv[2] ?? '' );
+	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));
 	$command  = array_slice($argv, 3);
 	if ( '' === $task_url || array() === $command ) {
 		fwrite(STDERR, "Usage: homeboy-dmc-provider.php resolve_task <task-url> <dmc-worktree-list-command...>\n");
 		exit(2);
 	}
-	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
-	if ( ! is_resource($process) ) {
-		fwrite(STDERR, "Could not start the DMC task worktree lookup.\n");
-		exit(1);
-	}
-	$stdout = stream_get_contents($pipes[1]);
-	$stderr = stream_get_contents($pipes[2]);
-	fclose($pipes[1]);
-	fclose($pipes[2]);
-	$status = proc_close($process);
-	if ( 0 !== $status ) {
-		fwrite(STDERR, 'DMC task worktree lookup failed: ' . trim($stderr) . "\n");
-		exit($status > 0 && $status < 256 ? $status : 1);
-	}
-	try {
-		$rows = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-	} catch (Throwable $error) {
-		fwrite(STDERR, 'DMC task worktree lookup returned invalid JSON: ' . $error->getMessage() . "\n");
-		exit(1);
-	}
-	if ( ! is_array($rows) ) {
-		fwrite(STDERR, "DMC task worktree lookup did not return a row array.\n");
-		exit(1);
+	foreach ( $command as $index => $argument ) {
+		if ( str_starts_with($argument, '--task-ref=') ) {
+			$command[ $index ] = '--task-ref=' . $task_url;
+		}
 	}
 	$result = array();
-	foreach ( $rows as $row ) {
-		$task   = is_array($row) && is_array($row['task_full'] ?? null) ? $row['task_full'] : null;
-		$safety = is_array($row) && is_array($row['safety'] ?? null) ? $row['safety'] : null;
-		if (
-			! is_array($row) || ! is_array($task) || $task_url !== ( $task['task_url'] ?? null )
-			|| ! is_string($row['handle'] ?? null) || '' === $row['handle']
-			|| ! is_string($row['path'] ?? null) || '' === $row['path']
-			|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
-			|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
-		) {
-			fwrite(STDERR, "DMC task worktree lookup returned an incomplete or mismatched task candidate.\n");
+	$cursor = null;
+	$seen_cursors = array();
+	do {
+		$page_command = $command;
+		if ( null !== $cursor ) {
+			$page_command[] = '--cursor=' . $cursor;
+		}
+		$process = proc_open($page_command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+		if ( ! is_resource($process) ) {
+			fwrite(STDERR, "Could not start the DMC task worktree lookup.\n");
 			exit(1);
 		}
-		$result[] = array(
-			'handle'   => $row['handle'],
-			'path'     => $row['path'],
-			'branch'   => $row['branch'],
-			'task_url' => $task_url,
-			'safety'   => $safety,
-		);
+		$stdout = stream_get_contents($pipes[1]);
+		$stderr = stream_get_contents($pipes[2]);
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		$status = proc_close($process);
+		if ( 0 !== $status ) {
+			fwrite(STDERR, 'DMC task worktree lookup failed: ' . trim($stderr) . "\n");
+			exit($status > 0 && $status < 256 ? $status : 1);
+		}
+		try {
+			$page = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+		} catch (Throwable $error) {
+			fwrite(STDERR, 'DMC task worktree lookup returned invalid JSON: ' . $error->getMessage() . "\n");
+			exit(1);
+		}
+		$rows = is_array($page) ? ( $page['worktrees'] ?? null ) : null;
+		$next_cursor = is_array($page) ? ( $page['next_cursor'] ?? null ) : null;
+		if ( true !== ( $page['success'] ?? null ) || ! is_array($rows) || ( ! is_string($next_cursor) && null !== $next_cursor ) || ( is_string($next_cursor) && ( '' === $next_cursor || isset($seen_cursors[ $next_cursor ]) ) ) ) {
+			fwrite(STDERR, "DMC task worktree lookup returned an invalid bounded envelope.\n");
+			exit(1);
+		}
+		foreach ( $rows as $row ) {
+			$task   = is_array($row) && is_array($row['task_full'] ?? null) ? $row['task_full'] : null;
+			$safety = is_array($row) && is_array($row['safety'] ?? null) ? $row['safety'] : null;
+			if (
+				! is_array($row) || ! is_array($task) || $task_url !== $canonical_task_url((string) ( $task['task_url'] ?? '' ))
+				|| ! is_string($row['handle'] ?? null) || '' === $row['handle']
+				|| ! is_string($row['path'] ?? null) || '' === $row['path']
+				|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
+				|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
+			) {
+				fwrite(STDERR, "DMC task worktree lookup returned an incomplete or mismatched task candidate.\n");
+				exit(1);
+			}
+			$result[] = array(
+				'handle'   => $row['handle'],
+				'path'     => $row['path'],
+				'branch'   => $row['branch'],
+				'task_url' => $task_url,
+				'safety'   => $safety,
+			);
+		}
+		if ( is_string($next_cursor) ) {
+			$seen_cursors[ $next_cursor ] = true;
+		}
+		$cursor = $next_cursor;
+	} while ( null !== $cursor );
+	if ( array() === $result ) {
+		fwrite(STDOUT, json_encode(array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC has no worktrees for the requested task.' ) ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+		exit(42);
 	}
 	fwrite(STDOUT, json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 	exit(0);
@@ -242,7 +271,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 			|| $payload['handle'] !== ( $inventory['handle'] ?? null )
 			|| $payload['path'] !== ( $inventory['path'] ?? null )
 			|| $payload['branch'] !== ( $inventory['branch'] ?? null )
-			|| $task_url !== $lineage_task_url
+			|| $canonical_task_url($task_url) !== $canonical_task_url((string) $lineage_task_url)
 			|| $owner_site !== $lineage_site
 			|| $owner_agent !== $lineage_agent
 		) {
@@ -254,7 +283,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 				'handle'  => $payload['handle'] ?? '',
 				'path'    => $payload['path'] ?? '',
 				'branch'  => $payload['branch'] ?? '',
-				'task_url' => $task_url,
+				'task_url' => $canonical_task_url($task_url),
 				'safety'  => array(
 					'dirty'    => $safety['dirty'] ?? true,
 					'unpushed' => $safety['unpushed'] ?? true,
