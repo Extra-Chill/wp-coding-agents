@@ -1,148 +1,108 @@
-// tests/dm-agent-sync.mjs — unit smoke tests for the Kimaki DM memory sync plugin.
+// tests/dm-agent-sync.mjs — lifecycle tests for the Kimaki DM memory sync plugin.
 
 import assert from "node:assert/strict"
+import { access, mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
 
 const sitePath = "/tmp/datamachine-site"
-process.env.DATAMACHINE_SITE_PATH = sitePath
-delete process.env.DATAMACHINE_WP_CMD
-delete process.env.WP_CMD
-delete process.env.DATAMACHINE_AGENT_SLUG
-
-function output(stdout = "", exitCode = 0, stderr = "") {
-  return {
-    exitCode,
-    stdout,
-    stderr,
-    async text() {
-      return [stdout, stderr].filter(Boolean).join("\n")
-    },
-  }
-}
-
-function fakeShell(responses) {
-  return (strings, ...values) => {
-    const command = strings.reduce((acc, part, index) => acc + part + (values[index] ?? ""), "")
-    return {
-      quiet() {
-        return this
-      },
-      nothrow() {
-        for (const [pattern, result] of responses) {
-          if (pattern.test(command)) {
-            return Promise.resolve(result)
-          }
-        }
-        return Promise.resolve(output("", 1, `unexpected command: ${command}`))
-      },
-    }
-  }
-}
-
-async function runConfig(config, responses) {
-  const warnings = []
-  const originalWarn = console.warn
-  console.warn = (message) => warnings.push(String(message))
-  try {
-    const plugin = await dmAgentSync({ $: fakeShell(responses) })
-    await plugin.config(config)
-  } finally {
-    console.warn = originalWarn
-  }
-  return warnings
-}
 
 async function withEnv(env, callback) {
   const previous = {}
   for (const key of Object.keys(env)) {
     previous[key] = process.env[key]
-    if (env[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = env[key]
-    }
+    if (env[key] === undefined) delete process.env[key]
+    else process.env[key] = env[key]
   }
-
   try {
     return await callback()
   } finally {
     for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
-      }
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
     }
   }
 }
 
-const commonResponses = [
-  [/^command -v wp$/, output("/usr/local/bin/wp")],
-  [/^sh -c wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
-]
-
-{
-  const config = {
-    model: "anthropic/claude-opus-4-7",
-    agent: {
-      build: { mode: "primary", model: "anthropic/claude-opus-4-7" },
-      plan: { mode: "primary", model: "anthropic/claude-opus-4-7" },
+async function loadPlugin(config = {}) {
+  const warnings = []
+  const originalWarn = console.warn
+  const plugin = await dmAgentSync({})
+  return {
+    async config() {
+      console.warn = (message) => warnings.push(String(message))
+      try {
+        await plugin.config(config)
+      } finally {
+        console.warn = originalWarn
+      }
     },
-  }
-  const warnings = await runConfig(config, commonResponses)
-  assert.equal(config.agent.build.prompt, undefined)
-  assert.equal(config.agent.plan.prompt, undefined)
-  assert.equal(config.agent.build.model, "anthropic/claude-opus-4-7")
-  assert.equal(config.agent.franklin, undefined)
-  assert.equal(config.agent.julia, undefined)
-  assert.ok(warnings.some((line) => line.includes("recomposed Data Machine memory")))
-}
-
-{
-  const config = {
-    agent: {
-      build: { mode: "primary", tools: { bash: true } },
-      plan: { mode: "primary" },
+    async chat(sessionID = "session-1") {
+      console.warn = (message) => warnings.push(String(message))
+      try {
+        await plugin["chat.message"]({ sessionID }, {})
+      } finally {
+        console.warn = originalWarn
+      }
     },
+    warnings,
   }
-  await runConfig(config, commonResponses)
-  assert.deepEqual(config.agent.build.tools, { bash: true })
-  assert.equal(config.agent.build.prompt, undefined)
-  assert.equal(config.agent.plan.prompt, undefined)
 }
 
-{
-  const config = {
-    agent: {
-      build: { prompt: "custom prompt" },
-    },
-  }
-  await runConfig(config, commonResponses)
-  assert.equal(config.agent.build.prompt, "custom prompt")
-  assert.equal(config.agent.plan, undefined)
-}
+await withEnv({
+  DATAMACHINE_SITE_PATH: sitePath,
+  DATAMACHINE_WP_CMD: "true",
+  DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
+  EXTERNAL_WORDPRESS: undefined,
+}, async () => {
+  const config = { instructions: ["/tmp/datamachine-site/agents/intelligence-chubes4/SOUL.md"] }
+  const run = await loadPlugin(config)
+  await run.config()
 
-{
-  const config = {}
-  const warnings = await runConfig(config, [
-    [/^command -v wp$/, output("/usr/local/bin/wp")],
-    [/^sh -c wp 'datamachine' 'memory' 'compose' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("", 1, "db down")],
-  ])
-  assert.ok(warnings.some((line) => line.includes("memory compose failed")))
-  assert.equal(config.agent, undefined)
-}
+  // Mirrors `opencode models`: config setup has no shell or WordPress work and
+  // leaves setup/upgrade-managed instruction paths untouched.
+  assert.deepEqual(config.instructions, ["/tmp/datamachine-site/agents/intelligence-chubes4/SOUL.md"])
+  assert.equal(run.warnings.length, 0)
 
-await withEnv({ DATAMACHINE_WP_CMD: "custom-wp", DATAMACHINE_AGENT_SLUG: "intelligence-chubes4" }, async () => {
-  const config = {}
-  const warnings = await runConfig(config, [
-    [/^sh -c custom-wp 'datamachine' 'memory' 'compose' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output("composed")],
-    [/^sh -c custom-wp 'datamachine' 'memory' 'injectable-files' '--format=json' '--agent=intelligence-chubes4' '--path=\/tmp\/datamachine-site' '--allow-root'$/, output(JSON.stringify([
-      { path: "/tmp/datamachine-site/AGENTS.md" },
-      { path: "/tmp/datamachine-site/MEMORY.md" },
-    ]))],
-  ])
-  assert.ok(warnings.some((line) => line.includes("recomposed Data Machine memory")))
-  assert.deepEqual(config.instructions, ["/tmp/datamachine-site/AGENTS.md", "/tmp/datamachine-site/MEMORY.md"])
+  await run.chat()
+  assert.ok(run.warnings.some((line) => line.includes("recomposed Data Machine memory in")))
+  const warningCount = run.warnings.length
+  await run.chat()
+  assert.equal(run.warnings.length, warningCount)
 })
 
-console.log("OK: dm-agent-sync recomposes DM memory without mutating OpenCode agents")
+await withEnv({
+  DATAMACHINE_SITE_PATH: sitePath,
+  DATAMACHINE_WP_CMD: "false",
+  DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
+}, async () => {
+  const run = await loadPlugin()
+  await run.config()
+  await run.chat()
+  assert.ok(run.warnings.some((line) => line.includes("memory compose failed")))
+})
+
+await withEnv({ EXTERNAL_WORDPRESS: "true", DATAMACHINE_WP_CMD: "false" }, async () => {
+  const run = await loadPlugin()
+  await run.config()
+  await run.chat()
+  assert.equal(run.warnings.length, 0)
+})
+
+await withEnv({ DATAMACHINE_COMPOSE_TIMEOUT_MS: "10" }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dm-agent-sync-"))
+  const marker = join(directory, "compose-finished")
+  const run = await loadPlugin()
+  await withEnv({ DATAMACHINE_WP_CMD: `sh -c 'sleep 0.2; touch ${marker}'` }, async () => {
+    await run.config()
+    const startedAt = Date.now()
+    await run.chat()
+    assert.ok(Date.now() - startedAt < 150)
+  })
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  await assert.rejects(access(marker))
+  assert.ok(run.warnings.some((line) => line.includes("memory compose timed out")))
+})
+
+console.log("OK: dm-agent-sync runs bounded WordPress composition only for the first chat message per session")
