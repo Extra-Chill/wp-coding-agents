@@ -22,12 +22,14 @@ dmc_managed_release_sha256() {
   fi
 }
 
-# Print a tab-separated release tuple: version, archive URL, checksum URL.
+# Print a tab-separated release tuple: version, archive URL, archive name,
+# evidence type, expected digest or checksum URL.
 dmc_managed_release_resolve() {
   local release_json="$1"
   DMC_RELEASE_JSON="$release_json" DMC_RELEASE_ASSET="${DMC_MANAGED_RELEASE_ASSET:-}" python3 <<'PY'
 import json
 import os
+import re
 import sys
 
 data = json.loads(os.environ['DMC_RELEASE_JSON'])
@@ -43,11 +45,25 @@ if archive is None and len(archives) == 1:
     archive = archives[0]
 if archive is None:
     raise SystemExit('release must publish exactly one ZIP asset (or set DMC_MANAGED_RELEASE_ASSET)')
-name = str(archive['name'])
+name = archive.get('name')
+archive_url = archive.get('browser_download_url')
+if not isinstance(name, str) or re.search(r'[\t\r\n]', name):
+    raise SystemExit('release ZIP asset name is invalid')
+if not isinstance(archive_url, str) or not re.fullmatch(r'https://[^\t\r\n]+', archive_url):
+    raise SystemExit('release ZIP download URL is invalid')
+digest = archive.get('digest')
+if digest is not None:
+    if not re.fullmatch(r'sha256:[0-9a-fA-F]{64}', str(digest)):
+        raise SystemExit('release ZIP digest must be sha256 followed by 64 hexadecimal characters')
+    print('\t'.join((version, archive_url, name, 'github_digest', str(digest)[7:].lower())))
+    raise SystemExit(0)
 checksums = [asset for asset in assets if str(asset.get('name', '')).lower() in (name.lower() + '.sha256', name.lower() + '.sha256sum', 'sha256sums', 'sha256sums.txt')]
 if len(checksums) != 1:
     raise SystemExit('release must publish one SHA-256 checksum asset for the ZIP')
-print('\t'.join((version, str(archive['browser_download_url']), str(checksums[0]['browser_download_url']))))
+checksum_url = checksums[0].get('browser_download_url')
+if not isinstance(checksum_url, str) or not re.fullmatch(r'https://[^\t\r\n]+', checksum_url):
+    raise SystemExit('release checksum download URL is invalid')
+print('\t'.join((version, archive_url, name, 'checksum_sidecar', checksum_url)))
 PY
 }
 
@@ -111,13 +127,21 @@ dmc_managed_release_status() {
     return 0
   fi
 
-  local release tuple version archive_url checksum_url
+  local release tuple version archive_url archive_name evidence_type evidence extra
   if ! release="$(curl -fsSL "$DMC_MANAGED_RELEASE_API")" || ! tuple="$(dmc_managed_release_resolve "$release")"; then
     printf '{"deployment":"copied_deploy","installed_version":"%s","state":"resolution_failed"}\n' "$current"
     return 1
   fi
-  IFS=$'\t' read -r version archive_url checksum_url <<< "$tuple"
-  printf '{"deployment":"copied_deploy","installed_version":"%s","latest_version":"%s","archive_url":"%s","checksum_url":"%s"}\n' "$current" "$version" "$archive_url" "$checksum_url"
+  IFS=$'\t' read -r version archive_url archive_name evidence_type evidence extra <<< "$tuple"
+  if [ -n "$extra" ] || [ -z "$version" ] || [ -z "$archive_url" ] || [ -z "$archive_name" ] || [ -z "$evidence_type" ] || [ -z "$evidence" ]; then
+    printf '{"deployment":"copied_deploy","installed_version":"%s","state":"resolution_failed"}\n' "$current"
+    return 1
+  fi
+  if [ "$evidence_type" = github_digest ]; then
+    printf '{"deployment":"copied_deploy","installed_version":"%s","latest_version":"%s","archive_url":"%s","expected_sha256":"%s"}\n' "$current" "$version" "$archive_url" "$evidence"
+  else
+    printf '{"deployment":"copied_deploy","installed_version":"%s","latest_version":"%s","archive_url":"%s","checksum_url":"%s"}\n' "$current" "$version" "$archive_url" "$evidence"
+  fi
 }
 
 update_data_machine_code_copied_release() {
@@ -125,22 +149,32 @@ update_data_machine_code_copied_release() {
   plugin_dir="$(dmc_managed_release_plugin_dir)"
   [ -d "$plugin_dir" ] || return 0
   [ ! -d "$plugin_dir/.git" ] || return 0
-  dmc_managed_release_recover "$plugin_dir" || { warn "Could not recover interrupted Data Machine Code release update"; return 0; }
 
-  local current release tuple target archive_url checksum_url
+  local current release tuple target archive_url archive_name evidence_type evidence extra
   current="$(dmc_managed_release_header_version "$plugin_dir" 2>/dev/null || true)"
   if ! release="$(curl -fsSL "$DMC_MANAGED_RELEASE_API")" || ! tuple="$(dmc_managed_release_resolve "$release")"; then
     warn "Could not resolve the official Data Machine Code release — copied install unchanged"
     return 0
   fi
-  IFS=$'\t' read -r target archive_url checksum_url <<< "$tuple"
+  IFS=$'\t' read -r target archive_url archive_name evidence_type evidence extra <<< "$tuple"
+  if [ -n "$extra" ] || [ -z "$target" ] || [ -z "$archive_url" ] || [ -z "$archive_name" ] || [ -z "$evidence_type" ] || [ -z "$evidence" ]; then
+    warn "Could not resolve the official Data Machine Code release — copied install unchanged"
+    return 0
+  fi
 
   if [ "$current" = "$target" ]; then
+    if [ "${DRY_RUN:-false}" != true ]; then
+      dmc_managed_release_recover "$plugin_dir" || { warn "Could not recover interrupted Data Machine Code release update"; return 0; }
+    fi
     log "Data Machine Code copied install already at official release $target"
     return 0
   fi
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Download and SHA-256 verify official Data Machine Code $target"
+    if [ "$evidence_type" = github_digest ]; then
+      echo -e "${BLUE}[dry-run]${NC} Download and SHA-256 verify official Data Machine Code $target against $evidence"
+    else
+      echo -e "${BLUE}[dry-run]${NC} Download and SHA-256 verify official Data Machine Code $target using $evidence"
+    fi
     echo -e "${BLUE}[dry-run]${NC} Stage and atomically deploy only $plugin_dir ($current → $target)"
     return 0
   fi
@@ -149,17 +183,26 @@ update_data_machine_code_copied_release() {
   staging="$(mktemp -d)" || { warn "Could not create Data Machine Code release staging directory"; return 0; }
   trap 'rm -rf "$staging"' RETURN
   archive="$staging/release.zip"
-  checksum="$staging/release.sha256"
-  if ! curl -fsSL "$archive_url" -o "$archive" || ! curl -fsSL "$checksum_url" -o "$checksum"; then
+  if ! curl -fsSL "$archive_url" -o "$archive"; then
     warn "Could not download official Data Machine Code release $target — copied install unchanged"
     return 0
   fi
-  expected="$(dmc_managed_release_expected_sha256 "$checksum" "$(basename "$archive_url")")"
+  if [ "$evidence_type" = github_digest ]; then
+    expected="$evidence"
+  else
+    checksum="$staging/release.sha256"
+    if ! curl -fsSL "$evidence" -o "$checksum"; then
+      warn "Could not download official Data Machine Code release $target — copied install unchanged"
+      return 0
+    fi
+    expected="$(dmc_managed_release_expected_sha256 "$checksum" "$archive_name")"
+  fi
   actual="$(dmc_managed_release_sha256 "$archive")"
   if ! [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || [ "$actual" != "$expected" ]; then
     warn "Official Data Machine Code release $target failed published SHA-256 verification — copied install unchanged"
     return 0
   fi
+  dmc_managed_release_recover "$plugin_dir" || { warn "Could not recover interrupted Data Machine Code release update"; return 0; }
   extracted="$staging/extracted"
   mkdir -p "$extracted"
   if ! unzip -q "$archive" -d "$extracted"; then
