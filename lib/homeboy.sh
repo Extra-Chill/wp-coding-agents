@@ -293,12 +293,30 @@ homeboy_dmc_worktree_provider_executable() {
   printf '%s' "$response" | python3 -c '
 import json
 import os
+import re
 import sys
 
+raw = sys.stdin.read()
 try:
-    payload = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
+    payload = json.loads(raw)
+except json.JSONDecodeError:
+    lines = raw.splitlines()
+    diagnostic_found = False
+    while lines:
+        line = lines.pop(0)
+        if not line.strip():
+            continue
+        if re.match(r"^(?:PHP )?(?:Deprecated|Warning|Notice):\s", line.lstrip()):
+            diagnostic_found = True
+            continue
+        lines.insert(0, line)
+        break
+    if not diagnostic_found:
+        sys.exit(1)
+    try:
+        payload = json.loads("\n".join(lines).strip())
+    except json.JSONDecodeError:
+        sys.exit(1)
 
 executable = payload.get("executable")
 if payload.get("schema") != "datamachine-code/standalone-worktree-provider-command/v1" or not isinstance(executable, str) or not os.path.isfile(executable):
