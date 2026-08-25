@@ -21,7 +21,7 @@ fix_ownership() { :; }
 ACTIVATIONS=0
 ACTIVE=true
 activate_plugin() { ACTIVATIONS=$((ACTIVATIONS + 1)); ACTIVE=true; }
-wp_cmd() { [ "$ACTIVE" = true ] && [ "$1 $2 $3" = "plugin is-active data-machine-code" ]; }
+wp_cmd() { [ "$ACTIVE" = true ] && [ "$1 $2 $3 $4" = "plugin is-active data-machine-code --skip-plugins" ]; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 PLUGIN="$SITE_PATH/wp-content/plugins/data-machine-code"
