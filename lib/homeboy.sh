@@ -116,10 +116,15 @@ homeboy_dmc_command_json() {
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" safety "$provider" "$DM_WORKSPACE_DIR" '{identity}'
       ;;
     resolve)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{handle}' "${wp_argv[@]}" datamachine-code workspace worktree list '{repo}' --all --full --format=json "${wp_flags[@]}"
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{handle}'
       ;;
     resolve_path)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{path}' "${wp_argv[@]}" datamachine-code workspace worktree list '{repo}' --all --full --format=json "${wp_flags[@]}"
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{path}'
+      ;;
+    resolve_task)
+      # DMC owns the bounded task predicate and returns the complete matching
+      # inventory; the adapter projects its DMC-specific row shape below.
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve_task '{task_url}' "${wp_argv[@]}" datamachine-code workspace worktree list '--task-ref={task_url}' --all --with-status --format=json "${wp_flags[@]}"
       ;;
     ensure)
       # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
@@ -145,11 +150,12 @@ homeboy_dmc_command_json() {
 
 homeboy_dmc_worktree_provider_json() {
   local provider="$1"
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":60000,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":10000,"lookup_output_limit_bytes":262144,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_task":%s,"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json resolve_identity "$provider")" \
     "$(homeboy_dmc_command_json attest_safety "$provider")" \
     "$(homeboy_dmc_command_json resolve "$provider")" \
     "$(homeboy_dmc_command_json resolve_path "$provider")" \
+    "$(homeboy_dmc_command_json resolve_task "$provider")" \
     "$(homeboy_dmc_command_json ensure "$provider")" \
     "$(homeboy_dmc_command_json converge "$provider")" \
     "$(homeboy_dmc_command_json plan "$provider")" \
