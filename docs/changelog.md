@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.20.0] - 2026-08-24
+
+### Added
+- configure task lookup absence
+- resolve DMC worktrees by task
+
+### Fixed
+- reap bounded lookup session leader
+- resolve exact DMC worktrees standalone
+- isolate DMC task lookup processes
+- bound DMC task process capture
+- normalize numeric task ports
+- bound DMC task result projection
+- use bounded complete DMC task lookup
+- bound DMC task worktree lookup
+
 ## [1.19.2] - 2026-08-24
 
 ### Fixed
