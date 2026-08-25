@@ -225,7 +225,32 @@ discover_dm_workspace_dir() {
     return "$status"
   fi
 
-  DM_WORKSPACE_DIR="$(cat "$workspace_file")"
+  if ! DM_WORKSPACE_DIR="$(python3 - "$workspace_file" <<'PY'
+import re
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+while lines:
+    line = lines.pop(0)
+    if not line.strip():
+        continue
+    if re.match(r"^(?:PHP )?(?:Deprecated|Warning|Notice):\s", line.lstrip()):
+        continue
+    lines.insert(0, line)
+    break
+
+values = [line for line in lines if line.strip()]
+if len(values) != 1:
+    raise SystemExit(1)
+print(values[0])
+PY
+  )"; then
+    DM_WORKSPACE_DIR=""
+    rm -f "$workspace_file" "$stderr_file"
+    rmdir "$temp_dir" 2>/dev/null || true
+    warn "DMC workspace discovery returned invalid output. Replay: $replay_command"
+    return 1
+  fi
   rm -f "$workspace_file" "$stderr_file"
   rmdir "$temp_dir" 2>/dev/null || true
   if [ -z "$DM_WORKSPACE_DIR" ]; then

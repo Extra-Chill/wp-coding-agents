@@ -35,6 +35,15 @@ wp_cmd() {
       sleep 0.2
       printf '%s\n' "$TMP/Developer"
       ;;
+    diagnostic_prefix)
+      printf '\nDeprecated: Case statements followed by a semicolon are deprecated.\n%s\n' "$TMP/Developer"
+      ;;
+    arbitrary_prefix)
+      printf 'unexpected output\n%s\n' "$TMP/Developer"
+      ;;
+    ambiguous)
+      printf '%s\n%s\n' "$TMP/Developer" "$TMP/other-workspace"
+      ;;
     failure)
       echo "DMC_ERROR_CODE=workspace_locked: sqlite busy" >&2
       return 73
@@ -56,6 +65,27 @@ if [ "$DM_WORKSPACE_DIR" != "$TMP/Developer" ]; then
   echo "FAIL: slow canonical DMC workspace was not discovered: $DM_WORKSPACE_DIR"
   exit 1
 fi
+
+MODE=diagnostic_prefix
+DM_WORKSPACE_DIR=""
+discover_dm_workspace_dir
+if [ "$DM_WORKSPACE_DIR" != "$TMP/Developer" ]; then
+  echo "FAIL: canonical DMC workspace with a PHP diagnostic prefix was not discovered: $DM_WORKSPACE_DIR"
+  exit 1
+fi
+
+for invalid_mode in arbitrary_prefix ambiguous; do
+  MODE="$invalid_mode"
+  DM_WORKSPACE_DIR="$TMP/guessed-workspace"
+  set +e
+  discover_dm_workspace_dir >"$TMP/$invalid_mode.out" 2>"$TMP/$invalid_mode.err"
+  invalid_status=$?
+  set -e
+  if [ "$invalid_status" -eq 0 ] || [ -n "$DM_WORKSPACE_DIR" ]; then
+    echo "FAIL: $invalid_mode workspace output was accepted: $DM_WORKSPACE_DIR"
+    exit 1
+  fi
+done
 
 DATAMACHINE_WORKSPACE_PATH="$TMP/explicit-workspace"
 DM_WORKSPACE_DIR="$TMP/Developer"
