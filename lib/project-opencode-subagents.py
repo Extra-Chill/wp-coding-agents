@@ -155,6 +155,7 @@ def graph(data):
         if len(set(names.values())) != len(names): fail(f"{name} has duplicate SKILL.md names")
         result[slug] = {"description": text(node.get("description"), f"{name}.description"), "model": text(node.get("model"), f"{name}.model", True) or None, "instructions": instructions, "skills": skills, "references": references, "skill_names": names, "permission": policy}
     if coordinator not in edges_by_node: fail("graph does not contain its coordinator")
+    if "general" in result and coordinator != "general": fail("graph child slug general is reserved for OpenCode's native subagent")
     if any(edge not in result for edges in edges_by_node.values() for edge in edges): fail("graph contains an unresolved child edge")
     return result, edges_by_node, coordinator
 
@@ -272,7 +273,7 @@ def main():
             target = Path("skills") / skill_roots[base] / "references" / relative.relative_to(base)
             desired[root / target] = source_bytes(source); artifacts.append(str(target))
         # Only the coordinator's own task configuration belongs in opencode.json.
-        task = {"*": "deny", **{edge: "allow" for edge in edges[coordinator]}}
+        task = {"*": "deny", "general": "allow", **{edge: "allow" for edge in edges[coordinator]}}
         current = config["permission"].get("task")
         if current not in (None, previous["task_permission"]): fail("refusing to overwrite user-owned OpenCode permission.task")
         current_skill = config["permission"].get("skill", {})

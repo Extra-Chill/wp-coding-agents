@@ -17,6 +17,7 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/opencode-subagents.sh"
 log() { :; }
 warn() { printf '%s\n' "$*" >&2; }
+opencode_general_dispatch_supported() { return 0; }
 
 FAILED=0
 assert() { if "$@"; then printf '  ok   %s\n' "$*"; else printf '  FAIL %s\n' "$*"; FAILED=$((FAILED + 1)); fi; }
@@ -101,7 +102,7 @@ import sys
 assert open(sys.argv[1], 'rb').read() == open(sys.argv[2], 'rb').read()
 assert open(sys.argv[3], 'rb').read() == open(sys.argv[4], 'rb').read()
 PY
-assert_python 'manifest records only managed files and task is limited to direct children' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+assert_python 'manifest records only managed files and task is limited to native general and direct children' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1]))
 assert manifest['agents'] == ['agents/researcher.md', 'agents/reviewer.md', 'agents/writer.md']
@@ -110,7 +111,7 @@ assert 'skills/editorial/references/context.bin' in manifest['artifacts']
 config = json.load(open(sys.argv[2]))
 assert config['model'] == 'preserve' and config['mcp'] == {}
 assert config['permission']['read'] == 'allow'
-assert config['permission']['task'] == {'*': 'deny', 'researcher': 'allow', 'reviewer': 'allow', 'writer': 'allow'}
+assert config['permission']['task'] == {'*': 'deny', 'general': 'allow', 'researcher': 'allow', 'reviewer': 'allow', 'writer': 'allow'}
 assert config['permission']['skill']['root-skill'] == 'allow'
 assert config['permission']['skill']['user-skill'] == 'ask'
 assert open(sys.argv[1].replace('.wp-coding-agents-subagents.json', 'skills/root-skill/SKILL.md'), 'rb').read().startswith(b'---\nname: root-skill\n')
@@ -252,5 +253,65 @@ json.dump(data, open(p, 'w'))
 PY
 if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
 printf '%s\n' '  ok   graph-wide duplicate skill name is rejected'
+
+write_graph
+python3 - "$TMP/graph.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+data = json.load(open(p))
+data['nodes'][1]['slug'] = 'general'
+data['nodes'][0]['subagents'][0] = 'general'
+json.dump(data, open(p, 'w'))
+PY
+if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
+printf '%s\n' '  ok   graph children cannot shadow the native general subagent'
+
+echo '==> unsupported OpenCode versions report the dispatch capability boundary'
+mkdir -p "$TMP/unsupported-bin"
+cat > "$TMP/unsupported-bin/opencode" <<'SH'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf '%s\n' '1.18.19' ;;
+  agent) printf '%s\n' 'general (subagent)' ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$TMP/unsupported-bin/opencode"
+capability_output="$(
+  exec 2>&1
+  PATH="$TMP/unsupported-bin:$PATH"
+  source "$SCRIPT_DIR/lib/opencode-subagents.sh"
+  if opencode_general_dispatch_supported; then exit 1; fi
+)" || FAILED=$((FAILED + 1))
+case "$capability_output" in
+  *"OpenCode 1.18.19 does not provide the managed general-subagent dispatch contract; install OpenCode >= 1.18.20"*)
+    printf '%s\n' '  ok   unsupported runtime receives an actionable minimum-version diagnostic'
+    ;;
+  *)
+    printf '%s\n' '  FAIL unsupported runtime diagnostic was not actionable'
+    FAILED=$((FAILED + 1))
+    ;;
+esac
+
+mkdir -p "$TMP/development-bin"
+cat > "$TMP/development-bin/opencode" <<'SH'
+#!/bin/bash
+case "${1:-}" in
+  --version) printf '%s\n' '0.0.0-fix/native-task-development-build' ;;
+  agent) printf '%s\n' 'general (subagent)' ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$TMP/development-bin/opencode"
+if (
+  PATH="$TMP/development-bin:$PATH"
+  source "$SCRIPT_DIR/lib/opencode-subagents.sh"
+  opencode_general_dispatch_supported
+); then
+  printf '%s\n' '  ok   capable development runtime is accepted by its advertised agent surface'
+else
+  printf '%s\n' '  FAIL capable development runtime was rejected by release-only version parsing'
+  FAILED=$((FAILED + 1))
+fi
 
 [ "$FAILED" -eq 0 ] || exit 1

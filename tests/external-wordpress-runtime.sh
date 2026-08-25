@@ -128,6 +128,7 @@ source "$SCRIPT_DIR/lib/skills.sh"
 source "$SCRIPT_DIR/lib/opencode-subagents.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/opencode.sh"
+opencode_general_dispatch_supported() { return 0; }
 error() { printf '%s\n' "$*" >&2; return 1; }
 
 external_wordpress_prepare_transport
@@ -190,7 +191,7 @@ assert root.joinpath(".opencode/skills/editorial/references/context.bin").read_b
 manifest = json.loads(root.joinpath(".opencode/.wp-coding-agents-subagents.json").read_text())
 assert manifest["agents"] == ["agents/reviewer.md", "agents/writer.md"]
 config = json.loads(root.joinpath("opencode.json").read_text())
-assert config["permission"]["task"] == {"*": "deny", "writer": "allow", "reviewer": "allow"}
+assert config["permission"]["task"] == {"*": "deny", "general": "allow", "writer": "allow", "reviewer": "allow"}
 writer = root.joinpath(".opencode/agents/writer.md").read_text()
 assert '"task":{"*":"deny","reviewer":"allow"}' in writer
 PY
