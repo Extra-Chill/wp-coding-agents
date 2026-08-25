@@ -290,6 +290,12 @@ one = run("one")
 expected = [{"handle": "fixture@task-425", "path": os.environ["DMC_STATE"], "branch": "fix/425-resolve-task", "task_url": "https://github.com/Extra-Chill/wp-coding-agents/issues/425", "safety": {"dirty": False, "unpushed": False, "primary": False}}]
 if one.returncode or json.loads(one.stdout) != expected:
     raise SystemExit(f"FAIL: one task candidate did not retain its full identity: {one!r}")
+diagnostic_prefix = run("diagnostic_prefix")
+if diagnostic_prefix.returncode or json.loads(diagnostic_prefix.stdout) != expected:
+    raise SystemExit(f"FAIL: recognized PHP diagnostics must not contaminate typed task lookup JSON: {diagnostic_prefix!r}")
+arbitrary_prefix = run("arbitrary_prefix")
+if arbitrary_prefix.returncode == 0 or arbitrary_prefix.stdout or "invalid JSON" not in arbitrary_prefix.stderr:
+    raise SystemExit(f"FAIL: arbitrary task lookup prefixes must fail closed: {arbitrary_prefix!r}")
 ambiguous = run("ambiguous")
 if ambiguous.returncode or [item["handle"] for item in json.loads(ambiguous.stdout)] != ["fixture@task-425", "fixture@task-425-other"]:
     raise SystemExit(f"FAIL: ambiguous task candidates must retain DMC's complete bounded set: {ambiguous!r}")
@@ -570,7 +576,7 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
     zero)
       printf '{"success":true,"total":0,"returned":0,"next_cursor":null,"worktrees":[]}\n'
       ;;
-    one|ambiguous|canonical|mismatched_task|incomplete_safety|default_http|large_inventory)
+    one|diagnostic_prefix|arbitrary_prefix|ambiguous|canonical|mismatched_task|incomplete_safety|default_http|large_inventory)
       task='https://github.com/Extra-Chill/wp-coding-agents/issues/425'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = mismatched_task ] && task='https://github.com/Extra-Chill/wp-coding-agents/issues/other'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = canonical ] && task='HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/425/?query=value#fragment'
@@ -581,6 +587,8 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
         i=1
         while [ "$i" -le 5000 ]; do i=$((i + 1)); done
       fi
+      [ "${DMC_TASK_LOOKUP_MODE:-}" = diagnostic_prefix ] && printf '\nDeprecated: Case statements followed by a semicolon are deprecated.\n'
+      [ "${DMC_TASK_LOOKUP_MODE:-}" = arbitrary_prefix ] && printf 'unexpected output\n'
       printf '{"success":true,"total":%s,"returned":%s,"next_cursor":null,"worktrees":[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}' "$( [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && printf 2 || printf 1 )" "$( [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && printf 2 || printf 1 )" "$DMC_STATE" "$task" "$safety"
       if [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ]; then
         printf ',{"handle":"fixture@task-425-other","path":"%s-other","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":{"dirty":false,"unpushed":false,"primary":false}}' "$DMC_STATE" "$task"

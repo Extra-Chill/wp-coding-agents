@@ -148,6 +148,34 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 	return array( 'status' => $status, 'stdout' => $stdout, 'stderr' => $stderr, 'failure' => $failure );
 };
 
+$decode_json_output = static function ( string $stdout ): mixed {
+	try {
+		return json_decode(trim($stdout), true, 512, JSON_THROW_ON_ERROR);
+	} catch (JsonException $original_error) {
+		$lines = preg_split('/\R/', $stdout);
+		if ( false === $lines ) {
+			throw $original_error;
+		}
+		$diagnostic_found = false;
+		while ( array() !== $lines ) {
+			$line = array_shift($lines);
+			if ( '' === trim($line) ) {
+				continue;
+			}
+			if ( preg_match('/^(?:PHP )?(?:Deprecated|Warning|Notice):\s/', ltrim($line)) ) {
+				$diagnostic_found = true;
+				continue;
+			}
+			array_unshift($lines, $line);
+			break;
+		}
+		if ( ! $diagnostic_found ) {
+			throw $original_error;
+		}
+		return json_decode(trim(implode("\n", $lines)), true, 512, JSON_THROW_ON_ERROR);
+	}
+};
+
 $canonical_task_url = static function ( string $task_url ): string {
 	$task_url = trim($task_url);
 	$task_url = preg_split('/[?#]/', $task_url, 2)[0] ?? '';
@@ -210,7 +238,7 @@ if ( 'task_attachment_preview' === $operation ) {
 		exit($identity_capture['status'] > 0 && $identity_capture['status'] < 256 ? $identity_capture['status'] : 1);
 	}
 	try {
-		$identity = json_decode($identity_capture['stdout'], true, 512, JSON_THROW_ON_ERROR);
+		$identity = $decode_json_output($identity_capture['stdout']);
 	} catch (Throwable $error) {
 		fwrite(STDERR, "DMC tracker-attachment preview returned invalid identity JSON.\n");
 		exit(1);
@@ -247,7 +275,7 @@ if ( 'task_attachment_preview' === $operation ) {
 			fwrite(STDERR, $safety_capture['stderr']);
 			exit($safety_capture['status'] > 0 && $safety_capture['status'] < 256 ? $safety_capture['status'] : 1);
 		}
-		$safety = json_decode($safety_capture['stdout'], true);
+		$safety = $decode_json_output($safety_capture['stdout']);
 		if ( ! is_array($safety) || 'datamachine-code/worktree-safety/v1' !== ( $safety['schema'] ?? null ) || true !== ( $safety['fresh'] ?? null ) || false !== ( $safety['dirty'] ?? null ) ) {
 			fwrite(STDERR, "DMC tracker-attachment preview requires a fresh clean worktree.\n");
 			exit(1);
@@ -283,7 +311,7 @@ if ( 'task_attachment_apply' === $operation ) {
 		exit($capture['status'] > 0 && $capture['status'] < 256 ? $capture['status'] : 1);
 	}
 	try {
-		$attached = json_decode($capture['stdout'], true, 512, JSON_THROW_ON_ERROR);
+		$attached = $decode_json_output($capture['stdout']);
 	} catch (Throwable $error) {
 		fwrite(STDERR, "DMC tracker attachment returned invalid JSON.\n");
 		exit(1);
@@ -331,7 +359,11 @@ if ( 'resolve_task' === $operation ) {
 	$stderr = $capture['stderr'];
 	$status = $capture['status'];
 	if ( 0 !== $status ) {
-		$overflow = json_decode($stdout, true);
+		try {
+			$overflow = $decode_json_output($stdout);
+		} catch (Throwable $error) {
+			$overflow = null;
+		}
 		if ( is_array($overflow) && 'worktree_task_candidates_overflow' === ( $overflow['error']['code'] ?? $overflow['code'] ?? null ) ) {
 			fwrite(STDERR, "DMC task worktree execution exceeded its complete candidate bound.\n");
 		} else {
@@ -340,7 +372,7 @@ if ( 'resolve_task' === $operation ) {
 		exit($status > 0 && $status < 256 ? $status : 1);
 	}
 	try {
-		$rows = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+		$rows = $decode_json_output($stdout);
 	} catch (Throwable $error) {
 		fwrite(STDERR, 'DMC task worktree projection returned invalid JSON: ' . $error->getMessage() . "\n");
 		exit(1);
@@ -421,7 +453,7 @@ if ( 'plan' === $operation ) {
 		exit($status > 0 && $status < 256 ? $status : 1);
 	}
 	try {
-		$plan = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+		$plan = $decode_json_output($stdout);
 	} catch (Throwable $error) {
 		fwrite(STDERR, 'DMC worktree plan returned invalid JSON: ' . $error->getMessage() . "\n");
 		exit(1);
@@ -457,7 +489,7 @@ if ( ! in_array($operation, array( 'identity', 'safety', 'resolve', 'converge' )
 	exit(2);
 }
 
-$run_provider = static function ( string $provider_operation, string $provider_value, string $provider_base = '' ) use ( $provider, $workspace ): array {
+$run_provider = static function ( string $provider_operation, string $provider_value, string $provider_base = '' ) use ( $provider, $workspace, $decode_json_output ): array {
 	$command = array( PHP_BINARY, $provider, $provider_operation, $workspace, $provider_value );
 	if ( '' !== $provider_base ) {
 		$command[] = $provider_base;
@@ -474,7 +506,7 @@ $run_provider = static function ( string $provider_operation, string $provider_v
 	if ( 0 !== $status ) {
 		throw new RuntimeException('DMC worktree provider failed: ' . trim($stderr), $status);
 	}
-	$payload = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+	$payload = $decode_json_output($stdout);
 	if ( ! is_array($payload) ) {
 		throw new RuntimeException('DMC worktree provider returned an invalid envelope.');
 	}
