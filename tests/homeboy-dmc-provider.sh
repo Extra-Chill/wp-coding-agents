@@ -636,6 +636,8 @@ while True:
   exit 0
 fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree provider" ]; then
+  [ "${DMC_PROVIDER_DISCOVERY_MODE:-}" = diagnostic_prefix ] && printf '\nDeprecated: Case statements followed by a semicolon are deprecated.\n'
+  [ "${DMC_PROVIDER_DISCOVERY_MODE:-}" = arbitrary_prefix ] && printf 'unexpected output\n'
   printf '{"schema":"datamachine-code/standalone-worktree-provider-command/v1","executable":"%s"}\n' "$DMC_PROVIDER_EXECUTABLE"
   exit 0
 fi
@@ -701,6 +703,16 @@ export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
 enable -n mapfile 2>/dev/null || true
+
+discovered_provider="$(DMC_PROVIDER_DISCOVERY_MODE=diagnostic_prefix homeboy_dmc_worktree_provider_executable)"
+[ "$discovered_provider" = "$DMC_PROVIDER_EXECUTABLE" ] || {
+  echo "FAIL: provider discovery rejected a leading PHP diagnostic"
+  exit 1
+}
+if DMC_PROVIDER_DISCOVERY_MODE=arbitrary_prefix homeboy_dmc_worktree_provider_executable >/dev/null 2>&1; then
+  echo "FAIL: provider discovery accepted an arbitrary output prefix"
+  exit 1
+fi
 
 DRY_RUN=true
 configure_homeboy_dmc_worktree_provider > "$TMP/dry-run.log"
