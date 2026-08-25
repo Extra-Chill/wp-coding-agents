@@ -160,10 +160,66 @@ discover_dm_workspace_dir() {
     return 0
   fi
 
-  local workspace_path
-  workspace_path=$(wp_cmd datamachine-code workspace path 2>/dev/null || true)
-  if [ -n "$workspace_path" ]; then
-    DM_WORKSPACE_DIR="$workspace_path"
+  local timeout_seconds="${DM_WORKSPACE_DISCOVERY_TIMEOUT_SECONDS:-30}"
+  case "$timeout_seconds" in
+    ''|*[!0-9]*) timeout_seconds=30 ;;
+  esac
+  [ "$timeout_seconds" -gt 0 ] || timeout_seconds=30
+
+  local temp_dir workspace_file stderr_file pid ticks max_ticks status replay_path replay_command
+  temp_dir="$(mktemp -d)" || return 1
+  workspace_file="$temp_dir/workspace"
+  stderr_file="$temp_dir/stderr"
+  printf -v replay_path '%q' "$SITE_PATH"
+  replay_command="${WP_CMD:-wp} datamachine-code workspace path ${WP_ROOT_FLAG:-} --path=$replay_path"
+
+  # Once authoritative discovery starts, a stale default must not survive a
+  # failure and masquerade as the discovered workspace.
+  DM_WORKSPACE_DIR=""
+  log "Discovering authoritative DMC workspace (timeout: ${timeout_seconds}s, elapsed: 0s)..."
+
+  local restore_monitor=false
+  case "$-" in
+    *m*) ;;
+    *) set -m; restore_monitor=true ;;
+  esac
+  wp_cmd datamachine-code workspace path >"$workspace_file" 2>"$stderr_file" &
+  pid=$!
+  [ "$restore_monitor" = false ] || set +m
+
+  ticks=0
+  max_ticks=$((timeout_seconds * 10))
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge "$max_ticks" ]; then
+      kill -TERM -- "-$pid" 2>/dev/null || true
+      sleep 0.1
+      kill -KILL -- "-$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      [ ! -s "$stderr_file" ] || cat "$stderr_file" >&2
+      rm -f "$workspace_file" "$stderr_file"
+      rmdir "$temp_dir" 2>/dev/null || true
+      warn "DMC workspace discovery timed out after ${timeout_seconds}s. Replay: $replay_command"
+      return 124
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+
+  if wait "$pid"; then status=0; else status=$?; fi
+  [ ! -s "$stderr_file" ] || cat "$stderr_file" >&2
+  if [ "$status" -ne 0 ]; then
+    rm -f "$workspace_file" "$stderr_file"
+    rmdir "$temp_dir" 2>/dev/null || true
+    warn "DMC workspace discovery failed with exit status $status. Replay: $replay_command"
+    return "$status"
+  fi
+
+  DM_WORKSPACE_DIR="$(cat "$workspace_file")"
+  rm -f "$workspace_file" "$stderr_file"
+  rmdir "$temp_dir" 2>/dev/null || true
+  if [ -z "$DM_WORKSPACE_DIR" ]; then
+    warn "DMC workspace discovery returned an empty path. Replay: $replay_command"
+    return 1
   fi
 }
 
