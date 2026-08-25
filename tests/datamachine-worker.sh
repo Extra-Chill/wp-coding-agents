@@ -21,6 +21,23 @@ grep -q '^OnUnitActiveSec=2min$' <<< "$timer"
 grep -q '<integer>120</integer>' <<< "$plist"
 grep -q 'com.wp.datamachine-worker' <<< "$plist"
 
+if command -v plutil >/dev/null 2>&1; then
+  saved_site_path="$SITE_PATH"
+  saved_service_home="$SERVICE_HOME"
+  SITE_PATH='/tmp/site & <queue>'
+  SERVICE_HOME='/tmp/home & <worker>'
+  metachar_plist="$(datamachine_worker_render_launchd com.wp.datamachine-worker)"
+  metachar_file="$(mktemp)"
+  printf '%s\n' "$metachar_plist" > "$metachar_file"
+  plutil -lint "$metachar_file" >/dev/null
+  [ "$(plutil -extract WorkingDirectory raw -o - "$metachar_file")" = "$SITE_PATH" ]
+  [ "$(plutil -extract EnvironmentVariables.HOME raw -o - "$metachar_file")" = "$SERVICE_HOME" ]
+  [ "$(plutil -extract ProgramArguments.2 raw -o - "$metachar_file")" = "$(_datamachine_worker_command)" ]
+  rm -f "$metachar_file"
+  SITE_PATH="$saved_site_path"
+  SERVICE_HOME="$saved_service_home"
+fi
+
 # launchd has a minimal PATH. Resolve a Studio CLI from a directory outside
 # that PATH and assert the command embeds its absolute, shell-quoted path.
 studio_root="/tmp/datamachine-worker-studio-path"
@@ -48,5 +65,16 @@ studio_plist="$(datamachine_worker_render_launchd com.wp.datamachine-worker)"
 PATH="$saved_path"
 
 diff -u "$snapshot_dir/launchd-studio-absolute-path" <(printf '%s\n' "$studio_plist")
-grep -Fq "'$studio_bin' wp cron event run --due-now && '$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
+grep -Fq "'$studio_bin' wp cron event run --due-now &amp;&amp; '$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
+
+if command -v plutil >/dev/null 2>&1; then
+  plist_file="$studio_root/datamachine-worker.plist"
+  printf '%s\n' "$studio_plist" > "$plist_file"
+  plutil -lint "$plist_file" >/dev/null
+  rendered_command="$(plutil -extract ProgramArguments.2 raw -o - "$plist_file")"
+  [ "$rendered_command" = "$(_datamachine_worker_command)" ] || {
+    echo "FAIL: escaped LaunchAgent command did not round-trip" >&2
+    exit 1
+  }
+fi
 echo "PASS: tests/datamachine-worker.sh"
