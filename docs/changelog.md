@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.20.1] - 2026-08-24
+
+### Fixed
+- recover interrupted DMC release pointer
+
 ## [1.20.0] - 2026-08-24
 
 ### Added
