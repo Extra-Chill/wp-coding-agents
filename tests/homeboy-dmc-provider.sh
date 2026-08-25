@@ -627,6 +627,20 @@ rm -f "$DMC_STATE"
 configure_homeboy_dmc_worktree_provider > "$TMP/upgrade.log"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 
+# Failure guidance must replay a full upgrade, which updates DMC before
+# reconciling the provider config. --plugins-only deliberately does not.
+homeboy_dmc_worktree_provider_ready() { return 1; }
+HOMEBOY_CONFIG_LOG="$TMP/readiness-failure-config.log"
+export HOMEBOY_CONFIG_LOG
+configure_homeboy_dmc_worktree_provider > "$TMP/readiness-failure.log"
+assert_contains "rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\"" "$TMP/readiness-failure.log"
+assert_not_contains '--plugins-only' "$TMP/readiness-failure.log"
+if [ -f "$HOMEBOY_CONFIG_LOG" ]; then
+  echo "FAIL: failed readiness should not write Homeboy provider config"
+  cat "$HOMEBOY_CONFIG_LOG"
+  exit 1
+fi
+
 HOMEBOY_MODE="disabled"
 HOMEBOY_CONFIG_LOG="$TMP/disabled-homeboy-config.log"
 export HOMEBOY_CONFIG_LOG

@@ -607,7 +607,7 @@ configure_homeboy_dmc_worktree_provider() {
 
   if [ -n "${SITE_PATH:-}" ] && { [ -f "$SITE_PATH/wp-config.php" ] || [ -f "$SITE_PATH/wp-load.php" ]; }; then
     if ! homeboy_dmc_worktree_provider_ready "$provider" "$provider_json"; then
-      homeboy_handle_failure "wp-coding-agents generated Homeboy DMC provider command readiness failed; rerun '$SCRIPT_DIR/upgrade.sh --plugins-only' to converge the integration."
+      homeboy_handle_failure "wp-coding-agents generated Homeboy DMC provider command readiness failed; rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\""
       return 0
     fi
   fi
