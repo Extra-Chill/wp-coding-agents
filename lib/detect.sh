@@ -195,6 +195,41 @@ detect_environment() {
   fi
 }
 
+# Plugin-only upgrades need only a validated site path and the WP-CLI transport.
+# In particular, do not start Studio just to discover a domain or multisite
+# state; the first bounded per-plugin wordpress-state phase owns that process.
+detect_plugins_only_environment() {
+  PLATFORM="linux"
+  case "$(uname -s)" in
+    Darwin) PLATFORM="mac"; OS="macos"; LOCAL_MODE=true; RUN_AS_ROOT=false ;;
+    Linux) OS="linux" ;;
+    *) error "Unsupported OS: $(uname -s)" ;;
+  esac
+
+  SITE_PATH="$EXISTING_WP"
+  if [ "${DRY_RUN:-false}" != true ]; then
+    [ -f "$SITE_PATH/wp-config.php" ] || [ -f "$SITE_PATH/wp-load.php" ] || \
+      error "No WordPress found at $SITE_PATH (missing wp-config.php and wp-load.php)"
+    SITE_PATH="$(cd "$SITE_PATH" 2>/dev/null && pwd || printf '%s' "$SITE_PATH")"
+  fi
+  WP_ROOT_FLAG=""
+  if [ "$LOCAL_MODE" != true ]; then
+    WP_ROOT_FLAG="--allow-root"
+  fi
+  WP_CMD="${WP_CMD:-wp}"
+  IS_STUDIO=false
+  if command -v studio >/dev/null 2>&1 && [ -f "$SITE_PATH/STUDIO.md" ]; then
+    IS_STUDIO=true
+    WP_CMD="studio wp"
+    log "Detected WordPress Studio environment (deferred bounded WP startup)"
+  fi
+  SITE_DOMAIN="${SITE_DOMAIN:-$(basename "$SITE_PATH")}"
+  SERVICE_USER="${USER:-$(id -un)}"
+  SERVICE_HOME="${HOME:-}"
+  log "Plugin-only site: $SITE_PATH"
+  log "Plugin-only scope: installed Data Machine plugins only; runtime, bridge, workspace, and service synchronization disabled"
+}
+
 # Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / DM_WORKSPACE_DIR from
 # LOCAL_MODE and RUN_AS_ROOT.
 #

@@ -93,6 +93,16 @@ update_data_machine_code_copied_release
 [ ! -e "$PLUGIN/.wp-coding-agents-release-current/obsolete" ] || fail "copied release included stale files"
 [ "${#UPDATED_ITEMS[@]}" -eq 1 ] || fail "copied release was not recorded"
 
+# Repeated switches replace (rather than move into) an existing previous
+# symlink, so rollback always names the immediately prior release.
+original_release="$(readlink "$PLUGIN/.wp-coding-agents-release-current")"
+mkdir -p "$PLUGIN/.wp-coding-agents-releases/switch-test"
+printf '<?php\n/*\n * Version: 1.9.0\n */\n' > "$PLUGIN/.wp-coding-agents-releases/switch-test/data-machine-code.php"
+dmc_managed_release_switch_pointer "$PLUGIN" "$PLUGIN/.wp-coding-agents-releases/switch-test"
+[ "$(readlink "$PLUGIN/.wp-coding-agents-release-previous")" = "$original_release" ] || fail "switch did not preserve the immediate prior release"
+dmc_managed_release_switch_pointer "$PLUGIN" "$PLUGIN/$original_release"
+[ "$(readlink "$PLUGIN/.wp-coding-agents-release-previous")" = .wp-coding-agents-releases/switch-test ] || fail "repeated switch retained a stale previous release"
+
 # Interruption after writing the new loader but before switching current is
 # recovered from the already verified staged release without another download.
 target_pointer="$(readlink "$PLUGIN/.wp-coding-agents-release-current")"

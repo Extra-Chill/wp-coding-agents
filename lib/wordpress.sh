@@ -142,40 +142,92 @@ update_plugin_to_latest_tag() {
     return 0
   fi
 
-  if [ -n "$(git -C "$plugin_dir" status --porcelain 2>/dev/null)" ]; then
+  local phase_status
+  if plugin_update_run_phase "$slug" working-tree-inspection git -C "$plugin_dir" status --porcelain; then
+    :
+  else
+    phase_status=$?
+    warn "Could not inspect the $slug working tree"
+    return "$phase_status"
+  fi
+  if [ -n "$PLUGIN_PHASE_OUTPUT" ]; then
     warn "Plugin $slug has local changes — skipping tagged release update"
     return 0
   fi
 
-  git -C "$plugin_dir" fetch --tags --force origin || {
+  if plugin_update_run_phase "$slug" tag-fetch git -C "$plugin_dir" fetch --tags --force origin; then
+    :
+  else
+    phase_status=$?
     warn "Could not fetch tags for $slug"
-    return 0
-  }
+    return "$phase_status"
+  fi
 
   local latest_tag
-  latest_tag=$(git -C "$plugin_dir" tag --sort=-v:refname | grep -E '^v?[0-9]' | head -n 1)
+  if plugin_update_run_phase "$slug" tag-discovery git -C "$plugin_dir" tag --sort=-v:refname; then
+    :
+  else
+    phase_status=$?
+    warn "Could not inspect tags for $slug"
+    return "$phase_status"
+  fi
+  latest_tag=$(printf '%s\n' "$PLUGIN_PHASE_OUTPUT" | grep -E '^v?[0-9]' | head -n 1)
   if [ -z "$latest_tag" ]; then
     warn "No version tags found for $slug — skipping"
-    return 0
+    return 1
   fi
 
   local current_ref
-  current_ref=$(git -C "$plugin_dir" describe --tags --exact-match 2>/dev/null || git -C "$plugin_dir" rev-parse --short HEAD)
+  if plugin_update_run_phase "$slug" current-release bash -c \
+      'git -C "$1" describe --tags --exact-match 2>/dev/null || git -C "$1" rev-parse --short HEAD' _ "$plugin_dir"; then
+    current_ref="$PLUGIN_PHASE_OUTPUT"
+  else
+    phase_status=$?
+    warn "Could not identify the installed release for $slug"
+    return "$phase_status"
+  fi
 
   if [ "$current_ref" = "$latest_tag" ]; then
     log "Plugin $slug already at latest tag ($latest_tag)"
   else
     log "Updating plugin $slug: $current_ref → $latest_tag"
-    git -C "$plugin_dir" checkout --detach "$latest_tag" || {
+    if plugin_update_run_phase "$slug" release-checkout git -C "$plugin_dir" checkout --detach "$latest_tag"; then
+      :
+    else
+      phase_status=$?
       warn "Could not checkout $latest_tag for $slug"
-      return 0
-    }
+      return "$phase_status"
+    fi
     UPDATED_ITEMS+=("$slug $latest_tag")
   fi
 
-  install_plugin_dependencies "$slug" "$plugin_dir" true
-  activate_plugin "$slug"
-  fix_ownership "$plugin_dir"
+  install_plugin_dependencies_bounded "$slug" "$plugin_dir" || return $?
+  plugin_update_run_phase "$slug" ownership-normalization fix_ownership "$plugin_dir" || return $?
+}
+
+install_plugin_dependencies_bounded() {
+  local slug="$1" plugin_dir="$2"
+  if [ -f "$plugin_dir/composer.json" ]; then
+    plugin_update_run_phase "$slug" composer-install env COMPOSER_ALLOW_SUPERUSER=1 composer install \
+      --no-dev --no-interaction --working-dir="$plugin_dir" || return $?
+  fi
+  if [ -f "$plugin_dir/package.json" ]; then
+    log "Building $slug JS assets..."
+    plugin_update_run_phase "$slug" npm-install npm install --prefix "$plugin_dir" || return $?
+    plugin_update_run_phase "$slug" build-script-inspection jq -r '.scripts.build // ""' "$plugin_dir/package.json" || return $?
+    local build_script="$PLUGIN_PHASE_OUTPUT"
+    if printf '%s' "$build_script" | grep -q "wp-env"; then
+      if ! command -v docker >/dev/null 2>&1; then
+        log "Skipping $slug build — script requires wp-env (Docker is not installed)."
+      elif plugin_update_run_phase "$slug" docker-readiness docker info; then
+        plugin_update_run_phase "$slug" npm-build npm run build --prefix "$plugin_dir" || return $?
+      else
+        log "Skipping $slug build — script requires wp-env (Docker daemon not reachable within the plugin phase deadline)."
+      fi
+    else
+      plugin_update_run_phase "$slug" npm-build npm run build --prefix "$plugin_dir" || return $?
+    fi
+  fi
 }
 
 # Normalize web-tree ownership or group permissions (no-op in local mode).

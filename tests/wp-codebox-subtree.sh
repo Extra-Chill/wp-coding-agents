@@ -28,6 +28,11 @@ warn() { LOG_LINES+=("WARN: $*"); }
 fix_ownership() { :; }
 activate_plugin() { :; }
 update_plugin_to_latest_tag() { LOG_LINES+=("DELEGATED: $1"); }
+plugin_update_run_phase() {
+  local slug="$1" phase="$2"
+  shift 2
+  PLUGIN_PHASE_OUTPUT="$("$@")"
+}
 
 logged_contains() {
   local needle="$1"

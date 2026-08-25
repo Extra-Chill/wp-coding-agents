@@ -71,23 +71,36 @@ upgrade_data_machine_plugins() {
   fi
 
   log "Phase 2: Updating Data Machine plugins to latest tagged releases..."
-  update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
+  local status=0
+  if [ "${PLUGINS_ONLY:-false}" = true ] && [ ! -d "$SITE_PATH/wp-content/plugins/data-machine" ]; then
+    log "[data-machine] terminal=skipped reason=not-installed"
+  else
+    plugin_update_execute data-machine update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  fi
 
-  # Managed installs deliberately have no DMC. Without this gate every upgrade
-  # silently reinstalls and reactivates it, because update_plugin_to_latest_tag
-  # activates — which is exactly why hand-deactivating DMC never stuck.
-  if source_policy_workspace_enabled; then
-    local dmc_plugin_dir="$SITE_PATH/wp-content/plugins/data-machine-code"
-    if [ -d "$dmc_plugin_dir/.git" ] || [ ! -d "$dmc_plugin_dir" ]; then
-      # Preserve setup's git-checkout contract, including first installation.
-      update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+  local dmc_plugin_dir="$SITE_PATH/wp-content/plugins/data-machine-code"
+  if [ "${PLUGINS_ONLY:-false}" = true ]; then
+    if [ -d "$dmc_plugin_dir" ]; then
+      if [ -d "$dmc_plugin_dir/.git" ]; then
+        plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+      else
+        plugin_update_execute data-machine-code update_data_machine_code_copied_release || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+      fi
     else
-      update_data_machine_code_copied_release
+      log "[data-machine-code] terminal=skipped reason=not-installed"
+    fi
+  # Managed installs deliberately have no DMC. Without this gate every full
+  # upgrade would silently reinstall it after an operator removed it.
+  elif source_policy_workspace_enabled; then
+    if [ -d "$dmc_plugin_dir/.git" ] || [ ! -d "$dmc_plugin_dir" ]; then
+      plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+    else
+      plugin_update_execute data-machine-code update_data_machine_code_copied_release || status=$PLUGIN_UPDATE_EXIT_PARTIAL
     fi
   else
     log "  Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned})"
   fi
-
+  return "$status"
 }
 
 # Derive a Data Machine agent slug from a site domain. Shared by setup
