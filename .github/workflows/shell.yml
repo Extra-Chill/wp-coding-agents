@@ -258,6 +258,7 @@ jobs:
           - verify
           - path-helpers
           - post-upgrade-restore
+          - plugins-only-scope
           - runtime-signature
           - upgrade-opencode-auth-plugin-sync
           - worktree-context-projections

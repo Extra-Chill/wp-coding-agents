@@ -13,7 +13,11 @@ source "$SCRIPT_DIR/lib/homeboy.sh"
 
 for entrypoint in setup.sh upgrade.sh; do
   discover_line=$(grep -n '^discover_dm_workspace_dir$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
-  configure_line=$(grep -n '^\(  \)\?configure_homeboy_dmc_worktree_provider\(_phase\)\?$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  if [ "$entrypoint" = "upgrade.sh" ]; then
+    configure_line=$(grep -n '^reconcile_provider_and_service_state$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  else
+    configure_line=$(grep -n '^\(  \)\?configure_homeboy_dmc_worktree_provider\(_phase\)\?$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  fi
   if [ -z "$discover_line" ] || [ -z "$configure_line" ] || [ "$discover_line" -ge "$configure_line" ]; then
     echo "FAIL: $entrypoint must discover the authoritative DMC workspace before configuring Homeboy" >&2
     exit 1

@@ -88,8 +88,6 @@ upgrade_data_machine_plugins() {
     log "  Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned})"
   fi
 
-  # Backfill the AGENTS.md composition gate on existing installs (idempotent).
-  set_compose_agents_md_constant
 }
 
 # Derive a Data Machine agent slug from a site domain. Shared by setup

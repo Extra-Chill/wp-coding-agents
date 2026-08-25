@@ -6,9 +6,8 @@
 # Phases:
 #   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
 #      supports kimaki, cc-connect, telegram).
-#   2. Update setup-installed Data Machine plugins to latest tagged releases,
-#      sync carried provider plugins, and sync WP Codebox (subtree-packaged)
-#      to its latest tag when installed.
+#   2. Update setup-installed Data Machine plugins and WP Codebox
+#      (subtree-packaged) to their latest tagged releases.
 #   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
 #          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + skill allowlist)
@@ -36,6 +35,7 @@
 #   ./upgrade.sh --dry-run       # preview without changes
 #   ./upgrade.sh --kimaki-only   # only sync kimaki config + plugins
 #   ./upgrade.sh --plugins-only  # only update Data Machine plugins
+#   ./upgrade.sh --reconcile-services  # only sync provider, chat, and service state
 #   ./upgrade.sh --skills-only   # only sync the wp-coding-agents upgrade skill
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
@@ -98,6 +98,7 @@ KIMAKI_ONLY=false
 PLUGINS_ONLY=false
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
+RECONCILE_SERVICES_ONLY=false
 REPAIR_OPENCODE_JSON=false
 SKIP_PLUGINS=false
 WITH_AI_GATEWAY=false
@@ -148,6 +149,7 @@ while [[ $# -gt 0 ]]; do
     --plugins-only)  PLUGINS_ONLY=true; shift ;;
     --skills-only)   SKILLS_ONLY=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
+    --reconcile-services) RECONCILE_SERVICES_ONLY=true; shift ;;
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
     --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
@@ -199,6 +201,9 @@ USAGE:
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
+  ./upgrade.sh --reconcile-services
+                                Only reconcile carried providers, DMC/Homeboy,
+                                chat-bridge configuration, and service templates
   ./upgrade.sh --skills-only    Only sync the wp-coding-agents upgrade skill
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
@@ -307,8 +312,10 @@ NEVER TOUCHED:
 DEFAULT TOUCHES:
   - data-machine and data-machine-code — updates setup-installed git
     checkouts to their latest version tags. Non-git plugin directories are
-    skipped. Carried provider plugins are synced from this repo when their
-    runtime is present. Use --skip-plugins to skip this phase.
+    skipped. Use --skip-plugins to skip this phase.
+  - Carried provider plugins, DMC managed-release integration, Homeboy provider
+    configuration, chat-bridge configuration, and service templates are
+    reconciled during a full upgrade or explicitly with --reconcile-services.
   - opencode.json — additive repair. Adds managed plugin entries the
     user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
     bridges) and migrates "agent.build.prompt" to top-level "instructions"
@@ -423,11 +430,13 @@ source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_mode
-source_policy_record_mode
-owned_discovery_record_exclusions
-source_policy_record_owned_sources
-source_policy_record_writable_paths
-source_policy_record_log_paths
+if [ "$PLUGINS_ONLY" != true ]; then
+  source_policy_record_mode
+  owned_discovery_record_exclusions
+  source_policy_record_owned_sources
+  source_policy_record_writable_paths
+  source_policy_record_log_paths
+fi
 systems_capabilities_resolve_profile
 
 # Detect chat bridge from installed services / installed binaries via the
@@ -557,14 +566,14 @@ _run_filter_active() {
   # Usage: _run_filter_active <flag_name>   (e.g. KIMAKI_ONLY)
   local phase="$1"
   # If any --*-only flag is set, only that one runs
-  if [ "$KIMAKI_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ]; then
+  if [ "$KIMAKI_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; then
     case "$phase" in
-      kimaki)    [ "$KIMAKI_ONLY" = true ]; return $? ;;
+      kimaki)    [ "$KIMAKI_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
       opencode-json) [ "$KIMAKI_ONLY" = true ]; return $? ;;
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
-      transport|systemd|patch) return 1 ;;  # infrastructure phases skipped in *-only modes
+      reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
       *)         return 1 ;;
     esac
   fi
@@ -583,13 +592,14 @@ _run_filter_active() {
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
   upgrade_data_machine_plugins
-  dmc_managed_release_integration_sync
-  sync_carried_plugins
   update_wp_codebox_plugin_subtree
 }
 
-configure_homeboy_dmc_worktree_provider_phase() {
-  _run_filter_active plugins || return 0
+reconcile_provider_and_service_state() {
+  _run_filter_active reconciliation || return 0
+  set_compose_agents_md_constant
+  dmc_managed_release_integration_sync
+  sync_carried_plugins
   configure_homeboy_dmc_worktree_provider
 }
 
@@ -605,7 +615,7 @@ sync_cli_transport_runtime() {
 }
 
 update_ai_gateway() {
-  _run_filter_active plugins || return 0
+  _run_filter_active reconciliation || return 0
   upgrade_ai_gateway
 }
 
@@ -1254,6 +1264,8 @@ update_chat_bridge_systemd() {
 }
 
 update_chat_bridge_launchd() {
+  _run_filter_active systemd || return 0
+
   if [ "$LOCAL_MODE" != true ] || [ "$PLATFORM" != "mac" ]; then
     return 0
   fi
@@ -1370,8 +1382,12 @@ print_summary() {
   fi
 
   echo ""
-  _print_bridge_restart_hint
-  _print_verify_block
+  if [ "$PLUGINS_ONLY" = true ]; then
+    _print_plugins_only_verify_block
+  else
+    _print_bridge_restart_hint
+    _print_verify_block
+  fi
 }
 
 # Resolve the runtime environment for restart/verify output.
@@ -1441,19 +1457,29 @@ _print_verify_block() {
   log "  ls $(runtime_skills_dir)              # installed upgrade skill"
 }
 
+_print_plugins_only_verify_block() {
+  log "Verify:"
+  log "  $WP_CMD plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $WP_CMD plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+}
+
 # ============================================================================
 # Execute
 # ============================================================================
 
 update_data_machine_plugins
 discover_dm_workspace_dir
-configure_homeboy_dmc_worktree_provider_phase
+reconcile_provider_and_service_state
 sync_cli_transport_runtime
 update_ai_gateway
 sync_chat_bridge_config
-systems_capabilities_apply
+if _run_filter_active systemd; then
+  systems_capabilities_apply
+fi
 check_opencode_json_drift
-ai_gateway_configure_opencode
+if _run_filter_active reconciliation; then
+  ai_gateway_configure_opencode
+fi
 sync_skills
 regenerate_agents_md
 sync_claude_code_runtime
