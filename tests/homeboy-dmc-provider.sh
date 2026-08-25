@@ -575,6 +575,25 @@ if [ -f "$HOMEBOY_CONFIG_LOG" ]; then
 fi
 
 DRY_RUN=false
+
+# Readiness runs the generated resolve argv, not just DMC's underlying identity
+# executable. Historical and unknown placeholders must fail before config write.
+provider_json="$(homeboy_dmc_worktree_provider_json "$DMC_PROVIDER_EXECUTABLE")"
+rm -f "$DMC_STATE"
+homeboy_dmc_worktree_provider_ready "$DMC_PROVIDER_EXECUTABLE" "$provider_json"
+stale_resolve_json="$(printf '%s' "$provider_json" | python3 -c 'import json, sys; provider = json.load(sys.stdin); provider["commands"]["resolve"].append("{repo}"); print(json.dumps(provider, separators=(",", ":")))')"
+if homeboy_dmc_worktree_provider_ready "$DMC_PROVIDER_EXECUTABLE" "$stale_resolve_json" 2> "$TMP/stale-resolve-readiness.log"; then
+  echo "FAIL: readiness accepted the historical repo-scoped resolve template"
+  exit 1
+fi
+assert_contains 'resolve command contains an unresolved placeholder: {repo}' "$TMP/stale-resolve-readiness.log"
+unknown_resolve_json="$(printf '%s' "$provider_json" | python3 -c 'import json, sys; provider = json.load(sys.stdin); provider["commands"]["resolve"].append("{unknown}"); print(json.dumps(provider, separators=(",", ":")))')"
+if homeboy_dmc_worktree_provider_ready "$DMC_PROVIDER_EXECUTABLE" "$unknown_resolve_json" 2> "$TMP/unknown-resolve-readiness.log"; then
+  echo "FAIL: readiness accepted an unknown resolve placeholder"
+  exit 1
+fi
+assert_contains 'resolve command contains an unresolved placeholder: {unknown}' "$TMP/unknown-resolve-readiness.log"
+
 configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 
 assert_contains 'identity|homeboy-readiness@probe' "$DMC_PROVIDER_LOG"
@@ -602,8 +621,8 @@ assert_not_contains "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-wor
 assert_resolution_contract "$HOMEBOY_CONFIG_LOG"
 
 # The same generated set operation is used during upgrade, replacing stale
-# installed provider objects rather than retaining missing provider commands.
-printf '/worktree_providers/dmc|{"commands":{"ensure":["stale"]}}\n' > "$HOMEBOY_CONFIG_LOG"
+# installed provider objects rather than retaining incompatible resolve commands.
+printf '/worktree_providers/dmc|{"commands":{"resolve":["provider","resolve","{handle}","{repo}"],"ensure":["stale"]}}\n' > "$HOMEBOY_CONFIG_LOG"
 rm -f "$DMC_STATE"
 configure_homeboy_dmc_worktree_provider > "$TMP/upgrade.log"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
