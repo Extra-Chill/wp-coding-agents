@@ -9,7 +9,9 @@ const HOMEBOY_DMC_TASK_MAX_FIELD_BYTES = 4096;
 const HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES = 131072;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES = 1048576;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
-const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 10;
+// Leave enough of Homeboy's 12-second supervision window to reap the DMC session
+// and report a typed adapter failure instead of being terminated externally.
+const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 8;
 const HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = 1;
 
 if ( '_session_exec' === $operation ) {
@@ -189,7 +191,7 @@ if ( 'resolve_task' === $operation ) {
 		exit(1);
 	}
 	if ( null !== $capture['failure'] ) {
-		$message = 'timeout' === $capture['failure'] ? 'DMC task worktree lookup exceeded its bounded execution time.' : ( 'session' === $capture['failure'] ? 'Could not isolate the DMC task worktree lookup session.' : 'DMC task worktree lookup exceeded its bounded ' . $capture['failure'] . ' capture.' );
+		$message = 'timeout' === $capture['failure'] ? 'DMC task worktree execution exceeded the adapter budget.' : ( 'session' === $capture['failure'] ? 'Could not isolate the DMC task worktree lookup session.' : 'DMC task worktree execution exceeded its bounded ' . $capture['failure'] . ' capture.' );
 		fwrite(STDERR, $message . "\n");
 		exit(1);
 	}
@@ -199,24 +201,25 @@ if ( 'resolve_task' === $operation ) {
 	if ( 0 !== $status ) {
 		$overflow = json_decode($stdout, true);
 		if ( is_array($overflow) && 'worktree_task_candidates_overflow' === ( $overflow['error']['code'] ?? $overflow['code'] ?? null ) ) {
-			fwrite(STDERR, "DMC task worktree lookup exceeded its complete candidate bound.\n");
+			fwrite(STDERR, "DMC task worktree execution exceeded its complete candidate bound.\n");
 		} else {
-			fwrite(STDERR, 'DMC task worktree lookup failed: ' . trim($stderr) . "\n");
+			fwrite(STDERR, 'DMC task worktree execution failed: ' . trim($stderr) . "\n");
 		}
 		exit($status > 0 && $status < 256 ? $status : 1);
 	}
 	try {
 		$rows = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
 	} catch (Throwable $error) {
-		fwrite(STDERR, 'DMC task worktree lookup returned invalid JSON: ' . $error->getMessage() . "\n");
+		fwrite(STDERR, 'DMC task worktree projection returned invalid JSON: ' . $error->getMessage() . "\n");
 		exit(1);
 	}
-	if ( ! is_array($rows) || ! array_is_list($rows) ) {
-		fwrite(STDERR, "DMC task worktree lookup did not return a complete row array.\n");
+	if ( ! is_array($rows) || true !== ($rows['success'] ?? null) || ! is_array($rows['worktrees'] ?? null) || ! array_is_list($rows['worktrees']) || ! is_int($rows['total'] ?? null) || ! is_int($rows['returned'] ?? null) || null !== ($rows['next_cursor'] ?? null) || $rows['total'] !== $rows['returned'] || $rows['returned'] !== count($rows['worktrees']) ) {
+		fwrite(STDERR, "DMC task worktree projection did not return one complete bounded page.\n");
 		exit(1);
 	}
+	$rows = $rows['worktrees'];
 	if ( count($rows) > HOMEBOY_DMC_TASK_MAX_CANDIDATES ) {
-		fwrite(STDERR, "DMC task worktree lookup exceeded its complete candidate bound.\n");
+		fwrite(STDERR, "DMC task worktree projection exceeded its complete candidate bound.\n");
 		exit(1);
 	}
 	$result = array();
@@ -230,11 +233,11 @@ if ( 'resolve_task' === $operation ) {
 			|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
 			|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
 		) {
-				fwrite(STDERR, "DMC task worktree lookup returned an incomplete or mismatched task candidate.\n");
+				fwrite(STDERR, "DMC task worktree projection returned an incomplete or mismatched task candidate.\n");
 			exit(1);
 		}
 		if ( strlen($row['handle']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($row['path']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($row['branch']) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES || strlen($task_url) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES ) {
-			fwrite(STDERR, "DMC task worktree lookup field exceeds its bounded projection limit.\n");
+			fwrite(STDERR, "DMC task worktree projection field exceeds its bounded limit.\n");
 			exit(1);
 		}
 			$result[] = array(
@@ -251,7 +254,7 @@ if ( 'resolve_task' === $operation ) {
 	}
 	$serialized = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 	if ( strlen($serialized) > HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES ) {
-		fwrite(STDERR, "DMC task worktree lookup exceeds its bounded projection output.\n");
+		fwrite(STDERR, "DMC task worktree projection exceeds its bounded output.\n");
 		exit(1);
 	}
 	fwrite(STDOUT, $serialized . "\n");

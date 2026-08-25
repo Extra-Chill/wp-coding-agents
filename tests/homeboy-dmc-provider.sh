@@ -60,6 +60,7 @@ assert_not_contains() {
 assert_provider_contract() {
   python3 - "$1" "$2" "$3" "$DM_WORKSPACE_DIR" "$DMC_PROVIDER_EXECUTABLE" <<'PY'
 import json
+import re
 import sys
 
 lines = [line for line in open(sys.argv[1], encoding="utf-8").read().splitlines() if line.startswith("/worktree_providers/dmc|")]
@@ -70,14 +71,19 @@ provider = json.loads(payload)
 commands = provider["commands"]
 expected_resolve = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", sys.argv[5], sys.argv[4], "{handle}"]
 expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve", sys.argv[5], sys.argv[4], "{path}"]
-expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--all", "--with-status", "--format=json", f"--path={sys.argv[3]}"]
+expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--with-status", "--limit=200", "--envelope", "--format=json", f"--path={sys.argv[3]}"]
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", sys.argv[5], sys.argv[4], "{identity}"]
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
-if provider.get("lookup_timeout_ms") != 10000:
-    raise SystemExit("FAIL: standalone DMC lookups must retain a bounded timeout")
+if provider.get("lookup_timeout_ms") != 12000:
+    raise SystemExit("FAIL: Homeboy must reserve a supervision margin beyond the DMC adapter budget")
+adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
+adapter_budget = int(re.search(r"HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = (\d+)", adapter).group(1))
+adapter_grace = int(re.search(r"HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = (\d+)", adapter).group(1))
+if (adapter_budget + adapter_grace) * 1000 >= provider["lookup_timeout_ms"]:
+    raise SystemExit("FAIL: DMC execution and adapter cleanup must finish before Homeboy supervision")
 if provider.get("lookup_output_limit_bytes") != 262144:
     raise SystemExit("FAIL: DMC task lookup output must have an explicit finite Homeboy cap")
 if provider.get("mutation_timeout_ms") != 120000:
@@ -298,14 +304,19 @@ if http_default_port.returncode or json.loads(http_default_port.stdout) != http_
 http_zero_padded_port = run("default_http", " HTTP://GITHUB.COM:080/Extra-Chill/wp-coding-agents/issues/425/?source=fixture#result ")
 if http_zero_padded_port.returncode or json.loads(http_zero_padded_port.stdout) != http_expected:
     raise SystemExit(f"FAIL: zero-padded HTTP default port did not round-trip through the adapter: {http_zero_padded_port!r}")
+started = time.monotonic()
+large_inventory = run("large_inventory")
+elapsed = time.monotonic() - started
+if large_inventory.returncode or json.loads(large_inventory.stdout) != expected or elapsed >= 12:
+    raise SystemExit(f"FAIL: exact-task projection did not complete within Homeboy's declared supervision budget: {large_inventory!r}, elapsed={elapsed}")
 largest_success = run("largest_success")
 largest_rows = json.loads(largest_success.stdout) if largest_success.returncode == 0 else []
 largest_size = len(largest_success.stdout.encode("utf-8"))
 if len(largest_rows) != 200 or largest_rows[0]["handle"] != "fixture@task-425-001" or largest_rows[-1]["handle"] != "fixture@task-425-200" or not 100000 < largest_size < 131072 or largest_size >= 262144:
     raise SystemExit(f"FAIL: largest successful task projection did not stay below both adapter and Homeboy caps: {largest_success!r}")
-for mode in ("mismatched_task", "incomplete_safety", "overflow", "over_budget", "aggregate_over_budget", "escaping_over_budget", "oversized_stdout", "oversized_stderr"):
+for mode in ("mismatched_task", "incomplete_safety", "incomplete_page", "overflow", "over_budget", "aggregate_over_budget", "escaping_over_budget", "oversized_stdout", "oversized_stderr"):
     result = run(mode)
-    expected_error = "bounded stdout capture" if mode == "oversized_stdout" else "bounded stderr capture" if mode == "oversized_stderr" else "complete candidate bound" if mode == "overflow" else "bounded projection output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded projection limit" if mode == "over_budget" else "incomplete or mismatched task candidate"
+    expected_error = "bounded stdout capture" if mode == "oversized_stdout" else "bounded stderr capture" if mode == "oversized_stderr" else "complete candidate bound" if mode == "overflow" else "bounded output" if mode in ("aggregate_over_budget", "escaping_over_budget") else "bounded limit" if mode == "over_budget" else "complete bounded page" if mode == "incomplete_page" else "incomplete or mismatched task candidate"
     if result.returncode == 0 or expected_error not in result.stderr:
         raise SystemExit(f"FAIL: {mode} task candidate must fail closed: {result!r}")
 
@@ -336,7 +347,7 @@ def assert_descendant_stopped(mode, expected_error, timeout):
             raise SystemExit(f"FAIL: {mode} lookup left process {pid} alive")
 
 assert_descendant_stopped("descendant_both", "bounded ", 5)
-assert_descendant_stopped("descendant_silent", "bounded execution time", 15)
+assert_descendant_stopped("descendant_silent", "execution exceeded the adapter budget", 11)
 PY
 }
 
@@ -424,29 +435,36 @@ cat > "$FAKE_BIN/studio" <<'SH'
 printf '%s\n' "$*" >> "$STUDIO_LOG"
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
   case "$*" in
-    *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--all*--with-status*--format=json*|*--task-ref=http://github.com/Extra-Chill/wp-coding-agents/issues/425*--all*--with-status*--format=json*) ;;
+    *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--with-status*--limit=200*--envelope*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--with-status*--limit=200*--envelope*--format=json*|*--task-ref=http://github.com/Extra-Chill/wp-coding-agents/issues/425*--with-status*--limit=200*--envelope*--format=json*) ;;
     *) exit 2 ;;
   esac
   printf '%s\n' "$$" > "$DMC_CHILD_PID"
   case "${DMC_TASK_LOOKUP_MODE:-zero}" in
     zero)
-      printf '[]\n'
+      printf '{"success":true,"total":0,"returned":0,"next_cursor":null,"worktrees":[]}\n'
       ;;
-    one|ambiguous|canonical|mismatched_task|incomplete_safety|default_http)
+    one|ambiguous|canonical|mismatched_task|incomplete_safety|default_http|large_inventory)
       task='https://github.com/Extra-Chill/wp-coding-agents/issues/425'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = mismatched_task ] && task='https://github.com/Extra-Chill/wp-coding-agents/issues/other'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = canonical ] && task='HTTPS://GITHUB.COM/Extra-Chill/WP-Coding-Agents/issues/425/?query=value#fragment'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = default_http ] && task='http://github.com/Extra-Chill/wp-coding-agents/issues/425'
       safety='{"dirty":false,"unpushed":false,"primary":false}'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = incomplete_safety ] && safety='{"dirty":false,"primary":false}'
-      printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}' "$DMC_STATE" "$task" "$safety"
+      if [ "${DMC_TASK_LOOKUP_MODE:-}" = large_inventory ]; then
+        i=1
+        while [ "$i" -le 5000 ]; do i=$((i + 1)); done
+      fi
+      printf '{"success":true,"total":%s,"returned":%s,"next_cursor":null,"worktrees":[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":%s}' "$( [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && printf 2 || printf 1 )" "$( [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ] && printf 2 || printf 1 )" "$DMC_STATE" "$task" "$safety"
       if [ "${DMC_TASK_LOOKUP_MODE:-}" = ambiguous ]; then
         printf ',{"handle":"fixture@task-425-other","path":"%s-other","branch":"fix/425-resolve-task","task_full":{"task_url":"%s"},"safety":{"dirty":false,"unpushed":false,"primary":false}}' "$DMC_STATE" "$task"
       fi
-      printf ']\n'
+      printf ']}\n'
       ;;
     largest_success|aggregate_over_budget|escaping_over_budget)
-      python3 -c 'import json, sys; mode, path = sys.argv[1:]; task = "https://github.com/Extra-Chill/wp-coding-agents/issues/425"; fill = "x" * (340 if mode == "largest_success" else 1024); fill = "\\\\" * 400 if mode == "escaping_over_budget" else fill; rows = [{"handle": f"fixture@task-425-{index:03d}", "path": f"{path}/{fill}", "branch": f"fix/425-resolve-task-{index:03d}", "task_full": {"task_url": task}, "safety": {"dirty": False, "unpushed": False, "primary": False}} for index in range(1, 201)]; print(json.dumps(rows, separators=(",", ":")))' "${DMC_TASK_LOOKUP_MODE:-}" "$DMC_STATE"
+      python3 -c 'import json, sys; mode, path = sys.argv[1:]; task = "https://github.com/Extra-Chill/wp-coding-agents/issues/425"; fill = "x" * (340 if mode == "largest_success" else 1024); fill = "\\\\" * 400 if mode == "escaping_over_budget" else fill; rows = [{"handle": f"fixture@task-425-{index:03d}", "path": f"{path}/{fill}", "branch": f"fix/425-resolve-task-{index:03d}", "task_full": {"task_url": task}, "safety": {"dirty": False, "unpushed": False, "primary": False}} for index in range(1, 201)]; print(json.dumps({"success": True, "total": 200, "returned": 200, "next_cursor": None, "worktrees": rows}, separators=(",", ":")))' "${DMC_TASK_LOOKUP_MODE:-}" "$DMC_STATE"
+      ;;
+    incomplete_page)
+      printf '{"success":true,"total":201,"returned":200,"next_cursor":"next","worktrees":[]}\n'
       ;;
     overflow)
       printf '{"success":false,"error":{"code":"worktree_task_candidates_overflow","message":"Task worktree lookup exceeded the complete bounded candidate limit.","data":{"status":409,"task_ref":"https://github.com/Extra-Chill/wp-coding-agents/issues/425","total":201,"limit":200}}}\n'
@@ -454,7 +472,7 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
       ;;
     over_budget)
       oversized="$(python3 -c 'print("x" * 4097)')"
-      printf '[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}]\n' "$oversized"
+      printf '{"success":true,"total":1,"returned":1,"next_cursor":null,"worktrees":[{"handle":"fixture@task-425","path":"%s","branch":"fix/425-resolve-task","task_full":{"task_url":"https://github.com/Extra-Chill/wp-coding-agents/issues/425"},"safety":{"dirty":false,"unpushed":false,"primary":false}}]}\n' "$oversized"
       ;;
     oversized_stdout)
       python3 -c 'import sys; sys.stdout.write("x" * 1048577)'
@@ -542,7 +560,7 @@ assert_contains "\"attest_safety\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-pr
 assert_contains "\"converge\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"converge\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{identity}\",\"{base}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
-assert_contains "\"resolve_task\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve_task\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--task-ref={task_url}\",\"--all\",\"--with-status\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"resolve_task\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve_task\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--task-ref={task_url}\",\"--with-status\",\"--limit=200\",\"--envelope\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
