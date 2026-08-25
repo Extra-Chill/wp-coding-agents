@@ -216,25 +216,67 @@ homeboy_task_attachment_commands_supported() {
 }
 
 homeboy_dmc_worktree_provider_ready() {
-  local provider="$1" response
+  local provider="$1" provider_json="${2:-}"
 
   [ -f "$provider" ] || return 1
   [ -d "${DM_WORKSPACE_DIR:-}" ] || return 1
+  [ -n "$provider_json" ] || return 1
 
-  # Identity is the standalone, repo-independent contract used by Homeboy's
-  # generated provider. An unknown canonical handle must receive a typed decline.
-  response="$(php "$provider" identity "$DM_WORKSPACE_DIR" 'homeboy-readiness@probe' 2>/dev/null)" || return 1
-  printf '%s' "$response" | python3 -c '
+  # Exercise the exact generated argv with the only input Homeboy supplies to
+  # resolve. This catches stale or unknown placeholders before a Cook while the
+  # typed missing handle keeps the probe read-only.
+  HOMEBOY_DMC_PROVIDER_JSON="$provider_json" python3 - <<'PY'
 import json
+import os
+import re
+import subprocess
 import sys
 
 try:
-    payload = json.load(sys.stdin)
-except Exception:
+    provider = json.loads(os.environ["HOMEBOY_DMC_PROVIDER_JSON"])
+    command = provider["commands"]["resolve"]
+    not_found_exit_codes = provider["commands"]["resolve_not_found_exit_codes"]
+    if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
+        raise ValueError("commands.resolve must be a non-empty argv array")
+    if not isinstance(not_found_exit_codes, list) or not all(isinstance(code, int) for code in not_found_exit_codes):
+        raise ValueError("commands.resolve_not_found_exit_codes must be an integer array")
+except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+    print(f"Invalid generated Homeboy DMC provider contract: {error}", file=sys.stderr)
     sys.exit(1)
 
-sys.exit(0 if payload.get("schema") == "datamachine-code/worktree-identity/v1" and payload.get("status") == "not_owned" and payload.get("ownership") == "not_owned" else 1)
-' >/dev/null 2>&1
+handle = "homeboy-readiness@probe"
+command = [part.replace("{handle}", handle) for part in command]
+for argument in command:
+    placeholder = re.search(r"\{[^{}]+\}", argument)
+    if placeholder:
+        print(
+            "worktree provider `dmc` resolve command contains an unresolved "
+            f"placeholder: {placeholder.group(0)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+environment = os.environ.copy()
+environment.pop("HOMEBOY_DMC_PROVIDER_JSON", None)
+try:
+    result = subprocess.run(command, text=True, capture_output=True, env=environment)
+except OSError as error:
+    print(f"Could not run generated Homeboy DMC resolve command: {error}", file=sys.stderr)
+    sys.exit(1)
+try:
+    payload = json.loads(result.stdout)
+except json.JSONDecodeError:
+    payload = {}
+if (
+    result.returncode not in not_found_exit_codes
+    or payload.get("success") is not False
+    or payload.get("error", {}).get("code") != "worktree_not_found"
+):
+    print("Generated Homeboy DMC resolve command failed its typed read-only fixture.", file=sys.stderr)
+    if result.stderr:
+        print(result.stderr.rstrip(), file=sys.stderr)
+    sys.exit(1)
+PY
 }
 
 homeboy_dmc_worktree_provider_executable() {
@@ -619,8 +661,8 @@ configure_homeboy_dmc_worktree_provider() {
   fi
 
   if [ -n "${SITE_PATH:-}" ] && { [ -f "$SITE_PATH/wp-config.php" ] || [ -f "$SITE_PATH/wp-load.php" ]; }; then
-    if ! homeboy_dmc_worktree_provider_ready "$provider"; then
-      homeboy_handle_failure "Data Machine Code standalone worktree provider is not available; skipping Homeboy DMC worktree provider setup."
+    if ! homeboy_dmc_worktree_provider_ready "$provider" "$provider_json"; then
+      homeboy_handle_failure "wp-coding-agents generated Homeboy DMC provider command readiness failed; rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\""
       return 0
     fi
   fi
