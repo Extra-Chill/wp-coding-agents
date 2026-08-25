@@ -77,7 +77,7 @@ dmc_managed_release_provenance_file() {
 }
 
 dmc_managed_release_active() {
-  wp_cmd plugin is-active data-machine-code >/dev/null 2>&1
+  wp_cmd plugin is-active data-machine-code --skip-plugins >/dev/null 2>&1
 }
 
 dmc_managed_release_release_root() {
