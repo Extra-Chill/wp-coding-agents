@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.20.2] - 2026-08-24
+
+### Fixed
+- skip stale plugins during release recovery
+
 ## [1.20.1] - 2026-08-24
 
 ### Fixed
