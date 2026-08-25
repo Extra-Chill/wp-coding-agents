@@ -11,6 +11,14 @@ _datamachine_worker_shell_quote() {
   printf "'%s'" "$value"
 }
 
+_datamachine_worker_xml_text() {
+  local value="$1"
+  value=${value//&/\&amp;}
+  value=${value//</\&lt;}
+  value=${value//>/\&gt;}
+  printf '%s' "$value"
+}
+
 _datamachine_worker_uses_studio() {
   [ "${WP_CMD:-wp}" = "studio wp" ]
 }
@@ -87,32 +95,38 @@ EOF
 datamachine_worker_render_launchd() {
   local label="$1"
   local log_dir="$SERVICE_HOME/.datamachine"
+  local command_xml label_xml log_dir_xml service_home_xml site_path_xml
   [ "$label" = "com.wp.datamachine-worker" ] || return 1
+  command_xml="$(_datamachine_worker_xml_text "$(_datamachine_worker_command)")"
+  label_xml="$(_datamachine_worker_xml_text "$label")"
+  log_dir_xml="$(_datamachine_worker_xml_text "$log_dir")"
+  service_home_xml="$(_datamachine_worker_xml_text "$SERVICE_HOME")"
+  site_path_xml="$(_datamachine_worker_xml_text "$SITE_PATH")"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$label</string>
+    <string>$label_xml</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/sh</string>
         <string>-lc</string>
-        <string>$(_datamachine_worker_command)</string>
+        <string>$command_xml</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
+    <string>$site_path_xml</string>
     <key>StartInterval</key>
     <integer>120</integer>
     <key>StandardOutPath</key>
-    <string>$log_dir/datamachine-worker.log</string>
+    <string>$log_dir_xml/datamachine-worker.log</string>
     <key>StandardErrorPath</key>
-    <string>$log_dir/datamachine-worker.error.log</string>
+    <string>$log_dir_xml/datamachine-worker.error.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
-        <string>$SERVICE_HOME</string>
+        <string>$service_home_xml</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
