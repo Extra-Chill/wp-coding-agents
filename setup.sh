@@ -179,6 +179,14 @@ while [[ $# -gt 0 ]]; do
       WITH_HOMEBOY=true
       shift
       ;;
+    --with-datamachine-worker)
+      DATAMACHINE_WORKER_REQUEST=enabled
+      shift
+      ;;
+    --no-datamachine-worker)
+      DATAMACHINE_WORKER_REQUEST=disabled
+      shift
+      ;;
     --with-ai-gateway)
       WITH_AI_GATEWAY=true
       shift
@@ -371,7 +379,13 @@ OPTIONS:
                       Opt in to root-managed journald, debug-log rotation, and
                       DMC process-inspection capabilities on a VPS.
   --with-homeboy     Create/update a Homeboy project and install/verify the
-                      WordPress Homeboy extension
+                       WordPress Homeboy extension
+  --with-datamachine-worker
+                      Opt in to a managed service that runs one bounded Data
+                      Machine worker pass every two minutes. This does not run
+                      generic WP-Cron events.
+  --no-datamachine-worker
+                      Disable the worker and remove its managed service state.
   --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
                      Installs/activates the gateway/provider stack, configures
                      the gateway route, mints/reuses a gateway token, and adds
@@ -611,5 +625,5 @@ if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_
 # way a live change will.
 if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
 install_chat_bridge
-if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_install; fi
+if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_reconcile; fi
 print_summary

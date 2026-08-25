@@ -148,6 +148,22 @@ cd wp-coding-agents
 SITE_DOMAIN=example.com ./setup.sh
 ```
 
+### Optional Data Machine Worker
+
+Setup and upgrades leave the managed Data Machine worker disabled by default.
+Interactive CLI operations continue to work without it. Install the worker only
+when the site should drain Data Machine work while no operator or web request is
+present:
+
+```bash
+./setup.sh --with-datamachine-worker
+```
+
+The choice persists across upgrades. Disable it and remove the managed launchd
+or systemd service with `./upgrade.sh --no-datamachine-worker`. The worker runs
+one bounded `wp datamachine worker run --once` pass every two minutes; it does
+not execute generic due WP-Cron events.
+
 ### External WordPress Runtime
 
 Run the coding runtime on a host without a mounted WordPress tree. The control

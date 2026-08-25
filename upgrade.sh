@@ -153,6 +153,8 @@ while [[ $# -gt 0 ]]; do
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
     --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
+    --with-datamachine-worker) DATAMACHINE_WORKER_REQUEST=enabled; shift ;;
+    --no-datamachine-worker) DATAMACHINE_WORKER_REQUEST=disabled; shift ;;
     --with-claude-code-auth) WITH_CLAUDE_CODE_AUTH=true; shift ;;
     --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
@@ -258,7 +260,13 @@ USAGE:
                                 for OpenCode: install/activate gateway stack,
                                 configure route, reuse existing token env, and
                                 merge a wp-ai-gateway OpenAI-compatible provider
-                                into opencode.json.
+                                 into opencode.json.
+  ./upgrade.sh --with-datamachine-worker
+                                 Opt in to the managed bounded Data Machine
+                                 worker. The choice persists across upgrades.
+  ./upgrade.sh --no-datamachine-worker
+                                 Disable the worker and remove its managed
+                                 launchd or systemd service.
   ./upgrade.sh --with-ai-gateway --rotate-ai-gateway-token
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
@@ -1304,13 +1312,13 @@ update_chat_bridge_launchd() {
   bridge_update_launchd
 }
 
-update_datamachine_worker_service() {
+reconcile_datamachine_worker_service() {
   _run_filter_active systemd || return 0
   if [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
     warn "Skipping Data Machine worker unit refresh because upgrade is running non-root"
     return 0
   fi
-  datamachine_worker_update
+  datamachine_worker_reconcile
 }
 
 # ============================================================================
@@ -1528,7 +1536,7 @@ sync_runtime_instructions
 opencode_project_subagents_optional
 update_chat_bridge_systemd
 update_chat_bridge_launchd
-update_datamachine_worker_service
+reconcile_datamachine_worker_service
 refresh_opencode_runtime_signature_phase
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then

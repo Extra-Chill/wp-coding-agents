@@ -8,7 +8,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-lc</string>
-        <string>cd "/var/www/site" &amp;&amp; wp cron event run --due-now &amp;&amp; wp datamachine worker run --once</string>
+        <string>cd "/var/www/site" &amp;&amp; wp datamachine worker run --once</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/var/www/site</string>
