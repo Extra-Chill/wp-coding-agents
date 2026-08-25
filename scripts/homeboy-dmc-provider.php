@@ -13,6 +13,7 @@ const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
 // and report a typed adapter failure instead of being terminated externally.
 const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 8;
 const HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = 1;
+const HOMEBOY_DMC_ATTACHMENT_TIMEOUT_SECONDS = 30;
 
 if ( '_session_exec' === $operation ) {
 	$command = array_slice($argv, 2);
@@ -43,7 +44,7 @@ if ( '_session_exec' === $operation ) {
 }
 
 /** @return array{status:int,stdout:string,stderr:string,failure:?string} */
-$run_bounded_command = static function ( array $command, int $stdout_limit, int $stderr_limit ): array {
+$run_bounded_command = static function ( array $command, int $stdout_limit, int $stderr_limit, int $timeout_seconds = HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS ): array {
 	$launcher = array_merge(array( PHP_BINARY, __FILE__, '_session_exec' ), $command);
 	$process = proc_open($launcher, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ), 3 => array( 'pipe', 'w' ) ), $pipes);
 	if ( ! is_resource($process) ) {
@@ -69,7 +70,7 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 			$failure = 'session';
 			$termination_started_at = microtime(true);
 		}
-		if ( null === $failure && microtime(true) - $started_at >= HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS ) {
+		if ( null === $failure && microtime(true) - $started_at >= $timeout_seconds ) {
 			$failure = 'timeout';
 			$termination_started_at = microtime(true);
 		}
@@ -134,7 +135,7 @@ $run_bounded_command = static function ( array $command, int $stdout_limit, int 
 	// Reap the leader before probing its group so a Linux zombie cannot keep kill(-pgid, 0) true.
 	$status = proc_close($process);
 	while ( $session_ready && null !== $pid && $pid > 0 && @posix_kill(-$pid, 0) ) {
-		if ( null === $failure && microtime(true) - $started_at >= HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS ) {
+		if ( null === $failure && microtime(true) - $started_at >= $timeout_seconds ) {
 			$failure = 'timeout';
 			$termination_started_at = microtime(true);
 		}
@@ -171,6 +172,137 @@ $canonical_task_url = static function ( string $task_url ): string {
 		$task_url
 	) ?? '';
 };
+
+$task_attachment_result = static function ( array $identity, string $task_url, string $status ): array {
+	return array(
+		'schema'      => 'homeboy/worktree-provider-task-attachment/v1',
+		'provider_id' => 'dmc',
+		'handle'      => $identity['handle'],
+		'task_url'    => $task_url,
+		'path'        => $identity['path'],
+		'branch'      => $identity['branch'],
+		'primary'     => false,
+		'status'      => $status,
+	);
+};
+
+if ( 'task_attachment_preview' === $operation ) {
+	$provider  = (string) ( $argv[2] ?? '' );
+	$workspace = (string) ( $argv[3] ?? '' );
+	$handle    = (string) ( $argv[4] ?? '' );
+	$task_url  = $canonical_task_url((string) ( $argv[5] ?? '' ));
+	if ( '' === $provider || '' === $workspace || '' === $handle || '' === $task_url ) {
+		fwrite(STDERR, "Usage: homeboy-dmc-provider.php task_attachment_preview <dmc-provider> <workspace-root> <handle> <task-url>\n");
+		exit(2);
+	}
+	try {
+		$identity_capture = $run_bounded_command(array( PHP_BINARY, $provider, 'identity', $workspace, $handle ), HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES);
+	} catch (Throwable $error) {
+		fwrite(STDERR, $error->getMessage() . "\n");
+		exit(1);
+	}
+	if ( null !== $identity_capture['failure'] ) {
+		fwrite(STDERR, "DMC tracker-attachment preview exceeded its bounded execution or capture.\n");
+		exit(1);
+	}
+	if ( 0 !== $identity_capture['status'] ) {
+		fwrite(STDERR, $identity_capture['stderr']);
+		exit($identity_capture['status'] > 0 && $identity_capture['status'] < 256 ? $identity_capture['status'] : 1);
+	}
+	try {
+		$identity = json_decode($identity_capture['stdout'], true, 512, JSON_THROW_ON_ERROR);
+	} catch (Throwable $error) {
+		fwrite(STDERR, "DMC tracker-attachment preview returned invalid identity JSON.\n");
+		exit(1);
+	}
+	if ( is_array($identity) && in_array((string) ( $identity['status'] ?? '' ), array( 'not_owned', 'not_found' ), true) ) {
+		fwrite(STDOUT, "{\"status\":\"not_owned\"}\n");
+		exit(0);
+	}
+	if (
+		! is_array($identity) || 'datamachine-code/worktree-identity/v1' !== ( $identity['schema'] ?? null )
+		|| $handle !== ( $identity['handle'] ?? null ) || ! is_string($identity['path'] ?? null) || '' === $identity['path']
+		|| ! is_string($identity['branch'] ?? null) || '' === $identity['branch'] || false !== ( $identity['primary'] ?? null )
+	) {
+		fwrite(STDERR, "DMC tracker-attachment preview returned an incomplete exact identity.\n");
+		exit(1);
+	}
+	$existing_task_url = $canonical_task_url((string) ( $identity['task_url'] ?? '' ));
+	if ( '' !== $existing_task_url && $task_url !== $existing_task_url ) {
+		fwrite(STDERR, "DMC worktree already has conflicting tracker ownership.\n");
+		exit(1);
+	}
+	if ( '' === $existing_task_url ) {
+		try {
+			$safety_capture = $run_bounded_command(array( PHP_BINARY, $provider, 'safety', $workspace, (string) ( $identity['token'] ?? '' ) ), HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES);
+		} catch (Throwable $error) {
+			fwrite(STDERR, $error->getMessage() . "\n");
+			exit(1);
+		}
+		if ( null !== $safety_capture['failure'] ) {
+			fwrite(STDERR, "DMC tracker-attachment preview exceeded its bounded execution or capture.\n");
+			exit(1);
+		}
+		if ( 0 !== $safety_capture['status'] ) {
+			fwrite(STDERR, $safety_capture['stderr']);
+			exit($safety_capture['status'] > 0 && $safety_capture['status'] < 256 ? $safety_capture['status'] : 1);
+		}
+		$safety = json_decode($safety_capture['stdout'], true);
+		if ( ! is_array($safety) || 'datamachine-code/worktree-safety/v1' !== ( $safety['schema'] ?? null ) || true !== ( $safety['fresh'] ?? null ) || false !== ( $safety['dirty'] ?? null ) ) {
+			fwrite(STDERR, "DMC tracker-attachment preview requires a fresh clean worktree.\n");
+			exit(1);
+		}
+	}
+	fwrite(STDOUT, json_encode($task_attachment_result($identity, $task_url, '' === $existing_task_url ? 'eligible' : 'already_attached'), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+	exit(0);
+}
+
+if ( 'task_attachment_apply' === $operation ) {
+	$handle   = (string) ( $argv[2] ?? '' );
+	$task_url = $canonical_task_url((string) ( $argv[3] ?? '' ));
+	$command  = array_slice($argv, 4);
+	if ( '' === $handle || '' === $task_url || array() === $command ) {
+		fwrite(STDERR, "Usage: homeboy-dmc-provider.php task_attachment_apply <handle> <task-url> <dmc-attach-tracker-command...>\n");
+		exit(2);
+	}
+	foreach ( $command as $index => $argument ) {
+		$command[ $index ] = str_replace(array( '{handle}', '{task_url}' ), array( $handle, $task_url ), $argument);
+	}
+	try {
+		$capture = $run_bounded_command($command, HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES, HOMEBOY_DMC_ATTACHMENT_TIMEOUT_SECONDS);
+	} catch (Throwable $error) {
+		fwrite(STDERR, $error->getMessage() . "\n");
+		exit(1);
+	}
+	if ( null !== $capture['failure'] ) {
+		fwrite(STDERR, "DMC tracker attachment exceeded its bounded execution or capture.\n");
+		exit(1);
+	}
+	if ( 0 !== $capture['status'] ) {
+		fwrite(STDERR, $capture['stderr']);
+		exit($capture['status'] > 0 && $capture['status'] < 256 ? $capture['status'] : 1);
+	}
+	try {
+		$attached = json_decode($capture['stdout'], true, 512, JSON_THROW_ON_ERROR);
+	} catch (Throwable $error) {
+		fwrite(STDERR, "DMC tracker attachment returned invalid JSON.\n");
+		exit(1);
+	}
+	$identity = is_array($attached) && is_array($attached['provider_resolution'] ?? null) ? $attached['provider_resolution'] : null;
+	$status   = is_array($attached) ? (string) ( $attached['status'] ?? '' ) : '';
+	if (
+		! is_array($identity) || ! in_array($status, array( 'attached', 'already_attached' ), true)
+		|| $handle !== ( $attached['handle'] ?? null ) || $handle !== ( $identity['handle'] ?? null )
+		|| $task_url !== $canonical_task_url((string) ( $identity['task_url'] ?? '' ))
+		|| ! is_string($identity['path'] ?? null) || '' === $identity['path'] || ! is_string($identity['branch'] ?? null) || '' === $identity['branch']
+		|| false !== ( $identity['primary'] ?? null )
+	) {
+		fwrite(STDERR, "DMC tracker attachment returned incomplete or mismatched exact evidence.\n");
+		exit(1);
+	}
+	fwrite(STDOUT, json_encode($task_attachment_result($identity, $task_url, $status), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+	exit(0);
+}
 
 if ( 'resolve_task' === $operation ) {
 	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));

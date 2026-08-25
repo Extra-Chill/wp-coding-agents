@@ -77,6 +77,8 @@ expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", sys.argv[5], sys.argv[4], "{identity}"]
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
+expected_attachment_preview = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_preview", sys.argv[5], sys.argv[4], "{handle}", "{task_url}"]
+expected_attachment_apply = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_apply", "{handle}", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "attach-tracker", "{handle}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
 if provider.get("lookup_timeout_ms") != 12000:
     raise SystemExit("FAIL: Homeboy must reserve a supervision margin beyond the DMC adapter budget")
 adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
@@ -111,6 +113,10 @@ if commands.get("attest_safety") != expected_safety:
     raise SystemExit(f"FAIL: DMC standalone safety mapping mismatch: {commands.get('attest_safety')!r}")
 if commands.get("converge") != expected_converge:
     raise SystemExit(f"FAIL: DMC convergence mapping must bind the opaque identity and pinned base: {commands.get('converge')!r}")
+if commands.get("task_attachment_preview") != expected_attachment_preview:
+    raise SystemExit(f"FAIL: DMC task-attachment preview mapping mismatch: {commands.get('task_attachment_preview')!r}")
+if commands.get("task_attachment_apply") != expected_attachment_apply:
+    raise SystemExit(f"FAIL: DMC task-attachment apply mapping mismatch: {commands.get('task_attachment_apply')!r}")
 if "list" in commands:
     raise SystemExit("FAIL: DMC provider must not advertise unsupported generic list capability")
 PY
@@ -351,6 +357,77 @@ assert_descendant_stopped("descendant_silent", "execution exceeded the adapter b
 PY
 }
 
+assert_task_attachment_contract() {
+  python3 - "$1" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+_, payload = open(sys.argv[1], encoding="utf-8").read().strip().split("|", 1)
+commands = json.loads(payload)["commands"]
+handle = "static-site-importer@refactor-1306-runtime-entity-form-materialization"
+task_url = "https://github.com/Automattic/static-site-importer/issues/1306"
+values = {"handle": handle, "task_url": task_url}
+
+def run(name, env=None):
+    command = [part.format(**values) for part in commands[name]]
+    return subprocess.run(command, text=True, capture_output=True, env=env or os.environ.copy())
+
+preview = run("task_attachment_preview")
+expected = {
+    "schema": "homeboy/worktree-provider-task-attachment/v1",
+    "provider_id": "dmc",
+    "handle": handle,
+    "task_url": task_url,
+    "path": os.environ["DMC_ATTACHMENT_PATH"],
+    "branch": "refactor-1306-runtime-entity-form-materialization",
+    "primary": False,
+    "status": "eligible",
+}
+if preview.returncode or json.loads(preview.stdout) != expected:
+    raise SystemExit(f"FAIL: read-only attachment preview did not return exact eligible evidence: {preview!r}")
+if os.path.exists(os.environ["DMC_ATTACHMENT_STATE"]):
+    raise SystemExit("FAIL: task-attachment preview mutated tracker metadata")
+
+applied = run("task_attachment_apply")
+if applied.returncode or json.loads(applied.stdout) != {**expected, "status": "attached"}:
+    raise SystemExit(f"FAIL: task-attachment apply did not adapt DMC attached evidence: {applied!r}")
+if not os.path.exists(os.environ["DMC_ATTACHMENT_STATE"]):
+    raise SystemExit("FAIL: task-attachment apply did not invoke authorized DMC attachment")
+
+resolved = subprocess.run(
+    [part.replace("{handle}", handle) for part in commands["resolve"]],
+    text=True,
+    capture_output=True,
+    env=os.environ.copy(),
+)
+resolved_expected = [{
+    "handle": handle,
+    "path": os.environ["DMC_ATTACHMENT_PATH"],
+    "branch": "refactor-1306-runtime-entity-form-materialization",
+    "task_url": task_url,
+    "safety": {"dirty": False, "unpushed": False, "primary": False},
+}]
+if resolved.returncode or json.loads(resolved.stdout) != resolved_expected:
+    raise SystemExit(f"FAIL: attached #1306 worktree did not resolve normally: {resolved!r}")
+
+replay_preview = run("task_attachment_preview")
+if replay_preview.returncode or json.loads(replay_preview.stdout) != {**expected, "status": "already_attached"}:
+    raise SystemExit(f"FAIL: attachment replay preview was not idempotent: {replay_preview!r}")
+replay_apply = run("task_attachment_apply")
+if replay_apply.returncode or json.loads(replay_apply.stdout) != {**expected, "status": "already_attached"}:
+    raise SystemExit(f"FAIL: DMC already-attached apply result was not preserved: {replay_apply!r}")
+
+for mode in ("conflict", "dirty", "foreign", "ambiguous", "inactive"):
+    env = os.environ.copy()
+    env["DMC_ATTACHMENT_ERROR"] = mode
+    failure = run("task_attachment_apply", env)
+    if failure.returncode != 17 or failure.stdout or failure.stderr != f"dmc-{mode}\n":
+        raise SystemExit(f"FAIL: bounded DMC {mode} stderr/exit failure was not preserved: {failure!r}")
+PY
+}
+
 FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_BIN"
 
@@ -362,6 +439,22 @@ $value = $argv[3] ?? '';
 $base = $argv[4] ?? '';
 file_put_contents(getenv('DMC_PROVIDER_LOG'), $operation . "|" . $value . ('' === $base ? '' : "|" . $base) . "\n", FILE_APPEND);
 if ('identity' === $operation) {
+    $attachment_handle = 'static-site-importer@refactor-1306-runtime-entity-form-materialization';
+    if ($attachment_handle === $value) {
+        $task_url = file_exists(getenv('DMC_ATTACHMENT_STATE')) ? 'https://github.com/Automattic/static-site-importer/issues/1306' : null;
+        echo json_encode(array(
+            'schema' => 'datamachine-code/worktree-identity/v1',
+            'status' => 'owned',
+            'token' => 'attachment-token',
+            'handle' => $value,
+            'path' => getenv('DMC_ATTACHMENT_PATH'),
+            'branch' => 'refactor-1306-runtime-entity-form-materialization',
+            'primary' => false,
+            'task_url' => $task_url,
+            'latency_ms' => 1,
+        )) . "\n";
+        exit(0);
+    }
     if (!file_exists(getenv('DMC_STATE'))) {
         echo json_encode(array('schema' => 'datamachine-code/worktree-identity/v1', 'status' => 'not_owned', 'ownership' => 'not_owned')) . "\n";
         exit(0);
@@ -381,12 +474,38 @@ if ('identity' === $operation) {
     )) . "\n";
     exit(0);
 }
+if ('capabilities' === $operation) {
+    if ('legacy' === getenv('DMC_CAPABILITIES_MODE')) {
+        fwrite(STDERR, "unsupported fixture request\n");
+        exit(2);
+    }
+    echo json_encode(array(
+        'schema' => 'datamachine-code/worktree-provider-capabilities/v1',
+        'tracker_fields' => array('task_url', 'task_ref'),
+        'attachment_operation' => 'datamachine-code/workspace-worktree-attach-tracker',
+        'attachment_standalone' => false,
+    )) . "\n";
+    exit(0);
+}
 if ('safety' === $operation && 'fixture-token' === $value) {
     echo json_encode(array(
         'schema' => 'datamachine-code/worktree-safety/v1',
         'status' => 'attested',
         'identity_token' => $value,
         'observed_at' => '2026-08-22T00:00:00Z',
+        'dirty' => false,
+        'unpushed' => false,
+        'fresh' => true,
+        'latency_ms' => 2,
+    )) . "\n";
+    exit(0);
+}
+if ('safety' === $operation && 'attachment-token' === $value) {
+    echo json_encode(array(
+        'schema' => 'datamachine-code/worktree-safety/v1',
+        'status' => 'attested',
+        'identity_token' => $value,
+        'observed_at' => '2026-08-25T00:00:00Z',
         'dirty' => false,
         'unpushed' => false,
         'fresh' => true,
@@ -423,8 +542,16 @@ chmod +x "$TMP/dmc-source/bin/dmc-worktree-provider"
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/sh
 if [ "$1 $2" = "config set" ]; then
+  if [ "$3" = "/worktree_providers/wpca-task-attachment-probe" ]; then
+    [ "${HOMEBOY_ATTACHMENT_COMMANDS:-true}" = true ] && : > "$HOMEBOY_DATA_DIR/task-attachment-supported"
+    exit 0
+  fi
   printf '%s|%s\n' "$3" "$4" >> "$HOMEBOY_CONFIG_LOG"
   exit 0
+fi
+if [ "$1 $2" = "config show" ]; then
+  [ "${HOMEBOY_ATTACHMENT_COMMANDS:-true}" = true ] && [ -f "$HOMEBOY_DATA_DIR/task-attachment-supported" ] && exit 0
+  exit 2
 fi
 exit 2
 SH
@@ -504,6 +631,20 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree provider" ]; the
   printf '{"schema":"datamachine-code/standalone-worktree-provider-command/v1","executable":"%s"}\n' "$DMC_PROVIDER_EXECUTABLE"
   exit 0
 fi
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree attach-tracker" ]; then
+  [ "$6" = "static-site-importer@refactor-1306-runtime-entity-form-materialization" ] || exit 2
+  case "$*" in
+    *--task-url=https://github.com/Automattic/static-site-importer/issues/1306*--format=json*"--path=$SITE_PATH"*) ;;
+    *) exit 2 ;;
+  esac
+  if [ -n "${DMC_ATTACHMENT_ERROR:-}" ]; then
+    printf 'dmc-%s\n' "$DMC_ATTACHMENT_ERROR" >&2
+    exit 17
+  fi
+  if [ -f "$DMC_ATTACHMENT_STATE" ]; then status=already_attached; else status=attached; : > "$DMC_ATTACHMENT_STATE"; fi
+  printf '{"success":true,"status":"%s","handle":"%s","provider_resolution":{"schema":"datamachine-code/worktree-identity/v1","status":"owned","handle":"%s","path":"%s","branch":"refactor-1306-runtime-entity-form-materialization","primary":false,"task_url":"https://github.com/Automattic/static-site-importer/issues/1306"}}\n' "$status" "$6" "$6" "$DMC_ATTACHMENT_PATH"
+  exit 0
+fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree plan" ]; then
   [ "$6" = "blocks-engine" ] && [ "$7" = "fix/406-dmc-provider-plan" ] || exit 2
   case "$*" in
@@ -543,9 +684,11 @@ DMC_PROVIDER_LOG="$TMP/dmc-provider.log"
 DMC_PROVIDER_EXECUTABLE="$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider"
 DMC_CHILD_PID="$TMP/dmc-child.pid"
 DMC_DESCENDANT_PID="$TMP/dmc-descendant.pid"
+DMC_ATTACHMENT_STATE="$TMP/dmc-attachment-state"
+DMC_ATTACHMENT_PATH="$DM_WORKSPACE_DIR/static-site-importer@refactor-1306-runtime-entity-form-materialization"
 : > "$DMC_ENSURE_LOG"
 : > "$STUDIO_LOG"
-export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE DMC_CHILD_PID DMC_DESCENDANT_PID
+export HOMEBOY_CONFIG_LOG STUDIO_LOG DMC_STATE DMC_ENSURE_LOG DMC_PLAN_PATH DMC_PROVIDER_LOG DMC_PROVIDER_EXECUTABLE DMC_CHILD_PID DMC_DESCENDANT_PID DMC_ATTACHMENT_STATE DMC_ATTACHMENT_PATH SITE_PATH
 
 # macOS ships Bash 3.2, which has no mapfile/readarray builtin. Disable it
 # when the test runs under newer Bash so this path stays portable.
@@ -561,6 +704,8 @@ assert_contains "\"converge\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provide
 assert_contains "\"resolve\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{handle}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_path\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{path}\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"resolve_task\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"list\",\"--task-ref={task_url}\",\"--with-status\",\"--limit=200\",\"--envelope\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"task_attachment_preview\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"task_attachment_preview\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{handle}\",\"{task_url}\"]" "$TMP/dry-run.log"
+assert_contains "\"task_attachment_apply\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"task_attachment_apply\",\"{handle}\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"attach-tracker\",\"{handle}\",\"--task-url={task_url}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -585,6 +730,7 @@ assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
 assert_resolution_contract "$HOMEBOY_CONFIG_LOG"
 assert_task_resolution_contract "$HOMEBOY_CONFIG_LOG"
+assert_task_attachment_contract "$HOMEBOY_CONFIG_LOG"
 assert_not_contains 'wp datamachine-code workspace worktree list fixture --all --full --format=json' "$STUDIO_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 
@@ -596,6 +742,24 @@ rm -f "$DMC_STATE"
 : > "$HOMEBOY_CONFIG_LOG"
 configure_homeboy_dmc_worktree_provider > "$TMP/source-contract.log"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
+
+# Either missing owning contract keeps the legacy provider JSON byte shape: no
+# half-configured attachment key is written.
+DMC_CAPABILITIES_MODE=legacy
+export DMC_CAPABILITIES_MODE
+: > "$HOMEBOY_CONFIG_LOG"
+configure_homeboy_dmc_worktree_provider > "$TMP/legacy-dmc.log"
+assert_not_contains 'task_attachment_preview' "$HOMEBOY_CONFIG_LOG"
+assert_not_contains 'task_attachment_apply' "$HOMEBOY_CONFIG_LOG"
+unset DMC_CAPABILITIES_MODE
+
+HOMEBOY_ATTACHMENT_COMMANDS=false
+export HOMEBOY_ATTACHMENT_COMMANDS
+: > "$HOMEBOY_CONFIG_LOG"
+configure_homeboy_dmc_worktree_provider > "$TMP/legacy-homeboy.log"
+assert_not_contains 'task_attachment_preview' "$HOMEBOY_CONFIG_LOG"
+assert_not_contains 'task_attachment_apply' "$HOMEBOY_CONFIG_LOG"
+unset HOMEBOY_ATTACHMENT_COMMANDS
 assert_contains "$DMC_PROVIDER_EXECUTABLE" "$HOMEBOY_CONFIG_LOG"
 assert_not_contains "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$HOMEBOY_CONFIG_LOG"
 : > "$DMC_STATE"
