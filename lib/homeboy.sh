@@ -726,10 +726,18 @@ recompose_agents_md_for_homeboy() {
 }
 
 print_homeboy_verification_commands() {
+  local verification_wp_flags=""
+  [ -n "${SITE_PATH:-}" ] && verification_wp_flags=" --path=$SITE_PATH"
+  [ -n "${WP_ROOT_FLAG:-}" ] && verification_wp_flags="$verification_wp_flags $WP_ROOT_FLAG"
+
   log "Homeboy verification commands:"
+  echo "  homeboy --version"
   echo "  homeboy extension list"
   echo "  homeboy extension show wordpress"
+  echo "  homeboy config show /worktree_providers/dmc"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
+  echo "  $WP_CMD datamachine-code workspace worktree provider --format=json$verification_wp_flags"
+  echo "  $WP_CMD datamachine memory compose AGENTS.md$verification_wp_flags"
   echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
 }

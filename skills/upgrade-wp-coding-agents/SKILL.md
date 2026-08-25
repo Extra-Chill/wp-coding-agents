@@ -52,13 +52,17 @@ The user says something like:
    ```bash
    homeboy --version
    homeboy extension list
+   homeboy extension show wordpress
+   homeboy config show /worktree_providers/dmc
    homeboy project show <project-id>
    homeboy project components list <project-id>
-   wp option get datamachine_code_homeboy_available --path=/path/to/site
+   wp datamachine-code workspace worktree provider --format=json --path=/path/to/site
    wp config get DATAMACHINE_COMPOSE_AGENTS_MD --path=/path/to/site
    wp datamachine memory compose AGENTS.md --path=/path/to/site
    ```
-   For WordPress Studio installs, use `studio wp option get datamachine_code_homeboy_available` and `studio wp datamachine memory compose AGENTS.md`. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
+   For WordPress Studio installs, use `studio wp datamachine-code workspace worktree provider --format=json` and `studio wp datamachine memory compose AGENTS.md`. The provider command should return the `datamachine-code/standalone-worktree-provider-command/v1` schema, and Homeboy config should show an enabled `dmc` command provider. The optional legacy `datamachine_code_homeboy_available` option is not a runtime readiness check; its absence is not a verification failure.
+
+   Attribute failures to the owning layer. A missing standalone provider command belongs to Data Machine Code; update or reactivate DMC before rerunning setup or upgrade. A missing `/worktree_providers/dmc` entry belongs to wp-coding-agents Homeboy integration; rerun its Homeboy configuration. Extension readiness and project/component lookup failures belong to Homeboy. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
 
    Setup and upgrade write `define( 'DATAMACHINE_COMPOSE_AGENTS_MD', true )` to wp-config.php (idempotent grep-guard; skipped on Studio and dry-run). This is the gate that turns on core-owned AGENTS.md composition — `wp config get DATAMACHINE_COMPOSE_AGENTS_MD` should return `true` after either run.
 

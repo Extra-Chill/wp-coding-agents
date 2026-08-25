@@ -446,6 +446,7 @@ stray=$(grep -n 'datamachine memory compose AGENTS.md' upgrade.sh lib/*.sh \
   | grep -v 'wp_run_as_service_user' \
   | grep -v 'dry-run' \
   | sed 's/^[^:]*:[0-9]*: *//' \
+  | grep -v '^echo ' \
   | grep -v '^#' || true)
 if [ -z "$stray" ]; then
   echo "  ok   no compose call site bypasses the service-user helper"

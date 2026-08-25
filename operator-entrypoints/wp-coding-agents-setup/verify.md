@@ -152,23 +152,33 @@ Verify the selected runtime can be started manually in the terminal or over SSH.
 
 ### `verify-homeboy`
 
-This overlay proves Homeboy is installed, linked, and advertised to Data Machine. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
+This overlay proves Homeboy is installed and linked, the DMC standalone provider is callable and configured in Homeboy, and the project/component model is inspectable. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
 
 ```bash
 homeboy --version
 homeboy extension list
+homeboy extension show wordpress
+homeboy config show /worktree_providers/dmc
 homeboy project show <project-id>
 homeboy project components list <project-id>
-wp option get datamachine_code_homeboy_available --path=/path/to/site
+wp datamachine-code workspace worktree provider --format=json --path=/path/to/site
 wp datamachine memory compose AGENTS.md --path=/path/to/site
 ```
 
 For WordPress Studio:
 
 ```bash
-studio wp option get datamachine_code_homeboy_available
+studio wp datamachine-code workspace worktree provider --format=json
 studio wp datamachine memory compose AGENTS.md
 ```
+
+The DMC command should return the `datamachine-code/standalone-worktree-provider-command/v1` schema with a callable executable. `homeboy config show /worktree_providers/dmc` should show that provider as an enabled command provider. The optional legacy `datamachine_code_homeboy_available` option is not part of this readiness contract; do not fail verification when it is absent.
+
+Attribute failures before retrying:
+
+- Missing or invalid standalone provider output is owned by Data Machine Code. Update or reactivate DMC, then rerun setup.
+- A missing or disabled `/worktree_providers/dmc` entry is owned by the wp-coding-agents Homeboy integration. Rerun Homeboy configuration after DMC is healthy.
+- Extension readiness and project/component lookup failures are owned by Homeboy. Use the failed command's diagnostics and repair that Homeboy configuration.
 
 Expected model:
 
@@ -232,7 +242,7 @@ Actionable failure interpretation:
 - Missing provider secret env names: pass `--secret-env NAME`; pass only env var names, never token values.
 - Missing `/workspace` mount: verify the provider config contains a read-only mount with `target: "/workspace"` and `source` set to the existing repo/worktree path.
 
-This canary is stronger than `datamachine_code_homeboy_available=1`: that option means Data Machine should advertise Homeboy guidance, while the canary proves the Codebox executor returned durable run, log, changed-files, and patch evidence for a repo-aware task.
+This canary is stronger than the basic Homeboy overlay: the overlay proves configured provider and project/component inspection, while the canary proves the Codebox executor returned durable run, log, changed-files, and patch evidence for a repo-aware task.
 
 ### `verify-codex-codebox-provider`
 

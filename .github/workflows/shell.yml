@@ -244,6 +244,7 @@ jobs:
           - homeboy-components
           - homeboy-dmc-provider
           - homeboy-project-id
+          - homeboy-verification-guidance
           - kimaki-credential-seeding
           - kimaki-install-existing
           - kimaki-launchd-start
