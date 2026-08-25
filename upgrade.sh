@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration wordpress data-machine dmc-managed-release dmc-managed-release-integration carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade wordpress data-machine dmc-managed-release dmc-managed-release-integration carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -201,6 +201,11 @@ USAGE:
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
+                                Uses 120s child / 480s total deadlines by default,
+                                emits per-plugin terminal evidence, and exits 75
+                                on a resumable partial failure. Override with
+                                PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS and
+                                PLUGIN_UPDATE_TOTAL_TIMEOUT_SECONDS.
   ./upgrade.sh --reconcile-services
                                 Only reconcile carried providers, DMC/Homeboy,
                                 chat-bridge configuration, and service templates
@@ -354,6 +359,11 @@ fi
 if [ "$PLUGINS_ONLY" = true ] && [ "$SKIP_PLUGINS" = true ]; then
   error "Cannot combine --plugins-only and --skip-plugins"
 fi
+if [ "$PLUGINS_ONLY" = true ] && { [ "$KIMAKI_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || \
+   [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ] || \
+   [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ] || [ "$MIGRATE_NON_ROOT" = true ]; }; then
+  error "--plugins-only cannot be combined with service, runtime, migration, or other --*-only operations"
+fi
 
 # ============================================================================
 # Phase 1: Detect environment
@@ -388,28 +398,31 @@ if [ -z "$EXISTING_WP" ]; then
   fi
 fi
 
-# Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
-# full list (drives multi-runtime skills install); RUNTIME is the primary
-# (first-match cascade: claude-code > opencode > codex). Explicit --runtime
-# narrows to a single runtime.
-if [ -n "$RUNTIME" ]; then
-  DETECTED_RUNTIMES=("$RUNTIME")
+if [ "$PLUGINS_ONLY" = true ]; then
+  detect_plugins_only_environment
 else
-  if command -v claude &>/dev/null; then
-    DETECTED_RUNTIMES+=("claude-code")
+  # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
+  # full list (drives multi-runtime skills install); RUNTIME is the primary
+  # (first-match cascade: claude-code > opencode > codex). Explicit --runtime
+  # narrows to a single runtime.
+  if [ -n "$RUNTIME" ]; then
+    DETECTED_RUNTIMES=("$RUNTIME")
+  else
+    if command -v claude &>/dev/null; then
+      DETECTED_RUNTIMES+=("claude-code")
+    fi
+    if command -v opencode &>/dev/null; then
+      DETECTED_RUNTIMES+=("opencode")
+    fi
+    if command -v codex &>/dev/null; then
+      DETECTED_RUNTIMES+=("codex")
+    fi
+    if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
+      warn "No runtime binary found — defaulting to opencode"
+      DETECTED_RUNTIMES=("opencode")
+    fi
+    RUNTIME="${DETECTED_RUNTIMES[0]}"
   fi
-  if command -v opencode &>/dev/null; then
-    DETECTED_RUNTIMES+=("opencode")
-  fi
-  if command -v codex &>/dev/null; then
-    DETECTED_RUNTIMES+=("codex")
-  fi
-  if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
-    warn "No runtime binary found — defaulting to opencode"
-    DETECTED_RUNTIMES=("opencode")
-  fi
-  RUNTIME="${DETECTED_RUNTIMES[0]}"
-fi
 
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
 if [ ! -f "$RUNTIME_FILE" ]; then
@@ -510,10 +523,13 @@ if [ "$DRY_RUN" = true ]; then
   log "Dry-run mode: no changes will be made"
 fi
 echo ""
+fi
 
 # Track what was touched for the summary
 UPDATED_ITEMS=()
 PENDING_ITEMS=()
+PLUGIN_UPDATE_FAILURES=()
+PLUGIN_UPDATE_POINTER_EVIDENCE=()
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
@@ -591,8 +607,19 @@ _run_filter_active() {
 
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
-  upgrade_data_machine_plugins
-  update_wp_codebox_plugin_subtree
+  local status=0
+  upgrade_data_machine_plugins || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  if [ "$PLUGINS_ONLY" = true ]; then
+    if [ -d "$SITE_PATH/wp-content/plugins/wp-codebox" ]; then
+      plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+    else
+      log "[wp-codebox] terminal=skipped reason=not-installed"
+    fi
+  else
+    plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  fi
+  plugin_update_verify_installed_plugins data-machine data-machine-code wp-codebox || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  return "$status"
 }
 
 reconcile_provider_and_service_state() {
@@ -1338,7 +1365,11 @@ refresh_opencode_runtime_signature_phase() {
 print_summary() {
   echo ""
   echo "=========================================="
-  log "Upgrade complete."
+  if [ "$PLUGINS_ONLY" = true ] && [ "${PLUGIN_ONLY_EXIT_STATUS:-0}" -ne 0 ]; then
+    warn "Plugin upgrade partially completed."
+  else
+    log "Upgrade complete."
+  fi
   echo "=========================================="
 
   if [ ${#UPDATED_ITEMS[@]} -eq 0 ]; then
@@ -1383,6 +1414,8 @@ print_summary() {
 
   echo ""
   if [ "$PLUGINS_ONLY" = true ]; then
+    plugin_update_print_terminal_summary
+    echo ""
     _print_plugins_only_verify_block
   else
     _print_bridge_restart_hint
@@ -1463,16 +1496,19 @@ _print_verify_block() {
 
 _print_plugins_only_verify_block() {
   log "Verify:"
-  log "  $WP_CMD plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
-  log "  $WP_CMD plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $WP_CMD plugin get data-machine --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $WP_CMD plugin get data-machine-code --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
 }
 
 # ============================================================================
 # Execute
 # ============================================================================
 
-update_data_machine_plugins
-discover_dm_workspace_dir
+PLUGIN_ONLY_EXIT_STATUS=0
+update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
+if [ "$PLUGINS_ONLY" != true ]; then
+  discover_dm_workspace_dir
+fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
 update_ai_gateway
@@ -1495,3 +1531,6 @@ update_chat_bridge_launchd
 update_datamachine_worker_service
 refresh_opencode_runtime_signature_phase
 print_summary
+if [ "$PLUGINS_ONLY" = true ]; then
+  exit "$PLUGIN_ONLY_EXIT_STATUS"
+fi

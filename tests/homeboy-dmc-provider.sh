@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/lib/wordpress.sh"
 source "$SCRIPT_DIR/lib/homeboy.sh"
 
 for entrypoint in setup.sh upgrade.sh; do
-  discover_line=$(grep -n '^discover_dm_workspace_dir$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
+  discover_line=$(grep -n '^[[:space:]]*discover_dm_workspace_dir$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
   if [ "$entrypoint" = "upgrade.sh" ]; then
     configure_line=$(grep -n '^reconcile_provider_and_service_state$' "$SCRIPT_DIR/$entrypoint" | tail -1 | cut -d: -f1)
   else

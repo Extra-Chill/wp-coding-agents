@@ -13,6 +13,14 @@ require_source() {
   }
 }
 
+require_file_source() {
+  local file="$1" pattern="$2" description="$3"
+  grep -Fq -- "$pattern" "$file" || {
+    echo "FAIL: missing $description" >&2
+    exit 1
+  }
+}
+
 require_source 'plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;' "plugins-only plugin phase"
 require_source 'reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;' "separate reconciliation phases"
 require_source 'reconcile_provider_and_service_state() {' "provider and service reconciliation phase"
@@ -22,6 +30,9 @@ require_source '  configure_homeboy_dmc_worktree_provider' "Homeboy reconciliati
 require_source '  _run_filter_active systemd || return 0' "launchd mutation guard"
 require_source './upgrade.sh --reconcile-services' "explicit reconciliation command"
 require_source 'if [ "$PLUGINS_ONLY" != true ]; then' "plugins-only source-policy mutation guard"
+require_source 'detect_plugins_only_environment' "narrow plugin-only environment detection"
+require_file_source "$ROOT_DIR/lib/detect.sh" 'Plugin-only scope: installed Data Machine plugins only; runtime, bridge, workspace, and service synchronization disabled' "plugin-only scope evidence"
+require_source '--plugins-only cannot be combined with service, runtime, migration, or other --*-only operations' "plugin-only exclusivity guard"
 require_source 'if _run_filter_active systemd; then' "systems-capability mutation guard"
 require_source '_print_plugins_only_verify_block' "plugins-only summary"
 
@@ -45,14 +56,18 @@ load_upgrade_function() {
   sed -n "/^$1() {/,/^}/p" "$UPGRADE"
 }
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+SITE_PATH="$TMP/site"
+mkdir -p "$SITE_PATH/wp-content/plugins/wp-codebox"
+PLUGIN_UPDATE_EXIT_PARTIAL=75
+
 eval "$(load_upgrade_function _run_filter_active)"
 eval "$(load_upgrade_function update_data_machine_plugins)"
 eval "$(load_upgrade_function reconcile_provider_and_service_state)"
 eval "$(load_upgrade_function update_chat_bridge_systemd)"
 eval "$(load_upgrade_function update_chat_bridge_launchd)"
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 LOCAL_SERVICE="$TMP/com.wp.kimaki.plist"
 VPS_SERVICE="$TMP/kimaki.service"
 printf 'local service sentinel\n' > "$LOCAL_SERVICE"
@@ -69,6 +84,8 @@ PLATFORM=mac
 CHAT_BRIDGE=kimaki
 upgrade_data_machine_plugins() { printf 'data-machine\n' >> "$TMP/plugins"; }
 update_wp_codebox_plugin_subtree() { printf 'codebox\n' >> "$TMP/plugins"; }
+plugin_update_execute() { local slug="$1"; shift; "$@"; }
+plugin_update_verify_installed_plugins() { :; }
 set_compose_agents_md_constant() { printf 'configuration\n' >> "$TMP/reconciliation"; }
 dmc_managed_release_integration_sync() { printf 'dmc\n' >> "$TMP/reconciliation"; }
 sync_carried_plugins() { printf 'carried\n' >> "$TMP/reconciliation"; }

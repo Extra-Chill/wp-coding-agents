@@ -21,11 +21,30 @@ WP_CODEBOX_PLUGIN_SUBTREE="${WP_CODEBOX_PLUGIN_SUBTREE:-packages/wordpress-plugi
 
 # Resolve the latest version tag from the remote without a full clone.
 _wp_codebox_latest_tag() {
-  git ls-remote --tags --refs "$WP_CODEBOX_REPO_URL" 2>/dev/null \
+  local refs="${1:-}"
+  if [ -z "$refs" ]; then
+    refs="$(git ls-remote --tags --refs "$WP_CODEBOX_REPO_URL" 2>/dev/null)"
+  fi
+  printf '%s\n' "$refs" \
     | awk -F/ '{print $NF}' \
     | grep -E '^v?[0-9]' \
     | sort -V \
     | tail -n 1
+}
+
+_wp_codebox_fail() {
+  warn "$1"
+  [ "${PLUGIN_UPDATE_ACTIVE:-false}" != true ]
+}
+
+_wp_codebox_sync_files() {
+  local src="$1" plugin_dir="$2"
+  rm -rf "$plugin_dir/src"
+  cp -a "$src/src" "$plugin_dir/src"
+  [ -d "$src/assets" ] && { rm -rf "$plugin_dir/assets"; cp -a "$src/assets" "$plugin_dir/assets"; }
+  cp -a "$src/wp-codebox.php" "$plugin_dir/wp-codebox.php"
+  [ ! -f "$src/README.md" ] || cp -a "$src/README.md" "$plugin_dir/README.md"
+  [ ! -f "$src/package.json" ] || cp -a "$src/package.json" "$plugin_dir/package.json"
 }
 
 # Read the Version: header from a plugin main file.
@@ -56,10 +75,20 @@ update_wp_codebox_plugin_subtree() {
   fi
 
   local latest_tag
-  latest_tag="$(_wp_codebox_latest_tag)"
+  if declare -F plugin_update_run_phase >/dev/null 2>&1; then
+    if plugin_update_run_phase wp-codebox tag-discovery git ls-remote --tags --refs "$WP_CODEBOX_REPO_URL"; then
+      latest_tag="$(_wp_codebox_latest_tag "$PLUGIN_PHASE_OUTPUT")"
+    else
+      local phase_status=$?
+      _wp_codebox_fail "Could not resolve latest WP Codebox tag — copied install unchanged"
+      return "$phase_status"
+    fi
+  else
+    latest_tag="$(_wp_codebox_latest_tag)"
+  fi
   if [ -z "$latest_tag" ]; then
-    warn "Could not resolve latest WP Codebox tag — skipping subtree update"
-    return 0
+    _wp_codebox_fail "Could not resolve latest WP Codebox tag — copied install unchanged"
+    return $?
   fi
 
   local current_version
@@ -84,34 +113,36 @@ update_wp_codebox_plugin_subtree() {
   # shellcheck disable=SC2064
   trap "rm -rf '$staging'" RETURN
 
-  if ! git clone --depth 1 --branch "$latest_tag" --filter=blob:none --sparse \
-      "$WP_CODEBOX_REPO_URL" "$staging/repo" >/dev/null 2>&1; then
-    warn "Could not clone WP Codebox at ${latest_tag} — skipping subtree update"
-    return 0
+  if plugin_update_run_phase wp-codebox release-clone git clone --depth 1 --branch "$latest_tag" --filter=blob:none --sparse \
+      "$WP_CODEBOX_REPO_URL" "$staging/repo"; then
+    :
+  else
+    local phase_status=$?
+    _wp_codebox_fail "Could not clone WP Codebox at ${latest_tag} — copied install unchanged"
+    return "$phase_status"
   fi
 
-  if ! git -C "$staging/repo" sparse-checkout set "$WP_CODEBOX_PLUGIN_SUBTREE" >/dev/null 2>&1; then
-    warn "Could not sparse-checkout ${WP_CODEBOX_PLUGIN_SUBTREE} — skipping subtree update"
-    return 0
+  if plugin_update_run_phase wp-codebox sparse-checkout git -C "$staging/repo" sparse-checkout set "$WP_CODEBOX_PLUGIN_SUBTREE"; then
+    :
+  else
+    local phase_status=$?
+    _wp_codebox_fail "Could not sparse-checkout ${WP_CODEBOX_PLUGIN_SUBTREE} — copied install unchanged"
+    return "$phase_status"
   fi
 
   local src="$staging/repo/$WP_CODEBOX_PLUGIN_SUBTREE"
   if [ ! -f "$src/wp-codebox.php" ]; then
-    warn "WP Codebox plugin subtree missing wp-codebox.php at ${latest_tag} — skipping subtree update"
-    return 0
+    _wp_codebox_fail "WP Codebox plugin subtree missing wp-codebox.php at ${latest_tag} — copied install unchanged"
+    return $?
   fi
 
-  # Sync the subtree into the plugin dir. Replace src/ wholesale (the file set
-  # changes between versions), then copy the remaining top-level plugin files.
-  rm -rf "$plugin_dir/src"
-  cp -a "$src/src" "$plugin_dir/src"
-  [ -d "$src/assets" ] && { rm -rf "$plugin_dir/assets"; cp -a "$src/assets" "$plugin_dir/assets"; }
-  cp -a "$src/wp-codebox.php" "$plugin_dir/wp-codebox.php"
-  [ -f "$src/README.md" ] && cp -a "$src/README.md" "$plugin_dir/README.md"
-  [ -f "$src/package.json" ] && cp -a "$src/package.json" "$plugin_dir/package.json"
-
-  fix_ownership "$plugin_dir"
-  activate_plugin wp-codebox
+  if plugin_update_run_phase wp-codebox subtree-sync _wp_codebox_sync_files "$src" "$plugin_dir"; then
+    :
+  else
+    local phase_status=$?
+    return "$phase_status"
+  fi
+  plugin_update_run_phase wp-codebox ownership-normalization fix_ownership "$plugin_dir" || return $?
 
   UPDATED_ITEMS+=("wp-codebox $latest_tag")
 }
