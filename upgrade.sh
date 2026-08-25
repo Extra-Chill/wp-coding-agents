@@ -1417,7 +1417,11 @@ _print_bridge_restart_hint() {
   env=$(_resolve_bridge_env)
   display=$(bridge_display_name)
 
-  warn "Restart $display when ready (active chat sessions will die):"
+  if [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$env" != "local-manual" ]; then
+    warn "Restart $display with durable continuation (requires the active Kimaki thread route):"
+  else
+    warn "Restart $display when ready (active chat sessions will die):"
+  fi
   while IFS= read -r cmd; do
     warn "  $cmd"
   done < <(bridge_restart_cmd "$env")

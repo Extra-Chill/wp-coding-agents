@@ -249,6 +249,7 @@ jobs:
           - kimaki-launchd-start
           - kimaki-managed-plugin-rig
           - kimaki-multi-instance
+          - kimaki-restart-continuation
           - kimaki-system-message-patch
           - opencode-claude-auth-refresh-hardening
           - opencode-subagents-optional

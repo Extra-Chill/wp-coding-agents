@@ -38,16 +38,19 @@ try {
     hooks["shell.env"]({ cwd: root, sessionID: "one" }, duplicate),
   ]);
   assert.equal(first.env.KIMAKI_THREAD_ID, "323456789012345678");
+  assert.equal(first.env.KIMAKI_SESSION_ID, "one");
   assert.equal(duplicate.env.KIMAKI_THREAD_ID, "323456789012345678");
+  assert.equal(duplicate.env.KIMAKI_SESSION_ID, "one");
   assert.equal(readCalls().length, 1, "concurrent lookups should share one process");
 
   const second = { env: {} };
   await hooks["shell.env"]({ cwd: root, sessionID: "two" }, second);
   assert.equal(second.env.KIMAKI_THREAD_ID, "423456789012345678");
 
-  const native = { env: { KIMAKI_THREAD_ID: "523456789012345678" } };
+  const native = { env: { KIMAKI_THREAD_ID: "523456789012345678", KIMAKI_SESSION_ID: "native-session" } };
   await hooks["shell.env"]({ cwd: root, sessionID: "native" }, native);
   assert.equal(native.env.KIMAKI_THREAD_ID, "523456789012345678");
+  assert.equal(native.env.KIMAKI_SESSION_ID, "native-session");
   assert.equal(readCalls().length, 2, "native attribution should skip the bridge lookup");
 
   for (const sessionID of [undefined, "missing", "invalid"]) {

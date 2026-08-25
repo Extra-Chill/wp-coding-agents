@@ -652,6 +652,8 @@ _kimaki_install_launchd() {
     mkdir -p "$KIMAKI_CONFIG_DIR"
     cp "$SCRIPT_DIR/bridges/kimaki/launchd-start.sh" "$KIMAKI_CONFIG_DIR/launchd-start.sh"
     chmod +x "$KIMAKI_CONFIG_DIR/launchd-start.sh"
+    cp "$SCRIPT_DIR/bridges/kimaki/restart-continuation.py" "$KIMAKI_CONFIG_DIR/restart-continuation.py"
+    chmod +x "$KIMAKI_CONFIG_DIR/restart-continuation.py"
   fi
 
   write_file "$KIMAKI_PLIST" "$(bridge_render_launchd "$KIMAKI_PLIST_LABEL")"
@@ -987,6 +989,22 @@ bridge_sync_config() {
     fi
   fi
 
+  if [ -f "$SCRIPT_DIR/bridges/kimaki/restart-continuation.py" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/restart-continuation.py" "$KIMAKI_CONFIG_DIR/restart-continuation.py" 2>/dev/null; then
+        echo -e "${BLUE}[dry-run]${NC} Would update $KIMAKI_CONFIG_DIR/restart-continuation.py"
+      fi
+    elif ! cmp -s "$SCRIPT_DIR/bridges/kimaki/restart-continuation.py" "$KIMAKI_CONFIG_DIR/restart-continuation.py" 2>/dev/null; then
+      cp "$SCRIPT_DIR/bridges/kimaki/restart-continuation.py" "$KIMAKI_CONFIG_DIR/restart-continuation.py"
+      chmod +x "$KIMAKI_CONFIG_DIR/restart-continuation.py"
+      log "  Updated $KIMAKI_CONFIG_DIR/restart-continuation.py"
+      UPDATED_ITEMS+=("kimaki-config/restart-continuation.py")
+    fi
+    if [ "$DRY_RUN" = false ]; then
+      chmod +x "$KIMAKI_CONFIG_DIR/restart-continuation.py"
+    fi
+  fi
+
   if [ -f "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" ]; then
     if [ "$DRY_RUN" = true ]; then
       if ! cmp -s "$SCRIPT_DIR/bridges/kimaki/skills-enable-list.txt" "$KIMAKI_CONFIG_DIR/skills-enable-list.txt" 2>/dev/null; then
@@ -1285,6 +1303,7 @@ $env_block
 $stale_worker_cleanup
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
 ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique$skill_filter_args
+ExecStartPost=$KIMAKI_CONFIG_DIR/restart-continuation.py consume --site-path $SITE_PATH --data-dir $KIMAKI_DATA_DIR --kimaki-bin $KIMAKI_BIN
 Restart=always
 RestartSec=10
 
@@ -1470,17 +1489,22 @@ _kimaki_skill_filter_args_plist() {
 # ============================================================================
 
 bridge_restart_cmd() {
-  local env="$1" uid
-  uid=$(id -u)
+  local env="$1" helper target site data_dir
+  site=$(_kimaki_shell_quote "$SITE_PATH")
+  data_dir=$(_kimaki_shell_quote "$KIMAKI_DATA_DIR")
   case "$env" in
     local-launchd)
-      echo "launchctl bootout gui/${uid} ~/Library/LaunchAgents/com.wp.kimaki.plist 2>/dev/null || true; launchctl bootstrap gui/${uid} ~/Library/LaunchAgents/com.wp.kimaki.plist"
+      helper=$(_kimaki_shell_quote "$KIMAKI_DATA_DIR/kimaki-config/restart-continuation.py")
+      target=$(_kimaki_shell_quote "$HOME/Library/LaunchAgents/com.wp.kimaki.plist")
+      echo "$helper restart --mode launchd --target $target --site-path $site --data-dir $data_dir"
       ;;
     local-manual)
       echo "cd $SITE_PATH && kimaki"
       ;;
     vps)
-      echo "systemctl restart ${KIMAKI_UNIT:-kimaki.service}"
+      helper=$(_kimaki_shell_quote "${RESOLVED_KIMAKI_CONFIG_DIR:-/opt/kimaki-config}/restart-continuation.py")
+      target=$(_kimaki_shell_quote "${KIMAKI_UNIT:-kimaki.service}")
+      echo "$helper restart --mode systemd --target $target --site-path $site --data-dir $data_dir"
       ;;
     *)
       echo "bridge_restart_cmd: unknown env '$env'" >&2

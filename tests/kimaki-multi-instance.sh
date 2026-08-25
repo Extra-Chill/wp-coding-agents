@@ -71,7 +71,7 @@ _kimaki_resolve_instance
 [ "$KIMAKI_DATA_DIR" = /home/opencode/.kimaki-site-b ]
 [ "$KIMAKI_LOCK_PORT" = 6543 ]
 [ "$AGENT_SLUG" = site-b ]
-[ "$(bridge_restart_cmd vps)" = "systemctl restart kimaki-site-b.service" ]
+[ "$(bridge_restart_cmd vps)" = "'/opt/kimaki-config/restart-continuation.py' restart --mode systemd --target 'kimaki-site-b.service' --site-path '$SITE_PATH' --data-dir '$KIMAKI_DATA_DIR'" ]
 [ "$(bridge_verify_cmd vps)" = "systemctl status kimaki-site-b.service" ]
 
 # Presence of KIMAKI_UNIT=kimaki.service is an explicit selection, even though

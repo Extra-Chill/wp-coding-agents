@@ -25,6 +25,7 @@ Environment=DATAMACHINE_AGENT_SLUG=intelligence-chubes4
 ExecStartPre=-/usr/bin/pkill -TERM -u chubes -f "opencode-ai/bin/.*serve"
 ExecStartPre=/opt/kimaki-config/post-upgrade.sh
 ExecStart=/usr/bin/kimaki --data-dir /home/chubes/.kimaki --auto-restart --no-critique --enable-skill upgrade-wp-coding-agents
+ExecStartPost=/opt/kimaki-config/restart-continuation.py consume --site-path /var/www/site --data-dir /home/chubes/.kimaki --kimaki-bin /usr/bin/kimaki
 Restart=always
 RestartSec=10
 

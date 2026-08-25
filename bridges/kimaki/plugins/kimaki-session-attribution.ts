@@ -20,9 +20,14 @@ const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHoo
 
   return {
     "shell.env": async ({ sessionID }, output) => {
-      if (!sessionID || output.env.KIMAKI_THREAD_ID) {
+      if (!sessionID) {
         return;
       }
+
+      if (!output.env.KIMAKI_SESSION_ID) {
+        output.env.KIMAKI_SESSION_ID = sessionID;
+      }
+      if (output.env.KIMAKI_THREAD_ID) return;
 
       let lookup = cache.get(sessionID);
       if (!lookup) {

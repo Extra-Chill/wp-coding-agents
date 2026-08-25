@@ -38,7 +38,7 @@ The user says something like:
    ```
    Read the output. Stop and investigate if anything fails or looks wrong (wrong runtime, unexpected unit rewrite, plugin paths point somewhere weird).
 
-3. **Restart the detected chat bridge.** The script prints the exact restart command for the detected bridge × environment. Run that command after a successful upgrade so the new bridge config, OpenCode plugins, skills, and prompt patches take effect immediately. If the restart command is unavailable or fails, report that as incomplete work.
+3. **Restart the detected chat bridge.** The script prints the exact restart command for the detected bridge × environment. For managed Kimaki services, run it from the active thread's tool shell: the bridge-owned helper records only bounded identity, route IDs, typed checks, and the next-action enum, then detaches before restarting. Startup atomically consumes the record and sends one fixed resume event to the original thread. Delivery is at-most-once: an ambiguous dispatch failure is never replayed automatically. Inspect `restart-status.json` or `resume-status.json` under `$KIMAKI_DATA_DIR/kimaki-config/restart-continuation/`; failed restart status includes the credential-free `recovery_command`. If restart or resume fails, report incomplete work and use that explicit recovery evidence rather than rerunning upgrade mutations.
 
 4. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block checks the managed plugin files. Run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
 
@@ -78,6 +78,6 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 |---|---|
 | What flags exist? | `./upgrade.sh --help` |
 | What did the upgrade actually do? | The script's summary block (printed at the end of every run) |
-| What's the right restart command for this bridge × env? | The summary block — rendered from `bridges/<name>.sh::bridge_restart_cmd` |
+| What's the right restart command for this bridge × env? | The summary block — rendered from `bridges/<name>.sh::bridge_restart_cmd`; managed Kimaki commands require the active thread route injected into the tool shell |
 | What's the right verify command? | The summary block |
 | What chat bridges are supported? | `bridges/_dispatch.sh::bridge_names` (auto-discovered from `bridges/*.sh` — currently kimaki, cc-connect, telegram) |
