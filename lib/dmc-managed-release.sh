@@ -84,6 +84,26 @@ dmc_managed_release_release_root() {
   printf '%s/.wp-coding-agents-releases' "$(dmc_managed_release_plugin_dir)"
 }
 
+dmc_managed_release_pointer_matches() {
+  local plugin_dir="$1" version="$2" evidence_type="$3" evidence="$4"
+  local current="$plugin_dir/.wp-coding-agents-release-current" provenance="$plugin_dir/.wp-coding-agents-release-current/.wp-coding-agents-managed-release.json"
+  [ "$(dmc_managed_release_header_version "$current" 2>/dev/null || true)" = "$version" ] || return 1
+  [ -f "$provenance" ] || return 1
+  grep -Fq "\"repository\":\"$DMC_MANAGED_RELEASE_REPO\"" "$provenance" || return 1
+  grep -Fq "\"version\":\"$version\"" "$provenance" || return 1
+  [ "$evidence_type" != github_digest ] || grep -Fq "\"sha256\":\"$evidence\"" "$provenance"
+}
+
+dmc_managed_release_switch_pointer() {
+  local plugin_dir="$1" release_dir="$2"
+  local current="$plugin_dir/.wp-coding-agents-release-current" previous="$plugin_dir/.wp-coding-agents-release-previous" next="$plugin_dir/.wp-coding-agents-release-next"
+  rm -f "$next"
+  ln -s ".wp-coding-agents-releases/$(basename "$release_dir")" "$next" || return 1
+  rm -f "$previous"
+  [ ! -e "$current" ] || mv "$current" "$previous" || { rm -f "$next"; return 1; }
+  mv "$next" "$current" || { dmc_managed_release_recover "$plugin_dir" || true; return 1; }
+}
+
 # Restore a complete prior release after an interrupted symlink switch. The
 # root loader also uses this fallback, so DMC remains loadable before recovery.
 dmc_managed_release_recover() {
@@ -162,12 +182,38 @@ update_data_machine_code_copied_release() {
     return 0
   fi
 
-  if [ "$current" = "$target" ]; then
+  if [ "$current" = "$target" ] && dmc_managed_release_pointer_matches "$plugin_dir" "$target" "$evidence_type" "$evidence"; then
     if [ "${DRY_RUN:-false}" != true ]; then
       dmc_managed_release_recover "$plugin_dir" || { warn "Could not recover interrupted Data Machine Code release update"; return 0; }
     fi
     log "Data Machine Code copied install already at official release $target"
     return 0
+  fi
+  if [ "$current" = "$target" ] && [ "$evidence_type" = github_digest ]; then
+    local staged_release
+    staged_release="$(dmc_managed_release_release_root)/$target-$evidence"
+    if [ -d "$staged_release" ] && [ "$(dmc_managed_release_header_version "$staged_release" 2>/dev/null || true)" = "$target" ] && grep -Fq "\"sha256\":\"$evidence\"" "$staged_release/.wp-coding-agents-managed-release.json" 2>/dev/null; then
+      if [ "${DRY_RUN:-false}" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Recover Data Machine Code $target from its verified staged release"
+        return 0
+      fi
+      local was_active=false
+      dmc_managed_release_active && was_active=true
+      if ! dmc_managed_release_switch_pointer "$plugin_dir" "$staged_release"; then
+        warn "Could not recover interrupted Data Machine Code release pointer"
+        return 0
+      fi
+      if [ "$was_active" = true ] && { ! activate_plugin data-machine-code || ! dmc_managed_release_active; }; then
+        rm -f "$plugin_dir/.wp-coding-agents-release-current"
+        dmc_managed_release_recover "$plugin_dir" || true
+        warn "Data Machine Code $target recovery activation verification failed — prior release restored"
+        return 0
+      fi
+      fix_ownership "$plugin_dir"
+      UPDATED_ITEMS+=("data-machine-code $target (recovered official copied release)")
+      log "Recovered Data Machine Code $target release pointer from its verified staged release"
+      return 0
+    fi
   fi
   if [ "${DRY_RUN:-false}" = true ]; then
     if [ "$evidence_type" = github_digest ]; then

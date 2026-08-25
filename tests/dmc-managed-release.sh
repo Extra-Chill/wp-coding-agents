@@ -62,12 +62,18 @@ case "$out" in *"$SHA"*) : ;; *) fail "dry-run did not carry the normalized GitH
 # current copied install: no download/deploy and no update record.
 DRY_RUN=false
 printf '<?php\n/*\n * Version: 2.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
+mkdir -p "$PLUGIN/.wp-coding-agents-releases/current"
+printf '<?php\n/*\n * Version: 2.0.0\n */\n' > "$PLUGIN/.wp-coding-agents-releases/current/data-machine-code.php"
+printf '{"repository":"Extra-Chill/data-machine-code","version":"2.0.0","sha256":"%s"}\n' "$SHA" > "$PLUGIN/.wp-coding-agents-releases/current/.wp-coding-agents-managed-release.json"
+ln -s .wp-coding-agents-releases/current "$PLUGIN/.wp-coding-agents-release-current"
 UPDATED_ITEMS=(); LOG=""
 update_data_machine_code_copied_release
 case "$LOG" in *"already at official release 2.0.0"*) : ;; *) fail "current copied install was not recognized";; esac
 [ "${#UPDATED_ITEMS[@]}" -eq 0 ] || fail "current copied install recorded an update"
 
 # GitHub digest mismatch: preserve the old deployment.
+rm -rf "$PLUGIN"
+mkdir -p "$PLUGIN"
 printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/data-machine-code.php"
 DMC_TEST_RELEASE_JSON='{"tag_name":"v2.0.0","assets":[{"name":"dmc.zip","browser_download_url":"https://release/dmc.zip","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}]}'
 LOG=""
@@ -86,6 +92,22 @@ update_data_machine_code_copied_release
 [ -f "$PLUGIN/.wp-coding-agents-release-current/data-machine-code.php" ] || fail "copied release current pointer missing"
 [ ! -e "$PLUGIN/.wp-coding-agents-release-current/obsolete" ] || fail "copied release included stale files"
 [ "${#UPDATED_ITEMS[@]}" -eq 1 ] || fail "copied release was not recorded"
+
+# Interruption after writing the new loader but before switching current is
+# recovered from the already verified staged release without another download.
+target_pointer="$(readlink "$PLUGIN/.wp-coding-agents-release-current")"
+rm -f "$PLUGIN/.wp-coding-agents-release-current"
+mkdir -p "$PLUGIN/.wp-coding-agents-releases/interrupted-old"
+printf '<?php\n/*\n * Version: 1.0.0\n */\n' > "$PLUGIN/.wp-coding-agents-releases/interrupted-old/data-machine-code.php"
+ln -s .wp-coding-agents-releases/interrupted-old "$PLUGIN/.wp-coding-agents-release-current"
+archive="$DMC_TEST_ARCHIVE"; DMC_TEST_ARCHIVE="$TMP/missing.zip"; export DMC_TEST_ARCHIVE
+UPDATED_ITEMS=(); LOG=""
+update_data_machine_code_copied_release
+DMC_TEST_ARCHIVE="$archive"; export DMC_TEST_ARCHIVE
+[ "$(readlink "$PLUGIN/.wp-coding-agents-release-current")" = "$target_pointer" ] || fail "interrupted loader/pointer state did not select the verified staged release"
+[ "$(dmc_managed_release_header_version "$PLUGIN/.wp-coding-agents-release-current")" = "2.0.0" ] || fail "interrupted loader/pointer recovery left stale code active"
+[ "${#UPDATED_ITEMS[@]}" -eq 1 ] || fail "interrupted loader/pointer recovery was not recorded"
+case "$LOG" in *"Recovered Data Machine Code 2.0.0 release pointer"*) : ;; *) fail "interrupted loader/pointer recovery was not reported";; esac
 
 # Legacy checksum sidecars remain accepted and verified before deployment.
 rm -rf "$PLUGIN"
