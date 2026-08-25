@@ -48,6 +48,19 @@ jobs:
       - name: Run tests/opencode-subagents.sh
         run: bash tests/opencode-subagents.sh
 
+  opencode-general-dispatch:
+    name: bounded OpenCode general dispatch (#453)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install supported OpenCode fixture
+        run: npm install --global opencode-ai@1.18.20
+      - name: Run tests/opencode-general-dispatch.sh
+        run: bash tests/opencode-general-dispatch.sh
+
   managed-skill-targets:
     name: managed skill target deduplication (#306)
     runs-on: ubuntu-latest

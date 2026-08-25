@@ -1,6 +1,38 @@
 #!/bin/bash
 # Project Data Machine's persisted portable agent graph for OpenCode.
 
+OPENCODE_GENERAL_DISPATCH_MIN_VERSION="1.18.20"
+
+opencode_general_dispatch_supported() {
+  local version agents
+  if ! command -v opencode >/dev/null 2>&1; then
+    warn "OpenCode general-subagent dispatch requires OpenCode >= $OPENCODE_GENERAL_DISPATCH_MIN_VERSION, but the opencode binary is unavailable"
+    return 1
+  fi
+
+  version="$(opencode --version 2>/dev/null || true)"
+  if ! python3 - "$version" "$OPENCODE_GENERAL_DISPATCH_MIN_VERSION" <<'PY'
+import re, sys
+
+actual, minimum = sys.argv[1:]
+match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", actual.strip())
+raise SystemExit(0 if not match or tuple(map(int, match.groups())) >= tuple(map(int, minimum.split("."))) else 1)
+PY
+  then
+    warn "OpenCode $version does not provide the managed general-subagent dispatch contract; install OpenCode >= $OPENCODE_GENERAL_DISPATCH_MIN_VERSION"
+    return 1
+  fi
+
+  agents="$(cd "$SITE_PATH" && opencode agent list --pure 2>/dev/null)" || {
+    warn "OpenCode $version could not report its agent capabilities; general-subagent dispatch was not enabled"
+    return 1
+  }
+  if ! printf '%s\n' "$agents" | grep -qx 'general (subagent)'; then
+    warn "OpenCode $version does not expose the native general subagent; general-subagent dispatch was not enabled"
+    return 1
+  fi
+}
+
 opencode_external_graph_eval() {
   local reader_code="$1"
   local timeout_seconds="${OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS:-120}"
@@ -47,6 +79,11 @@ opencode_project_subagents() {
   [ -n "${AGENT_SLUG:-}" ] || return 0
   [ -f "$SITE_PATH/wp-config.php" ] || [ "${EXTERNAL_WORDPRESS:-false}" = true ] || return 0
   [ -f "$SITE_PATH/opencode.json" ] || return 0
+
+  if ! opencode_general_dispatch_supported; then
+    OPENCODE_SUBAGENT_PROJECTION_FAILURE=unsupported_runtime
+    return 1
+  fi
 
   local graph_helper projector agent_json
   graph_helper="$SCRIPT_DIR/lib/read-opencode-subagent-graph.php"
