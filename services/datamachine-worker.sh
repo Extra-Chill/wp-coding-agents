@@ -1,9 +1,39 @@
 #!/bin/bash
-# Data Machine queue heartbeat service. Runs a bounded worker pass regularly so
-# headless WordPress installs do not depend on HTTP-triggered WP-Cron traffic.
+# Optional Data Machine queue worker. This service drains Data Machine work; it
+# does not act as a generic WP-Cron heartbeat.
 
 datamachine_worker_systemd_units() { echo "datamachine-worker.service datamachine-worker.timer"; }
 datamachine_worker_launchd_label() { echo "com.wp.datamachine-worker"; }
+datamachine_worker_state_file() { printf '%s/.config/wp-coding-agents/datamachine-worker.enabled' "$SERVICE_HOME"; }
+datamachine_worker_systemd_dir() { printf '%s' "${DATAMACHINE_WORKER_SYSTEMD_DIR:-/etc/systemd/system}"; }
+datamachine_worker_launchd_dir() { printf '%s' "${DATAMACHINE_WORKER_LAUNCHD_DIR:-$SERVICE_HOME/Library/LaunchAgents}"; }
+
+datamachine_worker_desired_state() {
+  local requested="${DATAMACHINE_WORKER_REQUEST:-${WP_CODING_AGENTS_DATAMACHINE_WORKER_ENABLED:-}}"
+  case "$requested" in
+    1|true|enabled) printf 'enabled\n'; return 0 ;;
+    0|false|disabled) printf 'disabled\n'; return 0 ;;
+    "") ;;
+    *) error "Unknown Data Machine worker state: $requested (supported: enabled, disabled)" ;;
+  esac
+
+  if [ -f "$(datamachine_worker_state_file)" ]; then
+    printf 'enabled\n'
+  else
+    printf 'disabled\n'
+  fi
+}
+
+datamachine_worker_record_state() {
+  local state="$1" file
+  file="$(datamachine_worker_state_file)"
+  if [ "$state" = "enabled" ]; then
+    run_cmd mkdir -p "${file%/*}"
+    write_file "$file" "enabled"
+    return
+  fi
+  run_cmd rm -f "$file"
+}
 
 _datamachine_worker_shell_quote() {
   local value="$1"
@@ -54,17 +84,17 @@ datamachine_worker_prepare_command() {
 _datamachine_worker_command() {
   if _datamachine_worker_uses_studio; then
     [ -n "${STUDIO_BIN:-}" ] || datamachine_worker_prepare_command || return 1
-    printf 'cd "%s" && %s wp cron event run --due-now && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
+    printf 'cd "%s" && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
     return
   fi
 
-  printf '%s' "cd \"$SITE_PATH\" && $WP_CMD cron event run --due-now && $WP_CMD datamachine worker run --once"
+  printf '%s' "cd \"$SITE_PATH\" && $WP_CMD datamachine worker run --once"
 }
 
 datamachine_worker_render_systemd_service() {
   cat <<EOF
 [Unit]
-Description=Data Machine queue worker heartbeat (wp-coding-agents)
+Description=Optional Data Machine queue worker (wp-coding-agents)
 After=network.target
 
 [Service]
@@ -80,7 +110,7 @@ EOF
 datamachine_worker_render_systemd_timer() {
   cat <<'EOF'
 [Unit]
-Description=Run Data Machine queue worker heartbeat every two minutes
+Description=Run the optional Data Machine queue worker every two minutes
 
 [Timer]
 OnBootSec=2min
@@ -141,7 +171,7 @@ datamachine_worker_install() {
   if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
     local label plist_dir plist
     label="$(datamachine_worker_launchd_label)"
-    plist_dir="$HOME/Library/LaunchAgents"
+    plist_dir="$(datamachine_worker_launchd_dir)"
     plist="$plist_dir/$label.plist"
     run_cmd mkdir -p "$plist_dir" "$SERVICE_HOME/.datamachine"
     write_file "$plist" "$(datamachine_worker_render_launchd "$label")"
@@ -149,17 +179,17 @@ datamachine_worker_install() {
       launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
       launchctl bootstrap "gui/$(id -u)" "$plist"
     fi
-    log "Data Machine worker heartbeat: $label"
+    log "Data Machine worker: $label"
     return
   fi
 
   if [ "$LOCAL_MODE" = true ]; then
-    warn "Data Machine worker heartbeat requires launchd or systemd; local manual mode is not supervised."
+    warn "Data Machine worker requires launchd or systemd; local manual mode is not supervised."
     return
   fi
 
-  write_file "/etc/systemd/system/datamachine-worker.service" "$(datamachine_worker_render_systemd_service)"
-  write_file "/etc/systemd/system/datamachine-worker.timer" "$(datamachine_worker_render_systemd_timer)"
+  write_file "$(datamachine_worker_systemd_dir)/datamachine-worker.service" "$(datamachine_worker_render_systemd_service)"
+  write_file "$(datamachine_worker_systemd_dir)/datamachine-worker.timer" "$(datamachine_worker_render_systemd_timer)"
   if [ "$DRY_RUN" = false ]; then
     systemctl daemon-reload
     systemctl enable --now datamachine-worker.timer
@@ -172,7 +202,7 @@ datamachine_worker_update() {
   if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
     local label plist
     label="$(datamachine_worker_launchd_label)"
-    plist="$HOME/Library/LaunchAgents/$label.plist"
+    plist="$(datamachine_worker_launchd_dir)/$label.plist"
     if [ ! -f "$plist" ]; then
       datamachine_worker_install
       return
@@ -185,13 +215,56 @@ datamachine_worker_update() {
     return
   fi
   [ "$LOCAL_MODE" = true ] && return 0
-  if [ ! -f /etc/systemd/system/datamachine-worker.service ] || [ ! -f /etc/systemd/system/datamachine-worker.timer ]; then
+  local systemd_dir
+  systemd_dir="$(datamachine_worker_systemd_dir)"
+  if [ ! -f "$systemd_dir/datamachine-worker.service" ] || [ ! -f "$systemd_dir/datamachine-worker.timer" ]; then
     datamachine_worker_install
     return
   fi
-  _smart_update_systemd_unit /etc/systemd/system/datamachine-worker.service "$(datamachine_worker_render_systemd_service)" datamachine-worker.service
-  _smart_update_systemd_unit /etc/systemd/system/datamachine-worker.timer "$(datamachine_worker_render_systemd_timer)" datamachine-worker.timer
+  _smart_update_systemd_unit "$systemd_dir/datamachine-worker.service" "$(datamachine_worker_render_systemd_service)" datamachine-worker.service
+  _smart_update_systemd_unit "$systemd_dir/datamachine-worker.timer" "$(datamachine_worker_render_systemd_timer)" datamachine-worker.timer
   if [ "$DRY_RUN" = false ]; then
     systemctl restart datamachine-worker.timer
+  fi
+}
+
+datamachine_worker_remove() {
+  if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
+    local label plist
+    label="$(datamachine_worker_launchd_label)"
+    plist="$(datamachine_worker_launchd_dir)/$label.plist"
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would unload and remove $plist"
+    else
+      launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
+      rm -f "$plist"
+    fi
+    log "Data Machine worker: disabled"
+    return
+  fi
+
+  [ "$LOCAL_MODE" = true ] && return 0
+  local systemd_dir service timer
+  systemd_dir="$(datamachine_worker_systemd_dir)"
+  service="$systemd_dir/datamachine-worker.service"
+  timer="$systemd_dir/datamachine-worker.timer"
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would disable and remove datamachine-worker.timer"
+  else
+    systemctl disable --now datamachine-worker.timer 2>/dev/null || true
+    rm -f "$service" "$timer"
+    systemctl daemon-reload
+  fi
+  log "Data Machine worker: disabled"
+}
+
+datamachine_worker_reconcile() {
+  local state
+  state="$(datamachine_worker_desired_state)"
+  datamachine_worker_record_state "$state"
+  if [ "$state" = "enabled" ]; then
+    datamachine_worker_update
+  else
+    datamachine_worker_remove
   fi
 }

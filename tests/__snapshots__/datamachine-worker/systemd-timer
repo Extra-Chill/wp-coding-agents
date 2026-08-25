@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Data Machine queue worker heartbeat every two minutes
+Description=Run the optional Data Machine queue worker every two minutes
 
 [Timer]
 OnBootSec=2min
