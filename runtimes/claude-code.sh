@@ -345,6 +345,10 @@ runtime_skills_dir() {
   echo "$SITE_PATH/.claude/skills"
 }
 
+runtime_skill_discovery_dirs() {
+  runtime_skills_dir
+}
+
 runtime_print_summary() {
   echo "Claude Code:"
   echo "  Config:   $SITE_PATH/CLAUDE.md"
