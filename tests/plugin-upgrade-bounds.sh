@@ -29,6 +29,13 @@ slow="$ROOT_DIR/tests/fixtures/plugin-updates/slow.sh"
 hung="$ROOT_DIR/tests/fixtures/plugin-updates/hung.sh"
 partial="$ROOT_DIR/tests/fixtures/plugin-updates/partial-pointer-hung.sh"
 
+# WordPress Studio may emit a PHP preamble on stdout before valid WP-CLI JSON.
+plugin_update_state_from_json $'\nDeprecated: fixture warning\n[{"name":"data-machine-code","status":"active","version":"1.2.3"}]' data-machine-code || fail "preamble-bearing plugin JSON was refused"
+[ "$PLUGIN_STATE_TUPLE" = $'1.2.3\tactive' ] || fail "preamble-bearing plugin JSON returned the wrong state"
+if plugin_update_state_from_json $'Deprecated: no JSON follows' data-machine-code; then
+  fail "malformed plugin output was accepted"
+fi
+
 # A slow child emits progress and still completes under its deadline.
 PLUGIN_FIXTURE_SLEEP_SECONDS=2 plugin_update_run_phase fixture slow-sync "$slow" || fail "slow fixture timed out"
 [ "$PLUGIN_PHASE_OUTPUT" = slow-fixture-complete ] || fail "slow fixture output was not retained"

@@ -151,7 +151,24 @@ import json
 import os
 
 slug = os.environ['PLUGIN_STATE_SLUG']
-for plugin in json.loads(os.environ['PLUGIN_STATES_JSON']):
+raw = os.environ['PLUGIN_STATES_JSON']
+decoder = json.JSONDecoder()
+plugins = None
+for offset, character in enumerate(raw):
+    if character != '[':
+        continue
+    try:
+        candidate, _ = decoder.raw_decode(raw[offset:])
+    except json.JSONDecodeError:
+        continue
+    if isinstance(candidate, list):
+        plugins = candidate
+        break
+if plugins is None:
+    raise SystemExit(2)
+for plugin in plugins:
+    if not isinstance(plugin, dict):
+        continue
     if plugin.get('name') == slug:
         print('%s\t%s' % (plugin.get('version', ''), plugin.get('status', '')))
         raise SystemExit(0)
@@ -238,7 +255,7 @@ plugin_update_pointer_changed() {
 }
 
 plugin_update_verify_installed_plugins() {
-  local slugs=("$@") slug plugin_dir tuple version status file_version phase_status=0 failed=false
+  local slugs=("$@") slug plugin_dir tuple version status active file_version phase_status=0 failed=false
   if [ "${DRY_RUN:-false}" = true ]; then
     for slug in "${slugs[@]}"; do
       [ -d "$SITE_PATH/wp-content/plugins/$slug" ] || continue
@@ -280,7 +297,8 @@ plugin_update_verify_installed_plugins() {
       version=""; status="missing"
     fi
     file_version="$(plugin_update_local_version "$slug" 2>/dev/null || true)"
-    log "[$slug] installed-after version=${version:-missing} active=$( case "$status" in active|active-network) printf yes ;; *) printf no ;; esac ) file_version=${file_version:-missing}"
+    case "$status" in active|active-network) active=yes ;; *) active=no ;; esac
+    log "[$slug] installed-after version=${version:-missing} active=$active file_version=${file_version:-missing}"
     if [ -z "$version" ] || [ "$version" != "$file_version" ] || [ "$status" = missing ]; then
       plugin_update_record_failure "$slug" verification 1
       failed=true
