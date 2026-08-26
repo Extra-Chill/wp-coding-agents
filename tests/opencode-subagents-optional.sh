@@ -28,7 +28,7 @@ if [ "${#PENDING_ITEMS[@]}" -ne 1 ] || [ "${PENDING_ITEMS[0]}" != "OpenCode suba
   exit 1
 fi
 
-for failure in missing_reader missing_projector wp_cli_read invalid_transport_response projector; do
+for failure in missing_reader missing_projector wp_cli_read invalid_transport_response invalid_wp_cli_response projector; do
   PENDING_ITEMS=()
   OPENCODE_SUBAGENT_PROJECTION_FAILURE="$failure"
   if opencode_project_subagents_optional > "$output" 2>&1; then
