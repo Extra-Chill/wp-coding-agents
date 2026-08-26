@@ -37,6 +37,14 @@ assert graph['source_mode'] == 'embedded'
 PY
       cat "$TMP/graph.json"
       ;;
+    diagnostic-graph)
+      printf '\nDeprecated: fixture diagnostic\n\n'
+      cat "$TMP/graph.json"
+      ;;
+    contaminated-graph)
+      printf '%s\n' 'unexpected bootstrap prose'
+      cat "$TMP/graph.json"
+      ;;
     unregistered) php "$SCRIPT_DIR/tests/opencode-subagents-reader.php" --payload-unregistered "$2" ;;
     read-failure) printf '%s\n' 'WP-CLI bootstrap failed' >&2; return 1 ;;
   esac
@@ -116,6 +124,14 @@ assert config['permission']['skill']['root-skill'] == 'allow'
 assert config['permission']['skill']['user-skill'] == 'ask'
 assert open(sys.argv[1].replace('.wp-coding-agents-subagents.json', 'skills/root-skill/SKILL.md'), 'rb').read().startswith(b'---\nname: root-skill\n')
 PY
+WP_CMD_MODE=diagnostic-graph
+opencode_project_subagents
+printf '  ok   recognized PHP diagnostics do not contaminate local graph JSON\n'
+WP_CMD_MODE=contaminated-graph
+if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
+[ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = invalid_wp_cli_response ] || FAILED=$((FAILED + 1))
+WP_CMD_MODE=graph
+printf '  ok   arbitrary graph output prefixes remain hard failures\n'
 if command -v opencode >/dev/null 2>&1; then
   (cd "$SITE_PATH" && opencode agent list --pure >/dev/null)
   printf '  ok   OpenCode parses generated agent and skill files\n'

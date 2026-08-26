@@ -160,6 +160,28 @@ sys.stdout.buffer.write(value)
       return 1
     }
     rm -f "$reader_error"
+    agent_json="$(printf '%s' "$agent_json" | python3 -c '
+import json
+import re
+import sys
+
+lines = sys.stdin.read().splitlines()
+while lines and not lines[0].strip():
+    lines.pop(0)
+while lines and re.match(r"^(?:PHP )?(?:Deprecated|Warning|Notice):\s", lines[0].lstrip()):
+    lines.pop(0)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+try:
+    value = json.loads("\n".join(lines))
+except (json.JSONDecodeError, ValueError):
+    raise SystemExit(1)
+json.dump(value, sys.stdout, separators=(",", ":"))
+')" || {
+      OPENCODE_SUBAGENT_PROJECTION_FAILURE=invalid_wp_cli_response
+      warn "Local subagent graph returned invalid or contaminated JSON"
+      return 1
+    }
   fi
   local source
   local before after
