@@ -79,7 +79,7 @@ expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "sa
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
 expected_attachment_preview = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_preview", sys.argv[5], sys.argv[4], "{handle}", "{task_url}"]
 expected_attachment_apply = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_apply", "{handle}", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "attach-tracker", "{handle}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
-if provider.get("lookup_timeout_ms") != 12000:
+if provider.get("lookup_timeout_ms") != 14000:
     raise SystemExit("FAIL: Homeboy must reserve a supervision margin beyond the DMC adapter budget")
 adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
 adapter_budget = int(re.search(r"HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = (\d+)", adapter).group(1))
@@ -319,7 +319,7 @@ if http_zero_padded_port.returncode or json.loads(http_zero_padded_port.stdout) 
 started = time.monotonic()
 large_inventory = run("large_inventory")
 elapsed = time.monotonic() - started
-if large_inventory.returncode or json.loads(large_inventory.stdout) != expected or elapsed >= 12:
+if large_inventory.returncode or json.loads(large_inventory.stdout) != expected or elapsed >= 14:
     raise SystemExit(f"FAIL: exact-task projection did not complete within Homeboy's declared supervision budget: {large_inventory!r}, elapsed={elapsed}")
 largest_success = run("largest_success")
 largest_rows = json.loads(largest_success.stdout) if largest_success.returncode == 0 else []
@@ -359,7 +359,7 @@ def assert_descendant_stopped(mode, expected_error, timeout):
             raise SystemExit(f"FAIL: {mode} lookup left process {pid} alive")
 
 assert_descendant_stopped("descendant_both", "bounded ", 5)
-assert_descendant_stopped("descendant_silent", "execution exceeded the adapter budget", 11)
+assert_descendant_stopped("descendant_silent", "execution exceeded the adapter budget", 13)
 PY
 }
 
@@ -584,8 +584,8 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
       safety='{"dirty":false,"unpushed":false,"primary":false}'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = incomplete_safety ] && safety='{"dirty":false,"primary":false}'
       if [ "${DMC_TASK_LOOKUP_MODE:-}" = large_inventory ]; then
-        i=1
-        while [ "$i" -le 5000 ]; do i=$((i + 1)); done
+        # Model the process-startup floor observed through WordPress Studio.
+        sleep 9
       fi
       [ "${DMC_TASK_LOOKUP_MODE:-}" = diagnostic_prefix ] && printf '\nDeprecated: Case statements followed by a semicolon are deprecated.\n'
       [ "${DMC_TASK_LOOKUP_MODE:-}" = arbitrary_prefix ] && printf 'unexpected output\n'

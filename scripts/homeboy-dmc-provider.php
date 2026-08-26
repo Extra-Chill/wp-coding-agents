@@ -9,9 +9,9 @@ const HOMEBOY_DMC_TASK_MAX_FIELD_BYTES = 4096;
 const HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES = 131072;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES = 1048576;
 const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
-// Leave enough of Homeboy's 12-second supervision window to reap the DMC session
+// Leave enough of Homeboy's 14-second supervision window to reap the DMC session
 // and report a typed adapter failure instead of being terminated externally.
-const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 8;
+const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 10;
 const HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = 1;
 const HOMEBOY_DMC_ATTACHMENT_TIMEOUT_SECONDS = 30;
 
