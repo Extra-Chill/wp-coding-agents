@@ -332,6 +332,84 @@ if ( 'task_attachment_apply' === $operation ) {
 	exit(0);
 }
 
+if ( 'resolve_task_standalone' === $operation ) {
+	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));
+	$provider = (string) ( $argv[3] ?? '' );
+	$workspace = (string) ( $argv[4] ?? '' );
+	if ( '' === $task_url || '' === $provider || '' === $workspace ) {
+		fwrite(STDERR, "Usage: homeboy-dmc-provider.php resolve_task_standalone <task-url> <dmc-provider> <workspace-root>\n");
+		exit(2);
+	}
+	try {
+		$capture = $run_bounded_command(array( PHP_BINARY, $provider, 'task', $workspace, $task_url ), HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES);
+	} catch (Throwable $error) {
+		fwrite(STDERR, $error->getMessage() . "\n");
+		exit(1);
+	}
+	if ( null !== $capture['failure'] ) {
+		fwrite(STDERR, "DMC standalone task resolution exceeded its bounded execution or capture.\n");
+		exit(1);
+	}
+	if ( 0 !== $capture['status'] ) {
+		fwrite(STDERR, 'DMC standalone task resolution failed: ' . trim($capture['stderr']) . "\n");
+		exit($capture['status'] > 0 && $capture['status'] < 256 ? $capture['status'] : 1);
+	}
+	try {
+		$payload = $decode_json_output($capture['stdout']);
+	} catch (Throwable $error) {
+		fwrite(STDERR, "DMC standalone task resolution returned invalid JSON.\n");
+		exit(1);
+	}
+	$candidates = is_array($payload) ? ( $payload['candidates'] ?? null ) : null;
+	if (
+		! is_array($payload) || 'datamachine-code/worktree-task-resolution/v1' !== ( $payload['schema'] ?? null )
+		|| 'complete' !== ( $payload['status'] ?? null ) || $task_url !== $canonical_task_url((string) ( $payload['task_url'] ?? '' ))
+		|| ! is_array($candidates) || ! array_is_list($candidates) || ! is_int($payload['total'] ?? null)
+		|| $payload['total'] !== count($candidates) || count($candidates) > HOMEBOY_DMC_TASK_MAX_CANDIDATES
+	) {
+		fwrite(STDERR, "DMC standalone task resolution returned an incomplete contract.\n");
+		exit(1);
+	}
+	$result = array();
+	foreach ( $candidates as $candidate ) {
+		$safety = is_array($candidate) && is_array($candidate['safety'] ?? null) ? $candidate['safety'] : null;
+		if (
+			! is_array($candidate) || ! is_string($candidate['handle'] ?? null) || '' === $candidate['handle']
+			|| ! is_string($candidate['path'] ?? null) || '' === $candidate['path']
+			|| ! is_string($candidate['branch'] ?? null) || '' === $candidate['branch']
+			|| $task_url !== $canonical_task_url((string) ( $candidate['task_url'] ?? '' ))
+			|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
+		) {
+			fwrite(STDERR, "DMC standalone task resolution returned an incomplete or mismatched candidate.\n");
+			exit(1);
+		}
+		foreach ( array( 'handle', 'path', 'branch', 'task_url' ) as $field ) {
+			if ( strlen($candidate[ $field ]) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES ) {
+				fwrite(STDERR, "DMC standalone task resolution field exceeds its bounded limit.\n");
+				exit(1);
+			}
+		}
+		$result[] = array(
+			'handle'   => $candidate['handle'],
+			'path'     => $candidate['path'],
+			'branch'   => $candidate['branch'],
+			'task_url' => $task_url,
+			'safety'   => $safety,
+		);
+	}
+	if ( array() === $result ) {
+		fwrite(STDOUT, json_encode(array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC has no worktrees for the requested task.' ) ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+		exit(42);
+	}
+	$serialized = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+	if ( strlen($serialized) > HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES ) {
+		fwrite(STDERR, "DMC standalone task resolution exceeded its bounded output.\n");
+		exit(1);
+	}
+	fwrite(STDOUT, $serialized . "\n");
+	exit(0);
+}
+
 if ( 'resolve_task' === $operation ) {
 	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));
 	$command  = array_slice($argv, 3);
