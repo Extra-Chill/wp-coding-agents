@@ -88,42 +88,57 @@ run_case opencode opencode opencode
 assert_present "$SITE_PATH/.opencode/skills/upgrade-wp-coding-agents/SKILL.md" "uses .opencode/skills"
 assert_missing "$SITE_PATH/.claude/skills/upgrade-wp-coding-agents" "does not create Claude target"
 
+echo "==> Codex only"
+run_case codex codex codex
+assert_present "$SITE_PATH/.agents/skills/upgrade-wp-coding-agents/SKILL.md" "uses .agents/skills"
+assert_missing "$SITE_PATH/.claude/skills/upgrade-wp-coding-agents" "does not create Claude target"
+
 echo "==> Claude Code only"
 run_case claude claude-code claude-code
 assert_present "$SITE_PATH/.claude/skills/upgrade-wp-coding-agents/SKILL.md" "uses .claude/skills"
 assert_missing "$SITE_PATH/.opencode/skills/upgrade-wp-coding-agents" "does not create OpenCode target"
 
-echo "==> dual runtime cleanup and preservation"
-SITE_PATH="$TMP/dual"
+echo "==> Claude Code, Codex, and OpenCode overlap cleanup and preservation"
+SITE_PATH="$TMP/overlap"
 seed_root "$SITE_PATH/.claude/skills"
 seed_root "$SITE_PATH/.opencode/skills"
+seed_root "$SITE_PATH/.agents/skills"
 RUNTIME=claude-code
-DETECTED_RUNTIMES=(claude-code opencode)
+DETECTED_RUNTIMES=(claude-code opencode codex)
 install_skills
 assert_present "$SITE_PATH/.claude/skills/upgrade-wp-coding-agents/SKILL.md" "keeps canonical Claude copy"
 assert_eq "$SKILLS_DIR" "$SITE_PATH/.claude/skills" "reports the canonical target"
 assert_missing "$SITE_PATH/.opencode/skills/upgrade-wp-coding-agents" "removes noncanonical OpenCode copy"
+assert_missing "$SITE_PATH/.agents/skills/upgrade-wp-coding-agents" "removes noncanonical Codex copy"
 assert_missing "$SITE_PATH/.claude/skills/wp-coding-agents-setup" "removes retired Claude copy"
 assert_missing "$SITE_PATH/.opencode/skills/wp-coding-agents-setup" "removes retired OpenCode copy"
+assert_missing "$SITE_PATH/.agents/skills/wp-coding-agents-setup" "removes retired Codex copy"
 assert_present "$SITE_PATH/.claude/skills/user-skill/SKILL.md" "preserves Claude user skill"
 assert_present "$SITE_PATH/.opencode/skills/user-skill/SKILL.md" "preserves OpenCode user skill"
+assert_present "$SITE_PATH/.agents/skills/user-skill/SKILL.md" "preserves Codex user skill"
 SUMMARY_OUTPUT="$(log() { printf '%s\n' "$1"; }; print_skills_summary)"
 assert_contains "$SUMMARY_OUTPUT" "$SITE_PATH/.claude/skills/" "summary reports canonical Claude target"
 assert_not_contains "$SUMMARY_OUTPUT" "$SITE_PATH/.opencode/skills/" "summary omits noncanonical OpenCode target"
+assert_not_contains "$SUMMARY_OUTPUT" "$SITE_PATH/.agents/skills/" "summary omits noncanonical Codex target"
 
-echo "==> dual runtime install is idempotent"
+echo "==> overlap install is idempotent"
 install_skills
 assert_present "$SITE_PATH/.claude/skills/upgrade-wp-coding-agents/SKILL.md" "canonical copy remains after rerun"
 assert_missing "$SITE_PATH/.opencode/skills/upgrade-wp-coding-agents" "duplicate remains absent after rerun"
+assert_missing "$SITE_PATH/.agents/skills/upgrade-wp-coding-agents" "Codex duplicate remains absent after rerun"
 assert_present "$SITE_PATH/.opencode/skills/user-skill/SKILL.md" "user skill remains after rerun"
+assert_present "$SITE_PATH/.agents/skills/user-skill/SKILL.md" "Codex user skill remains after rerun"
 
 echo "==> dry run preserves managed directories"
 seed_root "$SITE_PATH/.opencode/skills"
+seed_root "$SITE_PATH/.agents/skills"
 DRY_RUN=true
 install_skills >/dev/null
 DRY_RUN=false
 assert_present "$SITE_PATH/.opencode/skills/upgrade-wp-coding-agents/SKILL.md" "dry run preserves duplicate"
 assert_present "$SITE_PATH/.opencode/skills/wp-coding-agents-setup/SKILL.md" "dry run preserves retired skill"
+assert_present "$SITE_PATH/.agents/skills/upgrade-wp-coding-agents/SKILL.md" "dry run preserves Codex duplicate"
+assert_present "$SITE_PATH/.agents/skills/wp-coding-agents-setup/SKILL.md" "dry run preserves Codex retired skill"
 
 echo "==> explicit runtime narrowing"
 SITE_PATH="$TMP/narrowed"

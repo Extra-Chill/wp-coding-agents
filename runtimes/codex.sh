@@ -340,6 +340,10 @@ runtime_skills_dir() {
   echo "$SITE_PATH/.agents/skills"
 }
 
+runtime_skill_discovery_dirs() {
+  runtime_skills_dir
+}
+
 runtime_start_cmd() {
   echo "cd $SITE_PATH && codex"
 }

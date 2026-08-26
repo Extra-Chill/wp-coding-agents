@@ -485,6 +485,11 @@ runtime_skills_dir() {
   echo "$SITE_PATH/.opencode/skills"
 }
 
+runtime_skill_discovery_dirs() {
+  printf '%s\n' "$SITE_PATH/.claude/skills" "$SITE_PATH/.agents/skills"
+  runtime_skills_dir
+}
+
 runtime_print_summary() {
   echo "OpenCode:"
   echo "  Config:   $SITE_PATH/opencode.json"

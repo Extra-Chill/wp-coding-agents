@@ -131,21 +131,42 @@ _resolve_skills_dir_for_runtime() {
   )
 }
 
+# Return whether a detected runtime discovers both skill directories. Runtime
+# discovery roots may overlap even when their native install directories differ.
+_managed_skill_dirs_overlap() {
+  local first_dir="$1" second_dir="$2"
+  local rt rt_file discovery_dir has_first has_second
+
+  for rt in "${DETECTED_RUNTIMES[@]:-$RUNTIME}"; do
+    rt_file="$SCRIPT_DIR/runtimes/${rt}.sh"
+    [ -f "$rt_file" ] || continue
+    has_first=false
+    has_second=false
+
+    while IFS= read -r discovery_dir; do
+      [ "$discovery_dir" = "$first_dir" ] && has_first=true
+      [ "$discovery_dir" = "$second_dir" ] && has_second=true
+    done < <(
+      # shellcheck disable=SC1090
+      source "$rt_file"
+      runtime_skill_discovery_dirs
+    )
+
+    [ "$has_first" = true ] && [ "$has_second" = true ] && return 0
+  done
+
+  return 1
+}
+
 # Resolve both the runtime roots that may contain managed skills and the
-# canonical targets to populate. OpenCode discovers Claude's skill root, so a
-# dual Claude Code + OpenCode install needs only the Claude copy.
+# canonical targets to populate. Select the first native target in each set of
+# overlapping discovery roots.
 _resolve_managed_skill_dirs() {
   local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
-  local has_claude=false has_opencode=false
-  local rt dir seen_dir already
+  local rt dir seen_dir target already overlaps
 
   WP_CODING_AGENTS_SKILL_ROOTS=()
   WP_CODING_AGENTS_SKILL_TARGETS=()
-
-  for rt in "${runtimes[@]}"; do
-    [ "$rt" = "claude-code" ] && has_claude=true
-    [ "$rt" = "opencode" ] && has_opencode=true
-  done
 
   for rt in "${runtimes[@]}"; do
     dir="$(_resolve_skills_dir_for_runtime "$rt")"
@@ -157,15 +178,11 @@ _resolve_managed_skill_dirs() {
     done
     [ "$already" = true ] || WP_CODING_AGENTS_SKILL_ROOTS+=("$dir")
 
-    if [ "$rt" = "opencode" ] && [ "$has_claude" = true ] && [ "$has_opencode" = true ]; then
-      continue
-    fi
-
-    already=false
-    for seen_dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
-      [ "$seen_dir" = "$dir" ] && { already=true; break; }
+    overlaps=false
+    for target in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
+      _managed_skill_dirs_overlap "$target" "$dir" && { overlaps=true; break; }
     done
-    [ "$already" = true ] || WP_CODING_AGENTS_SKILL_TARGETS+=("$dir")
+    [ "$overlaps" = true ] || WP_CODING_AGENTS_SKILL_TARGETS+=("$dir")
   done
 
   [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 0 ] \
