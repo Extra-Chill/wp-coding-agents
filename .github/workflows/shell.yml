@@ -256,6 +256,7 @@ jobs:
           - homeboy-codebox-canary
           - homeboy-components
           - homeboy-dmc-provider
+          - homeboy-dmc-provider-stability
           - homeboy-project-id
           - homeboy-verification-guidance
           - kimaki-credential-seeding

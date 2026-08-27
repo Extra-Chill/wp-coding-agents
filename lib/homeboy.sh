@@ -684,11 +684,43 @@ setup_homeboy_project() {
   fi
 }
 
+homeboy_git_is_linked_worktree() {
+  # A linked (task) worktree shares its object store with a primary checkout
+  # but has its own per-worktree git-dir, so `--git-dir` and
+  # `--git-common-dir` diverge. The primary checkout (and any plain, non-git
+  # install such as a release payload) has no such divergence. This is the
+  # generic signal DMC's own worktree lifecycle relies on: any linked
+  # worktree is disposable and may be removed by `workspace cleanup` without
+  # notice.
+  local dir="$1" git_dir common_dir
+  git_dir="$(git -C "$dir" rev-parse --git-dir 2>/dev/null)" || return 1
+  common_dir="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  case "$git_dir" in /*) ;; *) git_dir="$dir/$git_dir" ;; esac
+  case "$common_dir" in /*) ;; *) common_dir="$dir/$common_dir" ;; esac
+  git_dir="$(cd "$git_dir" 2>/dev/null && pwd)" || return 1
+  common_dir="$(cd "$common_dir" 2>/dev/null && pwd)" || return 1
+  [ "$git_dir" != "$common_dir" ]
+}
+
+homeboy_dmc_guard_script_dir_stability() {
+  local dir="$1"
+  homeboy_git_is_linked_worktree "$dir" || return 0
+
+  local message="Homeboy DMC worktree provider commands would be pinned to \"$dir\", a disposable task worktree of wp-coding-agents. That checkout can be removed by workspace cleanup, breaking every DMC worktree operation at once. Rerun setup/upgrade from the primary wp-coding-agents checkout (or an installed release) so the provider config stays stable."
+  if homeboy_required; then
+    error "$message"
+  fi
+  warn "$message"
+  return 0
+}
+
 configure_homeboy_dmc_worktree_provider() {
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
     log "Skipping Homeboy DMC worktree provider setup (--no-homeboy)"
     return 0
   fi
+
+  homeboy_dmc_guard_script_dir_stability "$SCRIPT_DIR"
 
   if ! command -v homeboy >/dev/null 2>&1; then
     homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping DMC worktree provider setup."
