@@ -630,6 +630,35 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 		'identity_token' => $value,
 		'base_sha'       => $base,
 	);
+} elseif ( 'converge' === $operation && 'datamachine-code/worktree-convergence/v1' === ( $payload['schema'] ?? null ) ) {
+	// A convergence envelope Homeboy cannot accept, but which DMC did answer.
+	//
+	// Homeboy's converge contract has no refusal channel: it takes accepted
+	// evidence or an error, and surfaces this stderr verbatim. Reporting a
+	// typed `refused`/`stale` answer as an unreadable envelope therefore threw
+	// away the only actionable part — most often `destination_ahead`, which is
+	// the ordinary state of a worktree carrying commits past the pinned base.
+	// Fail closed either way, but say which of the two happened.
+	$status = (string) ( $payload['status'] ?? '' );
+	if ( 'converged' !== $status ) {
+		$detail = array();
+		foreach ( array( 'code', 'before_head', 'after_head', 'base_sha' ) as $field ) {
+			if ( isset($payload[ $field ]) && is_scalar($payload[ $field ]) ) {
+				$detail[] = $field . '=' . $payload[ $field ];
+			}
+		}
+		fwrite(
+			STDERR,
+			sprintf(
+				"DMC refused to converge the worktree onto the pinned base: status=%s%s\n",
+				'' === $status ? 'missing' : $status,
+				empty($detail) ? '' : ' (' . implode(', ', $detail) . ')'
+			)
+		);
+		exit(1);
+	}
+	fwrite(STDERR, "DMC convergence evidence does not bind the attested identity token and pinned base.\n");
+	exit(1);
 } elseif ( 'resolve' === $operation && in_array((string) ( $payload['status'] ?? '' ), array( 'not_owned', 'not_found' ), true) ) {
 	$result = array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC does not own the requested worktree.' ) );
 } elseif ( 'resolve' === $operation && 'datamachine-code/worktree-identity/v1' === ( $payload['schema'] ?? null ) ) {

@@ -146,10 +146,26 @@ success = run("success")
 expected = {"schema": "homeboy/worktree-provider-convergence/v1", "identity_token": identity, "base_sha": base}
 if success.returncode or json.loads(success.stdout) != expected:
     raise SystemExit(f"FAIL: DMC convergence success did not preserve exact Homeboy evidence: {success!r}")
+# A typed answer Homeboy cannot accept still fails closed, but must arrive as
+# its own reason rather than as an unreadable envelope.
+reasons = {
+    "mismatched": "does not bind the attested identity token",
+    "stale": "status=stale",
+    "refused": "status=refused",
+}
 for mode in ("mismatched", "stale", "refused"):
     result = run(mode)
     if result.returncode == 0 or result.stdout:
         raise SystemExit(f"FAIL: DMC {mode} convergence response must fail closed: {result!r}")
+    if "unsupported envelope" in result.stderr:
+        raise SystemExit(f"FAIL: DMC {mode} convergence is well-formed and must not be reported as unreadable: {result.stderr!r}")
+    if reasons[mode] not in result.stderr:
+        raise SystemExit(f"FAIL: DMC {mode} convergence must name its typed reason: {result.stderr!r}")
+
+refused = run("refused")
+for field in ("code=destination_ahead", "before_head=aaaaaaa", "after_head=aaaaaaa"):
+    if field not in refused.stderr:
+        raise SystemExit(f"FAIL: DMC refusal must preserve {field}: {refused.stderr!r}")
 
 log = open(sys.argv[2], encoding="utf-8").read()
 if f"converge|{identity}|{base}" not in log:
@@ -604,7 +620,7 @@ if ('converge' === $operation && 'fixture-token' === $value) {
         exit(0);
     }
     if ('refused' === $mode) {
-        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'identity_token' => $value, 'base_sha' => $base, 'code' => 'destination_ahead', 'before_head' => 'aaaaaaa', 'after_head' => 'aaaaaaa', 'changed' => false)) . "\n";
         exit(0);
     }
 }
