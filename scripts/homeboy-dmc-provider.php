@@ -630,6 +630,15 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 		'identity_token' => $value,
 		'base_sha'       => $base,
 	);
+} elseif ( 'converge' === $operation && 'datamachine-code/worktree-convergence/v1' === ( $payload['schema'] ?? null ) && 'refused' === ( $payload['status'] ?? null ) && $value === ( $payload['identity_token'] ?? null ) && $base === ( $payload['base_sha'] ?? null ) && is_string($payload['code'] ?? null) && '' !== $payload['code'] ) {
+	fwrite(STDERR, json_encode(array(
+		'schema'         => 'homeboy/worktree-provider-convergence-refusal/v1',
+		'identity_token' => $value,
+		'base_sha'       => $base,
+		'code'           => $payload['code'],
+		'message'        => 'DMC refused worktree convergence: ' . $payload['code'],
+	), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+	exit(1);
 } elseif ( 'resolve' === $operation && in_array((string) ( $payload['status'] ?? '' ), array( 'not_owned', 'not_found' ), true) ) {
 	$result = array( 'success' => false, 'error' => array( 'code' => 'worktree_not_found', 'message' => 'DMC does not own the requested worktree.' ) );
 } elseif ( 'resolve' === $operation && 'datamachine-code/worktree-identity/v1' === ( $payload['schema'] ?? null ) ) {

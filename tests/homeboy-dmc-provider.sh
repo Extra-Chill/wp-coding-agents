@@ -146,10 +146,25 @@ success = run("success")
 expected = {"schema": "homeboy/worktree-provider-convergence/v1", "identity_token": identity, "base_sha": base}
 if success.returncode or json.loads(success.stdout) != expected:
     raise SystemExit(f"FAIL: DMC convergence success did not preserve exact Homeboy evidence: {success!r}")
-for mode in ("mismatched", "stale", "refused"):
+
+refused = run("refused")
+if refused.returncode == 0 or refused.stdout:
+    raise SystemExit(f"FAIL: DMC refused convergence response must fail closed: {refused!r}")
+if "unsupported envelope" in refused.stderr:
+    raise SystemExit(f"FAIL: typed convergence refusal was misreported as an unsupported envelope: {refused!r}")
+try:
+    refusal = json.loads(refused.stderr)
+except ValueError:
+    raise SystemExit(f"FAIL: DMC convergence refusal was not a machine-readable typed envelope: {refused!r}")
+if refusal != {"schema": "homeboy/worktree-provider-convergence-refusal/v1", "identity_token": identity, "base_sha": base, "code": "destination_diverged", "message": "DMC refused worktree convergence: destination_diverged"}:
+    raise SystemExit(f"FAIL: DMC convergence refusal did not preserve the provider's typed refusal code: {refused!r}")
+
+for mode in ("mismatched", "stale", "refused_mismatched", "refused_stale", "refused_codeless", "unknown_schema"):
     result = run(mode)
     if result.returncode == 0 or result.stdout:
         raise SystemExit(f"FAIL: DMC {mode} convergence response must fail closed: {result!r}")
+    if "unsupported envelope" not in result.stderr:
+        raise SystemExit(f"FAIL: DMC {mode} convergence response must keep the unsupported-envelope contract violation diagnostic: {result!r}")
 
 log = open(sys.argv[2], encoding="utf-8").read()
 if f"converge|{identity}|{base}" not in log:
@@ -604,7 +619,23 @@ if ('converge' === $operation && 'fixture-token' === $value) {
         exit(0);
     }
     if ('refused' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'code' => 'destination_diverged', 'identity_token' => $value, 'base_sha' => $base, 'before_head' => '1111111111111111111111111111111111111111', 'after_head' => '2222222222222222222222222222222222222222', 'changed' => false)) . "\n";
+        exit(0);
+    }
+    if ('refused_mismatched' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'code' => 'destination_diverged', 'identity_token' => 'other-token', 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
+    if ('refused_stale' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'code' => 'destination_diverged', 'identity_token' => $value, 'base_sha' => '0000000000000000000000000000000000000000')) . "\n";
+        exit(0);
+    }
+    if ('refused_codeless' === $mode) {
         echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v1', 'status' => 'refused', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
+        exit(0);
+    }
+    if ('unknown_schema' === $mode) {
+        echo json_encode(array('schema' => 'datamachine-code/worktree-convergence/v2', 'status' => 'refused', 'code' => 'destination_diverged', 'identity_token' => $value, 'base_sha' => $base)) . "\n";
         exit(0);
     }
 }
