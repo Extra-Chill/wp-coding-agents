@@ -9,13 +9,10 @@ wp_cmd() {
     run_cmd "${WP_CONTROL_TRANSPORT[@]}" "${user_args[@]}" "--path=$WORDPRESS_PATH" "$@"
     return
   fi
-  if [ "$IS_STUDIO" = true ]; then
-    # shellcheck disable=SC2086
-    run_cmd studio wp "$@" --path="$SITE_PATH"
-  else
-    # shellcheck disable=SC2086
-    run_cmd $WP_CMD "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
-  fi
+  # WP_CMD is resolved once from explicit configuration and runtime capability.
+  # Environment identity does not change it at execution time.
+  # shellcheck disable=SC2086
+  run_cmd $WP_CMD "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
 }
 
 # Run a WP-CLI command as the SERVICE user rather than the caller.

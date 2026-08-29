@@ -71,14 +71,10 @@ homeboy_json_array() {
 
 homeboy_dmc_wp_argv() {
   local argv=()
-  if [ "${IS_STUDIO:-false}" = true ]; then
-    argv=(studio wp)
-  else
-    # WP_CMD is intentionally a command string in setup profiles (e.g. "wp" or
-    # "studio wp"). Split it the same way the existing wp_cmd helper invokes it.
-    # shellcheck disable=SC2206
-    argv=(${WP_CMD:-wp})
-  fi
+  # WP_CMD is intentionally a command string in setup profiles (e.g. "wp" or
+  # "studio wp"). Split it the same way the existing wp_cmd helper invokes it.
+  # shellcheck disable=SC2206
+  argv=(${WP_CMD:-wp})
 
   printf '%s\n' "${argv[@]}"
 }

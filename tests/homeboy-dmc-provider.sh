@@ -39,6 +39,16 @@ WITH_HOMEBOY=false
 mkdir -p "$SITE_PATH/wp-content/plugins/data-machine-code/bin" "$TMP/dmc-source/bin" "$DM_WORKSPACE_DIR"
 touch "$SITE_PATH/wp-config.php"
 
+default_transport="$(homeboy_dmc_command_json ensure)"
+case "$default_transport" in
+  '["wp",'*) ;;
+  *)
+    echo "FAIL: Studio environment metadata replaced the explicit wp transport: $default_transport"
+    exit 1
+    ;;
+esac
+WP_CMD="studio wp"
+
 assert_contains() {
   local needle="$1" file="$2"
   if ! grep -qF -- "$needle" "$file"; then
