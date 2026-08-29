@@ -158,7 +158,7 @@ function compile(profile) {
   }
 
   if (target.wordpress_studio || overlays.wordpress_studio) {
-    env.WP_CMD = "studio wp"
+    env.WP_CLI_TRANSPORT_JSON = '["studio","wp"]'
   }
 
   const runtime = normalizeRuntime(profile, availableRuntimes, warnings)
@@ -200,7 +200,7 @@ function compile(profile) {
     const runtimeOnlyEnv = {}
     const wordpressPath = target.wordpress_path || (target.domain ? `/var/www/${target.domain}` : "")
     if (wordpressPath) runtimeOnlyEnv.EXISTING_WP = wordpressPath
-    if (env.WP_CMD) runtimeOnlyEnv.WP_CMD = env.WP_CMD
+    if (env.WP_CLI_TRANSPORT_JSON) runtimeOnlyEnv.WP_CLI_TRANSPORT_JSON = env.WP_CLI_TRANSPORT_JSON
 
     for (const name of runtime.requested.slice(1)) {
       const runtimeOnlyCommand = ["./setup.sh"]

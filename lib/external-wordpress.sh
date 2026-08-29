@@ -22,21 +22,8 @@ external_wordpress_prepare_transport() {
   [ -n "${RUNTIME_PROJECT_ROOT:-}" ] || error "--external-wordpress requires --runtime-project-root or RUNTIME_PROJECT_ROOT"
   [ -n "${WORDPRESS_PATH:-}" ] || error "--external-wordpress requires --wordpress-path or WORDPRESS_PATH"
   [ -n "${WP_CONTROL_TRANSPORT_JSON:-}" ] || error "--external-wordpress requires WP_CONTROL_TRANSPORT_JSON, a JSON argv array"
-  python3 - "$WP_CONTROL_TRANSPORT_JSON" <<'PY' || error "WP_CONTROL_TRANSPORT_JSON must be a non-empty JSON array of non-empty strings without NUL bytes"
-import json, sys
-value = json.loads(sys.argv[1])
-if not isinstance(value, list) or not value or any(not isinstance(item, str) or not item or "\0" in item for item in value):
-    raise SystemExit(1)
-PY
-  WP_CONTROL_TRANSPORT=()
-  while IFS= read -r -d '' transport_argument; do
-    WP_CONTROL_TRANSPORT+=("$transport_argument")
-  done < <(python3 - "$WP_CONTROL_TRANSPORT_JSON" <<'PY'
-import json, sys
-for item in json.loads(sys.argv[1]):
-    sys.stdout.buffer.write(item.encode() + b"\0")
-PY
-)
+  wp_cli_transport_set_json "$WP_CONTROL_TRANSPORT_JSON"
+  WP_CONTROL_TRANSPORT=("${WP_CLI_TRANSPORT[@]}")
 
   if [ "${DRY_RUN:-false}" != true ]; then
     mkdir -p "$RUNTIME_PROJECT_ROOT"

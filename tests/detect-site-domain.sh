@@ -72,7 +72,7 @@ WP_CMD=""
 
 detect_environment > "$TMP/output.log"
 
-if [ "$WP_CMD" != "wp" ] || [ -s "$STUDIO_LOG" ]; then
+if [ "$(wp_cli_transport_display)" != "wp" ] || [ -s "$STUDIO_LOG" ]; then
   echo "FAIL: Studio detection did not prefer the usable direct wp transport"
   cat "$TMP/output.log" "$STUDIO_LOG"
   exit 1
@@ -116,7 +116,7 @@ SITE_DOMAIN=""
 WP_CMD=""
 : > "$STUDIO_LOG"
 detect_environment > "$TMP/studio-fallback-output.log"
-if [ "$WP_CMD" != "studio wp" ] || [ "$SITE_DOMAIN" != "intelligence-chubes4.local" ] || [ ! -s "$STUDIO_LOG" ]; then
+if [ "$(wp_cli_transport_display)" != "studio wp" ] || [ "$SITE_DOMAIN" != "intelligence-chubes4.local" ] || [ ! -s "$STUDIO_LOG" ]; then
   echo "FAIL: unusable direct WP-CLI did not fall back to the Studio transport"
   cat "$TMP/studio-fallback-output.log" "$STUDIO_LOG"
   exit 1
@@ -127,7 +127,7 @@ run_cmd() {
   printf '<%s>' "$@" > "$RUN_LOG"
 }
 IS_STUDIO=true
-WP_CMD="wp"
+wp_cli_transport_set wp
 WP_ROOT_FLAG=""
 wp_cmd option get siteurl
 if [ "$(cat "$RUN_LOG")" != "<wp><option><get><siteurl><--path=$SITE_PATH>" ]; then
@@ -135,7 +135,7 @@ if [ "$(cat "$RUN_LOG")" != "<wp><option><get><siteurl><--path=$SITE_PATH>" ]; t
   cat "$RUN_LOG"
   exit 1
 fi
-WP_CMD="studio wp"
+wp_cli_transport_set studio wp
 wp_cmd option get siteurl
 if [ "$(cat "$RUN_LOG")" != "<studio><wp><option><get><siteurl><--path=$SITE_PATH>" ]; then
   echo "FAIL: wp_cmd did not preserve the explicit Studio transport"
@@ -146,14 +146,14 @@ fi
 WP_CMD=""
 EXISTING_WP="$SITE_PATH"
 detect_plugins_only_environment > "$TMP/plugins-only-output.log"
-if [ "$WP_CMD" != "studio wp" ]; then
+if [ "$(wp_cli_transport_display)" != "studio wp" ]; then
   echo "FAIL: plugin-only detection did not select the available Studio fallback"
   cat "$TMP/plugins-only-output.log"
   exit 1
 fi
 WP_CMD="wp"
 detect_plugins_only_environment > "$TMP/plugins-only-explicit-output.log"
-if [ "$WP_CMD" != "wp" ]; then
+if [ "$(wp_cli_transport_display)" != "wp" ]; then
   echo "FAIL: plugin-only detection replaced the explicit wp transport"
   cat "$TMP/plugins-only-explicit-output.log"
   exit 1

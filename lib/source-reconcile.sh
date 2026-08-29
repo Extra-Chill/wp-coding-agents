@@ -120,9 +120,7 @@ source_reconcile_run() {
   fi
 
   local out
-  # shellcheck disable=SC2086
-  out="$($WP_CMD eval 'if ( function_exists( "wp_coding_agents_reconcile_sources" ) ) { $r = wp_coding_agents_reconcile_sources( true ); echo $r["status"] . ( isset( $r["reason"] ) ? ": " . $r["reason"] : "" ); } else { echo "unavailable"; }' \
-    $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true)"
+  out="$(wp_cmd eval 'if ( function_exists( "wp_coding_agents_reconcile_sources" ) ) { $r = wp_coding_agents_reconcile_sources( true ); echo $r["status"] . ( isset( $r["reason"] ) ? ": " . $r["reason"] : "" ); } else { echo "unavailable"; }' 2>/dev/null || true)"
 
   case "$out" in
     reconciled*) log "  Owned sources reconciled from site state" ;;

@@ -16,45 +16,6 @@ if [ -z "$SITE_PATH" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Detect WP-CLI command
-# ---------------------------------------------------------------------------
-
-detect_wp_cmd() {
-  # 1. Installed Studio CLI
-  if [ -f "$SITE_PATH/STUDIO.md" ] && command -v studio &>/dev/null; then
-    echo "studio wp"
-    return
-  fi
-
-  # 2. Dev CLI — site lives inside the Studio repo (developers working on Studio itself)
-  if [ -f "$SITE_PATH/STUDIO.md" ]; then
-    local search_dir="$SITE_PATH"
-    while [ "$search_dir" != "/" ]; do
-      local dev_cli="$search_dir/apps/cli/dist/cli/main.mjs"
-      if [ -f "$dev_cli" ]; then
-        echo "node $dev_cli wp"
-        return
-      fi
-      search_dir=$(dirname "$search_dir")
-    done
-  fi
-
-  # 3. System wp-cli
-  if command -v wp &>/dev/null; then
-    local cmd="wp --path=$SITE_PATH"
-    if [ "$(id -u)" -eq 0 ]; then
-      cmd="$cmd --allow-root"
-    fi
-    echo "$cmd"
-    return
-  fi
-
-  return 1
-}
-
-WP_CMD=$(detect_wp_cmd) || exit 0
-
-# ---------------------------------------------------------------------------
 # Optional single-agent scope (OpenCode parity)
 # ---------------------------------------------------------------------------
 # setup.sh / upgrade.sh write dm-agent-sync.env next to this hook with the
@@ -69,6 +30,75 @@ if [ -f "$HOOK_DIR/dm-agent-sync.env" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Resolve WP-CLI transport
+# ---------------------------------------------------------------------------
+
+WP_CLI_TRANSPORT=()
+
+load_wp_cli_transport_json() {
+  local argument
+  while IFS= read -r -d '' argument; do
+    WP_CLI_TRANSPORT+=("$argument")
+  done < <(python3 - "$1" <<'PY'
+import json, sys
+value = json.loads(sys.argv[1])
+if not isinstance(value, list) or not value or any(not isinstance(item, str) or not item or "\0" in item for item in value):
+    raise SystemExit(1)
+for item in value:
+    sys.stdout.buffer.write(item.encode() + b"\0")
+PY
+  )
+  [ "${#WP_CLI_TRANSPORT[@]}" -gt 0 ]
+}
+
+resolve_wp_cli_transport() {
+  if [ -n "${DATAMACHINE_WP_TRANSPORT_JSON:-}" ]; then
+    load_wp_cli_transport_json "$DATAMACHINE_WP_TRANSPORT_JSON"
+    return
+  fi
+
+  if command -v wp >/dev/null 2>&1 && wp eval 'return;' --path="$SITE_PATH" >/dev/null 2>&1; then
+    WP_CLI_TRANSPORT=(wp)
+    return
+  fi
+
+  if [ -f "$SITE_PATH/STUDIO.md" ]; then
+    local search_dir="$SITE_PATH" dev_cli
+    while [ "$search_dir" != "/" ]; do
+      dev_cli="$search_dir/apps/cli/dist/cli/main.mjs"
+      if [ -f "$dev_cli" ] && command -v node >/dev/null 2>&1; then
+        WP_CLI_TRANSPORT=(node "$dev_cli" wp)
+        return
+      fi
+      search_dir=$(dirname "$search_dir")
+    done
+    if command -v studio >/dev/null 2>&1; then
+      WP_CLI_TRANSPORT=(studio wp)
+      return
+    fi
+  fi
+
+  return 1
+}
+
+wp_cli() {
+  local root_args=()
+  [ "$(id -u)" -ne 0 ] || root_args=(--allow-root)
+  "${WP_CLI_TRANSPORT[@]}" "$@" "${root_args[@]}" --path="$SITE_PATH"
+}
+
+wp_cli_display() {
+  local output="" argument quoted
+  for argument in "${WP_CLI_TRANSPORT[@]}"; do
+    printf -v quoted '%q' "$argument"
+    output="${output:+$output }$quoted"
+  done
+  printf '%s' "$output"
+}
+
+resolve_wp_cli_transport || exit 0
+
+# ---------------------------------------------------------------------------
 # Refresh composable files before computing @ includes
 # ---------------------------------------------------------------------------
 # SectionRegistry callbacks can read live state (Intelligence sources, skill
@@ -79,7 +109,7 @@ fi
 # guarantees AGENTS.md (and any sibling composable files) match live state
 # at the moment the coding-agent session starts.
 
-$WP_CMD datamachine memory compose >/dev/null 2>&1 || true
+wp_cli datamachine memory compose >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # Resolve which agents to inject
@@ -90,7 +120,7 @@ $WP_CMD datamachine memory compose >/dev/null 2>&1 || true
 if [ -n "${DM_AGENT_SLUG:-}" ]; then
   ACTIVE_SLUGS="$DM_AGENT_SLUG"
 else
-  AGENTS_RAW=$($WP_CMD datamachine agents list --format=json 2>/dev/null) || exit 0
+  AGENTS_RAW=$(wp_cli datamachine agents list --format=json 2>/dev/null) || exit 0
 
   # Extract JSON array. WP-CLI may append summary text (e.g. "Total: 2 agent(s).")
   # on the same line as the closing bracket. Use Python to safely extract the array.
@@ -123,7 +153,7 @@ fi
 
 ALL_FILES=""
 while IFS= read -r slug; do
-  PATHS_RAW=$($WP_CMD datamachine memory paths --agent="$slug" --format=json 2>/dev/null) || continue
+  PATHS_RAW=$(wp_cli datamachine memory paths --agent="$slug" --format=json 2>/dev/null) || continue
 
   FILES=$(echo "$PATHS_RAW" | python3 -c "
 import sys, json, re
@@ -156,7 +186,7 @@ while IFS= read -r f; do
 "
 done <<< "$UNIQUE_FILES"
 
-DISCOVER_LINE="Discover DM paths: \`$WP_CMD datamachine memory paths\`"
+DISCOVER_LINE="Discover DM paths: \`$(wp_cli_display) datamachine memory paths\`"
 NEW_CONTENT="${AT_INCLUDES}
 ${DISCOVER_LINE}"
 

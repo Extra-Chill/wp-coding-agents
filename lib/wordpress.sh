@@ -3,16 +3,14 @@
 
 # Run a WP-CLI command with the correct flags for the current platform.
 wp_cmd() {
+  wp_cli_transport_ensure
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     local user_args=()
     [ -z "${WORDPRESS_USER:-}" ] || user_args=("--user=$WORDPRESS_USER")
-    run_cmd "${WP_CONTROL_TRANSPORT[@]}" "${user_args[@]}" "--path=$WORDPRESS_PATH" "$@"
+    run_cmd "${WP_CLI_TRANSPORT[@]}" "${user_args[@]}" "--path=$WORDPRESS_PATH" "$@"
     return
   fi
-  # WP_CMD is resolved once from explicit configuration and runtime capability.
-  # Environment identity does not change it at execution time.
-  # shellcheck disable=SC2086
-  run_cmd $WP_CMD "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
+  run_cmd "${WP_CLI_TRANSPORT[@]}" "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
 }
 
 # Run a WP-CLI command as the SERVICE user rather than the caller.
@@ -40,13 +38,12 @@ wp_run_as_service_user() {
      { [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; } && \
      command -v sudo >/dev/null 2>&1; then
     # No WP_ROOT_FLAG: the whole point is that this invocation is not root.
-    # shellcheck disable=SC2086
-    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" $WP_CMD "$@"
+    wp_cli_transport_ensure
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@"
     return $?
   fi
 
-  # shellcheck disable=SC2086
-  $WP_CMD "$@" $WP_ROOT_FLAG
+  wp_cli "$@" $WP_ROOT_FLAG
 }
 
 # Activate a plugin, handling multisite --url= branching.
@@ -278,10 +275,11 @@ install_wordpress() {
     fi
 
     if [ ! -f wp-config.php ] || [ "$DRY_RUN" = true ]; then
-      run_cmd $WP_CMD core download --allow-root
-      run_cmd $WP_CMD config create --allow-root \
+      wp_cli_transport_ensure
+      run_cmd "${WP_CLI_TRANSPORT[@]}" core download --allow-root
+      run_cmd "${WP_CLI_TRANSPORT[@]}" config create --allow-root \
         --dbname="$DB_NAME" --dbuser="$DB_USER" --dbpass="$DB_PASS" --dbhost="localhost"
-      run_cmd $WP_CMD core install --allow-root \
+      run_cmd "${WP_CLI_TRANSPORT[@]}" core install --allow-root \
         --url="https://$SITE_DOMAIN" --title="My Site" \
         --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASS" \
         --admin_email="$WP_ADMIN_EMAIL"
@@ -300,9 +298,11 @@ setup_multisite() {
     log "Phase 3.5: Converting to WordPress Multisite ($MULTISITE_TYPE)..."
 
     if [ "$MULTISITE_TYPE" = "subdomain" ]; then
-      run_cmd $WP_CMD core multisite-convert --subdomains --allow-root --path="$SITE_PATH"
+      wp_cli_transport_ensure
+      run_cmd "${WP_CLI_TRANSPORT[@]}" core multisite-convert --subdomains --allow-root --path="$SITE_PATH"
     else
-      run_cmd $WP_CMD core multisite-convert --allow-root --path="$SITE_PATH"
+      wp_cli_transport_ensure
+      run_cmd "${WP_CLI_TRANSPORT[@]}" core multisite-convert --allow-root --path="$SITE_PATH"
     fi
 
     log "Multisite conversion complete"

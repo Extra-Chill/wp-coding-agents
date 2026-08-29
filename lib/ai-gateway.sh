@@ -85,7 +85,7 @@ ai_gateway_configure_wordpress() {
 
   log "Configuring WP AI Gateway route: $AI_GATEWAY_ROUTE_PROVIDER / $AI_GATEWAY_ROUTE_MODEL"
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD ai-gateway configure $AI_GATEWAY_ROUTE_PROVIDER $AI_GATEWAY_ROUTE_MODEL --path=$SITE_PATH $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) ai-gateway configure $AI_GATEWAY_ROUTE_PROVIDER $AI_GATEWAY_ROUTE_MODEL --path=$SITE_PATH $WP_ROOT_FLAG"
     return 0
   fi
 

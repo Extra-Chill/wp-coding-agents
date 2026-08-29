@@ -97,8 +97,7 @@ owned_discovery_supported() {
 # has nothing to do with what an apply would do.
 _owned_discovery_eval() {
   owned_discovery_supported || return 1
-  # shellcheck disable=SC2086
-  $WP_CMD eval "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
+  wp_cmd eval "$1" 2>/dev/null || true
 }
 
 # 0 when the wp.org signal is present and recent enough to be evidence.
@@ -201,7 +200,7 @@ owned_discovery_record_exclusions() {
   [ -n "$excluded" ] || return 0
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $OWNED_DISCOVERY_EXCLUDED_OPTION '<${excluded}>'"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $OWNED_DISCOVERY_EXCLUDED_OPTION '<${excluded}>'"
     return 0
   fi
   owned_discovery_supported || return 0

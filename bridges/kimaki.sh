@@ -1379,12 +1379,9 @@ _kimaki_datamachine_wp_cmd() {
     external_wordpress_control_command
     return 0
   fi
-  if [ "${IS_STUDIO:-false}" = true ]; then
-    printf '%s\n' "studio wp"
-    return 0
-  fi
-
-  printf '%s\n' "${WP_CMD:-wp}"
+  wp_cli_transport_ensure
+  wp_cli_transport_display
+  printf '\n'
 }
 
 _kimaki_skill_filter_mode() {

@@ -67,7 +67,7 @@ Do not duplicate script internals in this guide. Compile commands from the setup
 - Preserve user state. Do not rewrite existing runtime config or chat auth files outside what `setup.sh` is designed to manage.
 - Keep Codebox minion provider auth separate from optional WP AI Gateway external-client setup.
 - Keep Homeboy external to wp-coding-agents. The WordPress site root is a Homeboy project, not a component.
-- Use `WP_CMD="studio wp"` for WordPress Studio installs when the compiler selects that overlay.
+- Use `WP_CLI_TRANSPORT_JSON='["studio","wp"]'` when the compiler explicitly selects the WordPress Studio transport.
 - Use `--with-homeboy` only when the operator wants the optional developer layer.
 - Use `--no-chat` when the operator wants terminal/SSH-only operation.
 - Use `--no-skills` only when the operator explicitly wants to skip installing the upgrade skill on the target runtime.

@@ -20,6 +20,129 @@ run_cmd() {
   fi
 }
 
+WP_CLI_TRANSPORT=()
+WP_CLI_TRANSPORT_CANDIDATE_NAMES=()
+WP_CLI_TRANSPORT_CANDIDATE_JSON=()
+
+wp_cli_transport_parse_json() {
+  local json="$1" argument
+  WP_CLI_TRANSPORT=()
+  while IFS= read -r -d '' argument; do
+    WP_CLI_TRANSPORT+=("$argument")
+  done < <(python3 - "$json" <<'PY'
+import json, sys
+value = json.loads(sys.argv[1])
+if not isinstance(value, list) or not value or any(not isinstance(item, str) or not item or "\0" in item for item in value):
+    raise SystemExit(1)
+for item in value:
+    sys.stdout.buffer.write(item.encode() + b"\0")
+PY
+  ) || return 1
+  [ "${#WP_CLI_TRANSPORT[@]}" -gt 0 ]
+}
+
+wp_cli_transport_set() {
+  [ "$#" -gt 0 ] || error "WordPress CLI transport requires at least one argv item"
+  WP_CLI_TRANSPORT=("$@")
+}
+
+wp_cli_transport_set_json() {
+  wp_cli_transport_parse_json "$1" || error "WP_CLI_TRANSPORT_JSON must be a non-empty JSON array of non-empty strings without NUL bytes"
+}
+
+wp_cli_transport_set_legacy_command() {
+  local command="$1" argument json
+  json="$(python3 - "$command" <<'PY'
+import json, shlex, sys
+parts = shlex.split(sys.argv[1])
+if not parts:
+    raise SystemExit(1)
+print(json.dumps(parts, separators=(",", ":")))
+PY
+)" || error "WP_CMD must contain a valid command"
+  wp_cli_transport_set_json "$json"
+}
+
+wp_cli_transport_ensure() {
+  [ "${#WP_CLI_TRANSPORT[@]}" -eq 0 ] || return 0
+  if [ -n "${WP_CLI_TRANSPORT_JSON:-}" ]; then
+    wp_cli_transport_set_json "$WP_CLI_TRANSPORT_JSON"
+  elif [ -n "${WP_CMD:-}" ]; then
+    wp_cli_transport_set_legacy_command "$WP_CMD"
+  else
+    wp_cli_transport_set wp
+  fi
+}
+
+wp_cli_transport_display() {
+  local output="" argument quoted
+  wp_cli_transport_ensure
+  for argument in "${WP_CLI_TRANSPORT[@]}"; do
+    printf -v quoted '%q' "$argument"
+    output="${output:+$output }$quoted"
+  done
+  printf '%s' "$output"
+}
+
+wp_cli_transport_json() {
+  wp_cli_transport_ensure
+  python3 - "${WP_CLI_TRANSPORT[@]}" <<'PY'
+import json, sys
+print(json.dumps(sys.argv[1:], separators=(",", ":")))
+PY
+}
+
+wp_cli_transport_register_candidate() {
+  local name="$1"
+  shift
+  [ "$#" -gt 0 ] || error "WordPress CLI transport candidate '$name' has no argv"
+  WP_CLI_TRANSPORT_CANDIDATE_NAMES+=("$name")
+  WP_CLI_TRANSPORT_CANDIDATE_JSON+=("$(python3 - "$@" <<'PY'
+import json, sys
+print(json.dumps(sys.argv[1:], separators=(",", ":")))
+PY
+)")
+}
+
+wp_cli_transport_resolve_candidates() {
+  local index name json
+  if [ -n "${WP_CLI_TRANSPORT_JSON:-}" ]; then
+    wp_cli_transport_set_json "$WP_CLI_TRANSPORT_JSON"
+    log "Using configured WordPress CLI transport: $(wp_cli_transport_display)"
+    return
+  fi
+  if [ -n "${WP_CMD:-}" ]; then
+    wp_cli_transport_set_legacy_command "$WP_CMD"
+    log "Using configured WordPress CLI transport: $(wp_cli_transport_display)"
+    return
+  fi
+
+  index=0
+  while [ "$index" -lt "${#WP_CLI_TRANSPORT_CANDIDATE_JSON[@]}" ]; do
+    name="${WP_CLI_TRANSPORT_CANDIDATE_NAMES[$index]}"
+    json="${WP_CLI_TRANSPORT_CANDIDATE_JSON[$index]}"
+    wp_cli_transport_parse_json "$json" || error "Invalid registered WordPress CLI transport candidate: $name"
+    if command -v "${WP_CLI_TRANSPORT[0]}" >/dev/null 2>&1 && {
+      [ "${DRY_RUN:-false}" = true ] ||
+        (cd "$SITE_PATH" && "${WP_CLI_TRANSPORT[@]}" eval 'return;' ${WP_ROOT_FLAG:-} --path="$SITE_PATH" >/dev/null 2>&1)
+    }; then
+      wp_cli_transport_set "${WP_CLI_TRANSPORT[@]}"
+      log "Using WordPress CLI transport candidate '$name': $(wp_cli_transport_display)"
+      return
+    fi
+    WP_CLI_TRANSPORT=()
+    index=$((index + 1))
+  done
+
+  wp_cli_transport_set wp
+  log "Using default WordPress CLI transport: $(wp_cli_transport_display)"
+}
+
+wp_cli() {
+  wp_cli_transport_ensure
+  "${WP_CLI_TRANSPORT[@]}" "$@"
+}
+
 write_file() {
   local file_path="$1"
   local content="$2"

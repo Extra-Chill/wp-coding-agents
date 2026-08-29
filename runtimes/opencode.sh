@@ -96,14 +96,14 @@ for f in data:
     if path:
         print(path)
 ")
-      log "Agent files discovered via '$WP_CMD datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+      log "Agent files discovered via '$(wp_cli_transport_display) datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
       return
     fi
 
     DM_PATHS_RAW=$(wp_cmd datamachine memory paths --format=json $AGENT_FLAG 2>/dev/null || echo "")
     DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -z "$DM_PATHS_JSON" ]; then
-      error "'$WP_CMD datamachine memory injectable-files' and '$WP_CMD datamachine memory paths' returned no JSON — is Data Machine active and agent created?"
+      error "'$(wp_cli_transport_display) datamachine memory injectable-files' and '$(wp_cli_transport_display) datamachine memory paths' returned no JSON — is Data Machine active and agent created?"
     fi
     DM_AGENT_FILES=$(echo "$DM_PATHS_JSON" | python3 -c "
 import sys, json
@@ -111,7 +111,7 @@ data = json.load(sys.stdin)
 for f in data.get('relative_files', []):
     print(f)
 ")
-    log "Agent files discovered via '$WP_CMD datamachine memory paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+    log "Agent files discovered via '$(wp_cli_transport_display) datamachine memory paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
   else
     # Dry-run: use placeholder paths
     DM_DRY_SLUG="${AGENT_SLUG:-AGENT_SLUG}"

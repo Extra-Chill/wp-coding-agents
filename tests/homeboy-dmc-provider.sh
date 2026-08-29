@@ -47,7 +47,19 @@ case "$default_transport" in
     exit 1
     ;;
 esac
-WP_CMD="studio wp"
+WP_CMD=""
+WP_CLI_TRANSPORT_JSON='["/runtime path/php","/runtime path/wp-cli.phar"]'
+WP_CLI_TRANSPORT=()
+argv_transport="$(homeboy_dmc_command_json ensure)"
+case "$argv_transport" in
+  '["/runtime path/php","/runtime path/wp-cli.phar",'*) ;;
+  *)
+    echo "FAIL: canonical argv transport was not serialized losslessly: $argv_transport"
+    exit 1
+    ;;
+esac
+unset WP_CLI_TRANSPORT_JSON
+wp_cli_transport_set studio wp
 
 assert_contains() {
   local needle="$1" file="$2"

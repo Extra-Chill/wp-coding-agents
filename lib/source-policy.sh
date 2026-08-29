@@ -77,16 +77,7 @@ SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
 _source_policy_option_read() {
   local key="$1"
   [ -n "${SITE_PATH:-}" ] || return 0
-  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
-    wp_cmd option get "$key" 2>/dev/null || true
-    return 0
-  fi
-  if [ "${IS_STUDIO:-false}" = true ]; then
-    studio wp option get "$key" --path="$SITE_PATH" 2>/dev/null || true
-    return 0
-  fi
-  # shellcheck disable=SC2086
-  $WP_CMD option get "$key" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
+  wp_cmd option get "$key" 2>/dev/null || true
 }
 
 # Read an option, falling back to its pre-rename name.
@@ -278,7 +269,7 @@ source_policy_record_mode() {
   local mode="${SOURCE_MODE:-$SOURCE_POLICY_DEFAULT_MODE}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_OPTION $mode"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_OPTION $mode"
     return 0
   fi
 
@@ -389,7 +380,7 @@ source_policy_record_log_paths() {
   local paths="${SOURCE_LOG_PATHS:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_LOG_OPTION '<${paths}>'"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_LOG_OPTION '<${paths}>'"
     return 0
   fi
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
@@ -506,7 +497,7 @@ source_policy_record_writable_paths() {
   local paths="${OWNED_WRITABLE:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_WRITABLE_OPTION '<${paths}>'"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_WRITABLE_OPTION '<${paths}>'"
     return 0
   fi
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
@@ -587,7 +578,7 @@ source_policy_record_owned_sources() {
   local sources="${OWNED_SOURCES:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update $SOURCE_POLICY_OWNED_OPTION '<${sources}>'"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_OWNED_OPTION '<${sources}>'"
     return 0
   fi
 

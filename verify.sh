@@ -37,6 +37,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
 
 QUIET=false
 JSON=false
@@ -101,14 +102,13 @@ if [ -z "$SITE_PATH" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
   exit 2
 fi
 
-WP_CMD="${WP_CMD:-wp}"
-command -v "$WP_CMD" >/dev/null 2>&1 || { echo "verify: $WP_CMD not on PATH" >&2; exit 2; }
+wp_cli_transport_ensure
+command -v "${WP_CLI_TRANSPORT[0]}" >/dev/null 2>&1 || { echo "verify: $(wp_cli_transport_display) not on PATH" >&2; exit 2; }
 WP_ROOT_FLAG=""
 [ "$(id -u)" -eq 0 ] && WP_ROOT_FLAG="--allow-root"
 
 wp_opt() {
-  # shellcheck disable=SC2086
-  "$WP_CMD" option get "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
+  wp_cli option get "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
 }
 
 SOURCE_MODE="$(wp_opt wp_coding_agents_source_mode | tr -d '[:space:]')"

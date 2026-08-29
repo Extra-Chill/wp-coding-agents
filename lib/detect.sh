@@ -52,29 +52,13 @@ detect_root_requirement() {
 }
 
 resolve_wp_cli_transport() {
-  if [ -n "${WP_CMD:-}" ]; then
-    log "Using configured WordPress CLI transport: $WP_CMD"
-    return
+  WP_CLI_TRANSPORT_CANDIDATE_NAMES=()
+  WP_CLI_TRANSPORT_CANDIDATE_JSON=()
+  wp_cli_transport_register_candidate direct wp
+  if [ "${IS_STUDIO:-false}" = true ]; then
+    wp_cli_transport_register_candidate studio studio wp
   fi
-
-  if command -v wp >/dev/null 2>&1 && {
-    [ "${DRY_RUN:-false}" = true ] ||
-      # shellcheck disable=SC2086
-      (cd "$SITE_PATH" && wp eval 'return;' $WP_ROOT_FLAG --path="$SITE_PATH" >/dev/null 2>&1)
-  }; then
-    WP_CMD="wp"
-    log "Using direct WordPress CLI transport"
-    return
-  fi
-
-  if [ "${IS_STUDIO:-false}" = true ] && command -v studio >/dev/null 2>&1; then
-    WP_CMD="studio wp"
-    log "Using WordPress Studio CLI transport"
-    return
-  fi
-
-  WP_CMD="wp"
-  log "Using default WordPress CLI transport: wp"
+  wp_cli_transport_resolve_candidates
 }
 
 detect_environment() {
@@ -162,8 +146,8 @@ detect_environment() {
       SITE_PATH=$(cd "$SITE_PATH" 2>/dev/null && pwd || echo "$SITE_PATH")
     fi
 
-    # Detect WordPress Studio as environment metadata. WP_CMD remains the
-    # operator-selected WordPress transport.
+    # Detect WordPress Studio as environment metadata and register its CLI as
+    # one transport candidate. The generic resolver owns selection.
     if command -v studio &> /dev/null && [ -f "$SITE_PATH/STUDIO.md" ]; then
       IS_STUDIO=true
       log "Detected WordPress Studio environment"
@@ -174,17 +158,17 @@ detect_environment() {
     if [ "$DRY_RUN" = true ]; then
       detected_site_domain="${SITE_DOMAIN:-}"
     else
-      detected_site_domain=$(cd "$SITE_PATH" && $WP_CMD option get siteurl $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | sed -E 's|^https?://||' || true)
+      detected_site_domain=$(cd "$SITE_PATH" && wp_cli option get siteurl $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | sed -E 's|^https?://||' || true)
     fi
     SITE_DOMAIN="${SITE_DOMAIN:-${detected_site_domain:-$(basename "$SITE_PATH")}}"
     log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
 
     # Detect if existing WP is multisite
     if [ "$DRY_RUN" = false ]; then
-      IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && $WP_CMD eval 'echo is_multisite() ? "yes" : "no";' $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "no")
+      IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && wp_cli eval 'echo is_multisite() ? "yes" : "no";' $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "no")
       if [ "$IS_EXISTING_MULTISITE" = "yes" ]; then
         MULTISITE=true
-        IS_SUBDOMAIN=$(cd "$SITE_PATH" && $WP_CMD eval 'echo is_subdomain_install() ? "yes" : "no";' $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "no")
+        IS_SUBDOMAIN=$(cd "$SITE_PATH" && wp_cli eval 'echo is_subdomain_install() ? "yes" : "no";' $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "no")
         if [ "$IS_SUBDOMAIN" = "yes" ]; then
           MULTISITE_TYPE="subdomain"
         fi
@@ -195,7 +179,7 @@ detect_environment() {
     SITE_DOMAIN="${SITE_DOMAIN:-example.com}"
     SITE_PATH="${SITE_PATH:-/var/www/$SITE_DOMAIN}"
   fi
-  WP_CMD="${WP_CMD:-wp}"
+  wp_cli_transport_ensure
 
   DB_NAME="${DB_NAME:-wordpress}"
   DB_USER="${DB_USER:-wordpress}"
