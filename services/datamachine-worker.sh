@@ -2,6 +2,8 @@
 # Optional Data Machine queue worker. This service drains Data Machine work; it
 # does not act as a generic WP-Cron heartbeat.
 
+DATAMACHINE_WORKER_TRANSPORT=()
+
 datamachine_worker_systemd_units() { echo "datamachine-worker.service datamachine-worker.timer"; }
 datamachine_worker_launchd_label() { echo "com.wp.datamachine-worker"; }
 datamachine_worker_state_file() { printf '%s/.config/wp-coding-agents/datamachine-worker.enabled' "$SERVICE_HOME"; }
@@ -49,46 +51,24 @@ _datamachine_worker_xml_text() {
   printf '%s' "$value"
 }
 
-_datamachine_worker_uses_studio() {
-  [ "${WP_CMD:-wp}" = "studio wp" ]
-}
-
-_datamachine_worker_resolve_studio_bin() {
-  local candidate="${STUDIO_BIN:-}"
-  local directory
-
-  if [ -z "$candidate" ]; then
-    candidate="$(command -v studio 2>/dev/null || true)"
-  fi
-
-  if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ ! -x "$candidate" ]; then
-    printf 'Data Machine worker requires an executable Studio CLI; install it or ensure studio is on PATH during setup/upgrade.\n' >&2
-    return 1
-  fi
-
-  case "$candidate" in
-    /*) printf '%s\n' "$candidate" ;;
-    *)
-      directory="$(cd "$(dirname "$candidate")" && pwd)" || return 1
-      printf '%s/%s\n' "$directory" "$(basename "$candidate")"
-      ;;
-  esac
-}
-
 datamachine_worker_prepare_command() {
-  _datamachine_worker_uses_studio || return 0
-  STUDIO_BIN="$(_datamachine_worker_resolve_studio_bin)" || return 1
-  export STUDIO_BIN
+  local executable
+  wp_cli_transport_ensure
+  DATAMACHINE_WORKER_TRANSPORT=("${WP_CLI_TRANSPORT[@]}")
+  executable="$(command -v "${WP_CLI_TRANSPORT[0]}" 2>/dev/null || true)"
+  if [ -n "$executable" ]; then
+    DATAMACHINE_WORKER_TRANSPORT[0]="$executable"
+  fi
 }
 
 _datamachine_worker_command() {
-  if _datamachine_worker_uses_studio; then
-    [ -n "${STUDIO_BIN:-}" ] || datamachine_worker_prepare_command || return 1
-    printf 'cd "%s" && %s wp datamachine worker run --once' "$SITE_PATH" "$(_datamachine_worker_shell_quote "$STUDIO_BIN")"
-    return
-  fi
-
-  printf '%s' "cd \"$SITE_PATH\" && $WP_CMD datamachine worker run --once"
+  local command="" argument quoted
+  [ "${#DATAMACHINE_WORKER_TRANSPORT[@]}" -gt 0 ] || datamachine_worker_prepare_command || return 1
+  for argument in "${DATAMACHINE_WORKER_TRANSPORT[@]}"; do
+    printf -v quoted '%q' "$argument"
+    command="${command:+$command }$quoted"
+  done
+  printf 'cd "%s" && %s datamachine worker run --once' "$SITE_PATH" "$command"
 }
 
 datamachine_worker_render_systemd_service() {

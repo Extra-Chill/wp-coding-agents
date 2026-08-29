@@ -38,7 +38,7 @@ sync_carried_plugins() {
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} mkdir -p $target_dir"
       echo -e "${BLUE}[dry-run]${NC} rsync -a --no-perms --no-owner --no-group --omit-dir-times --delete $source_dir/ $target_dir/"
-      echo -e "${BLUE}[dry-run]${NC} $WP_CMD plugin activate $slug --path=$SITE_PATH $WP_ROOT_FLAG"
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) plugin activate $slug --path=$SITE_PATH $WP_ROOT_FLAG"
       continue
     fi
 

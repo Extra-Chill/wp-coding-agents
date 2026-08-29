@@ -39,6 +39,28 @@ WITH_HOMEBOY=false
 mkdir -p "$SITE_PATH/wp-content/plugins/data-machine-code/bin" "$TMP/dmc-source/bin" "$DM_WORKSPACE_DIR"
 touch "$SITE_PATH/wp-config.php"
 
+default_transport="$(homeboy_dmc_command_json ensure)"
+case "$default_transport" in
+  '["wp",'*) ;;
+  *)
+    echo "FAIL: Studio environment metadata replaced the explicit wp transport: $default_transport"
+    exit 1
+    ;;
+esac
+WP_CMD=""
+WP_CLI_TRANSPORT_JSON='["/runtime path/php","/runtime path/wp-cli.phar"]'
+WP_CLI_TRANSPORT=()
+argv_transport="$(homeboy_dmc_command_json ensure)"
+case "$argv_transport" in
+  '["/runtime path/php","/runtime path/wp-cli.phar",'*) ;;
+  *)
+    echo "FAIL: canonical argv transport was not serialized losslessly: $argv_transport"
+    exit 1
+    ;;
+esac
+unset WP_CLI_TRANSPORT_JSON
+wp_cli_transport_set studio wp
+
 assert_contains() {
   local needle="$1" file="$2"
   if ! grep -qF -- "$needle" "$file"; then

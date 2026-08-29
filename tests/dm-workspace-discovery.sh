@@ -21,6 +21,7 @@ CHILD_PID_FILE="$TMP/child.pid"
 DESCENDANT_PID_FILE="$TMP/descendant.pid"
 export WP_CALLS_FILE CHILD_PID_FILE DESCENDANT_PID_FILE
 
+source "$SCRIPT_DIR/lib/common.sh"
 log() { printf '%s\n' "$1"; }
 warn() { printf '%s\n' "$1"; }
 

@@ -95,7 +95,7 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
 
   assert.equal(
     plan.commands.dry_run,
-    'EXISTING_WP="$HOME/Studio/site" WP_CMD=\'studio wp\' ./setup.sh --local --runtime opencode --chat kimaki --with-homeboy --agent-slug site --dry-run'
+    'EXISTING_WP="$HOME/Studio/site" WP_CLI_TRANSPORT_JSON=\'["studio","wp"]\' ./setup.sh --local --runtime opencode --chat kimaki --with-homeboy --agent-slug site --dry-run'
   )
   assert.ok(plan.verification.overlays.includes("verify-wordpress-studio"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))

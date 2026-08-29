@@ -51,7 +51,7 @@ for f in data:
         print(path)
 " 2>/dev/null || true)
       if [ -n "$DM_AGENT_FILES" ]; then
-        log "Agent files discovered via '$WP_CMD datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+        log "Agent files discovered via '$(wp_cli_transport_display) datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
         return
       fi
     fi
@@ -66,12 +66,12 @@ for f in data.get('relative_files', []):
     print(f)
 " 2>/dev/null || true)
       if [ -n "$DM_AGENT_FILES" ]; then
-        log "Agent files discovered via '$WP_CMD datamachine memory paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+        log "Agent files discovered via '$(wp_cli_transport_display) datamachine memory paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
         return
       fi
     fi
 
-    warn "'$WP_CMD datamachine memory injectable-files' and 'memory paths' returned no JSON — Codex AGENTS.md memory block will be skipped"
+    warn "'$(wp_cli_transport_display) datamachine memory injectable-files' and 'memory paths' returned no JSON — Codex AGENTS.md memory block will be skipped"
     DM_AGENT_FILES=""
   else
     DM_DRY_SLUG="${AGENT_SLUG:-AGENT_SLUG}"

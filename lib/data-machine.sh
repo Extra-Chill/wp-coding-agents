@@ -7,7 +7,7 @@ install_data_machine() {
 
   if [ "$MULTISITE" = true ]; then
     log "Data Machine activated on main site. Activate on subsites with:"
-    log "  $WP_CMD plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
+    log "  $(wp_cli_transport_display) plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
   fi
 
   # Data Machine Code is the workspace/git/GitHub tool surface. A managed
@@ -30,7 +30,7 @@ install_data_machine() {
         log "DATAMACHINE_WORKSPACE_PATH already defined in wp-config.php"
       fi
     elif [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
     fi
   else
     log "Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned} — no workspace on this install)"
@@ -60,7 +60,7 @@ set_compose_agents_md_constant() {
       log "DATAMACHINE_COMPOSE_AGENTS_MD already defined in wp-config.php"
     fi
   elif [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_COMPOSE_AGENTS_MD true --raw --type=constant"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) config set DATAMACHINE_COMPOSE_AGENTS_MD true --raw --type=constant"
   fi
 }
 
@@ -119,12 +119,10 @@ create_dm_agent() {
   fi
 
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
-    # shellcheck disable=SC2086
-    AGENT_NAME="${AGENT_NAME:-$($WP_CMD option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")}"
+    AGENT_NAME="${AGENT_NAME:-$(wp_cmd option get blogname 2>/dev/null || echo "$AGENT_SLUG")}"
 
     # Check if agent already exists (idempotent for re-runs)
-    # shellcheck disable=SC2086
-    EXISTING_AGENT=$($WP_CMD datamachine agents show "$AGENT_SLUG" --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "")
+    EXISTING_AGENT=$(wp_cmd datamachine agents show "$AGENT_SLUG" --format=json 2>/dev/null || echo "")
 
     if [ -z "$EXISTING_AGENT" ]; then
       log "Creating agent: $AGENT_SLUG ($AGENT_NAME)"
@@ -144,9 +142,9 @@ create_dm_agent() {
 sync_homeboy_availability() {
   if [ "$DRY_RUN" = true ]; then
     if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-      echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
     else
-      echo -e "${BLUE}[dry-run]${NC} $WP_CMD option delete datamachine_code_homeboy_available"
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option delete datamachine_code_homeboy_available"
     fi
     sync_homeboy_project_components
     return 0
@@ -182,7 +180,7 @@ discover_dm_workspace_dir() {
   workspace_file="$temp_dir/workspace"
   stderr_file="$temp_dir/stderr"
   printf -v replay_path '%q' "$SITE_PATH"
-  replay_command="${WP_CMD:-wp} datamachine-code workspace path ${WP_ROOT_FLAG:-} --path=$replay_path"
+  replay_command="$(wp_cli_transport_display) datamachine-code workspace path ${WP_ROOT_FLAG:-} --path=$replay_path"
 
   # Once authoritative discovery starts, a stale default must not survive a
   # failure and masquerade as the discovered workspace.

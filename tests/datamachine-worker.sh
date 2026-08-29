@@ -57,19 +57,13 @@ trap 'rm -r "$studio_root"' EXIT
 
 saved_path="$PATH"
 PATH="$(dirname "$studio_bin"):$saved_path"
-WP_CMD="studio wp"
-STUDIO_BIN="$studio_root/missing-studio"
-if datamachine_worker_prepare_command; then
-  echo "FAIL: missing Studio executable was accepted" >&2
-  exit 1
-fi
-unset STUDIO_BIN
+wp_cli_transport_set studio wp
 datamachine_worker_prepare_command
 studio_plist="$(datamachine_worker_render_launchd com.wp.datamachine-worker)"
 PATH="$saved_path"
 
 diff -u "$snapshot_dir/launchd-studio-absolute-path" <(printf '%s\n' "$studio_plist")
-grep -Fq "'$studio_bin' wp datamachine worker run --once" <<< "$studio_plist"
+grep -Fq "${studio_bin// /\\ } wp datamachine worker run --once" <<< "$studio_plist"
 if grep -q 'wp cron event run --due-now' <<< "$studio_plist"; then
   echo "launchd worker must not execute generic WP-Cron" >&2
   exit 1
@@ -98,7 +92,7 @@ mkdir -p "$SERVICE_HOME" "$SITE_PATH" "$DATAMACHINE_WORKER_LAUNCHD_DIR" "$DATAMA
 launchctl() { printf 'launchctl %s\n' "$*" >> "$calls"; }
 systemctl() { printf 'systemctl %s\n' "$*" >> "$calls"; }
 
-WP_CMD=wp
+wp_cli_transport_set wp
 LOCAL_MODE=true
 PLATFORM=mac
 unset DATAMACHINE_WORKER_REQUEST WP_CODING_AGENTS_DATAMACHINE_WORKER_ENABLED

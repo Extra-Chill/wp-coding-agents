@@ -70,17 +70,8 @@ homeboy_json_array() {
 }
 
 homeboy_dmc_wp_argv() {
-  local argv=()
-  if [ "${IS_STUDIO:-false}" = true ]; then
-    argv=(studio wp)
-  else
-    # WP_CMD is intentionally a command string in setup profiles (e.g. "wp" or
-    # "studio wp"). Split it the same way the existing wp_cmd helper invokes it.
-    # shellcheck disable=SC2206
-    argv=(${WP_CMD:-wp})
-  fi
-
-  printf '%s\n' "${argv[@]}"
+  wp_cli_transport_ensure
+  printf '%s\n' "${WP_CLI_TRANSPORT[@]}"
 }
 
 homeboy_dmc_wp_flags() {
@@ -278,7 +269,7 @@ homeboy_dmc_task_attachment_skew_guidance() {
     return 0
   fi
 
-  warn "Homeboy accepts paired task-attachment commands, but DMC provider $provider does not advertise datamachine-code/worktree-provider-capabilities/v1 tracker attachment. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\". For one exact clean worktree, attach manually with: $WP_CMD datamachine-code workspace worktree attach-tracker <handle> --task-url=<task-url> --format=json${SITE_PATH:+ --path=\"$SITE_PATH\"}"
+  warn "Homeboy accepts paired task-attachment commands, but DMC provider $provider does not advertise datamachine-code/worktree-provider-capabilities/v1 tracker attachment. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\". For one exact clean worktree, attach manually with: $(wp_cli_transport_display) datamachine-code workspace worktree attach-tracker <handle> --task-url=<task-url> --format=json${SITE_PATH:+ --path=\"$SITE_PATH\"}"
 }
 
 homeboy_dmc_worktree_provider_ready() {
@@ -839,7 +830,7 @@ configure_homeboy_wordpress_extension() {
     echo -e "${BLUE}[dry-run]${NC} homeboy extension update wordpress  # if already installed and not linked"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension setup wordpress"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension list"
-    echo -e "${BLUE}[dry-run]${NC} $WP_CMD option update datamachine_code_homeboy_available 1"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     print_homeboy_verification_commands
     return 0
@@ -875,7 +866,7 @@ configure_homeboy_wordpress_extension() {
 
 recompose_agents_md_for_homeboy() {
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} (as ${SERVICE_USER:-caller}) $WP_CMD datamachine memory compose AGENTS.md"
+    echo -e "${BLUE}[dry-run]${NC} (as ${SERVICE_USER:-caller}) $(wp_cli_transport_display) datamachine memory compose AGENTS.md"
     return 0
   fi
 
@@ -906,7 +897,7 @@ print_homeboy_verification_commands() {
   echo "  homeboy config show /worktree_providers/dmc"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
-  echo "  $WP_CMD datamachine-code workspace worktree provider --format=json$verification_wp_flags"
-  echo "  $WP_CMD datamachine memory compose AGENTS.md$verification_wp_flags"
+  echo "  $(wp_cli_transport_display) datamachine-code workspace worktree provider --format=json$verification_wp_flags"
+  echo "  $(wp_cli_transport_display) datamachine memory compose AGENTS.md$verification_wp_flags"
   echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
 }

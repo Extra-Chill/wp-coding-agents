@@ -458,7 +458,9 @@ ENVIRONMENT VARIABLES:
   OPENCODE_MODEL_ID         Default model ID for Telegram bot (default: big-pickle)
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
-  WP_CMD             Override WP-CLI command (default: wp; e.g., "studio wp")
+  WP_CLI_TRANSPORT_JSON
+                     Explicit WP-CLI argv JSON (e.g., '["studio","wp"]')
+  WP_CMD             Legacy command-string input; parsed once into argv
   WP_CONTROL_TRANSPORT_JSON  JSON argv array used by --external-wordpress
   HOMEBOY_EXTENSIONS_SOURCE  Homeboy extensions git URL/path
                      (default: https://github.com/Extra-Chill/homeboy-extensions.git)

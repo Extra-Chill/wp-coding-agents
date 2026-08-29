@@ -15,7 +15,7 @@ SITE_PATH="/path/to/site"
 WP_ROOT_FLAG=""
 
 SUMMARY="$(print_homeboy_verification_commands)"
-WP_CMD="studio wp"
+wp_cli_transport_set studio wp
 SITE_PATH=""
 STUDIO_SUMMARY="$(print_homeboy_verification_commands)"
 SKILL="skills/upgrade-wp-coding-agents/SKILL.md"

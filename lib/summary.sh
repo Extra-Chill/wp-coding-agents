@@ -43,7 +43,7 @@ print_summary() {
   if [ -n "$AGENT_SLUG" ]; then
     echo "  Agent:       $AGENT_SLUG"
   fi
-  echo "  Discover:    $WP_CMD datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
+  echo "  Discover:    $(wp_cli_transport_display) datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Source mode: ${SOURCE_MODE:-workspace}"
   if source_policy_workspace_enabled; then
     echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
@@ -126,9 +126,9 @@ _print_next_steps() {
   echo "  Configure Data Machine:"
   echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
   if [ "$LOCAL_MODE" = false ]; then
-    echo "    - Or via WP-CLI: $WP_CMD datamachine settings --allow-root"
+    echo "    - Or via WP-CLI: $(wp_cli_transport_display) datamachine settings --allow-root"
   else
-    echo "    - Or via WP-CLI: $WP_CMD datamachine settings --path=$SITE_PATH"
+    echo "    - Or via WP-CLI: $(wp_cli_transport_display) datamachine settings --path=$SITE_PATH"
   fi
   echo ""
 }

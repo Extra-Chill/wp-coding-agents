@@ -829,7 +829,7 @@ PY
 )
   if [ -n "$AGENT_FOR_INSTRUCTIONS" ]; then
     local injectable_raw injectable_json
-    injectable_raw=$($WP_CMD datamachine memory injectable-files --format=json --agent="$AGENT_FOR_INSTRUCTIONS" --path="$SITE_PATH" $WP_ROOT_FLAG 2>/dev/null || echo "")
+    injectable_raw=$(wp_cmd datamachine memory injectable-files --format=json --agent="$AGENT_FOR_INSTRUCTIONS" 2>/dev/null || echo "")
     injectable_json=$(echo "$injectable_raw" | sed -n '/^\[/,/^\]/p')
     if [ -n "$injectable_json" ]; then
       MANAGED_INSTRUCTIONS_FILE=$(mktemp)
@@ -1008,7 +1008,7 @@ regenerate_agents_md() {
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
     echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
-    echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $WP_CMD datamachine memory compose AGENTS.md"
+    echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $(wp_cli_transport_display) datamachine memory compose AGENTS.md"
     if _runtime_detected opencode; then
       echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     fi
@@ -1145,8 +1145,7 @@ _resolve_claude_code_agent_slug() {
 # Return 0 if a Data Machine agent with the given slug exists.
 _dm_agent_slug_exists() {
   local slug="$1" json
-  # shellcheck disable=SC2086
-  json=$($WP_CMD datamachine agents list --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null) || return 1
+  json=$(wp_cmd datamachine agents list --format=json 2>/dev/null) || return 1
   echo "$json" | python3 -c "
 import sys, json, re
 raw = sys.stdin.read()
@@ -1496,16 +1495,16 @@ _print_verify_block() {
     fi
   fi
 
-  log "  $WP_CMD plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
-  log "  $WP_CMD plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $(wp_cli_transport_display) plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $(wp_cli_transport_display) plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
   log "  ls $(runtime_skills_dir)              # installed upgrade skill"
 }
 
 _print_plugins_only_verify_block() {
   log "Verify:"
-  log "  $WP_CMD plugin get data-machine --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
-  log "  $WP_CMD plugin get data-machine-code --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $(wp_cli_transport_display) plugin get data-machine --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $(wp_cli_transport_display) plugin get data-machine-code --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
 }
 
 # ============================================================================
