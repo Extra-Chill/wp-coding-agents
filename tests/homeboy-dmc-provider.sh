@@ -260,6 +260,10 @@ if canonical.returncode or json.loads(canonical.stdout) != expected:
 missing = run("missing_task")
 if missing.returncode == 0 or "does not provide tracker ownership" not in missing.stderr:
     raise SystemExit(f"FAIL: missing standalone tracker evidence must fail closed: {missing!r}")
+missing_path = run("missing_task", "resolve_path")
+missing_path_expected = [{**expected[0], "task_url": None}]
+if missing_path.returncode or json.loads(missing_path.stdout) != missing_path_expected:
+    raise SystemExit(f"FAIL: exact path resolution did not preserve an untracked worktree for negotiated attachment: {missing_path!r}")
 PY
 }
 
@@ -428,6 +432,16 @@ commands = json.loads(payload)["commands"]
 handle = "static-site-importer@refactor-1306-runtime-entity-form-materialization"
 task_url = "https://github.com/Automattic/static-site-importer/issues/1306"
 values = {"handle": handle, "task_url": task_url}
+
+path_resolution = subprocess.run(
+    [part.replace("{path}", os.environ["DMC_ATTACHMENT_PATH"]) for part in commands["resolve_path"]],
+    text=True,
+    capture_output=True,
+    env=os.environ.copy(),
+)
+path_rows = json.loads(path_resolution.stdout) if path_resolution.returncode == 0 else []
+if len(path_rows) != 1 or path_rows[0].get("handle") != handle or path_rows[0].get("path") != os.environ["DMC_ATTACHMENT_PATH"] or path_rows[0].get("task_url") is not None:
+    raise SystemExit(f"FAIL: --cwd path did not resolve the exact untracked DMC handle before attachment: {path_resolution!r}")
 
 def run(name, env=None):
     command = [part.format(**values) for part in commands[name]]
@@ -895,6 +909,12 @@ rm -f "$DMC_STATE"
 configure_homeboy_dmc_worktree_provider > "$TMP/source-contract.log"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 
+copied_release_provider="$SITE_PATH/wp-content/plugins/data-machine-code/.wp-coding-agents-releases/0.72.11-deadbeef/bin/dmc-worktree-provider"
+[ "$(homeboy_dmc_provider_release_label "$copied_release_provider")" = "0.72.11" ] || {
+  echo "FAIL: copied DMC release version was not parsed from the provider path"
+  exit 1
+}
+
 # Either missing owning contract keeps the legacy provider JSON byte shape: no
 # half-configured attachment key is written.
 DMC_CAPABILITIES_MODE=legacy
@@ -903,6 +923,10 @@ export DMC_CAPABILITIES_MODE
 configure_homeboy_dmc_worktree_provider > "$TMP/legacy-dmc.log"
 assert_not_contains 'task_attachment_preview' "$HOMEBOY_CONFIG_LOG"
 assert_not_contains 'task_attachment_apply' "$HOMEBOY_CONFIG_LOG"
+assert_contains "DMC provider $DMC_PROVIDER_EXECUTABLE does not advertise datamachine-code/worktree-provider-capabilities/v1 tracker attachment" "$TMP/legacy-dmc.log"
+assert_contains "Copied DMC release: unknown. Homeboy: unknown version." "$TMP/legacy-dmc.log"
+assert_contains "\"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\"" "$TMP/legacy-dmc.log"
+assert_contains "workspace worktree attach-tracker <handle> --task-url=<task-url> --format=json --path=\"$SITE_PATH\"" "$TMP/legacy-dmc.log"
 unset DMC_CAPABILITIES_MODE
 
 HOMEBOY_ATTACHMENT_COMMANDS=false
@@ -911,6 +935,10 @@ export HOMEBOY_ATTACHMENT_COMMANDS
 configure_homeboy_dmc_worktree_provider > "$TMP/legacy-homeboy.log"
 assert_not_contains 'task_attachment_preview' "$HOMEBOY_CONFIG_LOG"
 assert_not_contains 'task_attachment_apply' "$HOMEBOY_CONFIG_LOG"
+assert_contains "DMC provider $DMC_PROVIDER_EXECUTABLE advertises datamachine-code/worktree-provider-capabilities/v1 tracker attachment" "$TMP/legacy-homeboy.log"
+assert_contains "Copied DMC release: unknown. Homeboy: unknown version." "$TMP/legacy-homeboy.log"
+assert_contains 'homeboy upgrade' "$TMP/legacy-homeboy.log"
+assert_contains "\"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\"" "$TMP/legacy-homeboy.log"
 unset HOMEBOY_ATTACHMENT_COMMANDS
 assert_contains "$DMC_PROVIDER_EXECUTABLE" "$HOMEBOY_CONFIG_LOG"
 assert_not_contains "$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider" "$HOMEBOY_CONFIG_LOG"
