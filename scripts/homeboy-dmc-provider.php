@@ -657,7 +657,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 		}
 		$task_url = $canonical_task_url((string) ( $payload['task_url'] ?? '' ));
 		if (
-			'' === $task_url
+			( '' === $task_url && ! str_starts_with($value, '/') )
 			|| ! is_string($payload['handle'] ?? null) || '' === $payload['handle']
 			|| ! is_string($payload['path'] ?? null) || '' === $payload['path']
 			|| ! is_string($payload['branch'] ?? null) || '' === $payload['branch']
@@ -670,7 +670,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 				'handle'  => $payload['handle'] ?? '',
 				'path'    => $payload['path'] ?? '',
 				'branch'  => $payload['branch'] ?? '',
-				'task_url' => $task_url,
+				'task_url' => '' === $task_url ? null : $task_url,
 				'safety'  => array(
 					'dirty'    => $safety['dirty'] ?? true,
 					'unpushed' => $safety['unpushed'] ?? true,

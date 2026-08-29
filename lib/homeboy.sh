@@ -247,6 +247,40 @@ homeboy_task_attachment_commands_supported() {
   return 1
 }
 
+homeboy_dmc_provider_release_label() {
+  local provider="$1" plugin_dir version=""
+  case "$provider" in
+    */.wp-coding-agents-releases/*)
+      version="${provider#*/.wp-coding-agents-releases/}"
+      version="${version%%/*}"
+      version="${version%%-*}"
+      ;;
+  esac
+  if [ -z "$version" ]; then
+    plugin_dir="$(cd "$(dirname -- "$provider")/.." && pwd)" || plugin_dir=""
+    if [ -n "$plugin_dir" ] && [ -f "$plugin_dir/data-machine-code.php" ]; then
+      version="$(grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$plugin_dir/data-machine-code.php" | sed -E 's/.*Version:[[:space:]]*([^[:space:]]+).*/\1/')"
+    fi
+  fi
+  printf '%s' "${version:-unknown}"
+}
+
+homeboy_dmc_task_attachment_skew_guidance() {
+  local provider="$1" dmc_supported="$2" homeboy_supported="$3"
+  local dmc_version homeboy_version
+  [ "$dmc_supported" != "$homeboy_supported" ] || return 0
+
+  dmc_version="$(homeboy_dmc_provider_release_label "$provider")"
+  homeboy_version="$(homeboy --version 2>/dev/null || printf 'unknown version')"
+
+  if [ "$dmc_supported" = true ]; then
+    warn "DMC provider $provider advertises datamachine-code/worktree-provider-capabilities/v1 tracker attachment, but $homeboy_version does not accept Homeboy's paired task-attachment commands. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Run: homeboy upgrade; then rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\""
+    return 0
+  fi
+
+  warn "Homeboy accepts paired task-attachment commands, but DMC provider $provider does not advertise datamachine-code/worktree-provider-capabilities/v1 tracker attachment. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\". For one exact clean worktree, attach manually with: $WP_CMD datamachine-code workspace worktree attach-tracker <handle> --task-url=<task-url> --format=json${SITE_PATH:+ --path=\"$SITE_PATH\"}"
+}
+
 homeboy_dmc_worktree_provider_ready() {
   local provider="$1" provider_json="${2:-}"
 
@@ -728,13 +762,21 @@ configure_homeboy_dmc_worktree_provider() {
   fi
 
   local provider provider_json task_attachment_supported=false task_resolution_supported=false
+  local dmc_task_attachment_supported=false homeboy_task_attachment_supported=false
   provider="$(homeboy_dmc_worktree_provider_executable)" || {
     homeboy_handle_failure "Data Machine Code standalone worktree provider source contract is unavailable; skipping Homeboy DMC worktree provider setup."
     return 0
   }
-  if homeboy_dmc_task_attachment_capable "$provider" && homeboy_task_attachment_commands_supported; then
+  if homeboy_dmc_task_attachment_capable "$provider"; then
+    dmc_task_attachment_supported=true
+  fi
+  if homeboy_task_attachment_commands_supported; then
+    homeboy_task_attachment_supported=true
+  fi
+  if [ "$dmc_task_attachment_supported" = true ] && [ "$homeboy_task_attachment_supported" = true ]; then
     task_attachment_supported=true
   fi
+  homeboy_dmc_task_attachment_skew_guidance "$provider" "$dmc_task_attachment_supported" "$homeboy_task_attachment_supported"
   if homeboy_dmc_task_resolution_capable "$provider"; then
     task_resolution_supported=true
   fi
