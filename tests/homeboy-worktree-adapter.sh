@@ -100,6 +100,9 @@ $callback = $filters['datamachine_code_ability_registration_args'] ?? null;
 expect(is_callable($callback), 'adapter filter registered');
 $untouched = $callback(array('execute_callback' => 'original'), 'datamachine-code/workspace-show');
 expect('original' === $untouched['execute_callback'], 'non-worktree ability remains unchanged');
+$native = $callback(array('execute_callback' => 'dmc', 'meta' => array('show_in_rest' => false)), 'datamachine-code/workspace-worktree-reconcile-metadata');
+expect('dmc' === $native['execute_callback'], 'DMC-only worktree ability retains its native callback');
+expect(!isset($native['meta']['worktree_lifecycle_owner']), 'DMC-only worktree ability does not claim Homeboy ownership');
 
 $ability = static function (string $slug) use ($callback): callable {
 	$args = $callback(array('execute_callback' => 'dmc', 'meta' => array('show_in_rest' => false)), $slug);
@@ -136,9 +139,6 @@ expect(false === $cleanup(array('force' => true))['dry_run'], 'cleanup force rem
 $remove = $ability('datamachine-code/workspace-worktree-remove');
 expect(true === $remove(array('repo' => 'fixture', 'branch' => 'fix/474'))['success'], 'remove uses Homeboy safety path');
 
-$unsupported = $ability('datamachine-code/workspace-worktree-reconcile-metadata');
-$refusal = $unsupported(array());
-expect(is_wp_error($refusal) && 'wp_coding_agents_homeboy_worktree_unsupported' === $refusal->code, 'DMC-only operation returns typed refusal');
 PHP
 php "$TMP/adapter-harness.php" "$ADAPTER"
 
