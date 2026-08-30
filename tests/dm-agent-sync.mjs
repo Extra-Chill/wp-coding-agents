@@ -118,11 +118,11 @@ await withEnv({
 await withEnv({ DATAMACHINE_COMPOSE_TIMEOUT_MS: "10" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "dm-agent-sync-"))
   const marker = join(directory, "compose-finished")
-  const sleeper = join(directory, "slow-compose")
-  await writeFile(sleeper, `#!/bin/sh\nsleep 0.2\ntouch '${marker}'\n`)
-  await chmod(sleeper, 0o755)
   const run = await loadPlugin()
-  await withEnv({ DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify([sleeper]) }, async () => {
+  await withEnv({
+    DATAMACHINE_COMPOSE_TIMEOUT_MS: "10",
+    DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify(["sh", "-c", `sleep 0.2; touch ${marker}`]),
+  }, async () => {
     await run.config()
     const startedAt = Date.now()
     await run.chat()

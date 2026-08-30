@@ -1385,18 +1385,11 @@ PY
 }
 
 _kimaki_datamachine_wp_transport_systemd_env() {
-  local value escaped
+  local value
   value=$(_kimaki_datamachine_wp_transport_json)
-  case "$value" in
-    *[[:space:]]*)
-      escaped=${value//\\/\\\\}
-      escaped=${escaped//\"/\\\"}
-      printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="%s"' "$escaped"
-      ;;
-    *)
-      printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON=%s' "$value"
-      ;;
-  esac
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="%s"\n' "$value"
 }
 
 _kimaki_xml_text() {
