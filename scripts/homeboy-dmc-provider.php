@@ -657,12 +657,11 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 		}
 		$task_url = $canonical_task_url((string) ( $payload['task_url'] ?? '' ));
 		if (
-			( '' === $task_url && ! str_starts_with($value, '/') )
-			|| ! is_string($payload['handle'] ?? null) || '' === $payload['handle']
+			! is_string($payload['handle'] ?? null) || '' === $payload['handle']
 			|| ! is_string($payload['path'] ?? null) || '' === $payload['path']
 			|| ! is_string($payload['branch'] ?? null) || '' === $payload['branch']
 		) {
-			fwrite(STDERR, "DMC standalone identity does not provide tracker ownership.\n");
+			fwrite(STDERR, "DMC standalone identity returned an incomplete exact identity.\n");
 			exit(1);
 		}
 		$result = array(
