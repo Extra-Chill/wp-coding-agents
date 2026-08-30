@@ -77,7 +77,7 @@ SOURCE_POLICY_LEGACY_WRITABLE_OPTION="wp_coding_agents_managed_writable"
 _source_policy_option_read() {
   local key="$1"
   [ -n "${SITE_PATH:-}" ] || return 0
-  wp_cmd option get "$key" 2>/dev/null || true
+  wp_cmd option get "$key" 2>/dev/null | wp_cli_strip_php_diagnostics || true
 }
 
 # Read an option, falling back to its pre-rename name.

@@ -158,7 +158,7 @@ detect_environment() {
     if [ "$DRY_RUN" = true ]; then
       detected_site_domain="${SITE_DOMAIN:-}"
     else
-      detected_site_domain=$(cd "$SITE_PATH" && wp_cli option get siteurl $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | sed -E 's|^https?://||' || true)
+      detected_site_domain=$(cd "$SITE_PATH" && wp_cli option get siteurl $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | wp_cli_strip_php_diagnostics | sed -E 's|^https?://||' || true)
     fi
     SITE_DOMAIN="${SITE_DOMAIN:-${detected_site_domain:-$(basename "$SITE_PATH")}}"
     log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
