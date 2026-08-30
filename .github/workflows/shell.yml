@@ -279,6 +279,7 @@ jobs:
           - runtime-signature
           - upgrade-opencode-auth-plugin-sync
           - worktree-context-projections
+          - wp-cli-machine-output
           - wp-config-permissions
     steps:
       - uses: actions/checkout@v4
