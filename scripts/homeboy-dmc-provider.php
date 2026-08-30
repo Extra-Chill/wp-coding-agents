@@ -521,14 +521,15 @@ if ( in_array($operation, array( 'plan', 'plan_standalone' ), true) ) {
 		}
 		$intent = json_encode(
 			array(
-				'repo'           => $repo,
-				'branch'         => $branch,
-				'from'           => $base,
-				'task_url'       => '' === $task_url ? null : $task_url,
-				'reuse_policy'   => 'isolated',
-				'purpose'        => $purpose,
-				'owner_run_ref'  => $owner,
-				'cleanup_policy' => $cleanup,
+				'repo'                 => $repo,
+				'branch'               => $branch,
+				'from'                 => $base,
+				'task_url'             => '' === $task_url ? null : $task_url,
+				'require_task_tracker' => '' !== $task_url,
+				'reuse_policy'         => 'isolated',
+				'purpose'              => $purpose,
+				'owner_run_ref'        => $owner,
+				'cleanup_policy'       => $cleanup,
 			),
 			JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
 		);

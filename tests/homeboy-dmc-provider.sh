@@ -661,6 +661,7 @@ if ('plan' === $operation) {
         'branch' => 'fix/406-dmc-provider-plan',
         'from' => 'origin/main',
         'task_url' => getenv('DMC_PLAN_TRACKERLESS') ? null : 'https://github.com/Extra-Chill/wp-coding-agents/issues/406',
+        'require_task_tracker' => ! getenv('DMC_PLAN_TRACKERLESS'),
         'reuse_policy' => 'isolated',
         'purpose' => getenv('DMC_PLAN_TRACKERLESS') ? 'release_staging' : 'agent-task-cook',
         'owner_run_ref' => getenv('DMC_PLAN_TRACKERLESS') ? 'release/fixture-owner' : 'homeboy://agent-task/run/cook-406',
