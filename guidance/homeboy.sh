@@ -79,11 +79,8 @@ guidance_register() {
 _guidance_homeboy_live_block() {
   cat <<'PHP_BLOCK'
     // BEGIN agents-md-guidance:homeboy-cli
-    if ( ! function_exists( 'wp_coding_agents_render_homeboy_cli_section' ) ) {
-        function wp_coding_agents_render_homeboy_cli_section() {
-            // Homeboy is optional. The section is a clean no-op when the
-            // binary is not on PATH, matching the presence-gating the bash
-            // setup path applies.
+    if ( ! function_exists( 'wp_coding_agents_homeboy_binary' ) ) {
+        function wp_coding_agents_homeboy_binary() {
             $homeboy = null;
             $path_env = ( is_callable( 'getenv' ) ) ? getenv( 'PATH' ) : false;
             if ( is_string( $path_env ) && $path_env !== '' ) {
@@ -98,14 +95,20 @@ _guidance_homeboy_live_block() {
                     }
                 }
             }
-            if ( $homeboy === null ) {
+            return $homeboy;
+        }
+    }
+
+    if ( ! function_exists( 'wp_coding_agents_render_homeboy_cli_section' ) ) {
+        function wp_coding_agents_render_homeboy_cli_section() {
+            if ( wp_coding_agents_homeboy_binary() === null ) {
                 return '';
             }
 
             return <<<'MD'
 ## Homeboy
 
-Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Data Machine Code owns authoritative repository and worktree state; Homeboy consumes managed worktrees to execute and finalize work.
+Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook. Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities; it does not own Homeboy worktrees.
 
 **Default routing**
 - One tracked change: `homeboy agent-task cook`
@@ -124,21 +127,55 @@ MD;
         }
     }
 
-    \DataMachine\Engine\AI\SectionRegistry::register(
-        'AGENTS.md',
-        'homeboy-cli',
-        30,
-        static function () {
-            return wp_coding_agents_render_homeboy_cli_section();
-        },
-        array(
-            'label'       => 'Homeboy',
-            'description' => 'Host orchestration routing, safety, and discovery guidance.',
-            'owner'       => 'wp-coding-agents',
-            'freshness'   => 'live',
-            'conditions'  => 'Registered on hosts where the homeboy binary is installed and omitted at compose time when the binary is unavailable.',
-        )
-    );
+    if ( ! function_exists( 'wp_coding_agents_render_homeboy_datamachine_section' ) ) {
+        function wp_coding_agents_render_homeboy_datamachine_section() {
+            if ( wp_coding_agents_homeboy_binary() === null ) {
+                return '';
+            }
+
+            return <<<'MD'
+## Data Machine Code and Homeboy
+
+Use Homeboy directly for its native Rust worktree lifecycle (`homeboy worktree --help`) and Cook (`homeboy agent-task cook`). Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities.
+MD;
+        }
+    }
+
+    // Gate registration itself at composition time so an absent Homeboy binary
+    // leaves Data Machine Code's standalone section intact.
+    if ( wp_coding_agents_homeboy_binary() !== null ) {
+        \DataMachine\Engine\AI\SectionRegistry::register(
+            'AGENTS.md',
+            'homeboy-cli',
+            30,
+            static function () {
+                return wp_coding_agents_render_homeboy_cli_section();
+            },
+            array(
+                'label'       => 'Homeboy',
+                'description' => 'Host orchestration routing, safety, and discovery guidance.',
+                'owner'       => 'wp-coding-agents',
+                'freshness'   => 'live',
+                'conditions'  => 'Registered only while the homeboy binary is executable at AGENTS.md compose time.',
+            )
+        );
+
+        \DataMachine\Engine\AI\SectionRegistry::register(
+            'AGENTS.md',
+            'datamachine-code',
+            20,
+            static function () {
+                return wp_coding_agents_render_homeboy_datamachine_section();
+            },
+            array(
+                'label'       => 'Data Machine Code + Homeboy',
+                'description' => 'Homeboy-present integration routing for Data Machine Code and Homeboy capabilities.',
+                'owner'       => 'wp-coding-agents',
+                'freshness'   => 'live',
+                'conditions'  => 'Replaces Data Machine Code\'s standalone section only while the homeboy binary is executable at AGENTS.md compose time.',
+            )
+        );
+    }
     // END agents-md-guidance:homeboy-cli
 PHP_BLOCK
 }
