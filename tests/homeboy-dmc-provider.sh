@@ -41,7 +41,7 @@ touch "$SITE_PATH/wp-config.php"
 
 default_transport="$(homeboy_dmc_command_json ensure)"
 case "$default_transport" in
-  '["wp",'*) ;;
+  *'"ensure","wp",'*) ;;
   *)
     echo "FAIL: Studio environment metadata replaced the explicit wp transport: $default_transport"
     exit 1
@@ -52,7 +52,7 @@ WP_CLI_TRANSPORT_JSON='["/runtime path/php","/runtime path/wp-cli.phar"]'
 WP_CLI_TRANSPORT=()
 argv_transport="$(homeboy_dmc_command_json ensure)"
 case "$argv_transport" in
-  '["/runtime path/php","/runtime path/wp-cli.phar",'*) ;;
+  *'"ensure","/runtime path/php","/runtime path/wp-cli.phar",'*) ;;
   *)
     echo "FAIL: canonical argv transport was not serialized losslessly: $argv_transport"
     exit 1
@@ -96,7 +96,7 @@ expected_resolve_path = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php
 expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task_standalone", "{task_url}", sys.argv[5], sys.argv[4]]
 if sys.argv[6] == "fallback":
     expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--with-status", "--limit=200", "--envelope", "--format=json", f"--path={sys.argv[3]}"]
-expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
+expected_ensure = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "ensure", "studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", sys.argv[5], sys.argv[4], "{identity}"]
@@ -253,6 +253,51 @@ for disposition in ("unsafe", "ownership conflict"):
 PY
 }
 
+assert_opaque_task_ref_contract() {
+  python3 - "$1" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+lines = [line for line in open(sys.argv[1], encoding="utf-8").read().splitlines() if line.startswith("/worktree_providers/dmc|")]
+if not lines:
+    raise SystemExit("FAIL: missing DMC provider config write")
+_, payload = lines[-1].split("|", 1)
+commands = json.loads(payload)["commands"]
+opaque_ref = "release/f61264c4-3e4b-4553-9ea1-de4fbb7454cc"
+intent = {"handle": "blocks-engine@fix-406-dmc-provider-plan", "repo": "blocks-engine", "base": "origin/main", "head": "fix/406-dmc-provider-plan", "task_url": opaque_ref, "idempotency_key": "blocks-engine@fix-406-dmc-provider-plan:blocks-engine:origin/main:fix/406-dmc-provider-plan", "purpose": "agent-task-cook", "owner_run_ref": "homeboy://agent-task/run/cook-406", "cleanup_policy": "remove_on_success"}
+
+def run(name, values):
+    return subprocess.run([part.format(**values) for part in commands[name]], text=True, capture_output=True, env=os.environ.copy())
+
+open(os.environ["STUDIO_LOG"], "w").close()
+planned = run("plan", intent)
+if planned.returncode or not json.loads(planned.stdout):
+    raise SystemExit(f"FAIL: opaque task_ref plan failed: {planned!r}")
+ensured = run("ensure", intent)
+if ensured.returncode or not json.loads(ensured.stdout).get("success"):
+    raise SystemExit(f"FAIL: opaque task_ref ensure failed: {ensured!r}")
+log = open(os.environ["STUDIO_LOG"], encoding="utf-8").read().splitlines()
+plan_ref = False
+ensure_ref = False
+for line in log:
+    if "workspace worktree plan" in line and f"--task-ref={opaque_ref}" in line:
+        plan_ref = True
+        if f"--task-url={opaque_ref}" in line:
+            raise SystemExit(f"FAIL: opaque plan still forwarded --task-url: {line!r}")
+    if "workspace worktree add" in line and f"--task-ref={opaque_ref}" in line:
+        ensure_ref = True
+        if f"--task-url={opaque_ref}" in line:
+            raise SystemExit(f"FAIL: opaque ensure still forwarded --task-url: {line!r}")
+if not plan_ref or not ensure_ref:
+    raise SystemExit(f"FAIL: opaque release identity did not reach plan and ensure as --task-ref: {log!r}")
+invalid = run("plan", {**intent, "task_url": "release/foo bar"})
+if invalid.returncode == 0 or "not a valid HTTP URL or opaque task reference" not in invalid.stderr:
+    raise SystemExit(f"FAIL: whitespace-bearing opaque identity must fail closed: {invalid!r}")
+PY
+}
+
 assert_resolution_contract() {
   python3 - "$1" "$DMC_STATE" <<'PY'
 import json
@@ -286,6 +331,14 @@ missing_path = run("missing_task", "resolve_path")
 missing_path_expected = [{**expected[0], "task_url": None}]
 if missing_path.returncode or json.loads(missing_path.stdout) != missing_path_expected:
     raise SystemExit(f"FAIL: exact path resolution did not preserve an untracked worktree for negotiated attachment: {missing_path!r}")
+opaque_ref = "release/f61264c4-3e4b-4553-9ea1-de4fbb7454cc"
+opaque_expected = [{**expected[0], "task_url": opaque_ref}]
+opaque = run("opaque_task_ref")
+if opaque.returncode or json.loads(opaque.stdout) != opaque_expected:
+    raise SystemExit(f"FAIL: exact handle resolution did not project DMC task_ref through task_url: {opaque!r}")
+opaque_path = run("opaque_task_ref", "resolve_path")
+if opaque_path.returncode or json.loads(opaque_path.stdout) != opaque_expected:
+    raise SystemExit(f"FAIL: exact path resolution did not project DMC task_ref through task_url: {opaque_path!r}")
 PY
 }
 
@@ -555,7 +608,8 @@ if ('identity' === $operation) {
         exit(0);
     }
     $mode = getenv('DMC_INVENTORY_MODE');
-    $task_url = 'missing_task' === $mode ? null : ('canonical_task' === $mode ? ' HTTPS://GITHUB.COM/Extra-Chill/wp-coding-agents/issues/419/?query=value#fragment ' : 'https://github.com/Extra-Chill/wp-coding-agents/issues/419');
+    $task_url = 'missing_task' === $mode || 'opaque_task_ref' === $mode ? null : ('canonical_task' === $mode ? ' HTTPS://GITHUB.COM/Extra-Chill/wp-coding-agents/issues/419/?query=value#fragment ' : 'https://github.com/Extra-Chill/wp-coding-agents/issues/419');
+    $task_ref = 'opaque_task_ref' === $mode ? 'release/f61264c4-3e4b-4553-9ea1-de4fbb7454cc' : null;
     echo json_encode(array(
         'schema' => 'datamachine-code/worktree-identity/v1',
         'status' => 'owned',
@@ -565,6 +619,7 @@ if ('identity' === $operation) {
         'branch' => 'fix/310-dmc-cook',
         'primary' => false,
         'task_url' => $task_url,
+        'task_ref' => $task_ref,
         'latency_ms' => 1,
     )) . "\n";
     exit(0);
@@ -795,7 +850,7 @@ fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree plan" ]; then
   [ "$6" = "blocks-engine" ] && [ "$7" = "fix/406-dmc-provider-plan" ] || exit 2
   case "$*" in
-    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
+    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*|*--from=origin/main*--task-ref=release/f61264c4-3e4b-4553-9ea1-de4fbb7454cc*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
     *) exit 2 ;;
   esac
   printf 'plan\n' >> "$DMC_ENSURE_LOG"
@@ -809,7 +864,7 @@ fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
   [ "$6" = "blocks-engine" ] && [ "$7" = "fix/406-dmc-provider-plan" ] || exit 2
   case "$*" in
-    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
+    *--from=origin/main*--task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/406*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*|*--from=origin/main*--task-ref=release/f61264c4-3e4b-4553-9ea1-de4fbb7454cc*--reuse-policy=isolated*--purpose=agent-task-cook*--owner-run-ref=homeboy://agent-task/run/cook-406*--cleanup-policy=remove_on_success*--format=json*) ;;
     *) exit 2 ;;
   esac
   : > "$DMC_STATE"
@@ -865,7 +920,7 @@ assert_contains "\"task_attachment_preview\":[\"php\",\"$SCRIPT_DIR/scripts/home
 assert_contains "\"task_attachment_apply\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"task_attachment_apply\",\"{handle}\",\"{task_url}\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"attach-tracker\",\"{handle}\",\"--task-url={task_url}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
-assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"ensure\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"ensure\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"plan\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -903,6 +958,7 @@ assert_not_contains 'workspace worktree get' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
+assert_opaque_task_ref_contract "$HOMEBOY_CONFIG_LOG"
 assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
 assert_resolution_contract "$HOMEBOY_CONFIG_LOG"
 assert_standalone_task_resolution_contract "$HOMEBOY_CONFIG_LOG"

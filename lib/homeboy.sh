@@ -133,7 +133,7 @@ homeboy_dmc_command_json() {
     ensure)
       # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
       # contract on creation and on owner-identical retries.
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" ensure "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
       ;;
     converge)
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" converge "$provider" "$DM_WORKSPACE_DIR" '{identity}' '{base}'

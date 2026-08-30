@@ -201,6 +201,70 @@ $canonical_task_url = static function ( string $task_url ): string {
 	) ?? '';
 };
 
+$is_http_task_url = static function ( string $task_identity ): bool {
+	return (bool) preg_match('/^https?:\/\//i', trim($task_identity));
+};
+
+$opaque_task_ref = static function ( string $task_identity ): ?string {
+	$task_ref = trim($task_identity);
+	if ( '' === $task_ref || preg_match('/\s/', $task_ref) ) {
+		return null;
+	}
+	return $task_ref;
+};
+
+$requested_task_identity = static function ( string $task_identity ) use ( $canonical_task_url, $is_http_task_url, $opaque_task_ref ): string {
+	if ( '' === trim($task_identity) ) {
+		return '';
+	}
+	if ( $is_http_task_url($task_identity) ) {
+		return $canonical_task_url($task_identity);
+	}
+	$task_ref = $opaque_task_ref($task_identity);
+	if ( null === $task_ref ) {
+		fwrite(STDERR, "DMC tracker identity is not a valid HTTP URL or opaque task reference.\n");
+		exit(1);
+	}
+	return $task_ref;
+};
+
+$stored_task_identity = static function ( array $payload ) use ( $canonical_task_url, $is_http_task_url, $opaque_task_ref ): string {
+	$raw_url = $payload['task_url'] ?? null;
+	if ( is_string($raw_url) && '' !== trim($raw_url) ) {
+		if ( $is_http_task_url($raw_url) ) {
+			return $canonical_task_url($raw_url);
+		}
+		return $opaque_task_ref($raw_url) ?? '';
+	}
+	$raw_ref = $payload['task_ref'] ?? null;
+	if ( ! is_string($raw_ref) || '' === trim($raw_ref) ) {
+		return '';
+	}
+	if ( $is_http_task_url($raw_ref) ) {
+		return $canonical_task_url($raw_ref);
+	}
+	return $opaque_task_ref($raw_ref) ?? '';
+};
+
+$rewrite_task_identity_flags = static function ( array $command ) use ( $is_http_task_url, $opaque_task_ref ): array {
+	foreach ( $command as $index => $argument ) {
+		if ( ! is_string($argument) || ! str_starts_with($argument, '--task-url=') ) {
+			continue;
+		}
+		$raw = substr($argument, strlen('--task-url='));
+		if ( $is_http_task_url($raw) ) {
+			continue;
+		}
+		$task_ref = $opaque_task_ref($raw);
+		if ( null === $task_ref ) {
+			fwrite(STDERR, "DMC tracker identity is not a valid HTTP URL or opaque task reference.\n");
+			exit(1);
+		}
+		$command[ $index ] = '--task-ref=' . $task_ref;
+	}
+	return $command;
+};
+
 $task_attachment_result = static function ( array $identity, string $task_url, string $status ): array {
 	return array(
 		'schema'      => 'homeboy/worktree-provider-task-attachment/v1',
@@ -218,7 +282,7 @@ if ( 'task_attachment_preview' === $operation ) {
 	$provider  = (string) ( $argv[2] ?? '' );
 	$workspace = (string) ( $argv[3] ?? '' );
 	$handle    = (string) ( $argv[4] ?? '' );
-	$task_url  = $canonical_task_url((string) ( $argv[5] ?? '' ));
+	$task_url  = $requested_task_identity((string) ( $argv[5] ?? '' ));
 	if ( '' === $provider || '' === $workspace || '' === $handle || '' === $task_url ) {
 		fwrite(STDERR, "Usage: homeboy-dmc-provider.php task_attachment_preview <dmc-provider> <workspace-root> <handle> <task-url>\n");
 		exit(2);
@@ -255,7 +319,7 @@ if ( 'task_attachment_preview' === $operation ) {
 		fwrite(STDERR, "DMC tracker-attachment preview returned an incomplete exact identity.\n");
 		exit(1);
 	}
-	$existing_task_url = $canonical_task_url((string) ( $identity['task_url'] ?? '' ));
+	$existing_task_url = $stored_task_identity($identity);
 	if ( '' !== $existing_task_url && $task_url !== $existing_task_url ) {
 		fwrite(STDERR, "DMC worktree already has conflicting tracker ownership.\n");
 		exit(1);
@@ -287,7 +351,7 @@ if ( 'task_attachment_preview' === $operation ) {
 
 if ( 'task_attachment_apply' === $operation ) {
 	$handle   = (string) ( $argv[2] ?? '' );
-	$task_url = $canonical_task_url((string) ( $argv[3] ?? '' ));
+	$task_url = $requested_task_identity((string) ( $argv[3] ?? '' ));
 	$command  = array_slice($argv, 4);
 	if ( '' === $handle || '' === $task_url || array() === $command ) {
 		fwrite(STDERR, "Usage: homeboy-dmc-provider.php task_attachment_apply <handle> <task-url> <dmc-attach-tracker-command...>\n");
@@ -296,6 +360,7 @@ if ( 'task_attachment_apply' === $operation ) {
 	foreach ( $command as $index => $argument ) {
 		$command[ $index ] = str_replace(array( '{handle}', '{task_url}' ), array( $handle, $task_url ), $argument);
 	}
+	$command = $rewrite_task_identity_flags($command);
 	try {
 		$capture = $run_bounded_command($command, HOMEBOY_DMC_TASK_MAX_DMC_STDOUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES, HOMEBOY_DMC_ATTACHMENT_TIMEOUT_SECONDS);
 	} catch (Throwable $error) {
@@ -321,7 +386,7 @@ if ( 'task_attachment_apply' === $operation ) {
 	if (
 		! is_array($identity) || ! in_array($status, array( 'attached', 'already_attached' ), true)
 		|| $handle !== ( $attached['handle'] ?? null ) || $handle !== ( $identity['handle'] ?? null )
-		|| $task_url !== $canonical_task_url((string) ( $identity['task_url'] ?? '' ))
+		|| $task_url !== $stored_task_identity($identity)
 		|| ! is_string($identity['path'] ?? null) || '' === $identity['path'] || ! is_string($identity['branch'] ?? null) || '' === $identity['branch']
 		|| false !== ( $identity['primary'] ?? null )
 	) {
@@ -333,7 +398,7 @@ if ( 'task_attachment_apply' === $operation ) {
 }
 
 if ( 'resolve_task_standalone' === $operation ) {
-	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));
+	$task_url = $requested_task_identity((string) ( $argv[2] ?? '' ));
 	$provider = (string) ( $argv[3] ?? '' );
 	$workspace = (string) ( $argv[4] ?? '' );
 	if ( '' === $task_url || '' === $provider || '' === $workspace ) {
@@ -363,7 +428,7 @@ if ( 'resolve_task_standalone' === $operation ) {
 	$candidates = is_array($payload) ? ( $payload['candidates'] ?? null ) : null;
 	if (
 		! is_array($payload) || 'datamachine-code/worktree-task-resolution/v1' !== ( $payload['schema'] ?? null )
-		|| 'complete' !== ( $payload['status'] ?? null ) || $task_url !== $canonical_task_url((string) ( $payload['task_url'] ?? '' ))
+		|| 'complete' !== ( $payload['status'] ?? null ) || $task_url !== $stored_task_identity($payload)
 		|| ! is_array($candidates) || ! array_is_list($candidates) || ! is_int($payload['total'] ?? null)
 		|| $payload['total'] !== count($candidates) || count($candidates) > HOMEBOY_DMC_TASK_MAX_CANDIDATES
 	) {
@@ -377,17 +442,21 @@ if ( 'resolve_task_standalone' === $operation ) {
 			! is_array($candidate) || ! is_string($candidate['handle'] ?? null) || '' === $candidate['handle']
 			|| ! is_string($candidate['path'] ?? null) || '' === $candidate['path']
 			|| ! is_string($candidate['branch'] ?? null) || '' === $candidate['branch']
-			|| $task_url !== $canonical_task_url((string) ( $candidate['task_url'] ?? '' ))
+			|| $task_url !== $stored_task_identity($candidate)
 			|| ! is_array($safety) || ! is_bool($safety['dirty'] ?? null) || ! is_bool($safety['unpushed'] ?? null) || ! is_bool($safety['primary'] ?? null)
 		) {
 			fwrite(STDERR, "DMC standalone task resolution returned an incomplete or mismatched candidate.\n");
 			exit(1);
 		}
-		foreach ( array( 'handle', 'path', 'branch', 'task_url' ) as $field ) {
+		foreach ( array( 'handle', 'path', 'branch' ) as $field ) {
 			if ( strlen($candidate[ $field ]) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES ) {
 				fwrite(STDERR, "DMC standalone task resolution field exceeds its bounded limit.\n");
 				exit(1);
 			}
+		}
+		if ( strlen($task_url) > HOMEBOY_DMC_TASK_MAX_FIELD_BYTES ) {
+			fwrite(STDERR, "DMC standalone task resolution field exceeds its bounded limit.\n");
+			exit(1);
 		}
 		$result[] = array(
 			'handle'   => $candidate['handle'],
@@ -411,7 +480,7 @@ if ( 'resolve_task_standalone' === $operation ) {
 }
 
 if ( 'resolve_task' === $operation ) {
-	$task_url = $canonical_task_url((string) ( $argv[2] ?? '' ));
+	$task_url = $requested_task_identity((string) ( $argv[2] ?? '' ));
 	$command  = array_slice($argv, 3);
 	if ( '' === $task_url || array() === $command ) {
 		fwrite(STDERR, "Usage: homeboy-dmc-provider.php resolve_task <task-url> <dmc-worktree-list-command...>\n");
@@ -469,7 +538,7 @@ if ( 'resolve_task' === $operation ) {
 			$task   = is_array($row) && is_array($row['task_full'] ?? null) ? $row['task_full'] : null;
 			$safety = is_array($row) && is_array($row['safety'] ?? null) ? $row['safety'] : null;
 			if (
-				! is_array($row) || ! is_array($task) || $task_url !== $canonical_task_url((string) ( $task['task_url'] ?? '' ))
+				! is_array($row) || ! is_array($task) || $task_url !== $stored_task_identity($task)
 				|| ! is_string($row['handle'] ?? null) || '' === $row['handle']
 				|| ! is_string($row['path'] ?? null) || '' === $row['path']
 			|| ! is_string($row['branch'] ?? null) || '' === $row['branch']
@@ -503,8 +572,32 @@ if ( 'resolve_task' === $operation ) {
 	exit(0);
 }
 
+if ( 'ensure' === $operation ) {
+	$command = $rewrite_task_identity_flags(array_slice($argv, 2));
+	if ( array() === $command ) {
+		fwrite(STDERR, "Usage: homeboy-dmc-provider.php ensure <dmc-worktree-add-command...>\n");
+		exit(2);
+	}
+	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+	if ( ! is_resource($process) ) {
+		fwrite(STDERR, "Could not start the DMC worktree add command.\n");
+		exit(1);
+	}
+	$stdout = stream_get_contents($pipes[1]);
+	$stderr = stream_get_contents($pipes[2]);
+	fclose($pipes[1]);
+	fclose($pipes[2]);
+	$status = proc_close($process);
+	fwrite(STDOUT, (string) $stdout);
+	fwrite(STDERR, (string) $stderr);
+	if ( 0 !== $status ) {
+		exit($status > 0 && $status < 256 ? $status : 1);
+	}
+	exit(0);
+}
+
 if ( 'plan' === $operation ) {
-	$command = array_slice($argv, 2);
+	$command = $rewrite_task_identity_flags(array_slice($argv, 2));
 	if ( array() === $command ) {
 		fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan <dmc-worktree-plan-command...>\n");
 		exit(2);
@@ -655,7 +748,7 @@ if ( 'identity' === $operation && in_array((string) ( $payload['status'] ?? '' )
 			fwrite(STDERR, "DMC worktree provider returned an unsupported safety envelope.\n");
 			exit(1);
 		}
-		$task_url = $canonical_task_url((string) ( $payload['task_url'] ?? '' ));
+		$task_url = $stored_task_identity($payload);
 		if (
 			( '' === $task_url && ! str_starts_with($value, '/') )
 			|| ! is_string($payload['handle'] ?? null) || '' === $payload['handle']
