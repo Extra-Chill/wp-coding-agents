@@ -103,11 +103,13 @@ expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "sa
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
 expected_attachment_preview = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_preview", sys.argv[5], sys.argv[4], "{handle}", "{task_url}"]
 expected_attachment_apply = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_apply", "{handle}", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "attach-tracker", "{handle}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
-if provider.get("lookup_timeout_ms") != 12000:
-    raise SystemExit("FAIL: Homeboy must reserve a supervision margin beyond the DMC adapter budget")
+if provider.get("lookup_timeout_ms") != 60000:
+    raise SystemExit("FAIL: standalone DMC planning must have a realistic bounded timeout")
 adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
 adapter_budget = int(re.search(r"HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = (\d+)", adapter).group(1))
 adapter_grace = int(re.search(r"HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = (\d+)", adapter).group(1))
+if adapter_budget != 8:
+    raise SystemExit("FAIL: DMC task lookup must retain its inner execution deadline")
 if (adapter_budget + adapter_grace) * 1000 >= provider["lookup_timeout_ms"]:
     raise SystemExit("FAIL: DMC execution and adapter cleanup must finish before Homeboy supervision")
 if provider.get("lookup_output_limit_bytes") != 262144:

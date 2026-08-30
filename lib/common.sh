@@ -143,6 +143,24 @@ wp_cli() {
   "${WP_CLI_TRANSPORT[@]}" "$@"
 }
 
+wp_cli_strip_php_diagnostics() {
+  python3 -c '
+import re
+import sys
+
+lines = sys.stdin.read().splitlines()
+while lines and not lines[0].strip():
+    lines.pop(0)
+while lines and re.match(r"^(?:PHP )?(?:Deprecated|Warning|Notice):\s", lines[0].lstrip()):
+    lines.pop(0)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+sys.stdout.write("\n".join(lines))
+if lines:
+    sys.stdout.write("\n")
+'
+}
+
 write_file() {
   local file_path="$1"
   local content="$2"
