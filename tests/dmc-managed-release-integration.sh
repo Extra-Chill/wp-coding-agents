@@ -1,36 +1,52 @@
 #!/bin/bash
-# Regression coverage for the wp-coding-agents-owned DMC integration contract.
+# wp-coding-agents no longer owns a DMC managed-release or runtime-doctor channel.
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TEMPLATE="$ROOT_DIR/templates/wp-coding-agents-dmc-managed-release.php"
+fail() { echo "FAIL: $1" >&2; exit 1; }
 
-require_source() {
-  grep -Fq -- "$1" "$TEMPLATE" || { echo "FAIL: missing $2" >&2; exit 1; }
-}
+[ ! -e "$ROOT_DIR/lib/dmc-managed-release.sh" ] || fail "copied-release updater still present"
+[ ! -e "$ROOT_DIR/lib/dmc-managed-release-integration.sh" ] || fail "managed-release integration still present"
+[ ! -e "$ROOT_DIR/templates/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release template still present"
 
-require_source "datamachine_code_managed_release_channel" "managed release channel filter"
-require_source "--dmc-managed-release-status" "shared updater status endpoint"
-require_source "--plugins-only" "shared updater convergence command"
-require_source "datamachine_code_runtime_source_doctor_config" "runtime doctor integration filter"
-require_source "datamachine-code runtime release" "runtime doctor release command contract"
+if grep -Fq 'dmc_managed_release' "$ROOT_DIR/upgrade.sh"; then
+  fail "upgrade.sh still calls managed-release helpers"
+fi
+if grep -Fq -- '--dmc-managed-release-status' "$ROOT_DIR/upgrade.sh"; then
+  fail "upgrade.sh still exposes managed-release status"
+fi
+if grep -Fq 'update_data_machine_code_copied_release' "$ROOT_DIR/lib/data-machine.sh"; then
+  fail "plugin upgrades still convert copied DMC"
+fi
+grep -Fq 'rm -f "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"' "$ROOT_DIR/upgrade.sh" || fail "upgrade.sh does not remove the stale managed-release mu-plugin"
+
+channel_hits="$(grep -R --include='*.php' --include='*.sh' -l 'datamachine_code_managed_release_channel' "$ROOT_DIR" || true)"
+case "$channel_hits" in
+  */tests/*|'' ) : ;;
+  *) fail "managed-release channel filter still shipped: $channel_hits" ;;
+esac
+doctor_hits="$(grep -R --include='*.php' --include='*.sh' -l 'datamachine_code_runtime_source_doctor_config' "$ROOT_DIR" || true)"
+case "$doctor_hits" in
+  */tests/*|'' ) : ;;
+  *) fail "runtime-doctor ownership filter still shipped: $doctor_hits" ;;
+esac
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 SITE_PATH="$TMP/site"
-SPECIAL_SCRIPT_DIR="$TMP/with & | ' special"
-mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$SPECIAL_SCRIPT_DIR/templates"
-cp "$TEMPLATE" "$SPECIAL_SCRIPT_DIR/templates/wp-coding-agents-dmc-managed-release.php"
-SCRIPT_DIR="$SPECIAL_SCRIPT_DIR"
+mkdir -p "$SITE_PATH/wp-content/mu-plugins"
+printf 'stale-channel\n' > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+
+load_upgrade_function() {
+  sed -n "/^$1() {/,/^}/p" "$ROOT_DIR/upgrade.sh"
+}
+eval "$(load_upgrade_function reconcile_provider_and_service_state)"
+_run_filter_active() { return 0; }
+set_compose_agents_md_constant() { :; }
+sync_carried_plugins() { :; }
+configure_homeboy_dmc_worktree_provider() { :; }
 DRY_RUN=false
-UPDATED_ITEMS=()
-warn() { echo "FAIL: $*" >&2; exit 1; }
-service_file_normalize_perms() { :; }
-# shellcheck disable=SC1091
-source "$ROOT_DIR/lib/dmc-managed-release-integration.sh"
-dmc_managed_release_integration_sync
-rendered_script="$TMP/with & | \\' special/upgrade.sh"
-grep -Fq "$rendered_script" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" || { echo "FAIL: special-character script path was not rendered safely" >&2; exit 1; }
-php -l "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" >/dev/null || { echo "FAIL: rendered special-character path produced invalid PHP" >&2; exit 1; }
+reconcile_provider_and_service_state
+[ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "stale managed-release mu-plugin was retained"
 
 echo "dmc-managed-release-integration tests passed"

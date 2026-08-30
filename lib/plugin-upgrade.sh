@@ -21,7 +21,6 @@ plugin_update_initialize() {
   plugin_update_positive_integer "$PLUGIN_UPDATE_KILL_GRACE_SECONDS" || PLUGIN_UPDATE_KILL_GRACE_SECONDS=2
   PLUGIN_UPDATE_STARTED_AT="${PLUGIN_UPDATE_STARTED_AT:-$(date +%s)}"
   declare -p PLUGIN_UPDATE_FAILURES >/dev/null 2>&1 || PLUGIN_UPDATE_FAILURES=()
-  declare -p PLUGIN_UPDATE_POINTER_EVIDENCE >/dev/null 2>&1 || PLUGIN_UPDATE_POINTER_EVIDENCE=()
 }
 
 plugin_update_resume_command() {
@@ -177,26 +176,6 @@ PY
 )"
 }
 
-plugin_update_release_pointer() {
-  local slug="$1" plugin_dir="$SITE_PATH/wp-content/plugins/$1"
-  if [ "$slug" = data-machine-code ] && [ ! -d "$plugin_dir/.git" ]; then
-    readlink "$plugin_dir/.wp-coding-agents-release-current" 2>/dev/null || printf 'missing'
-  else
-    printf 'not-applicable'
-  fi
-}
-
-plugin_update_local_release_valid() {
-  local slug="$1" plugin_dir="$SITE_PATH/wp-content/plugins/$1"
-  [ "$slug" = data-machine-code ] || return 0
-  [ -d "$plugin_dir/.git" ] && return 0
-  local root_version pointer_version provenance
-  root_version="$(plugin_update_local_version "$slug" 2>/dev/null || true)"
-  pointer_version="$(grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$plugin_dir/.wp-coding-agents-release-current/data-machine-code.php" 2>/dev/null | sed -E 's/.*Version:[[:space:]]*([^[:space:]]+).*/\1/' || true)"
-  provenance="$plugin_dir/.wp-coding-agents-release-current/.wp-coding-agents-managed-release.json"
-  [ -n "$root_version" ] && [ "$pointer_version" = "$root_version" ] && [ -f "$provenance" ] && grep -Fq "\"version\":\"$root_version\"" "$provenance"
-}
-
 plugin_update_record_failure() {
   local slug="$1" type="$2" status="$3"
   PLUGIN_UPDATE_FAILURES+=("$slug type=$type status=$status")
@@ -206,12 +185,10 @@ plugin_update_record_failure() {
 plugin_update_execute() {
   local slug="$1"
   shift
-  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
   local before_version="unknown" after_version="unknown"
-  local before_pointer after_pointer update_status=0
+  local update_status=0
 
   plugin_update_initialize
-  before_pointer="$(plugin_update_release_pointer "$slug")"
   before_version="$(plugin_update_local_version "$slug" 2>/dev/null || printf unknown)"
   log "[$slug] installed-before version=${before_version:-unknown} activation=preserved-without-database-mutation"
 
@@ -222,8 +199,6 @@ plugin_update_execute() {
   # shellcheck disable=SC2034
   PLUGIN_UPDATE_ACTIVE=false
 
-  after_pointer="$(plugin_update_release_pointer "$slug")"
-  PLUGIN_UPDATE_POINTER_EVIDENCE+=("$slug changed=$( [ "$before_pointer" = "$after_pointer" ] && printf no || printf yes ) before=$before_pointer after=$after_pointer")
   after_version="$(plugin_update_local_version "$slug" 2>/dev/null || printf unknown)"
 
   if [ "$update_status" -ne 0 ]; then
@@ -231,10 +206,10 @@ plugin_update_execute() {
   fi
 
   if [ "$update_status" -eq 0 ]; then
-    log "[$slug] apply-terminal=complete version=${after_version:-unknown} release_pointer_changed=$( [ "$before_pointer" = "$after_pointer" ] && printf no || printf yes )"
+    log "[$slug] apply-terminal=complete version=${after_version:-unknown}"
     return 0
   fi
-  warn "[$slug] apply-terminal=partial-failure update_status=$update_status release_pointer_changed=$( [ "$before_pointer" = "$after_pointer" ] && printf no || printf yes )"
+  warn "[$slug] apply-terminal=partial-failure update_status=$update_status"
   return "$PLUGIN_UPDATE_EXIT_PARTIAL"
 }
 
@@ -244,14 +219,6 @@ plugin_update_slug_failed() {
     case "$failure" in "$slug "*) return 0 ;; esac
   done
   return 1
-}
-
-plugin_update_pointer_changed() {
-  local slug="$1" evidence
-  for evidence in "${PLUGIN_UPDATE_POINTER_EVIDENCE[@]:-}"; do
-    case "$evidence" in "$slug "*) case "$evidence" in *" changed=yes "*) printf yes ;; *) printf no ;; esac; return 0 ;; esac
-  done
-  printf no
 }
 
 plugin_update_verify_installed_plugins() {
@@ -264,17 +231,6 @@ plugin_update_verify_installed_plugins() {
     return 0
   fi
 
-  for slug in "${slugs[@]}"; do
-    [ -d "$SITE_PATH/wp-content/plugins/$slug" ] || continue
-    if plugin_update_local_release_valid "$slug"; then
-      [ "$slug" != data-machine-code ] || log "[$slug] release-pointer-verification=complete version=$(plugin_update_local_version "$slug") provenance=present"
-    else
-      plugin_update_record_failure "$slug" release-pointer-verification 1
-      warn "[$slug] release-pointer-verification=failed"
-      failed=true
-    fi
-  done
-
   if plugin_update_run_phase plugins wordpress-terminal-verification wp_cmd plugin list --fields=name,status,version --format=json --skip-plugins; then
     PLUGIN_STATES_AFTER_JSON="$PLUGIN_PHASE_OUTPUT"
   else
@@ -282,7 +238,7 @@ plugin_update_verify_installed_plugins() {
     for slug in "${slugs[@]}"; do
       [ -d "$SITE_PATH/wp-content/plugins/$slug" ] || continue
       plugin_update_record_failure "$slug" verification "$phase_status"
-      warn "[$slug] terminal=partial-failure verification_status=$phase_status release_pointer_changed=$(plugin_update_pointer_changed "$slug")"
+      warn "[$slug] terminal=partial-failure verification_status=$phase_status"
     done
     return "$PLUGIN_UPDATE_EXIT_PARTIAL"
   fi
@@ -304,20 +260,16 @@ plugin_update_verify_installed_plugins() {
       failed=true
     fi
     if plugin_update_slug_failed "$slug"; then
-      warn "[$slug] terminal=partial-failure version=${version:-missing} status=$status release_pointer_changed=$(plugin_update_pointer_changed "$slug")"
+      warn "[$slug] terminal=partial-failure version=${version:-missing} status=$status"
     else
-      log "[$slug] terminal=complete version=$version status=$status release_pointer_changed=$(plugin_update_pointer_changed "$slug")"
+      log "[$slug] terminal=complete version=$version status=$status"
     fi
   done
   [ "$failed" = false ]
 }
 
 plugin_update_print_terminal_summary() {
-  local evidence failure
-  log "Plugin release-pointer evidence:"
-  for evidence in "${PLUGIN_UPDATE_POINTER_EVIDENCE[@]:-}"; do
-    [ -z "$evidence" ] || log "  $evidence"
-  done
+  local failure
   if [ "${#PLUGIN_UPDATE_FAILURES[@]}" -gt 0 ]; then
     warn "PLUGIN_UPGRADE_RESULT=partial_failure exit=$PLUGIN_UPDATE_EXIT_PARTIAL"
     for failure in "${PLUGIN_UPDATE_FAILURES[@]}"; do warn "  $failure"; done
