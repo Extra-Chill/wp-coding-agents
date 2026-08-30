@@ -635,7 +635,7 @@ reconcile_provider_and_service_state() {
   set_compose_agents_md_constant
   dmc_managed_release_integration_sync
   sync_carried_plugins
-  configure_homeboy_dmc_worktree_provider
+  configure_homeboy_worktree_ownership
 }
 
 sync_cli_transport_runtime() {

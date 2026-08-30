@@ -257,8 +257,7 @@ jobs:
           - dm-workspace-discovery
           - homeboy-codebox-canary
           - homeboy-components
-          - homeboy-dmc-provider
-          - homeboy-dmc-provider-stability
+          - homeboy-worktree-adapter
           - homeboy-project-id
           - homeboy-verification-guidance
           - kimaki-credential-seeding

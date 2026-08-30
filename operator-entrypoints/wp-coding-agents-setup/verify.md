@@ -152,32 +152,32 @@ Verify the selected runtime can be started manually in the terminal or over SSH.
 
 ### `verify-homeboy`
 
-This overlay proves Homeboy is installed and linked, the DMC standalone provider is callable and configured in Homeboy, and the project/component model is inspectable. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
+This overlay proves Homeboy is installed and linked, DMC worktree abilities are adapted to Homeboy without circular provider configuration, and the project/component model is inspectable. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
 
 ```bash
 homeboy --version
 homeboy extension list
 homeboy extension show wordpress
-homeboy config show /worktree_providers/dmc
+homeboy config show /worktree_providers/dmc  # expected: not found
 homeboy project show <project-id>
 homeboy project components list <project-id>
-wp datamachine-code workspace worktree provider --format=json --path=/path/to/site
+wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";' --path=/path/to/site
 wp datamachine memory compose AGENTS.md --path=/path/to/site
 ```
 
 For WordPress Studio:
 
 ```bash
-studio wp datamachine-code workspace worktree provider --format=json
+studio wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";'
 studio wp datamachine memory compose AGENTS.md
 ```
 
-The DMC command should return the `datamachine-code/standalone-worktree-provider-command/v1` schema with a callable executable. `homeboy config show /worktree_providers/dmc` should show that provider as an enabled command provider. The optional legacy `datamachine_code_homeboy_available` option is not part of this readiness contract; do not fail verification when it is absent.
+The filter probe should print `homeboy-worktree-adapter`. `homeboy config show /worktree_providers/dmc` should report that the path is absent. The optional legacy `datamachine_code_homeboy_available` option is not part of this readiness contract; do not fail verification when it is absent.
 
 Attribute failures before retrying:
 
-- Missing or invalid standalone provider output is owned by Data Machine Code. Update or reactivate DMC, then rerun setup.
-- A missing or disabled `/worktree_providers/dmc` entry is owned by the wp-coding-agents Homeboy integration. Rerun Homeboy configuration after DMC is healthy.
+- A missing adapter filter is owned by wp-coding-agents setup/upgrade.
+- A present `/worktree_providers/dmc` entry is circular legacy configuration. Rerun wp-coding-agents reconciliation to remove it.
 - Extension readiness and project/component lookup failures are owned by Homeboy. Use the failed command's diagnostics and repair that Homeboy configuration.
 
 Expected model:
