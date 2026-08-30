@@ -74,10 +74,19 @@ DRY_RUN=false
 TIMESTAMP="test"
 UPDATED_ITEMS=()
 WP_CMD=wp
+WP_CLI_TRANSPORT=(wp)
 IS_STUDIO=false
 systemctl() { :; }
 
 bridge_update_systemd
+
+grep -q '^Environment=DATAMACHINE_WP_TRANSPORT_JSON=\[\\"wp\\"\]$' "$SYSTEMD_UNIT_DIR/kimaki.service"
+check $? "upgrade writes the argv-native WordPress transport"
+if grep -q '^Environment=DATAMACHINE_WP_CMD=' "$SYSTEMD_UNIT_DIR/kimaki.service"; then
+  check 1 "upgrade removes the legacy WordPress command"
+else
+  check 0 "upgrade removes the legacy WordPress command"
+fi
 
 UNIT="$SYSTEMD_UNIT_DIR/kimaki.service"
 [ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]

@@ -1,7 +1,7 @@
 // tests/dm-agent-sync.mjs — lifecycle tests for the Kimaki DM memory sync plugin.
 
 import assert from "node:assert/strict"
-import { access, mkdtemp } from "node:fs/promises"
+import { access, chmod, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
@@ -52,7 +52,8 @@ async function loadPlugin(config = {}) {
 
 await withEnv({
   DATAMACHINE_SITE_PATH: sitePath,
-  DATAMACHINE_WP_CMD: "true",
+  DATAMACHINE_WP_TRANSPORT_JSON: '["true"]',
+  DATAMACHINE_WP_CMD: undefined,
   DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
   EXTERNAL_WORDPRESS: undefined,
 }, async () => {
@@ -74,7 +75,8 @@ await withEnv({
 
 await withEnv({
   DATAMACHINE_SITE_PATH: sitePath,
-  DATAMACHINE_WP_CMD: "false",
+  DATAMACHINE_WP_TRANSPORT_JSON: '["false"]',
+  DATAMACHINE_WP_CMD: undefined,
   DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
 }, async () => {
   const run = await loadPlugin()
@@ -83,7 +85,7 @@ await withEnv({
   assert.ok(run.warnings.some((line) => line.includes("memory compose failed")))
 })
 
-await withEnv({ EXTERNAL_WORDPRESS: "true", DATAMACHINE_WP_CMD: "false" }, async () => {
+await withEnv({ EXTERNAL_WORDPRESS: "true", DATAMACHINE_WP_TRANSPORT_JSON: '["false"]' }, async () => {
   const run = await loadPlugin()
   await run.config()
   await run.chat()
@@ -94,7 +96,7 @@ await withEnv({ DATAMACHINE_COMPOSE_TIMEOUT_MS: "10" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "dm-agent-sync-"))
   const marker = join(directory, "compose-finished")
   const run = await loadPlugin()
-  await withEnv({ DATAMACHINE_WP_CMD: `sh -c 'sleep 0.2; touch ${marker}'` }, async () => {
+  await withEnv({ DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify(["sh", "-c", `sleep 0.2; touch ${marker}`]) }, async () => {
     await run.config()
     const startedAt = Date.now()
     await run.chat()
@@ -103,6 +105,41 @@ await withEnv({ DATAMACHINE_COMPOSE_TIMEOUT_MS: "10" }, async () => {
   await new Promise((resolve) => setTimeout(resolve, 250))
   await assert.rejects(access(marker))
   assert.ok(run.warnings.some((line) => line.includes("memory compose timed out")))
+})
+
+await withEnv({ DATAMACHINE_WP_CMD: "true", DATAMACHINE_WP_TRANSPORT_JSON: undefined }, async () => {
+  const run = await loadPlugin()
+  await run.config()
+  await run.chat()
+  assert.ok(run.warnings.some((line) => line.includes("recomposed Data Machine memory in")))
+})
+
+await withEnv({ DATAMACHINE_SITE_PATH: sitePath, DATAMACHINE_WP_CMD: undefined }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dm agent sync spaces "))
+  const executable = join(directory, "wp cli")
+  const output = join(directory, "received args")
+  await writeFile(executable, `#!/bin/sh\nprintf '%s\\n' "$@" > "$DM_SYNC_TEST_OUTPUT"\n`)
+  await chmod(executable, 0o755)
+
+  await withEnv({
+    DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify([executable, "fixed argument with spaces"]),
+    DM_SYNC_TEST_OUTPUT: output,
+  }, async () => {
+    const run = await loadPlugin()
+    await run.config()
+    await run.chat()
+    assert.ok(run.warnings.some((line) => line.includes("recomposed Data Machine memory in")))
+  })
+
+  const args = (await readFile(output, "utf8")).trim().split("\n")
+  assert.deepEqual(args, [
+    "fixed argument with spaces",
+    "datamachine",
+    "memory",
+    "compose",
+    `--path=${sitePath}`,
+    "--allow-root",
+  ])
 })
 
 console.log("OK: dm-agent-sync runs bounded WordPress composition only for the first chat message per session")
