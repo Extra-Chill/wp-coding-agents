@@ -17,17 +17,15 @@ PLUGIN_UPDATE_PROGRESS_SECONDS=1
 PLUGIN_UPDATE_KILL_GRACE_SECONDS=1
 PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
 PLUGIN_UPDATE_FAILURES=()
-PLUGIN_UPDATE_POINTER_EVIDENCE=()
 PENDING_ITEMS=()
 LOG=""
 
-log() { LOG="$LOG$*\n"; }
-warn() { LOG="$LOG$*\n"; }
+log() { LOG="$LOG$*"$'\n'; }
+warn() { LOG="$LOG$*"$'\n'; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 slow="$ROOT_DIR/tests/fixtures/plugin-updates/slow.sh"
 hung="$ROOT_DIR/tests/fixtures/plugin-updates/hung.sh"
-partial="$ROOT_DIR/tests/fixtures/plugin-updates/partial-pointer-hung.sh"
 
 # WordPress Studio may emit a PHP preamble on stdout before valid WP-CLI JSON.
 plugin_update_state_from_json $'\nDeprecated: fixture warning\n[{"name":"data-machine-code","status":"active","version":"1.2.3"}]' data-machine-code || fail "preamble-bearing plugin JSON was refused"
@@ -58,32 +56,62 @@ case "$LOG" in *"phase=hung-sync terminal=timeout"*"timed-out-child:"*"resume:"*
 child_pid="$(cat "$TMP/hung.pid")"
 if kill -0 "$child_pid" 2>/dev/null; then fail "timed-out fixture child $child_pid survived"; fi
 
-# A timeout after an atomic DMC pointer switch reports partial mutation and
-# verifies that WordPress still sees the same active installed version.
+# A timeout during plugin_update_execute reports partial failure and leaves a
+# copied DMC install byte/layout unchanged.
 PLUGIN="$SITE_PATH/wp-content/plugins/data-machine-code"
-mkdir -p "$PLUGIN/.wp-coding-agents-releases/old" "$PLUGIN/.wp-coding-agents-releases/new"
+mkdir -p "$PLUGIN/inc"
 printf '<?php\n/* Version: 1.0.0 */\n' > "$PLUGIN/data-machine-code.php"
-printf '<?php\n/* Version: 1.0.0 */\n' > "$PLUGIN/.wp-coding-agents-releases/old/data-machine-code.php"
-printf '<?php\n/* Version: 1.0.0 */\n' > "$PLUGIN/.wp-coding-agents-releases/new/data-machine-code.php"
-ln -s .wp-coding-agents-releases/old "$PLUGIN/.wp-coding-agents-release-current"
+printf 'homeboy-copied-bytes\n' > "$PLUGIN/inc/payload.txt"
+before="$(python3 - "$PLUGIN" <<'PY'
+import hashlib, os, sys
+root = sys.argv[1]
+digest = hashlib.sha256()
+for dirpath, dirs, files in os.walk(root, followlinks=False):
+    dirs.sort()
+    files.sort()
+    digest.update(os.path.relpath(dirpath, root).encode())
+    for name in dirs + files:
+        path = os.path.join(dirpath, name)
+        digest.update(os.path.relpath(path, root).encode())
+        if os.path.isfile(path) and not os.path.islink(path):
+            with open(path, "rb") as handle:
+                digest.update(handle.read())
+print(digest.hexdigest())
+PY
+)"
 wp_cmd() { printf '[{"name":"data-machine-code","status":"active","version":"1.0.0"}]\n'; }
-partial_update() { plugin_update_run_phase data-machine-code release-pointer-switch "$partial" "$PLUGIN"; }
+hung_update() { plugin_update_run_phase data-machine-code copied-skip "$hung"; }
 
 LOG=""
 PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
 PLUGIN_UPDATE_FAILURES=()
-PLUGIN_UPDATE_POINTER_EVIDENCE=()
 PENDING_ITEMS=()
-if plugin_update_execute data-machine-code partial_update; then
-  fail "partial pointer fixture completed"
+if plugin_update_execute data-machine-code hung_update; then
+  fail "hung apply completed"
 else
   status=$?
 fi
 [ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "partial apply did not return typed partial status"
 plugin_update_verify_installed_plugins data-machine-code || true
-[ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "partial fixture did not return typed partial status"
-[ "$(readlink "$PLUGIN/.wp-coding-agents-release-current")" = .wp-coding-agents-releases/new ] || fail "fixture did not switch release pointer"
-case "${PLUGIN_UPDATE_POINTER_EVIDENCE[*]}" in *"changed=yes"*"before=.wp-coding-agents-releases/old"*"after=.wp-coding-agents-releases/new"*) : ;; *) fail "partial release-pointer mutation was not reported" ;; esac
+after="$(python3 - "$PLUGIN" <<'PY'
+import hashlib, os, sys
+root = sys.argv[1]
+digest = hashlib.sha256()
+for dirpath, dirs, files in os.walk(root, followlinks=False):
+    dirs.sort()
+    files.sort()
+    digest.update(os.path.relpath(dirpath, root).encode())
+    for name in dirs + files:
+        path = os.path.join(dirpath, name)
+        digest.update(os.path.relpath(path, root).encode())
+        if os.path.isfile(path) and not os.path.islink(path):
+            with open(path, "rb") as handle:
+                digest.update(handle.read())
+print(digest.hexdigest())
+PY
+)"
+[ "$before" = "$after" ] || fail "copied DMC mutated during a timed-out plugin update"
+[ ! -e "$PLUGIN/.wp-coding-agents-releases" ] || fail "copied DMC was converted to .wp-coding-agents-releases"
 case "$LOG" in *"installed-after version=1.0.0 active=yes"*"terminal=partial-failure"*) : ;; *) fail "partial terminal verification evidence missing" ;; esac
 
 echo "plugin-upgrade-bounds tests passed"

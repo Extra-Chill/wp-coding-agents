@@ -87,7 +87,6 @@ update_wp_codebox_plugin_subtree() { printf 'codebox\n' >> "$TMP/plugins"; }
 plugin_update_execute() { local slug="$1"; shift; "$@"; }
 plugin_update_verify_installed_plugins() { :; }
 set_compose_agents_md_constant() { printf 'configuration\n' >> "$TMP/reconciliation"; }
-dmc_managed_release_integration_sync() { printf 'dmc\n' >> "$TMP/reconciliation"; }
 sync_carried_plugins() { printf 'carried\n' >> "$TMP/reconciliation"; }
 configure_homeboy_worktree_ownership() { printf 'homeboy\n' >> "$TMP/reconciliation"; }
 bridge_has_hook() { return 0; }
