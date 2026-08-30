@@ -185,11 +185,10 @@ homeboy_dmc_worktree_provider_json() {
       "$(homeboy_dmc_command_json task_attachment_preview "$provider")" \
       "$(homeboy_dmc_command_json task_attachment_apply "$provider")"
   fi
-  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"finalize":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json ensure "$provider")" \
     "$(homeboy_dmc_command_json converge "$provider")" \
     "$plan" \
-    "$(homeboy_dmc_command_json finalize "$provider")" \
     "$(homeboy_dmc_command_json cleanup_preview "$provider")" \
     "$(homeboy_dmc_command_json cleanup_apply "$provider")"
 }
@@ -787,7 +786,7 @@ configure_homeboy_dmc_worktree_provider() {
     return 0
   fi
 
-  local provider provider_json task_attachment_supported=false task_resolution_supported=false plan_supported=false
+  local provider provider_json finalize_json task_attachment_supported=false task_resolution_supported=false plan_supported=false
   local dmc_task_attachment_supported=false homeboy_task_attachment_supported=false
   provider="$(homeboy_dmc_worktree_provider_executable)" || {
     homeboy_handle_failure "Data Machine Code standalone worktree provider source contract is unavailable; skipping Homeboy DMC worktree provider setup."
@@ -810,9 +809,11 @@ configure_homeboy_dmc_worktree_provider() {
     plan_supported=true
   fi
   provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported" "$plan_supported")"
+  finalize_json="$(homeboy_dmc_command_json finalize "$provider")"
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} homeboy config set /worktree_providers/dmc '$provider_json'"
+    echo -e "${BLUE}[dry-run]${NC} homeboy config set /settings/worktree_provider_lifecycle/dmc/finalize '$finalize_json'"
     return 0
   fi
 
@@ -826,6 +827,10 @@ configure_homeboy_dmc_worktree_provider() {
   log "Configuring Homeboy DMC worktree provider."
   homeboy_run config set /worktree_providers/dmc "$provider_json" >/dev/null || \
     homeboy_handle_failure "Homeboy DMC worktree provider config failed."
+  if ! homeboy_run config set /settings/worktree_provider_lifecycle/dmc/finalize "$finalize_json" >/dev/null ||
+     ! homeboy_run config show /settings/worktree_provider_lifecycle/dmc/finalize >/dev/null; then
+    homeboy_handle_failure "Homeboy DMC worktree lifecycle finalizer config failed."
+  fi
 }
 
 configure_homeboy_wordpress_extension() {
