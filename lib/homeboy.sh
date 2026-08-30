@@ -162,7 +162,7 @@ homeboy_dmc_worktree_provider_json() {
   else
     resolve_task="$(homeboy_dmc_command_json resolve_task "$provider")"
   fi
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":12000,"lookup_output_limit_bytes":262144,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_task":%s' \
+  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":60000,"lookup_output_limit_bytes":262144,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_task":%s' \
     "$(homeboy_dmc_command_json resolve_identity "$provider")" \
     "$(homeboy_dmc_command_json attest_safety "$provider")" \
     "$(homeboy_dmc_command_json resolve "$provider")" \
