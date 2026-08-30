@@ -128,6 +128,11 @@ if mapping != {"items": "$", "handle": "$.handle", "path": "$.path", "branch": "
     raise SystemExit(f"FAIL: DMC resolve mapping must explicitly project tracker ownership: {mapping!r}")
 if commands.get("resolve") != expected_resolve:
     raise SystemExit(f"FAIL: DMC resolve adapter mapping mismatch: {commands.get('resolve')!r}")
+expected_retention = ["studio", "wp", "datamachine-code", "workspace", "retention-provider", f"--path={sys.argv[3]}"]
+if commands.get("retention") != expected_retention:
+    raise SystemExit(f"FAIL: typed retention command mismatch: {commands.get('retention')!r}")
+if commands.get("retention_timeout_ms") != 120000:
+    raise SystemExit("FAIL: typed retention command must have a bounded timeout")
 if commands.get("resolve_path") != expected_resolve_path:
     raise SystemExit(f"FAIL: DMC path resolve adapter mapping mismatch: {commands.get('resolve_path')!r}")
 if commands.get("resolve_task") != expected_resolve_task:
@@ -785,6 +790,10 @@ if [ "$1 $2" = "config set" ]; then
     [ "${HOMEBOY_ATTACHMENT_COMMANDS:-true}" = true ] && : > "$HOMEBOY_DATA_DIR/task-attachment-supported"
     exit 0
   fi
+  if [ "$3" = "/worktree_providers/wpca-retention-probe" ]; then
+    [ "${HOMEBOY_RETENTION_COMMANDS:-true}" = true ] && : > "$HOMEBOY_DATA_DIR/retention-supported"
+    exit 0
+  fi
   printf '%s|%s\n' "$3" "$4" >> "$HOMEBOY_CONFIG_LOG"
   exit 0
 fi
@@ -792,6 +801,10 @@ if [ "$1 $2" = "config show" ]; then
   if [ "$3" = "/settings/worktree_provider_lifecycle/dmc/finalize" ]; then
     grep -qF -- "$3|" "$HOMEBOY_CONFIG_LOG"
     exit $?
+  fi
+  if [ "$3" = "/worktree_providers/wpca-retention-probe/commands/retention" ]; then
+    [ "${HOMEBOY_RETENTION_COMMANDS:-true}" = true ] && [ -f "$HOMEBOY_DATA_DIR/retention-supported" ] && exit 0
+    exit 2
   fi
   [ "${HOMEBOY_ATTACHMENT_COMMANDS:-true}" = true ] && [ -f "$HOMEBOY_DATA_DIR/task-attachment-supported" ] && exit 0
   exit 2
@@ -803,6 +816,10 @@ chmod +x "$FAKE_BIN/homeboy"
 cat > "$FAKE_BIN/studio" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUDIO_LOG"
+if [ "$1 $2 $3" = "wp cli has-command" ] && [ "$4" = "datamachine-code workspace retention-provider" ]; then
+  [ "${DMC_RETENTION_COMMAND:-true}" = true ]
+  exit $?
+fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree list" ]; then
   case "$*" in
     *--task-ref=https://github.com/Extra-Chill/wp-coding-agents/issues/425*--with-status*--limit=200*--envelope*--format=json*|*--task-ref=https://github.com/Extra-Chill/WP-Coding-Agents/issues/425*--with-status*--limit=200*--envelope*--format=json*|*--task-ref=http://github.com/Extra-Chill/wp-coding-agents/issues/425*--with-status*--limit=200*--envelope*--format=json*) ;;
@@ -980,6 +997,7 @@ assert_contains "homeboy config set /settings/worktree_provider_lifecycle/dmc/fi
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"retention\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"retention-provider\",\"--path=$SITE_PATH\"],\"retention_timeout_ms\":120000" "$TMP/dry-run.log"
 if [ -f "$HOMEBOY_CONFIG_LOG" ]; then
   echo "FAIL: dry-run should not call homeboy config set"
   cat "$HOMEBOY_CONFIG_LOG"
@@ -1023,6 +1041,28 @@ assert_standalone_task_resolution_contract "$HOMEBOY_CONFIG_LOG"
 assert_task_attachment_contract "$HOMEBOY_CONFIG_LOG"
 assert_not_contains 'wp datamachine-code workspace worktree list fixture --all --full --format=json' "$STUDIO_LOG"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
+
+# Typed retention is emitted only when both installed contracts support it;
+# mixed-version installations retain the legacy cleanup commands.
+DMC_RETENTION_COMMAND=false
+export DMC_RETENTION_COMMAND
+: > "$HOMEBOY_CONFIG_LOG"
+rm -f "$DMC_STATE"
+configure_homeboy_dmc_worktree_provider > "$TMP/legacy-retention-dmc.log"
+assert_not_contains '"retention":' "$HOMEBOY_CONFIG_LOG"
+assert_contains '"cleanup_preview":' "$HOMEBOY_CONFIG_LOG"
+assert_contains '"cleanup_apply":' "$HOMEBOY_CONFIG_LOG"
+unset DMC_RETENTION_COMMAND
+
+HOMEBOY_RETENTION_COMMANDS=false
+export HOMEBOY_RETENTION_COMMANDS
+: > "$HOMEBOY_CONFIG_LOG"
+rm -f "$DMC_STATE"
+configure_homeboy_dmc_worktree_provider > "$TMP/legacy-retention-homeboy.log"
+assert_not_contains '"retention":' "$HOMEBOY_CONFIG_LOG"
+assert_contains '"cleanup_preview":' "$HOMEBOY_CONFIG_LOG"
+assert_contains '"cleanup_apply":' "$HOMEBOY_CONFIG_LOG"
+unset HOMEBOY_RETENTION_COMMANDS
 
 # Older DMC capability payloads keep the bounded WordPress lookup adapter.
 DMC_CAPABILITIES_MODE=task_legacy
