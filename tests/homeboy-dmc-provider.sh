@@ -282,12 +282,15 @@ canonical = run("canonical_task")
 if canonical.returncode or json.loads(canonical.stdout) != expected:
     raise SystemExit(f"FAIL: exact resolution did not canonicalize persisted task identity: {canonical!r}")
 missing = run("missing_task")
-if missing.returncode == 0 or "does not provide tracker ownership" not in missing.stderr:
-    raise SystemExit(f"FAIL: missing standalone tracker evidence must fail closed: {missing!r}")
+missing_expected = [{**expected[0], "task_url": None}]
+if missing.returncode or json.loads(missing.stdout) != missing_expected:
+    raise SystemExit(f"FAIL: lifecycle-owned handle resolution did not project a null tracker: {missing!r}")
 missing_path = run("missing_task", "resolve_path")
-missing_path_expected = [{**expected[0], "task_url": None}]
-if missing_path.returncode or json.loads(missing_path.stdout) != missing_path_expected:
+if missing_path.returncode or json.loads(missing_path.stdout) != missing_expected:
     raise SystemExit(f"FAIL: exact path resolution did not preserve an untracked worktree for negotiated attachment: {missing_path!r}")
+malformed = run("malformed")
+if malformed.returncode == 0 or "incomplete exact identity" not in malformed.stderr:
+    raise SystemExit(f"FAIL: malformed standalone identity must fail closed: {malformed!r}")
 PY
 }
 
@@ -564,7 +567,7 @@ if ('identity' === $operation) {
         'token' => 'fixture-token',
         'handle' => $value,
         'path' => getenv('DMC_STATE'),
-        'branch' => 'fix/310-dmc-cook',
+        'branch' => 'malformed' === $mode ? '' : 'fix/310-dmc-cook',
         'primary' => false,
         'task_url' => $task_url,
         'latency_ms' => 1,
