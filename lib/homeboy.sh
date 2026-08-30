@@ -445,20 +445,27 @@ configure_homeboy_worktree_ownership() {
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} homeboy config remove /worktree_providers/dmc"
+    echo -e "${BLUE}[dry-run]${NC} homeboy config remove /worktree_providers/wpca-retention-probe"
+    echo -e "${BLUE}[dry-run]${NC} homeboy config remove /worktree_providers/wpca-task-attachment-probe"
     echo -e "${BLUE}[dry-run]${NC} homeboy config remove /settings/worktree_provider_lifecycle/dmc"
     return 0
   fi
 
   log "Configuring Homeboy as the sole worktree lifecycle owner."
-  if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
-    homeboy_run config remove /worktree_providers/dmc >/dev/null || homeboy_handle_failure "Could not remove the circular DMC worktree provider."
-  fi
+  local provider_pointer
+  for provider_pointer in /worktree_providers/dmc /worktree_providers/wpca-retention-probe /worktree_providers/wpca-task-attachment-probe; do
+    if homeboy_run config show "$provider_pointer" >/dev/null 2>&1; then
+      homeboy_run config remove "$provider_pointer" >/dev/null || homeboy_handle_failure "Could not remove legacy Homeboy provider config at $provider_pointer."
+    fi
+  done
   if homeboy_run config show /settings/worktree_provider_lifecycle/dmc >/dev/null 2>&1; then
     homeboy_run config remove /settings/worktree_provider_lifecycle/dmc >/dev/null || homeboy_handle_failure "Could not remove the legacy DMC worktree finalizer."
   fi
-  if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
-    homeboy_handle_failure "Circular /worktree_providers/dmc configuration remains authoritative."
-  fi
+  for provider_pointer in /worktree_providers/dmc /worktree_providers/wpca-retention-probe /worktree_providers/wpca-task-attachment-probe; do
+    if homeboy_run config show "$provider_pointer" >/dev/null 2>&1; then
+      homeboy_handle_failure "Legacy $provider_pointer configuration remains authoritative."
+    fi
+  done
 }
 
 configure_homeboy_wordpress_extension() {

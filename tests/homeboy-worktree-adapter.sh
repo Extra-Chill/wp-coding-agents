@@ -19,16 +19,20 @@ cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$HOMEBOY_ADAPTER_TEST_LOG"
 case "$*" in
-  "config show /worktree_providers/dmc")
-    [ -f "$HOMEBOY_PROVIDER_STATE" ] || exit 1
+  "config show /worktree_providers/dmc"|"config show /worktree_providers/wpca-retention-probe"|"config show /worktree_providers/wpca-task-attachment-probe")
+    pointer="${*:3}"
+    state="$HOMEBOY_PROVIDER_STATE-$(printf '%s' "$pointer" | tr '/-' '__')"
+    [ -f "$state" ] || exit 1
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"value":{"kind":"command"}}}'
     ;;
   "config show /settings/worktree_provider_lifecycle/dmc")
     [ -f "$HOMEBOY_FINALIZER_STATE" ] || exit 1
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"value":{"finalize":["legacy"]}}}'
     ;;
-  "config remove /worktree_providers/dmc")
-    rm -f "$HOMEBOY_PROVIDER_STATE"
+  "config remove /worktree_providers/dmc"|"config remove /worktree_providers/wpca-retention-probe"|"config remove /worktree_providers/wpca-task-attachment-probe")
+    pointer="${*:3}"
+    state="$HOMEBOY_PROVIDER_STATE-$(printf '%s' "$pointer" | tr '/-' '__')"
+    rm -f "$state"
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{}}'
     ;;
   "config remove /settings/worktree_provider_lifecycle/dmc")
@@ -66,6 +70,7 @@ chmod +x "$FAKE_BIN/homeboy"
 PATH="$FAKE_BIN:$PATH"
 export PATH HOMEBOY_ADAPTER_TEST_LOG="$LOG"
 export HOMEBOY_PROVIDER_STATE="$TMP/provider-state" HOMEBOY_FINALIZER_STATE="$TMP/finalizer-state"
+provider_state() { printf '%s-%s' "$HOMEBOY_PROVIDER_STATE" "$(printf '%s' "$1" | tr '/-' '__')"; }
 UPDATED_ITEMS=()
 DRY_RUN=false
 BLUE=""
@@ -155,12 +160,16 @@ grep -q '^worktree cleanup --apply$' "$LOG"
 DRY_RUN=true
 configure_homeboy_worktree_ownership > "$TMP/dry-run.log"
 grep -q 'homeboy config remove /worktree_providers/dmc' "$TMP/dry-run.log"
+grep -q 'homeboy config remove /worktree_providers/wpca-retention-probe' "$TMP/dry-run.log"
+grep -q 'homeboy config remove /worktree_providers/wpca-task-attachment-probe' "$TMP/dry-run.log"
 grep -q 'homeboy config remove /settings/worktree_provider_lifecycle/dmc' "$TMP/dry-run.log"
 
-touch "$HOMEBOY_PROVIDER_STATE" "$HOMEBOY_FINALIZER_STATE"
+touch "$(provider_state /worktree_providers/dmc)" "$(provider_state /worktree_providers/wpca-retention-probe)" "$(provider_state /worktree_providers/wpca-task-attachment-probe)" "$HOMEBOY_FINALIZER_STATE"
 DRY_RUN=false
 configure_homeboy_worktree_ownership > "$TMP/apply.log"
-[ ! -e "$HOMEBOY_PROVIDER_STATE" ] || { echo "FAIL: circular DMC provider remained configured" >&2; exit 1; }
+for pointer in /worktree_providers/dmc /worktree_providers/wpca-retention-probe /worktree_providers/wpca-task-attachment-probe; do
+  [ ! -e "$(provider_state "$pointer")" ] || { echo "FAIL: legacy provider $pointer remained configured" >&2; exit 1; }
+done
 [ ! -e "$HOMEBOY_FINALIZER_STATE" ] || { echo "FAIL: legacy DMC finalizer remained configured" >&2; exit 1; }
 
 echo "OK: DMC worktree abilities use Homeboy without circular provider ownership"
