@@ -53,7 +53,7 @@ The agent should know only what it can use.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
 
-For example, a Kimaki install should know Kimaki is the Discord surface. It should not learn generic Kimaki worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available, and workspace/worktree guidance comes from the Data Machine Code layer.
+For example, a Kimaki install should know Kimaki is the Discord surface. It should not learn generic Kimaki worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available. Data Machine Code owns the WordPress-side repository, workspace, GitHub, and data-machine capabilities; Homeboy owns its native Rust worktree lifecycle and Cook.
 
 ## What It Enables
 
@@ -92,7 +92,7 @@ SITE_DOMAIN=example.com ./setup.sh
 
 ### Repo-Aware Developer Workflows
 
-Use Data Machine Code workspace management and optional orchestration tools to keep repository work isolated, reviewable, and tied back to the WordPress agent context.
+Use Data Machine Code for WordPress-side repository, workspace, GitHub, and data-machine capabilities, with optional Homeboy orchestration for native Rust worktree lifecycle and Cook. When both are installed, wp-coding-agents' WordPress adapter maps five DMC worktree abilities to Homeboy without making either project depend on the other.
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy
@@ -109,11 +109,11 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | OpenCode | Coding runtime | Selected or auto-detected |
 | Claude Code | Coding runtime | Selected or auto-detected |
 | Codex | Coding runtime | Selected or auto-detected |
-| Data Machine Code | Workspace, git, GitHub, and worktree integration | Installed with the Data Machine stack |
+| Data Machine Code | WordPress-side repository, workspace, git, GitHub, and data-machine capabilities | Installed with the Data Machine stack |
 | Kimaki | Discord bridge for OpenCode sessions | Optional chat bridge |
 | cc-connect | Multi-platform bridge, commonly used with Claude Code | Optional chat bridge |
 | opencode-telegram | Telegram bridge for OpenCode | Optional chat bridge |
-| Homeboy | Optional repo-aware task/lab orchestration layer | Enabled with `--with-homeboy` when available |
+| Homeboy | Optional repo-aware task/lab orchestration, native Rust worktree lifecycle, and Cook | Enabled with `--with-homeboy` when available |
 | AI Provider for Claude Code | WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 
 ## Installation
@@ -390,8 +390,10 @@ about WordPress here without skills or fine-tuning. Reading is never
 restricted. Everything below is about *writing*.
 
 **Workspace** is the developer setup: the installed tree is reference
-material, and every code change happens in a Data Machine Code workspace so it
-is tracked in git and reviewed through GitHub.
+material, and every code change happens in the configured repository workspace
+so it is tracked in git and reviewed through GitHub. Data Machine Code provides
+the WordPress-side repository, workspace, GitHub, and data-machine capabilities;
+when installed, Homeboy owns its native Rust worktree lifecycle and Cook.
 
 **Owned** is for managed agentic hosting, where a non-technical owner should
 never have to deal with pull requests. The agent edits the site's own theme and

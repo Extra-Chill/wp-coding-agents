@@ -71,13 +71,27 @@ namespace {
     define( 'ABSPATH', '/' );
     function datamachine_agents_md_enabled(): bool { return true; }
     \$GLOBALS['actions'] = [];
-    function add_action( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['actions'][\$tag][] = \$callback; }
+    function add_action( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['actions'][\$tag][\$priority][] = \$callback; }
+    add_action( 'datamachine_sections', static function () {
+        \DataMachine\Engine\AI\SectionRegistry::register(
+            'AGENTS.md',
+            'datamachine-code',
+            20,
+            static fn() => '## Data Machine Code standalone\n\ndatamachine-code workspace worktree add',
+            [ 'label' => 'Data Machine Code', 'owner' => 'data-machine-code', 'freshness' => 'static' ]
+        );
+    }, 20 );
     require '$MU_FILE';
-    foreach ( \$GLOBALS['actions']['datamachine_sections'] ?? [] as \$callback ) { \$callback(); }
+    ksort( \$GLOBALS['actions']['datamachine_sections'] );
+    foreach ( \$GLOBALS['actions']['datamachine_sections'] as \$callbacks ) {
+        foreach ( \$callbacks as \$callback ) { \$callback(); }
+    }
     \$call = \DataMachine\Engine\AI\SectionRegistry::\$calls['homeboy-cli'] ?? null;
     \$content = \$call ? (string) call_user_func( \$call[3] ) : '';
-    if ( '1' === getenv( 'CONTENT_ONLY' ) ) { echo \$content; exit; }
+    \$dmc = \DataMachine\Engine\AI\SectionRegistry::\$calls['datamachine-code'] ?? null;
+    \$dmc_content = \$dmc ? (string) call_user_func( \$dmc[3] ) : '';
     echo json_encode([
+        'homeboy_registered' => \$call !== null,
         'filename' => \$call[0] ?? null,
         'slug' => \$call[1] ?? null,
         'priority' => \$call[2] ?? null,
@@ -85,7 +99,10 @@ namespace {
         'owner' => \$call[4]['owner'] ?? null,
         'freshness' => \$call[4]['freshness'] ?? null,
         'has_heading' => str_starts_with( \$content, '## Homeboy' ),
-        'has_boundary' => str_contains( \$content, 'Data Machine Code owns authoritative repository and worktree state' ),
+        'has_homeboy_ownership' => str_contains( \$content, 'Homeboy owns the native Rust worktree lifecycle and Cook.' ),
+        'has_dmc_boundary' => str_contains( \$content, 'Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities; it does not own Homeboy worktrees.' ),
+        'no_dmc_worktree_commands' => ! str_contains( \$content, 'datamachine-code workspace worktree' ),
+        'no_legacy_dmc_ownership' => ! str_contains( \$content, 'Data Machine Code owns authoritative repository and worktree state' ),
         'has_cook' => str_contains( \$content, 'homeboy agent-task cook' ),
         'has_fanout' => str_contains( \$content, 'homeboy agent-task fanout cook-batch' ),
         'has_review' => str_contains( \$content, 'homeboy review' ),
@@ -95,12 +112,21 @@ namespace {
         'has_operator_boundary' => str_contains( \$content, 'only when the user explicitly asks' ),
         'has_discovery' => str_contains( \$content, 'homeboy --help' ) && str_contains( \$content, 'homeboy <command> --help' ),
         'no_exhaustive_map' => ! str_contains( \$content, 'Common entrypoints:' ) && ! str_contains( \$content, 'Deploy components to remote server' ),
+        'dmc_priority' => \$dmc[2] ?? null,
+        'dmc_label' => \$dmc[4]['label'] ?? null,
+        'dmc_owner' => \$dmc[4]['owner'] ?? null,
+        'dmc_freshness' => \$dmc[4]['freshness'] ?? null,
+        'dmc_live_condition' => str_contains( (string) ( \$dmc[4]['conditions'] ?? '' ), 'only while the homeboy binary is executable at AGENTS.md compose time' ),
+        'dmc_has_homeboy_worktree_route' => str_contains( \$dmc_content, 'homeboy worktree --help' ),
+        'dmc_has_cook_route' => str_contains( \$dmc_content, 'homeboy agent-task cook' ),
+        'dmc_has_dmc_boundary' => str_contains( \$dmc_content, 'Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities.' ),
+        'dmc_has_no_dmc_worktree_commands' => ! str_contains( \$dmc_content, 'datamachine-code workspace worktree' ),
     ]);
 }
 PHP
 
 RESULT=$(PATH="$TMP/bin:$PATH" php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"homeboy-cli","priority":30,"label":"Homeboy","owner":"wp-coding-agents","freshness":"live","has_heading":true,"has_boundary":true,"has_cook":true,"has_fanout":true,"has_review":true,"has_runs":true,"has_stateful":true,"has_health":true,"has_operator_boundary":true,"has_discovery":true,"no_exhaustive_map":true}'
+EXPECTED='{"homeboy_registered":true,"filename":"AGENTS.md","slug":"homeboy-cli","priority":30,"label":"Homeboy","owner":"wp-coding-agents","freshness":"live","has_heading":true,"has_homeboy_ownership":true,"has_dmc_boundary":true,"no_dmc_worktree_commands":true,"no_legacy_dmc_ownership":true,"has_cook":true,"has_fanout":true,"has_review":true,"has_runs":true,"has_stateful":true,"has_health":true,"has_operator_boundary":true,"has_discovery":true,"no_exhaustive_map":true,"dmc_priority":20,"dmc_label":"Data Machine Code + Homeboy","dmc_owner":"wp-coding-agents","dmc_freshness":"live","dmc_live_condition":true,"dmc_has_homeboy_worktree_route":true,"dmc_has_cook_route":true,"dmc_has_dmc_boundary":true,"dmc_has_no_dmc_worktree_commands":true}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives concise Homeboy routing guidance"
 
 echo "==> re-sync with homeboy present (idempotent)"
@@ -109,16 +135,12 @@ PATH="$TMP/bin:$PATH" guidance_sync_unit homeboy
 HASH_AFTER=$(md5sum "$MU_FILE" | cut -d' ' -f1)
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "file unchanged on re-sync"
 
-echo "==> live callback omits guidance when homeboy disappears"
+echo "==> compose without homeboy leaves DMC standalone section intact"
 EMPTY_BIN="$TMP/empty-bin"
 mkdir -p "$EMPTY_BIN"
-ABSENT_RESULT=$(CONTENT_ONLY=1 PATH="$EMPTY_BIN" "$PHP_BIN" "$SHIM")
-if [ -n "$ABSENT_RESULT" ]; then
-  echo "  FAIL callback rendered guidance without homeboy: $ABSENT_RESULT"
-  FAILED=$((FAILED + 1))
-else
-  echo "  ok   callback omits guidance without homeboy"
-fi
+ABSENT_RESULT=$(PATH="$EMPTY_BIN" "$PHP_BIN" "$SHIM")
+ABSENT_EXPECTED='{"homeboy_registered":false,"filename":null,"slug":null,"priority":null,"label":null,"owner":null,"freshness":null,"has_heading":false,"has_homeboy_ownership":false,"has_dmc_boundary":false,"no_dmc_worktree_commands":true,"no_legacy_dmc_ownership":true,"has_cook":false,"has_fanout":false,"has_review":false,"has_runs":false,"has_stateful":false,"has_health":false,"has_operator_boundary":false,"has_discovery":false,"no_exhaustive_map":true,"dmc_priority":20,"dmc_label":"Data Machine Code","dmc_owner":"data-machine-code","dmc_freshness":"static","dmc_live_condition":false,"dmc_has_homeboy_worktree_route":false,"dmc_has_cook_route":false,"dmc_has_dmc_boundary":false,"dmc_has_no_dmc_worktree_commands":false}'
+assert_eq "$ABSENT_RESULT" "$ABSENT_EXPECTED" "Homeboy absence leaves DMC standalone section unmodified"
 
 echo "==> sync removes section when homeboy is absent"
 SANDBIN="$TMP/sandbin"
