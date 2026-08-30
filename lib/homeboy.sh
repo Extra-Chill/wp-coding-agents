@@ -143,6 +143,9 @@ homeboy_dmc_command_json() {
       # generic provider result without creating the planned checkout.
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan "${wp_argv[@]}" datamachine-code workspace worktree plan '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
       ;;
+    plan_standalone)
+      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan_standalone "$provider" "$DM_WORKSPACE_DIR" '{repo}' '{head}' '{base}' '{task_url}' '{purpose}' '{owner_run_ref}' '{cleanup_policy}'
+      ;;
     cleanup_preview)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
       ;;
@@ -156,11 +159,17 @@ homeboy_dmc_worktree_provider_json() {
   local provider="$1"
   local task_attachment_supported="${2:-false}"
   local task_resolution_supported="${3:-false}"
-  local resolve_task
+  local plan_supported="${4:-false}"
+  local resolve_task plan
   if [ "$task_resolution_supported" = true ]; then
     resolve_task="$(homeboy_dmc_command_json resolve_task_standalone "$provider")"
   else
     resolve_task="$(homeboy_dmc_command_json resolve_task "$provider")"
+  fi
+  if [ "$plan_supported" = true ]; then
+    plan="$(homeboy_dmc_command_json plan_standalone "$provider")"
+  else
+    plan="$(homeboy_dmc_command_json plan "$provider")"
   fi
   printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":60000,"lookup_output_limit_bytes":262144,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_task":%s' \
     "$(homeboy_dmc_command_json resolve_identity "$provider")" \
@@ -176,7 +185,7 @@ homeboy_dmc_worktree_provider_json() {
   printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json ensure "$provider")" \
     "$(homeboy_dmc_command_json converge "$provider")" \
-    "$(homeboy_dmc_command_json plan "$provider")" \
+    "$plan" \
     "$(homeboy_dmc_command_json cleanup_preview "$provider")" \
     "$(homeboy_dmc_command_json cleanup_apply "$provider")"
 }
@@ -220,6 +229,28 @@ sys.exit(0 if (
     and "task" in payload["operations"]
     and payload.get("task_resolution_schema") == "datamachine-code/worktree-task-resolution/v1"
     and payload.get("task_resolution_limit") == 200
+) else 1)
+' >/dev/null 2>&1
+}
+
+homeboy_dmc_plan_capable() {
+  local provider="$1" response
+  response="$(php "$provider" capabilities 2>/dev/null)" || return 1
+  printf '%s' "$response" | python3 -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+sys.exit(0 if (
+    payload.get("schema") == "datamachine-code/worktree-provider-capabilities/v1"
+    and isinstance(payload.get("operations"), list)
+    and "plan" in payload["operations"]
+    and payload.get("plan_schema") == "datamachine-code/worktree-plan/v1"
+    and payload.get("plan_mutating") is False
 ) else 1)
 ' >/dev/null 2>&1
 }
@@ -752,7 +783,7 @@ configure_homeboy_dmc_worktree_provider() {
     return 0
   fi
 
-  local provider provider_json task_attachment_supported=false task_resolution_supported=false
+  local provider provider_json task_attachment_supported=false task_resolution_supported=false plan_supported=false
   local dmc_task_attachment_supported=false homeboy_task_attachment_supported=false
   provider="$(homeboy_dmc_worktree_provider_executable)" || {
     homeboy_handle_failure "Data Machine Code standalone worktree provider source contract is unavailable; skipping Homeboy DMC worktree provider setup."
@@ -771,7 +802,10 @@ configure_homeboy_dmc_worktree_provider() {
   if homeboy_dmc_task_resolution_capable "$provider"; then
     task_resolution_supported=true
   fi
-  provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported")"
+  if homeboy_dmc_plan_capable "$provider"; then
+    plan_supported=true
+  fi
+  provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported" "$plan_supported")"
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} homeboy config set /worktree_providers/dmc '$provider_json'"

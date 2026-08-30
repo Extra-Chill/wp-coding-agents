@@ -14,6 +14,7 @@ const HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES = 65536;
 const HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = 8;
 const HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = 1;
 const HOMEBOY_DMC_ATTACHMENT_TIMEOUT_SECONDS = 30;
+const HOMEBOY_DMC_PLAN_TIMEOUT_SECONDS = 30;
 
 if ( '_session_exec' === $operation ) {
 	$command = array_slice($argv, 2);
@@ -503,28 +504,80 @@ if ( 'resolve_task' === $operation ) {
 	exit(0);
 }
 
-if ( 'plan' === $operation ) {
-	$command = array_slice($argv, 2);
-	if ( array() === $command ) {
-		fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan <dmc-worktree-plan-command...>\n");
-		exit(2);
+if ( in_array($operation, array( 'plan', 'plan_standalone' ), true) ) {
+	if ( 'plan_standalone' === $operation ) {
+		$provider  = (string) ( $argv[2] ?? '' );
+		$workspace = (string) ( $argv[3] ?? '' );
+		$repo      = (string) ( $argv[4] ?? '' );
+		$branch    = (string) ( $argv[5] ?? '' );
+		$base      = (string) ( $argv[6] ?? '' );
+		$task_url  = (string) ( $argv[7] ?? '' );
+		$purpose   = (string) ( $argv[8] ?? '' );
+		$owner     = (string) ( $argv[9] ?? '' );
+		$cleanup   = (string) ( $argv[10] ?? '' );
+		if ( '' === $provider || '' === $workspace || '' === $repo || '' === $branch || '' === $base || '' === $task_url || '' === $purpose || '' === $owner || '' === $cleanup ) {
+			fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan_standalone <provider> <workspace> <repo> <branch> <base> <task-url> <purpose> <owner-run-ref> <cleanup-policy>\n");
+			exit(2);
+		}
+		$intent = json_encode(
+			array(
+				'repo'           => $repo,
+				'branch'         => $branch,
+				'from'           => $base,
+				'task_url'       => $task_url,
+				'reuse_policy'   => 'isolated',
+				'purpose'        => $purpose,
+				'owner_run_ref'  => $owner,
+				'cleanup_policy' => $cleanup,
+			),
+			JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+		);
+		try {
+			$capture = $run_bounded_command(array( PHP_BINARY, $provider, 'plan', $workspace, $intent ), HOMEBOY_DMC_TASK_MAX_OUTPUT_BYTES, HOMEBOY_DMC_TASK_MAX_DMC_STDERR_BYTES, HOMEBOY_DMC_PLAN_TIMEOUT_SECONDS);
+		} catch (Throwable $error) {
+			fwrite(STDERR, $error->getMessage() . "\n");
+			exit(1);
+		}
+		if ( null !== $capture['failure'] ) {
+			fwrite(STDERR, "DMC standalone worktree planning exceeded its bounded execution or capture.\n");
+			exit(1);
+		}
+		$status = $capture['status'];
+		$stdout = $capture['stdout'];
+		$stderr = $capture['stderr'];
+	} else {
+		$command = array_slice($argv, 2);
+		if ( array() === $command ) {
+			fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan <dmc-worktree-plan-command...>\n");
+			exit(2);
+		}
+		$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
+		if ( ! is_resource($process) ) {
+			fwrite(STDERR, "Could not start the DMC worktree plan command.\n");
+			exit(1);
+		}
+		$stdout = stream_get_contents($pipes[1]);
+		$stderr = stream_get_contents($pipes[2]);
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		$status = proc_close($process);
 	}
-	$process = proc_open($command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) ), $pipes);
-	if ( ! is_resource($process) ) {
-		fwrite(STDERR, "Could not start the DMC worktree plan command.\n");
-		exit(1);
-	}
-	$stdout = stream_get_contents($pipes[1]);
-	$stderr = stream_get_contents($pipes[2]);
-	fclose($pipes[1]);
-	fclose($pipes[2]);
-	$status = proc_close($process);
 	if ( 0 !== $status ) {
 		$evidence = trim($stdout . "\n" . $stderr);
 		if ( preg_match('/Disposition:\s*(unsafe|owner(?:ship)?[ _-]conflict)/i', $evidence, $matches) ) {
 			$normalized = strtolower(str_replace(array( ' ', '-' ), '_', $matches[1]));
 			$disposition = in_array($normalized, array( 'owner_conflict', 'ownership_conflict' ), true) ? 'owner_conflict' : 'unsafe';
 			fwrite(STDERR, 'DMC worktree plan disposition: ' . $disposition . "\n");
+			exit($status > 0 && $status < 256 ? $status : 1);
+		}
+		try {
+			$failure = $decode_json_output($stdout);
+		} catch (Throwable $error) {
+			$failure = null;
+		}
+		if ( is_array($failure) && is_string($failure['code'] ?? null) ) {
+			$message = is_string($failure['message'] ?? null) ? ': ' . $failure['message'] : '';
+			fwrite(STDERR, 'DMC worktree plan failed: ' . $failure['code'] . $message . "\n");
 			exit($status > 0 && $status < 256 ? $status : 1);
 		}
 		fwrite(STDERR, 'DMC worktree plan failed: ' . trim($stderr) . "\n");
@@ -536,7 +589,7 @@ if ( 'plan' === $operation ) {
 		fwrite(STDERR, 'DMC worktree plan returned invalid JSON: ' . $error->getMessage() . "\n");
 		exit(1);
 	}
-	if ( ! is_array($plan) || 1 !== ( $plan['version'] ?? null ) || ! is_string($plan['digest'] ?? null) || '' === $plan['digest'] ) {
+	if ( ! is_array($plan) || ( 'plan_standalone' === $operation && 'datamachine-code/worktree-plan/v1' !== ( $plan['schema'] ?? null ) ) || 1 !== ( $plan['version'] ?? null ) || ! is_string($plan['digest'] ?? null) || '' === $plan['digest'] ) {
 		fwrite(STDERR, "DMC worktree plan returned an unsupported typed envelope.\n");
 		exit(1);
 	}
