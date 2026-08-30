@@ -155,6 +155,9 @@ homeboy_dmc_command_json() {
     cleanup_apply)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --format=json "${wp_flags[@]}"
       ;;
+    retention)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace retention-provider "${wp_flags[@]}"
+      ;;
   esac
 }
 
@@ -163,6 +166,7 @@ homeboy_dmc_worktree_provider_json() {
   local task_attachment_supported="${2:-false}"
   local task_resolution_supported="${3:-false}"
   local plan_supported="${4:-false}"
+  local retention_supported="${5:-false}"
   local resolve_task plan
   if [ "$task_resolution_supported" = true ]; then
     resolve_task="$(homeboy_dmc_command_json resolve_task_standalone "$provider")"
@@ -185,10 +189,15 @@ homeboy_dmc_worktree_provider_json() {
       "$(homeboy_dmc_command_json task_attachment_preview "$provider")" \
       "$(homeboy_dmc_command_json task_attachment_apply "$provider")"
   fi
-  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s' \
     "$(homeboy_dmc_command_json ensure "$provider")" \
     "$(homeboy_dmc_command_json converge "$provider")" \
-    "$plan" \
+    "$plan"
+  if [ "$retention_supported" = true ]; then
+    printf ',"retention":%s,"retention_timeout_ms":120000' \
+      "$(homeboy_dmc_command_json retention "$provider")"
+  fi
+  printf ',"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json cleanup_preview "$provider")" \
     "$(homeboy_dmc_command_json cleanup_apply "$provider")"
 }
@@ -270,6 +279,31 @@ homeboy_task_attachment_commands_supported() {
   fi
   rm -rf "$probe_root"
   return 1
+}
+
+homeboy_retention_command_supported() {
+  local probe_root probe_provider
+  probe_root="$(mktemp -d)" || return 1
+  probe_provider='{"enabled":false,"kind":"command","apply_enabled":false,"commands":{"retention":["true"],"retention_timeout_ms":120000}}'
+  if HOMEBOY_DATA_DIR="$probe_root" homeboy_run config set /worktree_providers/wpca-retention-probe "$probe_provider" >/dev/null 2>&1 &&
+     HOMEBOY_DATA_DIR="$probe_root" homeboy_run config show /worktree_providers/wpca-retention-probe/commands/retention >/dev/null 2>&1; then
+    rm -rf "$probe_root"
+    return 0
+  fi
+  rm -rf "$probe_root"
+  return 1
+}
+
+homeboy_dmc_retention_provider_capable() {
+  local wp_argv=() wp_flags=() value
+  while IFS= read -r value; do
+    wp_argv+=("$value")
+  done < <(homeboy_dmc_wp_argv)
+  while IFS= read -r value; do
+    wp_flags+=("$value")
+  done < <(homeboy_dmc_wp_flags)
+
+  "${wp_argv[@]}" cli has-command 'datamachine-code workspace retention-provider' "${wp_flags[@]}" >/dev/null 2>&1
 }
 
 homeboy_dmc_provider_release_label() {
@@ -786,7 +820,7 @@ configure_homeboy_dmc_worktree_provider() {
     return 0
   fi
 
-  local provider provider_json finalize_json task_attachment_supported=false task_resolution_supported=false plan_supported=false
+  local provider provider_json finalize_json task_attachment_supported=false task_resolution_supported=false plan_supported=false retention_supported=false
   local dmc_task_attachment_supported=false homeboy_task_attachment_supported=false
   provider="$(homeboy_dmc_worktree_provider_executable)" || {
     homeboy_handle_failure "Data Machine Code standalone worktree provider source contract is unavailable; skipping Homeboy DMC worktree provider setup."
@@ -808,7 +842,10 @@ configure_homeboy_dmc_worktree_provider() {
   if homeboy_dmc_plan_capable "$provider"; then
     plan_supported=true
   fi
-  provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported" "$plan_supported")"
+  if homeboy_retention_command_supported && homeboy_dmc_retention_provider_capable; then
+    retention_supported=true
+  fi
+  provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported" "$plan_supported" "$retention_supported")"
   finalize_json="$(homeboy_dmc_command_json finalize "$provider")"
 
   if [ "${DRY_RUN:-false}" = true ]; then
