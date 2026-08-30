@@ -101,11 +101,15 @@ kimaki_env_block() {
   kimaki_bin_dir=$(dirname "$KIMAKI_BIN")
   node_bin_dir=$(_resolve_node_bin_dir "$KIMAKI_BIN")
   path_value=$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
+  local transport_json
+  transport_json=$(wp_cli_transport_json)
+  transport_json=${transport_json//\\/\\\\}
+  transport_json=${transport_json//\"/\\\"}
   local out="Environment=HOME=$SERVICE_HOME
 Environment=PATH=$path_value
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_CMD=$WP_CMD
+Environment=DATAMACHINE_WP_TRANSPORT_JSON=\"$transport_json\"
 Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
   if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then
     out="$out

@@ -74,31 +74,88 @@ DRY_RUN=false
 TIMESTAMP="test"
 UPDATED_ITEMS=()
 WP_CMD=wp
+WP_CLI_TRANSPORT=(wp)
 IS_STUDIO=false
 systemctl() { :; }
 
 bridge_update_systemd
 
+if grep -Fq 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"' "$SYSTEMD_UNIT_DIR/kimaki.service"; then
+  check 0 "upgrade writes the argv-native WordPress transport"
+else
+  check 1 "upgrade writes the argv-native WordPress transport"
+fi
+if grep -q '^Environment=DATAMACHINE_WP_CMD=' "$SYSTEMD_UNIT_DIR/kimaki.service"; then
+  check 1 "upgrade removes the legacy WordPress command"
+else
+  check 0 "upgrade removes the legacy WordPress command"
+fi
+
 UNIT="$SYSTEMD_UNIT_DIR/kimaki.service"
-[ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]
-check $? "upgrade adds the opt-out exactly once"
-grep -q '^Environment=HOST_CUSTOM=preserved$' "$UNIT"
-check $? "operator-owned env survives the merge"
+if [ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]; then
+  check 0 "upgrade adds the opt-out exactly once"
+else
+  check 1 "upgrade adds the opt-out exactly once"
+fi
+if grep -q '^Environment=HOST_CUSTOM=preserved$' "$UNIT"; then
+  check 0 "operator-owned env survives the merge"
+else
+  check 1 "operator-owned env survives the merge"
+fi
 
 # Re-running must not accumulate duplicates.
 bridge_update_systemd
-[ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]
-check $? "re-running upgrade does not duplicate the opt-out"
+if [ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]; then
+  check 0 "re-running upgrade does not duplicate the opt-out"
+else
+  check 1 "re-running upgrade does not duplicate the opt-out"
+fi
 
 echo "==> launchd plist carries the opt-out"
 
 _kimaki_ai_gateway_launchd_env_xml() { :; }
 PLIST="$(SITE_PATH="$TMP/site" KIMAKI_DATA_DIR="$TMP/.kimaki" KIMAKI_BIN=/usr/bin/kimaki \
   bridge_render_launchd com.wp.kimaki 2>/dev/null)"
-printf '%s' "$PLIST" | grep -q '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>'
-check $? "launchd plist declares the opt-out key"
-printf '%s' "$PLIST" | grep -A1 '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>' | grep -q '<string>1</string>'
-check $? "launchd plist sets it to 1"
+if printf '%s' "$PLIST" | grep -q '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>'; then
+  check 0 "launchd plist declares the opt-out key"
+else
+  check 1 "launchd plist declares the opt-out key"
+fi
+if printf '%s' "$PLIST" | grep -A1 '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>' | grep -q '<string>1</string>'; then
+  check 0 "launchd plist sets it to 1"
+else
+  check 1 "launchd plist sets it to 1"
+fi
+if printf '%s' "$PLIST" | grep -q '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>'; then
+  check 0 "launchd plist declares argv-native WordPress transport"
+else
+  check 1 "launchd plist declares argv-native WordPress transport"
+fi
+if printf '%s' "$PLIST" | grep -A1 '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>' | grep -q '<string>\["wp"\]</string>'; then
+  check 0 "launchd plist stores the canonical argv JSON"
+else
+  check 1 "launchd plist stores the canonical argv JSON"
+fi
+
+WP_CLI_TRANSPORT=("/tmp/wp cli" "--flag with spaces")
+PLIST_SPACES="$(SITE_PATH="$TMP/site" KIMAKI_DATA_DIR="$TMP/.kimaki" KIMAKI_BIN=/usr/bin/kimaki \
+  bridge_render_launchd com.wp.kimaki 2>/dev/null)"
+if printf '%s' "$PLIST_SPACES" | grep -q '<string>\["/tmp/wp cli","--flag with spaces"\]</string>'; then
+  check 0 "launchd plist preserves paths and args with spaces"
+else
+  check 1 "launchd plist preserves paths and args with spaces"
+fi
+if [ "$(_kimaki_datamachine_wp_transport_systemd_env)" = 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"/tmp/wp cli\",\"--flag with spaces\"]"' ]; then
+  check 0 "systemd env quotes argv JSON when paths or args contain spaces"
+else
+  check 1 "systemd env quotes argv JSON when paths or args contain spaces"
+fi
+WP_CLI_TRANSPORT=(wp)
+if [ "$(_kimaki_datamachine_wp_transport_systemd_env)" = 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"' ]; then
+  check 0 "systemd env quotes compact argv JSON so systemd keeps the quotes"
+else
+  check 1 "systemd env quotes compact argv JSON so systemd keeps the quotes"
+fi
 
 echo "==> fresh systemd install declares the opt-out"
 
@@ -106,8 +163,11 @@ echo "==> fresh systemd install declares the opt-out"
 # effects, so assert against the source of the block rather than executing it.
 # Both systemd env blocks must carry the key; a render site that forgets it is
 # the exact regression this guards.
-[ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"\?$' "$SCRIPT_DIR/bridges/kimaki.sh")" -eq 2 ]
-check $? "both systemd env blocks (fresh install + upgrade template) set it"
+if [ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"\?$' "$SCRIPT_DIR/bridges/kimaki.sh")" -eq 2 ]; then
+  check 0 "both systemd env blocks (fresh install + upgrade template) set it"
+else
+  check 1 "both systemd env blocks (fresh install + upgrade template) set it"
+fi
 
 if [ "$FAILED" -ne 0 ]; then
   echo

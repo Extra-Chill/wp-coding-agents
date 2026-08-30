@@ -33,8 +33,8 @@
         <string>/home/chubes/.kimaki/kimaki-config</string>
         <key>DATAMACHINE_SITE_PATH</key>
         <string>/var/www/site</string>
-        <key>DATAMACHINE_WP_CMD</key>
-        <string>wp</string>
+        <key>DATAMACHINE_WP_TRANSPORT_JSON</key>
+        <string>["wp"]</string>
         <key>KIMAKI_NO_DEFAULT_CHANNEL</key>
         <string>1</string>
         <key>DATAMACHINE_AGENT_SLUG</key>
