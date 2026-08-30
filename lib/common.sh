@@ -105,7 +105,8 @@ PY
 }
 
 wp_cli_transport_resolve_candidates() {
-  local index name json
+  local index name json executable probe_output
+  local failures=()
   if [ -n "${WP_CLI_TRANSPORT_JSON:-}" ]; then
     wp_cli_transport_set_json "$WP_CLI_TRANSPORT_JSON"
     log "Using configured WordPress CLI transport: $(wp_cli_transport_display)"
@@ -122,20 +123,26 @@ wp_cli_transport_resolve_candidates() {
     name="${WP_CLI_TRANSPORT_CANDIDATE_NAMES[$index]}"
     json="${WP_CLI_TRANSPORT_CANDIDATE_JSON[$index]}"
     wp_cli_transport_parse_json "$json" || error "Invalid registered WordPress CLI transport candidate: $name"
-    if command -v "${WP_CLI_TRANSPORT[0]}" >/dev/null 2>&1 && {
-      [ "${DRY_RUN:-false}" = true ] ||
-        (cd "$SITE_PATH" && "${WP_CLI_TRANSPORT[@]}" eval 'return;' ${WP_ROOT_FLAG:-} --path="$SITE_PATH" >/dev/null 2>&1)
-    }; then
+    executable="${WP_CLI_TRANSPORT[0]}"
+    if ! command -v "$executable" >/dev/null 2>&1; then
+      failures+=("$name: executable '$executable' not found")
+    elif [ "${DRY_RUN:-false}" = true ]; then
       wp_cli_transport_set "${WP_CLI_TRANSPORT[@]}"
       log "Using WordPress CLI transport candidate '$name': $(wp_cli_transport_display)"
       return
+    elif probe_output="$(cd "$SITE_PATH" && "${WP_CLI_TRANSPORT[@]}" eval 'return;' ${WP_ROOT_FLAG:-} --path="$SITE_PATH" 2>&1)"; then
+      wp_cli_transport_set "${WP_CLI_TRANSPORT[@]}"
+      log "Using WordPress CLI transport candidate '$name': $(wp_cli_transport_display)"
+      return
+    else
+      probe_output="${probe_output//$'\n'/ }"
+      failures+=("$name: runtime probe failed${probe_output:+: ${probe_output:0:500}}")
     fi
     WP_CLI_TRANSPORT=()
     index=$((index + 1))
   done
 
-  wp_cli_transport_set wp
-  log "Using default WordPress CLI transport: $(wp_cli_transport_display)"
+  error "No usable WordPress CLI transport found. ${failures[*]:-No candidates were registered.} Set WP_CLI_TRANSPORT_JSON to an executable argv array."
 }
 
 wp_cli() {
