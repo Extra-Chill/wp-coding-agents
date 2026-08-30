@@ -147,7 +147,7 @@ homeboy_dmc_command_json() {
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan_standalone "$provider" "$DM_WORKSPACE_DIR" '{repo}' '{head}' '{base}' '{task_url}' '{purpose}' '{owner_run_ref}' '{cleanup_policy}'
       ;;
     finalize)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree finalize '{handle}' '--state={lifecycle_state}' '--owner-terminal-outcome={owner_outcome}' --format=json "${wp_flags[@]}"
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree finalize '{handle}' '--owner-terminal-outcome={owner_outcome}' --format=json "${wp_flags[@]}"
       ;;
     cleanup_preview)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"

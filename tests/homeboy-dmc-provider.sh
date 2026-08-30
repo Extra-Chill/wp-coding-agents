@@ -274,24 +274,25 @@ if not lines:
 _, payload = lines[-1].split("|", 1)
 command = json.loads(payload)
 handle = "wp-codebox@release-wp-codebox-6b69fc607f7f"
+if any(argument.startswith("--state=") for argument in command):
+    raise SystemExit("FAIL: Homeboy lifecycle states must not leak into DMC's state machine")
 
-def run(lifecycle_state, owner_outcome):
+def run(owner_outcome):
     values = {
         "handle": handle,
-        "lifecycle_state": lifecycle_state,
         "owner_outcome": owner_outcome,
     }
     return subprocess.run([part.format(**values) for part in command], text=True, capture_output=True)
 
 open(sys.argv[2], "w").close()
-for lifecycle_state, owner_outcome in (("completed", "success"), ("interrupted", "failure")):
-    result = run(lifecycle_state, owner_outcome)
+for owner_outcome in ("success", "failure"):
+    result = run(owner_outcome)
     if result.returncode or not json.loads(result.stdout).get("success"):
-        raise SystemExit(f"FAIL: DMC {lifecycle_state} finalization failed: {result!r}")
+        raise SystemExit(f"FAIL: DMC {owner_outcome} finalization failed: {result!r}")
 
 log = open(sys.argv[2], encoding="utf-8").read()
-for lifecycle_state, owner_outcome in (("completed", "success"), ("interrupted", "failure")):
-    expected = f"workspace worktree finalize {handle} --state={lifecycle_state} --owner-terminal-outcome={owner_outcome} --format=json"
+for owner_outcome in ("success", "failure"):
+    expected = f"workspace worktree finalize {handle} --owner-terminal-outcome={owner_outcome} --format=json"
     if expected not in log:
         raise SystemExit(f"FAIL: missing exact DMC finalization argv {expected!r}: {log!r}")
 PY
@@ -908,7 +909,7 @@ fi
 if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree finalize" ]; then
   [ "$6" = "wp-codebox@release-wp-codebox-6b69fc607f7f" ] || exit 2
   case "$*" in
-    *--state=completed*--owner-terminal-outcome=success*--format=json*"--path=$SITE_PATH"*|*--state=interrupted*--owner-terminal-outcome=failure*--format=json*"--path=$SITE_PATH"*) ;;
+    *--owner-terminal-outcome=success*--format=json*"--path=$SITE_PATH"*|*--owner-terminal-outcome=failure*--format=json*"--path=$SITE_PATH"*) ;;
     *) exit 2 ;;
   esac
   printf '{"success":true,"handle":"%s"}\n' "$6"
@@ -964,7 +965,7 @@ assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan_standalone\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{repo}\",\"{head}\",\"{base}\",\"{task_url}\",\"{purpose}\",\"{owner_run_ref}\",\"{cleanup_policy}\"]" "$TMP/dry-run.log"
-assert_contains "homeboy config set /settings/worktree_provider_lifecycle/dmc/finalize '[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"finalize\",\"{handle}\",\"--state={lifecycle_state}\",\"--owner-terminal-outcome={owner_outcome}\",\"--format=json\",\"--path=$SITE_PATH\"]'" "$TMP/dry-run.log"
+assert_contains "homeboy config set /settings/worktree_provider_lifecycle/dmc/finalize '[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"finalize\",\"{handle}\",\"--owner-terminal-outcome={owner_outcome}\",\"--format=json\",\"--path=$SITE_PATH\"]'" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -999,7 +1000,7 @@ configure_homeboy_dmc_worktree_provider > "$TMP/apply.log"
 assert_contains 'identity|homeboy-readiness@probe' "$DMC_PROVIDER_LOG"
 assert_not_contains 'workspace worktree get' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
-assert_contains "/settings/worktree_provider_lifecycle/dmc/finalize|[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"finalize\",\"{handle}\",\"--state={lifecycle_state}\",\"--owner-terminal-outcome={owner_outcome}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
+assert_contains "/settings/worktree_provider_lifecycle/dmc/finalize|[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"finalize\",\"{handle}\",\"--owner-terminal-outcome={owner_outcome}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
 assert_finalization_contract "$HOMEBOY_CONFIG_LOG"
