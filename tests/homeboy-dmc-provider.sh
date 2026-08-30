@@ -97,7 +97,9 @@ expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php
 if sys.argv[6] == "fallback":
     expected_resolve_task = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "resolve_task", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "list", "--task-ref={task_url}", "--with-status", "--limit=200", "--envelope", "--format=json", f"--path={sys.argv[3]}"]
 expected_ensure = ["studio", "wp", "datamachine-code", "workspace", "worktree", "add", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
-expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
+expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan_standalone", sys.argv[5], sys.argv[4], "{repo}", "{head}", "{base}", "{task_url}", "{purpose}", "{owner_run_ref}", "{cleanup_policy}"]
+if sys.argv[6] == "fallback":
+    expected_plan = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "plan", "studio", "wp", "datamachine-code", "workspace", "worktree", "plan", "{repo}", "{head}", "--from={base}", "--task-url={task_url}", "--reuse-policy=isolated", "--purpose={purpose}", "--owner-run-ref={owner_run_ref}", "--cleanup-policy={cleanup_policy}", "--format=json", f"--path={sys.argv[3]}"]
 expected_identity = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "identity", sys.argv[5], sys.argv[4], "{handle}"]
 expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "safety", sys.argv[5], sys.argv[4], "{identity}"]
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
@@ -108,10 +110,13 @@ if provider.get("lookup_timeout_ms") != 60000:
 adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
 adapter_budget = int(re.search(r"HOMEBOY_DMC_TASK_LOOKUP_TIMEOUT_SECONDS = (\d+)", adapter).group(1))
 adapter_grace = int(re.search(r"HOMEBOY_DMC_TASK_TERMINATION_GRACE_SECONDS = (\d+)", adapter).group(1))
+plan_budget = int(re.search(r"HOMEBOY_DMC_PLAN_TIMEOUT_SECONDS = (\d+)", adapter).group(1))
 if adapter_budget != 8:
     raise SystemExit("FAIL: DMC task lookup must retain its inner execution deadline")
 if (adapter_budget + adapter_grace) * 1000 >= provider["lookup_timeout_ms"]:
     raise SystemExit("FAIL: DMC execution and adapter cleanup must finish before Homeboy supervision")
+if plan_budget != 30 or (plan_budget + adapter_grace) * 1000 >= provider["lookup_timeout_ms"]:
+    raise SystemExit("FAIL: standalone planning must retain a bounded inner deadline below Homeboy supervision")
 if provider.get("lookup_output_limit_bytes") != 262144:
     raise SystemExit("FAIL: DMC task lookup output must have an explicit finite Homeboy cap")
 if provider.get("mutation_timeout_ms") != 120000:
@@ -578,12 +583,46 @@ if ('capabilities' === $operation) {
     }
     echo json_encode(array(
         'schema' => 'datamachine-code/worktree-provider-capabilities/v1',
-        'operations' => 'task_legacy' === getenv('DMC_CAPABILITIES_MODE') ? array('identity', 'safety', 'converge', 'capabilities') : array('identity', 'task', 'safety', 'converge', 'capabilities'),
+        'operations' => 'task_legacy' === getenv('DMC_CAPABILITIES_MODE') ? array('identity', 'safety', 'converge', 'capabilities') : array('identity', 'task', 'safety', 'converge', 'plan', 'capabilities'),
         'tracker_fields' => array('task_url', 'task_ref'),
         'attachment_operation' => 'datamachine-code/workspace-worktree-attach-tracker',
         'attachment_standalone' => false,
         'task_resolution_schema' => 'datamachine-code/worktree-task-resolution/v1',
         'task_resolution_limit' => 200,
+        'plan_schema' => 'datamachine-code/worktree-plan/v1',
+        'plan_mutating' => false,
+    )) . "\n";
+    exit(0);
+}
+if ('plan' === $operation) {
+    $intent = json_decode($argv[3] ?? '', true);
+    $expected = array(
+        'repo' => 'blocks-engine',
+        'branch' => 'fix/406-dmc-provider-plan',
+        'from' => 'origin/main',
+        'task_url' => 'https://github.com/Extra-Chill/wp-coding-agents/issues/406',
+        'reuse_policy' => 'isolated',
+        'purpose' => 'agent-task-cook',
+        'owner_run_ref' => 'homeboy://agent-task/run/cook-406',
+        'cleanup_policy' => 'remove_on_success',
+    );
+    if ($intent !== $expected) {
+        fwrite(STDERR, "standalone plan intent mismatch\n");
+        exit(2);
+    }
+    file_put_contents(getenv('DMC_ENSURE_LOG'), "plan\n", FILE_APPEND);
+    if ('' !== (string) getenv('DMC_PLAN_TEXT_DISPOSITION')) {
+        fwrite(STDOUT, 'Disposition: ' . getenv('DMC_PLAN_TEXT_DISPOSITION') . "\n");
+        exit(9);
+    }
+    echo json_encode(array(
+        'schema' => 'datamachine-code/worktree-plan/v1',
+        'version' => 1,
+        'digest' => 'fixture-plan-digest',
+        'handle' => 'blocks-engine@fix-406-dmc-provider-plan',
+        'path' => getenv('DMC_PLAN_PATH'),
+        'branch' => 'fix/406-dmc-provider-plan',
+        'disposition' => getenv('DMC_PLAN_DISPOSITION') ?: 'create',
     )) . "\n";
     exit(0);
 }
@@ -868,7 +907,7 @@ assert_contains "\"task_attachment_apply\":[\"php\",\"$SCRIPT_DIR/scripts/homebo
 assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
-assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan\",\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"plan\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
+assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan_standalone\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{repo}\",\"{head}\",\"{base}\",\"{task_url}\",\"{purpose}\",\"{owner_run_ref}\",\"{cleanup_policy}\"]" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -905,6 +944,8 @@ assert_not_contains 'workspace worktree get' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
+assert_not_contains 'workspace worktree plan' "$STUDIO_LOG"
+assert_contains 'plan|{' "$DMC_PROVIDER_LOG"
 assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
 assert_resolution_contract "$HOMEBOY_CONFIG_LOG"
 assert_standalone_task_resolution_contract "$HOMEBOY_CONFIG_LOG"
