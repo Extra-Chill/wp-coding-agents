@@ -74,10 +74,19 @@ DRY_RUN=false
 TIMESTAMP="test"
 UPDATED_ITEMS=()
 WP_CMD=wp
+WP_CLI_TRANSPORT=(wp)
 IS_STUDIO=false
 systemctl() { :; }
 
 bridge_update_systemd
+
+grep -Fq 'Environment=DATAMACHINE_WP_TRANSPORT_JSON=["wp"]' "$SYSTEMD_UNIT_DIR/kimaki.service"
+check $? "upgrade writes the argv-native WordPress transport"
+if grep -q '^Environment=DATAMACHINE_WP_CMD=' "$SYSTEMD_UNIT_DIR/kimaki.service"; then
+  check 1 "upgrade removes the legacy WordPress command"
+else
+  check 0 "upgrade removes the legacy WordPress command"
+fi
 
 UNIT="$SYSTEMD_UNIT_DIR/kimaki.service"
 [ "$(grep -c '^Environment=KIMAKI_NO_DEFAULT_CHANNEL=1$' "$UNIT")" -eq 1 ]
@@ -99,6 +108,21 @@ printf '%s' "$PLIST" | grep -q '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>'
 check $? "launchd plist declares the opt-out key"
 printf '%s' "$PLIST" | grep -A1 '<key>KIMAKI_NO_DEFAULT_CHANNEL</key>' | grep -q '<string>1</string>'
 check $? "launchd plist sets it to 1"
+printf '%s' "$PLIST" | grep -q '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>'
+check $? "launchd plist declares argv-native WordPress transport"
+printf '%s' "$PLIST" | grep -A1 '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>' | grep -q '<string>\["wp"\]</string>'
+check $? "launchd plist stores the canonical argv JSON"
+
+WP_CLI_TRANSPORT=("/tmp/wp cli" "--flag with spaces")
+PLIST_SPACES="$(SITE_PATH="$TMP/site" KIMAKI_DATA_DIR="$TMP/.kimaki" KIMAKI_BIN=/usr/bin/kimaki \
+  bridge_render_launchd com.wp.kimaki 2>/dev/null)"
+printf '%s' "$PLIST_SPACES" | grep -q '<string>\["/tmp/wp cli","--flag with spaces"\]</string>'
+check $? "launchd plist preserves paths and args with spaces"
+[ "$(_kimaki_datamachine_wp_transport_systemd_env)" = 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"/tmp/wp cli\",\"--flag with spaces\"]"' ]
+check $? "systemd env quotes argv JSON when paths or args contain spaces"
+WP_CLI_TRANSPORT=(wp)
+[ "$(_kimaki_datamachine_wp_transport_systemd_env)" = 'Environment=DATAMACHINE_WP_TRANSPORT_JSON=["wp"]' ]
+check $? "systemd env keeps compact argv JSON without extra quoting"
 
 echo "==> fresh systemd install declares the opt-out"
 

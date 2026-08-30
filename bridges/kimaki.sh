@@ -811,9 +811,6 @@ _kimaki_install_systemd() {
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
   PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
   _kimaki_assert_bin_identity "$KIMAKI_BIN" "$PATH_VALUE"
-  local DATAMACHINE_WP_CMD
-  DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
-
 # Kimaki recreates a general-purpose #kimaki-<bot> channel, welcome message,
 # and tutorial thread on every start. On a wp-coding-agents install the real
 # project channel is the site channel, so the default is pure noise. Upstream
@@ -824,7 +821,7 @@ _kimaki_install_systemd() {
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_CMD=$DATAMACHINE_WP_CMD
+$(_kimaki_datamachine_wp_transport_systemd_env)
 Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
   if [ -n "${AGENT_SLUG:-}" ]; then
     ENV_BLOCK="$ENV_BLOCK
@@ -1150,6 +1147,8 @@ bridge_update_systemd() {
 
   local CURRENT_ENV
   CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
+  CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" DATAMACHINE_WP_CMD)
+  CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" DATAMACHINE_WP_TRANSPORT_JSON)
   if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" = true ]; then
     CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" KIMAKI_DATA_DIR)
   fi
@@ -1177,7 +1176,7 @@ bridge_update_systemd() {
 Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_CMD=$(_kimaki_datamachine_wp_cmd)
+$(_kimaki_datamachine_wp_transport_systemd_env)
 Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
   if [ -n "${KIMAKI_LOCK_PORT:-}" ]; then
     TEMPLATE_ENV="$TEMPLATE_ENV
@@ -1323,8 +1322,8 @@ bridge_render_launchd() {
   skill_filter_plist_args="$(_kimaki_skill_filter_args_plist)"
   local launchd_start
   launchd_start="${KIMAKI_DATA_DIR}/kimaki-config/launchd-start.sh"
-  local datamachine_wp_cmd
-  datamachine_wp_cmd=$(_kimaki_datamachine_wp_cmd)
+  local datamachine_wp_transport_json
+  datamachine_wp_transport_json=$(_kimaki_xml_text "$(_kimaki_datamachine_wp_transport_json)")
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1360,8 +1359,8 @@ $skill_filter_plist_args
         <string>${KIMAKI_DATA_DIR}/kimaki-config</string>
         <key>DATAMACHINE_SITE_PATH</key>
         <string>$SITE_PATH</string>
-        <key>DATAMACHINE_WP_CMD</key>
-        <string>$datamachine_wp_cmd</string>
+        <key>DATAMACHINE_WP_TRANSPORT_JSON</key>
+        <string>$datamachine_wp_transport_json</string>
         <key>KIMAKI_NO_DEFAULT_CHANNEL</key>
         <string>1</string>$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
         <key>DATAMACHINE_AGENT_SLUG</key>
@@ -1374,14 +1373,38 @@ $skill_filter_plist_args
 EOF
 }
 
-_kimaki_datamachine_wp_cmd() {
+_kimaki_datamachine_wp_transport_json() {
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
-    external_wordpress_control_command
+    python3 - "$(external_wordpress_control_command)" <<'PY'
+import json, sys
+print(json.dumps(sys.argv[1:], separators=(",", ":")))
+PY
     return 0
   fi
-  wp_cli_transport_ensure
-  wp_cli_transport_display
-  printf '\n'
+  wp_cli_transport_json
+}
+
+_kimaki_datamachine_wp_transport_systemd_env() {
+  local value escaped
+  value=$(_kimaki_datamachine_wp_transport_json)
+  case "$value" in
+    *[[:space:]]*)
+      escaped=${value//\\/\\\\}
+      escaped=${escaped//\"/\\\"}
+      printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="%s"' "$escaped"
+      ;;
+    *)
+      printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON=%s' "$value"
+      ;;
+  esac
+}
+
+_kimaki_xml_text() {
+  local value="$1"
+  value=${value//&/\&amp;}
+  value=${value//</\&lt;}
+  value=${value//>/\&gt;}
+  printf '%s' "$value"
 }
 
 _kimaki_skill_filter_mode() {

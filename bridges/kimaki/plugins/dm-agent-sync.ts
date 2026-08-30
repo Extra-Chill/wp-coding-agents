@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import type { Plugin } from "@opencode-ai/plugin";
 
-type WpCli = string;
+type WpCli = string[];
 
 const DEFAULT_COMPOSE_TIMEOUT_MS = 10_000;
 const OUTPUT_LIMIT = 16 * 1024;
@@ -25,8 +25,12 @@ const dmAgentSync: Plugin = async () => {
 
       // Config runs for every CLI command. Capture only local state here;
       // invoking WordPress belongs to the real chat lifecycle below.
+      const wpCli = resolveWpCliTransport();
+      if (!wpCli) {
+        return;
+      }
       sessionConfig = {
-        wpCli: process.env.DATAMACHINE_WP_CMD || process.env.WP_CMD || "wp",
+        wpCli,
         sitePath: getSitePath(),
         agentSlug: getAgentSlug(input),
       };
@@ -48,7 +52,7 @@ const dmAgentSync: Plugin = async () => {
 
 async function composeMemory(wpCli: WpCli, sitePath: string, agentSlug: string): Promise<void> {
   const startedAt = Date.now();
-  const result = await runBoundedCommand(datamachineCommand(wpCli, sitePath, agentSlug), getComposeTimeoutMs());
+  const result = await runBoundedCommand(datamachineArgv(wpCli, sitePath, agentSlug), getComposeTimeoutMs());
   const durationMs = Date.now() - startedAt;
 
   if (result.timedOut) {
@@ -67,8 +71,8 @@ async function composeMemory(wpCli: WpCli, sitePath: string, agentSlug: string):
   console.warn(`[dm-agent-sync] recomposed Data Machine memory in ${durationMs}ms`);
 }
 
-function datamachineCommand(wpCli: WpCli, sitePath: string, agentSlug: string): string {
-  const args = ["datamachine", "memory", "compose"];
+function datamachineArgv(wpCli: WpCli, sitePath: string, agentSlug: string): string[] {
+  const args = [...wpCli, "datamachine", "memory", "compose"];
   if (agentSlug) {
     args.push(`--agent=${agentSlug}`);
   }
@@ -76,12 +80,13 @@ function datamachineCommand(wpCli: WpCli, sitePath: string, agentSlug: string): 
     args.push(`--path=${sitePath}`);
   }
   args.push("--allow-root");
-  return [wpCli, ...args.map(shellQuote)].join(" ");
+  return args;
 }
 
-function runBoundedCommand(command: string, timeoutMs: number): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
+function runBoundedCommand(argv: string[], timeoutMs: number): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
+  const [command, ...args] = argv;
   return new Promise((resolve) => {
-    const child = spawn("sh", ["-c", command], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     let settled = false;
     const finish = (exitCode: number, timedOut: boolean) => {
@@ -120,6 +125,34 @@ function runBoundedCommand(command: string, timeoutMs: number): Promise<{ exitCo
   });
 }
 
+function resolveWpCliTransport(): WpCli | undefined {
+  const json = process.env.DATAMACHINE_WP_TRANSPORT_JSON;
+  if (json) {
+    return parseTransportJson(json);
+  }
+  return parseShippedWpCmd(process.env.DATAMACHINE_WP_CMD || process.env.WP_CMD || "wp");
+}
+
+function parseTransportJson(raw: string): WpCli | undefined {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value) || value.length === 0) {
+      return undefined;
+    }
+    if (value.some((item) => typeof item !== "string" || item.length === 0 || item.includes("\0"))) {
+      return undefined;
+    }
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseShippedWpCmd(raw: string): WpCli | undefined {
+  const parts = raw.trim().split(/[ \t]+/).filter((part) => part.length > 0);
+  return parts.length > 0 ? parts : undefined;
+}
+
 function getComposeTimeoutMs(): number {
   const configured = Number(process.env.DATAMACHINE_COMPOSE_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_COMPOSE_TIMEOUT_MS;
@@ -143,10 +176,6 @@ function getAgentSlug(input: { instructions?: string[] }): string {
     }
   }
   return "";
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `"'"'`)}'`;
 }
 
 export default dmAgentSync;
