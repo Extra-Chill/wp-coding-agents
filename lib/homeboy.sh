@@ -146,6 +146,9 @@ homeboy_dmc_command_json() {
     plan_standalone)
       homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan_standalone "$provider" "$DM_WORKSPACE_DIR" '{repo}' '{head}' '{base}' '{task_url}' '{purpose}' '{owner_run_ref}' '{cleanup_policy}'
       ;;
+    finalize)
+      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree finalize '{handle}' '--state={lifecycle_state}' '--owner-terminal-outcome={owner_outcome}' --format=json "${wp_flags[@]}"
+      ;;
     cleanup_preview)
       homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
       ;;
@@ -182,10 +185,11 @@ homeboy_dmc_worktree_provider_json() {
       "$(homeboy_dmc_command_json task_attachment_preview "$provider")" \
       "$(homeboy_dmc_command_json task_attachment_apply "$provider")"
   fi
-  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
+  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s,"finalize":%s,"cleanup_preview":%s,"cleanup_apply":%s}}' \
     "$(homeboy_dmc_command_json ensure "$provider")" \
     "$(homeboy_dmc_command_json converge "$provider")" \
     "$plan" \
+    "$(homeboy_dmc_command_json finalize "$provider")" \
     "$(homeboy_dmc_command_json cleanup_preview "$provider")" \
     "$(homeboy_dmc_command_json cleanup_apply "$provider")"
 }
