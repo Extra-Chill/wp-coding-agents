@@ -74,7 +74,7 @@ write_graph() {
   "success": true,
   "coordinator": "coordinator",
   "nodes": [
-    {"slug":"coordinator","label":"Coordinator","description":"Routes work","subagents":["writer","reviewer","researcher"],"model":"","sources":{"instructions":{"SOUL.md":"$TMP/coordinator/SOUL.md"},"skills":{"root/SKILL.md":"$TMP/coordinator/skills/root/SKILL.md"},"references":{"root/context.md":"$TMP/coordinator/references/root/context.md"}},"tool_policy":{"default":"deny","allow":["datamachine/search","websearch"]},"skill_policy":{"paths":["root/SKILL.md"]}},
+    {"slug":"coordinator","label":"Coordinator","description":"Routes work","subagents":["writer","reviewer","researcher"],"model":"openai/gpt-5","sources":{"instructions":{"SOUL.md":"$TMP/coordinator/SOUL.md"},"skills":{"root/SKILL.md":"$TMP/coordinator/skills/root/SKILL.md"},"references":{"root/context.md":"$TMP/coordinator/references/root/context.md"}},"tool_policy":{"default":"deny","allow":["datamachine/search","websearch"]},"skill_policy":{"paths":["root/SKILL.md"]}},
     {"slug":"writer","label":"Writer","description":"Write implementation","subagents":["researcher"],"model":"openai/gpt-5","sources":{"instructions":{"SOUL.md":"$TMP/identity/writer-soul.md"},"skills":{"writer/SKILL.md":"$TMP/identity/skills/writer/SKILL.md"},"references":{"writer/context.bin":"$TMP/identity/references/writer/context.bin"}},"tool_policy":{"default":"deny","allow":["datamachine/search","bash"]},"skill_policy":{"paths":["writer/SKILL.md"]}},
     {"slug":"reviewer","label":"Reviewer","description":"Review implementation","subagents":[],"model":"","sources":{"instructions":{"SOUL.md":"$TMP/identity-review/reviewer-soul.md"},"skills":{"reviewer/SKILL.md":"$TMP/identity-review/skills/reviewer/SKILL.md"},"references":{}},"tool_policy":{"default":"deny","allow":["datamachine/search"]},"skill_policy":{"paths":["reviewer/SKILL.md"]}},
     {"slug":"researcher","label":"Researcher","description":"Research context","subagents":[],"model":"","sources":{"instructions":{"SOUL.md":"$TMP/identity/researcher-soul.md"},"skills":{},"references":{}},"tool_policy":{"default":"deny","allow":["webfetch"]},"skill_policy":{"paths":[]}}
@@ -120,10 +120,35 @@ config = json.load(open(sys.argv[2]))
 assert config['model'] == 'preserve' and config['mcp'] == {}
 assert config['permission']['read'] == 'allow'
 assert config['permission']['task'] == {'*': 'deny', 'general': 'allow', 'researcher': 'allow', 'reviewer': 'allow', 'writer': 'allow'}
+# The native child gets the coordinator's explicit model but no agent-local
+# permission map, retaining the managed top-level source and workspace rules.
+assert config['agent']['general'] == {'model': 'openai/gpt-5'}
 assert config['permission']['skill']['root-skill'] == 'allow'
 assert config['permission']['skill']['user-skill'] == 'ask'
 assert open(sys.argv[1].replace('.wp-coding-agents-subagents.json', 'skills/root-skill/SKILL.md'), 'rb').read().startswith(b'---\nname: root-skill\n')
 PY
+
+echo '==> native general model ownership stays explicit'
+python3 - "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+data = json.load(open(p))
+data['agent']['general'] = {'model': 'user/model'}
+json.dump(data, open(p, 'w'))
+PY
+if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
+assert_python 'user-owned native general model remains intact' "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+assert json.load(open(sys.argv[1]))['agent']['general'] == {'model': 'user/model'}
+PY
+python3 - "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+data = json.load(open(p))
+data['agent']['general'] = {'model': 'openai/gpt-5'}
+json.dump(data, open(p, 'w'))
+PY
+
 WP_CMD_MODE=diagnostic-graph
 opencode_project_subagents
 printf '  ok   recognized PHP diagnostics do not contaminate local graph JSON\n'
