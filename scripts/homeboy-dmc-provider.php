@@ -515,7 +515,7 @@ if ( in_array($operation, array( 'plan', 'plan_standalone' ), true) ) {
 		$purpose   = (string) ( $argv[8] ?? '' );
 		$owner     = (string) ( $argv[9] ?? '' );
 		$cleanup   = (string) ( $argv[10] ?? '' );
-		if ( '' === $provider || '' === $workspace || '' === $repo || '' === $branch || '' === $base || '' === $task_url || '' === $purpose || '' === $owner || '' === $cleanup ) {
+		if ( '' === $provider || '' === $workspace || '' === $repo || '' === $branch || '' === $base || '' === $purpose || '' === $owner || '' === $cleanup ) {
 			fwrite(STDERR, "Usage: homeboy-dmc-provider.php plan_standalone <provider> <workspace> <repo> <branch> <base> <task-url> <purpose> <owner-run-ref> <cleanup-policy>\n");
 			exit(2);
 		}
@@ -524,7 +524,7 @@ if ( in_array($operation, array( 'plan', 'plan_standalone' ), true) ) {
 				'repo'           => $repo,
 				'branch'         => $branch,
 				'from'           => $base,
-				'task_url'       => $task_url,
+				'task_url'       => '' === $task_url ? null : $task_url,
 				'reuse_policy'   => 'isolated',
 				'purpose'        => $purpose,
 				'owner_run_ref'  => $owner,

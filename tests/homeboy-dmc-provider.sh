@@ -230,6 +230,17 @@ if planned.returncode or json.loads(planned.stdout) != [{"handle": intent["handl
     raise SystemExit(f"FAIL: DMC plan did not project the canonical destination: {planned!r}")
 if os.path.exists(sys.argv[3]):
     raise SystemExit("FAIL: DMC plan created its destination")
+
+trackerless = {**intent, "task_url": "", "purpose": "release_staging", "owner_run_ref": "release/fixture-owner"}
+env = os.environ.copy()
+env["DMC_PLAN_TRACKERLESS"] = "1"
+planned = subprocess.run([part.format(**trackerless) for part in commands["plan"]], text=True, capture_output=True, env=env)
+if planned.returncode or not json.loads(planned.stdout):
+    raise SystemExit(f"FAIL: trackerless release staging was not plannable: {planned!r}")
+missing_owner = subprocess.run([part.format(**{**trackerless, "owner_run_ref": ""}) for part in commands["plan"]], text=True, capture_output=True, env=env)
+if missing_owner.returncode != 2 or "Usage: homeboy-dmc-provider.php plan_standalone" not in missing_owner.stderr:
+    raise SystemExit(f"FAIL: trackerless planning accepted a missing lifecycle owner: {missing_owner!r}")
+
 ensured = run("ensure", intent)
 if ensured.returncode or not json.loads(ensured.stdout).get("success"):
     raise SystemExit(f"FAIL: DMC ensure failed: {ensured!r}")
@@ -644,10 +655,10 @@ if ('plan' === $operation) {
         'repo' => 'blocks-engine',
         'branch' => 'fix/406-dmc-provider-plan',
         'from' => 'origin/main',
-        'task_url' => 'https://github.com/Extra-Chill/wp-coding-agents/issues/406',
+        'task_url' => getenv('DMC_PLAN_TRACKERLESS') ? null : 'https://github.com/Extra-Chill/wp-coding-agents/issues/406',
         'reuse_policy' => 'isolated',
-        'purpose' => 'agent-task-cook',
-        'owner_run_ref' => 'homeboy://agent-task/run/cook-406',
+        'purpose' => getenv('DMC_PLAN_TRACKERLESS') ? 'release_staging' : 'agent-task-cook',
+        'owner_run_ref' => getenv('DMC_PLAN_TRACKERLESS') ? 'release/fixture-owner' : 'homeboy://agent-task/run/cook-406',
         'cleanup_policy' => 'remove_on_success',
     );
     if ($intent !== $expected) {
