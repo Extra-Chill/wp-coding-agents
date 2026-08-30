@@ -105,6 +105,7 @@ expected_safety = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "sa
 expected_converge = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "converge", sys.argv[5], sys.argv[4], "{identity}", "{base}"]
 expected_attachment_preview = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_preview", sys.argv[5], sys.argv[4], "{handle}", "{task_url}"]
 expected_attachment_apply = ["php", f"{sys.argv[2]}/scripts/homeboy-dmc-provider.php", "task_attachment_apply", "{handle}", "{task_url}", "studio", "wp", "datamachine-code", "workspace", "worktree", "attach-tracker", "{handle}", "--task-url={task_url}", "--format=json", f"--path={sys.argv[3]}"]
+expected_finalize = ["studio", "wp", "datamachine-code", "workspace", "worktree", "finalize", "{handle}", "--state={lifecycle_state}", "--owner-terminal-outcome={owner_outcome}", "--format=json", f"--path={sys.argv[3]}"]
 if provider.get("lookup_timeout_ms") != 60000:
     raise SystemExit("FAIL: standalone DMC planning must have a realistic bounded timeout")
 adapter = open(commands["resolve_task"][1], encoding="utf-8").read()
@@ -148,6 +149,8 @@ if commands.get("task_attachment_preview") != expected_attachment_preview:
     raise SystemExit(f"FAIL: DMC task-attachment preview mapping mismatch: {commands.get('task_attachment_preview')!r}")
 if commands.get("task_attachment_apply") != expected_attachment_apply:
     raise SystemExit(f"FAIL: DMC task-attachment apply mapping mismatch: {commands.get('task_attachment_apply')!r}")
+if commands.get("finalize") != expected_finalize:
+    raise SystemExit(f"FAIL: DMC lifecycle finalization mapping mismatch: {commands.get('finalize')!r}")
 if "list" in commands:
     raise SystemExit("FAIL: DMC provider must not advertise unsupported generic list capability")
 PY
@@ -257,6 +260,38 @@ for disposition in ("unsafe", "ownership conflict"):
     if result.returncode == 0 or f"DMC worktree plan disposition: {normalized}" not in result.stderr:
         raise SystemExit(f"FAIL: textual {disposition} evidence was collapsed: {result!r}")
 
+PY
+}
+
+assert_finalization_contract() {
+  python3 - "$1" "$STUDIO_LOG" <<'PY'
+import json
+import subprocess
+import sys
+
+_, payload = open(sys.argv[1], encoding="utf-8").read().strip().split("|", 1)
+command = json.loads(payload)["commands"]["finalize"]
+handle = "wp-codebox@release-wp-codebox-6b69fc607f7f"
+
+def run(lifecycle_state, owner_outcome):
+    values = {
+        "handle": handle,
+        "lifecycle_state": lifecycle_state,
+        "owner_outcome": owner_outcome,
+    }
+    return subprocess.run([part.format(**values) for part in command], text=True, capture_output=True)
+
+open(sys.argv[2], "w").close()
+for lifecycle_state, owner_outcome in (("completed", "success"), ("interrupted", "failure")):
+    result = run(lifecycle_state, owner_outcome)
+    if result.returncode or not json.loads(result.stdout).get("success"):
+        raise SystemExit(f"FAIL: DMC {lifecycle_state} finalization failed: {result!r}")
+
+log = open(sys.argv[2], encoding="utf-8").read()
+for lifecycle_state, owner_outcome in (("completed", "success"), ("interrupted", "failure")):
+    expected = f"workspace worktree finalize {handle} --state={lifecycle_state} --owner-terminal-outcome={owner_outcome} --format=json"
+    if expected not in log:
+        raise SystemExit(f"FAIL: missing exact DMC finalization argv {expected!r}: {log!r}")
 PY
 }
 
@@ -861,6 +896,15 @@ if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree add" ]; then
   printf '{"success":true,"handle":"blocks-engine@fix-406-dmc-provider-plan"}\n'
   exit 0
 fi
+if [ "$1 $2 $3 $4 $5" = "wp datamachine-code workspace worktree finalize" ]; then
+  [ "$6" = "wp-codebox@release-wp-codebox-6b69fc607f7f" ] || exit 2
+  case "$*" in
+    *--state=completed*--owner-terminal-outcome=success*--format=json*"--path=$SITE_PATH"*|*--state=interrupted*--owner-terminal-outcome=failure*--format=json*"--path=$SITE_PATH"*) ;;
+    *) exit 2 ;;
+  esac
+  printf '{"success":true,"handle":"%s"}\n' "$6"
+  exit 0
+fi
 exit 2
 SH
 chmod +x "$FAKE_BIN/studio"
@@ -911,6 +955,7 @@ assert_contains "\"resolve_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"resolve_task_not_found_exit_codes\":[42]" "$TMP/dry-run.log"
 assert_contains "\"ensure\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"add\",\"{repo}\",\"{head}\",\"--from={base}\",\"--task-url={task_url}\",\"--reuse-policy=isolated\",\"--purpose={purpose}\",\"--owner-run-ref={owner_run_ref}\",\"--cleanup-policy={cleanup_policy}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"plan\":[\"php\",\"$SCRIPT_DIR/scripts/homeboy-dmc-provider.php\",\"plan_standalone\",\"$DMC_PROVIDER_EXECUTABLE\",\"$DM_WORKSPACE_DIR\",\"{repo}\",\"{head}\",\"{base}\",\"{task_url}\",\"{purpose}\",\"{owner_run_ref}\",\"{cleanup_policy}\"]" "$TMP/dry-run.log"
+assert_contains "\"finalize\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"worktree\",\"finalize\",\"{handle}\",\"--state={lifecycle_state}\",\"--owner-terminal-outcome={owner_outcome}\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_not_contains '"list":' "$TMP/dry-run.log"
 assert_contains "\"cleanup_preview\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--dry-run\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
 assert_contains "\"cleanup_apply\":[\"studio\",\"wp\",\"datamachine-code\",\"workspace\",\"cleanup\",\"safe\",\"--format=json\",\"--path=$SITE_PATH\"]" "$TMP/dry-run.log"
@@ -947,6 +992,7 @@ assert_not_contains 'workspace worktree get' "$STUDIO_LOG"
 assert_contains "/worktree_providers/dmc|{\"enabled\":true,\"kind\":\"command\",\"apply_enabled\":true" "$HOMEBOY_CONFIG_LOG"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 assert_provisioning_contract "$HOMEBOY_CONFIG_LOG"
+assert_finalization_contract "$HOMEBOY_CONFIG_LOG"
 assert_not_contains 'workspace worktree plan' "$STUDIO_LOG"
 assert_contains 'plan|{' "$DMC_PROVIDER_LOG"
 assert_convergence_contract "$HOMEBOY_CONFIG_LOG"
