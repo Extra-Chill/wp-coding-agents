@@ -26,7 +26,7 @@ require_source 'reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_O
 require_source 'reconcile_provider_and_service_state() {' "provider and service reconciliation phase"
 require_source '  _run_filter_active reconciliation || return 0' "reconciliation phase guard"
 require_source '  sync_carried_plugins' "carried plugin reconciliation"
-require_source '  configure_homeboy_dmc_worktree_provider' "Homeboy reconciliation"
+require_source '  configure_homeboy_worktree_ownership' "Homeboy reconciliation"
 require_source '  _run_filter_active systemd || return 0' "launchd mutation guard"
 require_source './upgrade.sh --reconcile-services' "explicit reconciliation command"
 require_source 'if [ "$PLUGINS_ONLY" != true ]; then' "plugins-only source-policy mutation guard"
@@ -38,7 +38,7 @@ require_source '_print_plugins_only_verify_block' "plugins-only summary"
 
 plugins_phase="$(sed -n '/^update_data_machine_plugins() {/,/^}/p' "$UPGRADE")"
 case "$plugins_phase" in
-  *dmc_managed_release_integration_sync*|*sync_carried_plugins*|*configure_homeboy_dmc_worktree_provider*)
+  *dmc_managed_release_integration_sync*|*sync_carried_plugins*|*configure_homeboy_worktree_ownership*)
     echo "FAIL: plugins-only phase includes reconciliation state" >&2
     exit 1
     ;;
@@ -88,7 +88,7 @@ plugin_update_execute() { local slug="$1"; shift; "$@"; }
 plugin_update_verify_installed_plugins() { :; }
 set_compose_agents_md_constant() { printf 'configuration\n' >> "$TMP/reconciliation"; }
 sync_carried_plugins() { printf 'carried\n' >> "$TMP/reconciliation"; }
-configure_homeboy_dmc_worktree_provider() { printf 'homeboy\n' >> "$TMP/reconciliation"; }
+configure_homeboy_worktree_ownership() { printf 'homeboy\n' >> "$TMP/reconciliation"; }
 bridge_has_hook() { return 0; }
 bridge_update_launchd() { printf 'changed\n' >> "$LOCAL_SERVICE"; }
 bridge_update_systemd() { printf 'changed\n' >> "$VPS_SERVICE"; }

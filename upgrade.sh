@@ -625,7 +625,7 @@ reconcile_provider_and_service_state() {
     rm -f "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
   fi
   sync_carried_plugins
-  configure_homeboy_dmc_worktree_provider
+  configure_homeboy_worktree_ownership
 }
 
 sync_cli_transport_runtime() {

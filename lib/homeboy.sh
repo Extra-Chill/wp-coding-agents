@@ -69,378 +69,6 @@ homeboy_json_array() {
   printf ']'
 }
 
-homeboy_dmc_wp_argv() {
-  wp_cli_transport_ensure
-  printf '%s\n' "${WP_CLI_TRANSPORT[@]}"
-}
-
-homeboy_dmc_wp_flags() {
-  local root_flag
-
-  if [ -n "${SITE_PATH:-}" ]; then
-    printf '%s\n' --path="$SITE_PATH"
-  fi
-
-  # Intentional word splitting preserves the existing multi-flag contract.
-  # shellcheck disable=SC2086
-  for root_flag in ${WP_ROOT_FLAG:-}; do
-    printf '%s\n' "$root_flag"
-  done
-}
-
-homeboy_dmc_command_json() {
-  local action="$1"
-  local provider="${2:-}"
-  local wp_argv=()
-  local wp_flags=()
-  local value
-
-  while IFS= read -r value; do
-    wp_argv+=("$value")
-  done < <(homeboy_dmc_wp_argv)
-
-  while IFS= read -r value; do
-    wp_flags+=("$value")
-  done < <(homeboy_dmc_wp_flags)
-
-  case "$action" in
-    resolve_identity)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" identity "$provider" "$DM_WORKSPACE_DIR" '{handle}'
-      ;;
-    attest_safety)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" safety "$provider" "$DM_WORKSPACE_DIR" '{identity}'
-      ;;
-    resolve)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{handle}'
-      ;;
-    resolve_path)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve "$provider" "$DM_WORKSPACE_DIR" '{path}'
-      ;;
-    resolve_task)
-      # A single bounded page proves the complete exact-task candidate set before
-      # probing its safety fields; the adapter refuses any continuation.
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve_task '{task_url}' "${wp_argv[@]}" datamachine-code workspace worktree list '--task-ref={task_url}' --with-status --limit=200 --envelope --format=json "${wp_flags[@]}"
-      ;;
-    resolve_task_standalone)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" resolve_task_standalone '{task_url}' "$provider" "$DM_WORKSPACE_DIR"
-      ;;
-    task_attachment_preview)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" task_attachment_preview "$provider" "$DM_WORKSPACE_DIR" '{handle}' '{task_url}'
-      ;;
-    task_attachment_apply)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" task_attachment_apply '{handle}' '{task_url}' "${wp_argv[@]}" datamachine-code workspace worktree attach-tracker '{handle}' '--task-url={task_url}' --format=json "${wp_flags[@]}"
-      ;;
-    ensure)
-      # Homeboy owns each fanout worktree lifecycle. DMC verifies this complete
-      # contract on creation and on owner-identical retries.
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree add '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
-      ;;
-    converge)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" converge "$provider" "$DM_WORKSPACE_DIR" '{identity}' '{base}'
-      ;;
-    plan)
-      # Project DMC's digest-addressed allocation decision into Homeboy's
-      # generic provider result without creating the planned checkout.
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan "${wp_argv[@]}" datamachine-code workspace worktree plan '{repo}' '{head}' '--from={base}' '--task-url={task_url}' '--reuse-policy=isolated' '--purpose={purpose}' '--owner-run-ref={owner_run_ref}' '--cleanup-policy={cleanup_policy}' --format=json "${wp_flags[@]}"
-      ;;
-    plan_standalone)
-      homeboy_json_array php "$SCRIPT_DIR/scripts/homeboy-dmc-provider.php" plan_standalone "$provider" "$DM_WORKSPACE_DIR" '{repo}' '{head}' '{base}' '{task_url}' '{purpose}' '{owner_run_ref}' '{cleanup_policy}'
-      ;;
-    finalize)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace worktree finalize '{handle}' '--owner-terminal-outcome={owner_outcome}' --format=json "${wp_flags[@]}"
-      ;;
-    cleanup_preview)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --dry-run --format=json "${wp_flags[@]}"
-      ;;
-    cleanup_apply)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace cleanup safe --format=json "${wp_flags[@]}"
-      ;;
-    retention)
-      homeboy_json_array "${wp_argv[@]}" datamachine-code workspace retention-provider "${wp_flags[@]}"
-      ;;
-  esac
-}
-
-homeboy_dmc_worktree_provider_json() {
-  local provider="$1"
-  local task_attachment_supported="${2:-false}"
-  local task_resolution_supported="${3:-false}"
-  local plan_supported="${4:-false}"
-  local retention_supported="${5:-false}"
-  local resolve_task plan
-  if [ "$task_resolution_supported" = true ]; then
-    resolve_task="$(homeboy_dmc_command_json resolve_task_standalone "$provider")"
-  else
-    resolve_task="$(homeboy_dmc_command_json resolve_task "$provider")"
-  fi
-  if [ "$plan_supported" = true ]; then
-    plan="$(homeboy_dmc_command_json plan_standalone "$provider")"
-  else
-    plan="$(homeboy_dmc_command_json plan "$provider")"
-  fi
-  printf '{"enabled":true,"kind":"command","apply_enabled":true,"lookup_timeout_ms":60000,"lookup_output_limit_bytes":262144,"mutation_timeout_ms":120000,"list_result_mapping":{"items":"$","handle":"$.handle","path":"$.path","branch":"$.branch","task_url":"$.task_url","dirty":"$.safety.dirty","unpushed":"$.safety.unpushed","primary":"$.safety.primary"},"commands":{"resolve_identity":%s,"attest_safety":%s,"resolve":%s,"resolve_path":%s,"resolve_task":%s' \
-    "$(homeboy_dmc_command_json resolve_identity "$provider")" \
-    "$(homeboy_dmc_command_json attest_safety "$provider")" \
-    "$(homeboy_dmc_command_json resolve "$provider")" \
-    "$(homeboy_dmc_command_json resolve_path "$provider")" \
-    "$resolve_task"
-  if [ "$task_attachment_supported" = true ]; then
-    printf ',"task_attachment_preview":%s,"task_attachment_apply":%s' \
-      "$(homeboy_dmc_command_json task_attachment_preview "$provider")" \
-      "$(homeboy_dmc_command_json task_attachment_apply "$provider")"
-  fi
-  printf ',"resolve_not_found_exit_codes":[42],"resolve_task_not_found_exit_codes":[42],"ensure":%s,"converge":%s,"plan":%s' \
-    "$(homeboy_dmc_command_json ensure "$provider")" \
-    "$(homeboy_dmc_command_json converge "$provider")" \
-    "$plan"
-  if [ "$retention_supported" = true ]; then
-    printf ',"retention":%s,"retention_timeout_ms":120000' \
-      "$(homeboy_dmc_command_json retention "$provider")"
-  fi
-  printf ',"cleanup_preview":%s,"cleanup_apply":%s}}' \
-    "$(homeboy_dmc_command_json cleanup_preview "$provider")" \
-    "$(homeboy_dmc_command_json cleanup_apply "$provider")"
-}
-
-homeboy_dmc_task_attachment_capable() {
-  local provider="$1" response
-  response="$(php "$provider" capabilities 2>/dev/null)" || return 1
-  printf '%s' "$response" | python3 -c '
-import json
-import sys
-
-try:
-    payload = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-
-sys.exit(0 if (
-    payload.get("schema") == "datamachine-code/worktree-provider-capabilities/v1"
-    and "task_url" in payload.get("tracker_fields", [])
-    and payload.get("attachment_operation") == "datamachine-code/workspace-worktree-attach-tracker"
-    and payload.get("attachment_standalone") is False
-) else 1)
-' >/dev/null 2>&1
-}
-
-homeboy_dmc_task_resolution_capable() {
-  local provider="$1" response
-  response="$(php "$provider" capabilities 2>/dev/null)" || return 1
-  printf '%s' "$response" | python3 -c '
-import json
-import sys
-
-try:
-    payload = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-
-sys.exit(0 if (
-    payload.get("schema") == "datamachine-code/worktree-provider-capabilities/v1"
-    and isinstance(payload.get("operations"), list)
-    and "task" in payload["operations"]
-    and payload.get("task_resolution_schema") == "datamachine-code/worktree-task-resolution/v1"
-    and payload.get("task_resolution_limit") == 200
-) else 1)
-' >/dev/null 2>&1
-}
-
-homeboy_dmc_plan_capable() {
-  local provider="$1" response
-  response="$(php "$provider" capabilities 2>/dev/null)" || return 1
-  printf '%s' "$response" | python3 -c '
-import json
-import sys
-
-try:
-    payload = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-
-sys.exit(0 if (
-    payload.get("schema") == "datamachine-code/worktree-provider-capabilities/v1"
-    and isinstance(payload.get("operations"), list)
-    and "plan" in payload["operations"]
-    and payload.get("plan_schema") == "datamachine-code/worktree-plan/v1"
-    and payload.get("plan_mutating") is False
-) else 1)
-' >/dev/null 2>&1
-}
-
-homeboy_task_attachment_commands_supported() {
-  local probe_root probe_provider
-  probe_root="$(mktemp -d)" || return 1
-  probe_provider='{"enabled":false,"kind":"command","apply_enabled":false,"commands":{"task_attachment_preview":["true"],"task_attachment_apply":["true"]}}'
-  if HOMEBOY_DATA_DIR="$probe_root" homeboy_run config set /worktree_providers/wpca-task-attachment-probe "$probe_provider" >/dev/null 2>&1 &&
-     HOMEBOY_DATA_DIR="$probe_root" homeboy_run config show /worktree_providers/wpca-task-attachment-probe/commands/task_attachment_preview >/dev/null 2>&1 &&
-     HOMEBOY_DATA_DIR="$probe_root" homeboy_run config show /worktree_providers/wpca-task-attachment-probe/commands/task_attachment_apply >/dev/null 2>&1; then
-    rm -rf "$probe_root"
-    return 0
-  fi
-  rm -rf "$probe_root"
-  return 1
-}
-
-homeboy_retention_command_supported() {
-  local probe_root probe_provider
-  probe_root="$(mktemp -d)" || return 1
-  probe_provider='{"enabled":false,"kind":"command","apply_enabled":false,"commands":{"retention":["true"],"retention_timeout_ms":120000}}'
-  if HOMEBOY_DATA_DIR="$probe_root" homeboy_run config set /worktree_providers/wpca-retention-probe "$probe_provider" >/dev/null 2>&1 &&
-     HOMEBOY_DATA_DIR="$probe_root" homeboy_run config show /worktree_providers/wpca-retention-probe/commands/retention >/dev/null 2>&1; then
-    rm -rf "$probe_root"
-    return 0
-  fi
-  rm -rf "$probe_root"
-  return 1
-}
-
-homeboy_dmc_retention_provider_capable() {
-  local wp_argv=() wp_flags=() value
-  while IFS= read -r value; do
-    wp_argv+=("$value")
-  done < <(homeboy_dmc_wp_argv)
-  while IFS= read -r value; do
-    wp_flags+=("$value")
-  done < <(homeboy_dmc_wp_flags)
-
-  "${wp_argv[@]}" cli has-command 'datamachine-code workspace retention-provider' "${wp_flags[@]}" >/dev/null 2>&1
-}
-
-homeboy_dmc_provider_release_label() {
-  local provider="$1" plugin_dir version=""
-  plugin_dir="$(cd "$(dirname -- "$provider")/.." && pwd)" || plugin_dir=""
-  if [ -n "$plugin_dir" ] && [ -f "$plugin_dir/data-machine-code.php" ]; then
-    version="$(grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$plugin_dir/data-machine-code.php" | sed -E 's/.*Version:[[:space:]]*([^[:space:]]+).*/\1/')"
-  fi
-  printf '%s' "${version:-unknown}"
-}
-
-homeboy_dmc_task_attachment_skew_guidance() {
-  local provider="$1" dmc_supported="$2" homeboy_supported="$3"
-  local dmc_version homeboy_version
-  [ "$dmc_supported" != "$homeboy_supported" ] || return 0
-
-  dmc_version="$(homeboy_dmc_provider_release_label "$provider")"
-  homeboy_version="$(homeboy --version 2>/dev/null || printf 'unknown version')"
-
-  if [ "$dmc_supported" = true ]; then
-    warn "DMC provider $provider advertises datamachine-code/worktree-provider-capabilities/v1 tracker attachment, but $homeboy_version does not accept Homeboy's paired task-attachment commands. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Run: homeboy upgrade; then rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\""
-    return 0
-  fi
-
-  warn "Homeboy accepts paired task-attachment commands, but DMC provider $provider does not advertise datamachine-code/worktree-provider-capabilities/v1 tracker attachment. Copied DMC release: $dmc_version. Homeboy: $homeboy_version. Rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\". For one exact clean worktree, attach manually with: $(wp_cli_transport_display) datamachine-code workspace worktree attach-tracker <handle> --task-url=<task-url> --format=json${SITE_PATH:+ --path=\"$SITE_PATH\"}"
-}
-
-homeboy_dmc_worktree_provider_ready() {
-  local provider="$1" provider_json="${2:-}"
-
-  [ -f "$provider" ] || return 1
-  [ -d "${DM_WORKSPACE_DIR:-}" ] || return 1
-  [ -n "$provider_json" ] || return 1
-
-  # Exercise the exact generated argv with the only input Homeboy supplies to
-  # resolve. This catches stale or unknown placeholders before a Cook while the
-  # typed missing handle keeps the probe read-only.
-  HOMEBOY_DMC_PROVIDER_JSON="$provider_json" python3 - <<'PY'
-import json
-import os
-import re
-import subprocess
-import sys
-
-try:
-    provider = json.loads(os.environ["HOMEBOY_DMC_PROVIDER_JSON"])
-    command = provider["commands"]["resolve"]
-    not_found_exit_codes = provider["commands"]["resolve_not_found_exit_codes"]
-    if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
-        raise ValueError("commands.resolve must be a non-empty argv array")
-    if not isinstance(not_found_exit_codes, list) or not all(isinstance(code, int) for code in not_found_exit_codes):
-        raise ValueError("commands.resolve_not_found_exit_codes must be an integer array")
-except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-    print(f"Invalid generated Homeboy DMC provider contract: {error}", file=sys.stderr)
-    sys.exit(1)
-
-handle = "homeboy-readiness@probe"
-command = [part.replace("{handle}", handle) for part in command]
-for argument in command:
-    placeholder = re.search(r"\{[^{}]+\}", argument)
-    if placeholder:
-        print(
-            "worktree provider `dmc` resolve command contains an unresolved "
-            f"placeholder: {placeholder.group(0)}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-environment = os.environ.copy()
-environment.pop("HOMEBOY_DMC_PROVIDER_JSON", None)
-try:
-    result = subprocess.run(command, text=True, capture_output=True, env=environment)
-except OSError as error:
-    print(f"Could not run generated Homeboy DMC resolve command: {error}", file=sys.stderr)
-    sys.exit(1)
-try:
-    payload = json.loads(result.stdout)
-except json.JSONDecodeError:
-    payload = {}
-if (
-    result.returncode not in not_found_exit_codes
-    or payload.get("success") is not False
-    or payload.get("error", {}).get("code") != "worktree_not_found"
-):
-    print("Generated Homeboy DMC resolve command failed its typed read-only fixture.", file=sys.stderr)
-    if result.stderr:
-        print(result.stderr.rstrip(), file=sys.stderr)
-    sys.exit(1)
-PY
-}
-
-homeboy_dmc_worktree_provider_executable() {
-  local wp_argv=() wp_flags=() value response
-
-  while IFS= read -r value; do
-    wp_argv+=("$value")
-  done < <(homeboy_dmc_wp_argv)
-  while IFS= read -r value; do
-    wp_flags+=("$value")
-  done < <(homeboy_dmc_wp_flags)
-
-  response="$("${wp_argv[@]}" datamachine-code workspace worktree provider --format=json "${wp_flags[@]}" 2>/dev/null)" || return 1
-  printf '%s' "$response" | python3 -c '
-import json
-import os
-import re
-import sys
-
-raw = sys.stdin.read()
-try:
-    payload = json.loads(raw)
-except json.JSONDecodeError:
-    lines = raw.splitlines()
-    diagnostic_found = False
-    while lines:
-        line = lines.pop(0)
-        if not line.strip():
-            continue
-        if re.match(r"^(?:PHP )?(?:Deprecated|Warning|Notice):\s", line.lstrip()):
-            diagnostic_found = True
-            continue
-        lines.insert(0, line)
-        break
-    if not diagnostic_found:
-        sys.exit(1)
-    try:
-        payload = json.loads("\n".join(lines).strip())
-    except json.JSONDecodeError:
-        sys.exit(1)
-
-executable = payload.get("executable")
-if payload.get("schema") != "datamachine-code/standalone-worktree-provider-command/v1" or not isinstance(executable, str) or not os.path.isfile(executable):
-    sys.exit(1)
-print(executable)
-'
-}
-
 homeboy_project_id() {
   # 1. Explicit override.
   if [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then
@@ -768,96 +396,68 @@ setup_homeboy_project() {
   fi
 }
 
-homeboy_git_is_linked_worktree() {
-  # A linked (task) worktree shares its object store with a primary checkout
-  # but has its own per-worktree git-dir, so `--git-dir` and
-  # `--git-common-dir` diverge. The primary checkout (and any plain, non-git
-  # install such as a release payload) has no such divergence. This is the
-  # generic signal DMC's own worktree lifecycle relies on: any linked
-  # worktree is disposable and may be removed by `workspace cleanup` without
-  # notice.
-  local dir="$1" git_dir common_dir
-  git_dir="$(git -C "$dir" rev-parse --git-dir 2>/dev/null)" || return 1
-  common_dir="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null)" || return 1
-  case "$git_dir" in /*) ;; *) git_dir="$dir/$git_dir" ;; esac
-  case "$common_dir" in /*) ;; *) common_dir="$dir/$common_dir" ;; esac
-  git_dir="$(cd "$git_dir" 2>/dev/null && pwd)" || return 1
-  common_dir="$(cd "$common_dir" 2>/dev/null && pwd)" || return 1
-  [ "$git_dir" != "$common_dir" ]
+homeboy_worktree_adapter_file() {
+  printf '%s' "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-homeboy-worktrees.php"
 }
 
-homeboy_dmc_guard_script_dir_stability() {
-  local dir="$1"
-  homeboy_git_is_linked_worktree "$dir" || return 0
-
-  local message="Homeboy DMC worktree provider commands would be pinned to \"$dir\", a disposable task worktree of wp-coding-agents. That checkout can be removed by workspace cleanup, breaking every DMC worktree operation at once. Rerun setup/upgrade from the primary wp-coding-agents checkout (or an installed release) so the provider config stays stable."
-  if homeboy_required; then
-    error "$message"
-  fi
-  warn "$message"
-  return 0
-}
-
-configure_homeboy_dmc_worktree_provider() {
-  if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
-    log "Skipping Homeboy DMC worktree provider setup (--no-homeboy)"
-    return 0
-  fi
-
-  homeboy_dmc_guard_script_dir_stability "$SCRIPT_DIR"
-
-  if ! command -v homeboy >/dev/null 2>&1; then
-    homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping DMC worktree provider setup."
-    return 0
-  fi
-
-  local provider provider_json finalize_json task_attachment_supported=false task_resolution_supported=false plan_supported=false retention_supported=false
-  local dmc_task_attachment_supported=false homeboy_task_attachment_supported=false
-  provider="$(homeboy_dmc_worktree_provider_executable)" || {
-    homeboy_handle_failure "Data Machine Code standalone worktree provider source contract is unavailable; skipping Homeboy DMC worktree provider setup."
-    return 0
-  }
-  if homeboy_dmc_task_attachment_capable "$provider"; then
-    dmc_task_attachment_supported=true
-  fi
-  if homeboy_task_attachment_commands_supported; then
-    homeboy_task_attachment_supported=true
-  fi
-  if [ "$dmc_task_attachment_supported" = true ] && [ "$homeboy_task_attachment_supported" = true ]; then
-    task_attachment_supported=true
-  fi
-  homeboy_dmc_task_attachment_skew_guidance "$provider" "$dmc_task_attachment_supported" "$homeboy_task_attachment_supported"
-  if homeboy_dmc_task_resolution_capable "$provider"; then
-    task_resolution_supported=true
-  fi
-  if homeboy_dmc_plan_capable "$provider"; then
-    plan_supported=true
-  fi
-  if homeboy_retention_command_supported && homeboy_dmc_retention_provider_capable; then
-    retention_supported=true
-  fi
-  provider_json="$(homeboy_dmc_worktree_provider_json "$provider" "$task_attachment_supported" "$task_resolution_supported" "$plan_supported" "$retention_supported")"
-  finalize_json="$(homeboy_dmc_command_json finalize "$provider")"
+homeboy_worktree_adapter_sync() {
+  local file template binary rendered
+  file="$(homeboy_worktree_adapter_file)"
+  template="$SCRIPT_DIR/templates/wp-coding-agents-homeboy-worktrees.php"
+  binary="$(command -v homeboy 2>/dev/null || true)"
+  [ -f "$template" ] || { homeboy_handle_failure "Missing Homeboy worktree adapter template."; return 0; }
+  [ -n "$binary" ] || { homeboy_handle_failure "Homeboy is not callable; worktree ability ownership cannot be installed."; return 0; }
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} homeboy config set /worktree_providers/dmc '$provider_json'"
-    echo -e "${BLUE}[dry-run]${NC} homeboy config set /settings/worktree_provider_lifecycle/dmc/finalize '$finalize_json'"
+    echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy worktree ability adapter to $file"
     return 0
   fi
 
-  if [ -n "${SITE_PATH:-}" ] && { [ -f "$SITE_PATH/wp-config.php" ] || [ -f "$SITE_PATH/wp-load.php" ]; }; then
-    if ! homeboy_dmc_worktree_provider_ready "$provider" "$provider_json"; then
-      homeboy_handle_failure "wp-coding-agents generated Homeboy DMC provider command readiness failed; rerun: \"$SCRIPT_DIR/upgrade.sh\" --wp-path \"$SITE_PATH\""
-      return 0
-    fi
+  mkdir -p "${file%/*}"
+  rendered="$(WP_CODING_AGENTS_HOMEBOY_BINARY="$binary" python3 - "$template" <<'PY'
+import os
+import pathlib
+import sys
+
+value = os.environ['WP_CODING_AGENTS_HOMEBOY_BINARY'].replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
+print(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').replace('@HOMEBOY_BINARY@', value), end='')
+PY
+)"
+  if [ ! -f "$file" ] || ! printf '%s\n' "$rendered" | cmp -s - "$file"; then
+    printf '%s\n' "$rendered" > "$file"
+    UPDATED_ITEMS+=("Homeboy worktree ability adapter")
+  fi
+  service_file_normalize_perms "$file"
+}
+
+configure_homeboy_worktree_ownership() {
+  if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
+    log "Skipping Homeboy worktree ownership setup (--no-homeboy)"
+    return 0
   fi
 
-  log "Configuring Homeboy DMC worktree provider."
-  homeboy_run config set /worktree_providers/dmc "$provider_json" >/dev/null || \
-    homeboy_handle_failure "Homeboy DMC worktree provider config failed."
-  if ! homeboy_run config set /settings/worktree_provider_lifecycle/dmc/finalize "$finalize_json" >/dev/null ||
-     ! homeboy_run config show /settings/worktree_provider_lifecycle/dmc/finalize >/dev/null; then
-    homeboy_handle_failure "Homeboy DMC worktree lifecycle finalizer config failed."
+  if ! command -v homeboy >/dev/null 2>&1; then
+    homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; worktree ownership cannot be reconciled."
+    return 0
+  fi
+
+  homeboy_worktree_adapter_sync
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} homeboy config remove /worktree_providers/dmc"
+    echo -e "${BLUE}[dry-run]${NC} homeboy config remove /settings/worktree_provider_lifecycle/dmc"
+    return 0
+  fi
+
+  log "Configuring Homeboy as the sole worktree lifecycle owner."
+  if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
+    homeboy_run config remove /worktree_providers/dmc >/dev/null || homeboy_handle_failure "Could not remove the circular DMC worktree provider."
+  fi
+  if homeboy_run config show /settings/worktree_provider_lifecycle/dmc >/dev/null 2>&1; then
+    homeboy_run config remove /settings/worktree_provider_lifecycle/dmc >/dev/null || homeboy_handle_failure "Could not remove the legacy DMC worktree finalizer."
+  fi
+  if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
+    homeboy_handle_failure "Circular /worktree_providers/dmc configuration remains authoritative."
   fi
 }
 
@@ -965,10 +565,10 @@ print_homeboy_verification_commands() {
   echo "  homeboy --version"
   echo "  homeboy extension list"
   echo "  homeboy extension show wordpress"
-  echo "  homeboy config show /worktree_providers/dmc"
+  echo "  homeboy config show /worktree_providers/dmc  # expected: not found"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
-  echo "  $(wp_cli_transport_display) datamachine-code workspace worktree provider --format=json$verification_wp_flags"
+  printf '%s\n' "  $(wp_cli_transport_display) eval 'echo has_filter(\"datamachine_code_ability_registration_args\") ? \"homeboy-worktree-adapter\\n\" : \"missing\\n\";'$verification_wp_flags"
   echo "  $(wp_cli_transport_display) datamachine memory compose AGENTS.md$verification_wp_flags"
   echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
 }

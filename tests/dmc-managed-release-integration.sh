@@ -44,7 +44,7 @@ eval "$(load_upgrade_function reconcile_provider_and_service_state)"
 _run_filter_active() { return 0; }
 set_compose_agents_md_constant() { :; }
 sync_carried_plugins() { :; }
-configure_homeboy_dmc_worktree_provider() { :; }
+configure_homeboy_worktree_ownership() { :; }
 DRY_RUN=false
 reconcile_provider_and_service_state
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "stale managed-release mu-plugin was retained"

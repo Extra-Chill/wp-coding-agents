@@ -611,7 +611,7 @@ runtime_discover_dm_paths
 external_wordpress_project_context
 discover_dm_workspace_dir
 if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
-  configure_homeboy_dmc_worktree_provider
+  configure_homeboy_worktree_ownership
 fi
 systems_capabilities_apply
 runtime_generate_config
