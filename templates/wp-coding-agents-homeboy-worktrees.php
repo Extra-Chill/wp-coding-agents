@@ -11,10 +11,17 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 	private const HOMEBOY = '@HOMEBOY_BINARY@';
 	private const TIMEOUT_SECONDS = 120;
 	private const OUTPUT_LIMIT_BYTES = 1048576;
+	private const DELEGATED_ABILITIES = array(
+		'datamachine-code/workspace-worktree-add',
+		'datamachine-code/workspace-worktree-list',
+		'datamachine-code/workspace-worktree-finalize',
+		'datamachine-code/workspace-worktree-remove',
+		'datamachine-code/workspace-worktree-cleanup',
+	);
 
 	/** @param array<string,mixed> $args @return array<string,mixed> */
 	public static function filter_ability(array $args, string $slug): array {
-		if (!str_starts_with($slug, 'datamachine-code/workspace-worktree-')) {
+		if (!in_array($slug, self::DELEGATED_ABILITIES, true)) {
 			return $args;
 		}
 
