@@ -81,22 +81,14 @@ upgrade_data_machine_plugins() {
   local dmc_plugin_dir="$SITE_PATH/wp-content/plugins/data-machine-code"
   if [ "${PLUGINS_ONLY:-false}" = true ]; then
     if [ -d "$dmc_plugin_dir" ]; then
-      if [ -d "$dmc_plugin_dir/.git" ]; then
-        plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-      else
-        plugin_update_execute data-machine-code update_data_machine_code_copied_release || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-      fi
+      plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
     else
       log "[data-machine-code] terminal=skipped reason=not-installed"
     fi
   # Managed installs deliberately have no DMC. Without this gate every full
   # upgrade would silently reinstall it after an operator removed it.
   elif source_policy_workspace_enabled; then
-    if [ -d "$dmc_plugin_dir/.git" ] || [ ! -d "$dmc_plugin_dir" ]; then
-      plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-    else
-      plugin_update_execute data-machine-code update_data_machine_code_copied_release || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-    fi
+    plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   else
     log "  Skipping Data Machine Code (source mode: ${SOURCE_MODE:-owned})"
   fi

@@ -1086,9 +1086,10 @@ rm -f "$DMC_STATE"
 configure_homeboy_dmc_worktree_provider > "$TMP/source-contract.log"
 assert_provider_contract "$HOMEBOY_CONFIG_LOG" "$SCRIPT_DIR" "$SITE_PATH"
 
-copied_release_provider="$SITE_PATH/wp-content/plugins/data-machine-code/.wp-coding-agents-releases/0.72.11-deadbeef/bin/dmc-worktree-provider"
+printf '<?php\n/*\n * Version: 0.72.11\n */\n' > "$SITE_PATH/wp-content/plugins/data-machine-code/data-machine-code.php"
+copied_release_provider="$SITE_PATH/wp-content/plugins/data-machine-code/bin/dmc-worktree-provider"
 [ "$(homeboy_dmc_provider_release_label "$copied_release_provider")" = "0.72.11" ] || {
-  echo "FAIL: copied DMC release version was not parsed from the provider path"
+  echo "FAIL: copied DMC release version was not parsed from the plugin header"
   exit 1
 }
 

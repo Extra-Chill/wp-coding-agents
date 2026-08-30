@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade wordpress data-machine dmc-managed-release dmc-managed-release-integration carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -105,7 +105,6 @@ WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 SHOW_HELP=false
-DMC_MANAGED_RELEASE_STATUS=false
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
 OWNED_SOURCES=""
@@ -183,7 +182,6 @@ while [[ $# -gt 0 ]]; do
     --migrate-user)  MIGRATE_TARGET_USER="$2"; shift 2 ;;
     --migrate-extra) service_migration_add_extra_path "$2"; shift 2 ;;
     --help|-h)       SHOW_HELP=true; shift ;;
-    --dmc-managed-release-status) DMC_MANAGED_RELEASE_STATUS=true; shift ;;
     *)               shift ;;
   esac
 done
@@ -326,9 +324,9 @@ DEFAULT TOUCHES:
   - data-machine and data-machine-code — updates setup-installed git
     checkouts to their latest version tags. Non-git plugin directories are
     skipped. Use --skip-plugins to skip this phase.
-  - Carried provider plugins, DMC managed-release integration, Homeboy provider
-    configuration, chat-bridge configuration, and service templates are
-    reconciled during a full upgrade or explicitly with --reconcile-services.
+  - Carried provider plugins, Homeboy provider configuration, chat-bridge
+    configuration, and service templates are reconciled during a full upgrade
+    or explicitly with --reconcile-services.
   - opencode.json — additive repair. Adds managed plugin entries the
     user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
     bridges) and migrates "agent.build.prompt" to top-level "instructions"
@@ -353,15 +351,6 @@ OPT-IN TOUCHES:
     authenticate with Claude Pro/Max OAuth. Use --no-claude-code-auth to skip.
 HELP
   exit 0
-fi
-
-# The DMC runtime integration invokes this narrow, read-only status endpoint to
-# inspect the same official-release channel used by --plugins-only.
-if [ "$DMC_MANAGED_RELEASE_STATUS" = true ]; then
-  SITE_PATH="${EXISTING_WP:-${SITE_PATH:-}}"
-  [ -n "$SITE_PATH" ] || error "--dmc-managed-release-status requires --wp-path <path>"
-  dmc_managed_release_status
-  exit $?
 fi
 
 if [ "$PLUGINS_ONLY" = true ] && [ "$SKIP_PLUGINS" = true ]; then
@@ -537,7 +526,6 @@ fi
 UPDATED_ITEMS=()
 PENDING_ITEMS=()
 PLUGIN_UPDATE_FAILURES=()
-PLUGIN_UPDATE_POINTER_EVIDENCE=()
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
@@ -633,7 +621,9 @@ update_data_machine_plugins() {
 reconcile_provider_and_service_state() {
   _run_filter_active reconciliation || return 0
   set_compose_agents_md_constant
-  dmc_managed_release_integration_sync
+  if [ "${DRY_RUN:-false}" != true ]; then
+    rm -f "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+  fi
   sync_carried_plugins
   configure_homeboy_dmc_worktree_provider
 }

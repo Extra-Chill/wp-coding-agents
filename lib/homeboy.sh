@@ -75,17 +75,17 @@ homeboy_dmc_wp_argv() {
 }
 
 homeboy_dmc_wp_flags() {
-  local argv=()
+  local root_flag
 
   if [ -n "${SITE_PATH:-}" ]; then
-    argv+=(--path="$SITE_PATH")
+    printf '%s\n' --path="$SITE_PATH"
   fi
 
-  # shellcheck disable=SC2206
-  local root_flags=(${WP_ROOT_FLAG:-})
-  argv+=("${root_flags[@]}")
-
-  printf '%s\n' "${argv[@]}"
+  # Intentional word splitting preserves the existing multi-flag contract.
+  # shellcheck disable=SC2086
+  for root_flag in ${WP_ROOT_FLAG:-}; do
+    printf '%s\n' "$root_flag"
+  done
 }
 
 homeboy_dmc_command_json() {
@@ -308,18 +308,9 @@ homeboy_dmc_retention_provider_capable() {
 
 homeboy_dmc_provider_release_label() {
   local provider="$1" plugin_dir version=""
-  case "$provider" in
-    */.wp-coding-agents-releases/*)
-      version="${provider#*/.wp-coding-agents-releases/}"
-      version="${version%%/*}"
-      version="${version%%-*}"
-      ;;
-  esac
-  if [ -z "$version" ]; then
-    plugin_dir="$(cd "$(dirname -- "$provider")/.." && pwd)" || plugin_dir=""
-    if [ -n "$plugin_dir" ] && [ -f "$plugin_dir/data-machine-code.php" ]; then
-      version="$(grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$plugin_dir/data-machine-code.php" | sed -E 's/.*Version:[[:space:]]*([^[:space:]]+).*/\1/')"
-    fi
+  plugin_dir="$(cd "$(dirname -- "$provider")/.." && pwd)" || plugin_dir=""
+  if [ -n "$plugin_dir" ] && [ -f "$plugin_dir/data-machine-code.php" ]; then
+    version="$(grep -m1 -E '^[[:space:]]*\*?[[:space:]]*Version:' "$plugin_dir/data-machine-code.php" | sed -E 's/.*Version:[[:space:]]*([^[:space:]]+).*/\1/')"
   fi
   printf '%s' "${version:-unknown}"
 }
