@@ -89,6 +89,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/cli-transport-install.sh
         run: ./tests/cli-transport-install.sh
+      - name: Run tests/wp-cli-transport-resolution.sh
+        run: ./tests/wp-cli-transport-resolution.sh
       - name: Run tests/smoke-cli-transport.php
         run: php tests/smoke-cli-transport.php
 
