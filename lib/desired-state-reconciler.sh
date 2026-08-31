@@ -108,22 +108,15 @@ reconciler_plan_reset() {
   RECONCILER_PLAN_RECORDS=()
   RECONCILER_PLAN_OPERATIONS=()
   RECONCILER_PLAN_APPLY=()
-  RECONCILER_PLAN_VERIFY_STEPS=()
-  RECONCILER_PLAN_TIMEOUTS=()
-  RECONCILER_PLAN_REPLAYS=()
   RECONCILER_PLAN_VERIFY=""
   RECONCILER_COMPLETED_RECORDS=()
-  RECONCILER_CHANGED_RECORDS=()
 }
 
 reconciler_plan_add() {
-  local record="$1" operation="$2" apply="$3" verify="${4:-}" timeout="${5:-}" replay="${6:-}"
+  local record="$1" operation="$2" apply="$3"
   RECONCILER_PLAN_RECORDS+=("$record")
   RECONCILER_PLAN_OPERATIONS+=("$operation")
   RECONCILER_PLAN_APPLY+=("$apply")
-  RECONCILER_PLAN_VERIFY_STEPS+=("$verify")
-  RECONCILER_PLAN_TIMEOUTS+=("$timeout")
-  RECONCILER_PLAN_REPLAYS+=("$replay")
   log "[desired-state] record=$record operation=$operation planned"
 }
 
@@ -132,41 +125,22 @@ reconciler_plan_set_verify() {
 }
 
 reconciler_apply_plan() {
-  local index record operation apply verify timeout replay status=0 step_status
+  local index record operation apply status=0 step_status
   for index in "${!RECONCILER_PLAN_RECORDS[@]}"; do
     record="${RECONCILER_PLAN_RECORDS[$index]}"
     operation="${RECONCILER_PLAN_OPERATIONS[$index]}"
     apply="${RECONCILER_PLAN_APPLY[$index]}"
-    verify="${RECONCILER_PLAN_VERIFY_STEPS[$index]}"
-    timeout="${RECONCILER_PLAN_TIMEOUTS[$index]}"
-    replay="${RECONCILER_PLAN_REPLAYS[$index]}"
-    log "[desired-state] record=$record operation=$operation apply=start${timeout:+ timeout=${timeout}s}"
+    log "[desired-state] record=$record operation=$operation apply=start"
     if "$apply"; then
       RECONCILER_COMPLETED_RECORDS+=("$record")
-      if [ -n "$verify" ] && ! "$verify"; then
-        step_status=$?
-        status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
-        warn "[desired-state] record=$record operation=$operation verify=partial-failure status=$step_status${replay:+ replay=$replay}"
-      else
-        log "[desired-state] record=$record operation=$operation apply=complete${replay:+ replay=$replay}"
-      fi
+      log "[desired-state] record=$record operation=$operation apply=complete"
     else
       step_status=$?
-      status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
-      if [ "$step_status" -eq 124 ]; then
-        warn "[desired-state] record=$record operation=$operation apply=timeout${timeout:+ timeout=${timeout}s}${replay:+ replay=$replay}"
-      else
-        warn "[desired-state] record=$record operation=$operation apply=partial-failure status=$step_status${replay:+ replay=$replay}"
-      fi
+      status="$PLUGIN_UPDATE_EXIT_PARTIAL"
+      warn "[desired-state] record=$record operation=$operation apply=partial-failure status=$step_status"
     fi
   done
   return "$status"
-}
-
-reconciler_mark_changed() {
-  local record="$1"
-  RECONCILER_CHANGED_RECORDS+=("$record")
-  log "[desired-state] record=$record result=changed"
 }
 
 reconciler_verify_plan() {
