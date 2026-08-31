@@ -261,6 +261,7 @@ jobs:
           - homeboy-components
           - homeboy-project-id
           - homeboy-verification-guidance
+          - homeboy-worktree-adapter
           - kimaki-credential-seeding
           - kimaki-install-existing
           - kimaki-launchd-start
