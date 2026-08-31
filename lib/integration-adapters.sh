@@ -118,7 +118,7 @@ _integration_adapter_verify_carried_plugins() {
       [ -d "$target_dir" ] || return 1
       wp_cmd plugin is-active "$slug" >/dev/null 2>&1 || return 1
       if [ "$slug" = wp-coding-agents-integration ]; then
-        wp_cmd eval 'exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);' >/dev/null 2>&1 || return 1
+        wp_cmd eval 'exit(false !== has_filter("wp_coding_agents_host_can_execute_processes", "WpCodingAgents\\Integration\\provide_process_execution_capability") && false !== has_filter("wp_coding_agents_host_has_writable_process_workspace", "WpCodingAgents\\Integration\\provide_writable_process_workspace_capability") && false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);' >/dev/null 2>&1 || return 1
       fi
     elif carried_plugin_is_managed "$target_dir"; then
       return 1

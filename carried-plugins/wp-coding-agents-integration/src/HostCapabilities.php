@@ -24,6 +24,17 @@ final class HostCapabilities {
 	}
 
 	/**
+	 * The CLI transport requires a process API and a session-safe cleanup path.
+	 */
+	public static function can_execute_processes(): bool {
+		$diagnostic = self::shell_diagnostic();
+		return true === $diagnostic['ok'] &&
+			true === $diagnostic['proc_open_available'] &&
+			function_exists('posix_kill') &&
+			self::has_session_launcher();
+	}
+
+	/**
 	 * @return array{ok: bool, reason: string, exec_available: bool, shell_exec_available: bool, proc_open_available: bool, output?: string, exit_code?: int|null}
 	 */
 	public static function shell_diagnostic(): array {
@@ -79,6 +90,26 @@ final class HostCapabilities {
 	public static function has_writable_content_directory(): bool {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- Capability probe.
 		return defined('WP_CONTENT_DIR') && is_writable(WP_CONTENT_DIR);
+	}
+
+	private static function has_session_launcher(): bool {
+		$candidates = array('/usr/bin/setsid', '/bin/setsid');
+		$path = getenv('PATH');
+		if (is_string($path)) {
+			foreach (explode(PATH_SEPARATOR, $path) as $directory) {
+				if ('' !== $directory) {
+					$candidates[] = rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'setsid';
+				}
+			}
+		}
+
+		foreach (array_unique($candidates) as $candidate) {
+			if (is_file($candidate) && is_executable($candidate)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

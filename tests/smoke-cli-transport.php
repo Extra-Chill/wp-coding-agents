@@ -341,9 +341,16 @@ $assert( 'undeclared host declines process-backed channel', null === WpCodingAge
 add_filter( 'wp_coding_agents_host_can_execute_processes', static fn( bool $available ): bool => false );
 $assert( 'unavailable host declines process-backed channel', null === WpCodingAgents_Cli_Channel_Transport::maybe_claim( null, array( 'channel' => 'sync-true' ) ) );
 $wp_coding_agents_test_filters['wp_coding_agents_host_can_execute_processes'] = array();
-add_filter( 'wp_coding_agents_host_can_execute_processes', static fn( bool $available ): bool => true );
+require_once __DIR__ . '/../carried-plugins/wp-coding-agents-integration/wp-coding-agents-integration.php';
 
+$installed_host_can_execute = \WpCodingAgents\Integration\HostCapabilities::can_execute_processes();
 $claim_known = WpCodingAgents_Cli_Channel_Transport::maybe_claim( null, array( 'channel' => 'sync-true' ) );
+$assert( 'installed host claim reflects executable capability', $installed_host_can_execute === is_callable( $claim_known ) );
+if ( ! $installed_host_can_execute ) {
+	echo "  [SKIP] installed host cannot meet the session-safe process contract\n";
+	exit( 0 );
+}
+
 $assert( 'claims registered channel', is_callable( $claim_known ) );
 $assert( 'declines unknown channel', null === WpCodingAgents_Cli_Channel_Transport::maybe_claim( null, array( 'channel' => 'unknown' ) ) );
 $prior = static fn() => null;

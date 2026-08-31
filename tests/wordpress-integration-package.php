@@ -22,8 +22,18 @@ require_once dirname(__DIR__) . '/carried-plugins/wp-coding-agents-integration/w
 use WpCodingAgents\Integration\HostCapabilities;
 
 assert(class_exists(HostCapabilities::class));
+assert(isset($GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_can_execute_processes']));
+assert(isset($GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_has_writable_process_workspace']));
 assert(isset($GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_shell']));
 assert(isset($GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_writable_content_directory']));
+assert(
+	'WpCodingAgents\\Integration\\provide_process_execution_capability'
+	=== $GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_can_execute_processes'][0]
+);
+assert(
+	'WpCodingAgents\\Integration\\provide_writable_process_workspace_capability'
+	=== $GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_has_writable_process_workspace'][0]
+);
 assert(
 	'WpCodingAgents\\Integration\\provide_intelligence_shell_capability'
 	=== $GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_shell'][0]
@@ -31,19 +41,10 @@ assert(
 assert(true === apply_filters('intelligence_host_has_shell', true));
 assert(true === apply_filters('intelligence_host_has_writable_content_directory', false));
 
-// Host integrations declare these independently; no declaration is support.
-assert(false === apply_filters('wp_coding_agents_host_can_execute_processes', false));
-assert(false === apply_filters('wp_coding_agents_host_has_writable_process_workspace', false));
-add_filter('wp_coding_agents_host_can_execute_processes', static fn(bool $available): bool => false);
-add_filter('wp_coding_agents_host_has_writable_process_workspace', static fn(bool $available): bool => false);
-assert(false === apply_filters('wp_coding_agents_host_can_execute_processes', false));
-assert(false === apply_filters('wp_coding_agents_host_has_writable_process_workspace', false));
-$GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_can_execute_processes'] = array();
-$GLOBALS['wp_coding_agents_test_filters']['wp_coding_agents_host_has_writable_process_workspace'] = array();
-add_filter('wp_coding_agents_host_can_execute_processes', static fn(bool $available): bool => true);
-add_filter('wp_coding_agents_host_has_writable_process_workspace', static fn(bool $available): bool => true);
-assert(true === apply_filters('wp_coding_agents_host_can_execute_processes', false));
-assert(true === apply_filters('wp_coding_agents_host_has_writable_process_workspace', false));
+assert(HostCapabilities::can_execute_processes() === apply_filters('wp_coding_agents_host_can_execute_processes', false));
+assert(HostCapabilities::has_writable_content_directory() === apply_filters('wp_coding_agents_host_has_writable_process_workspace', false));
+assert(HostCapabilities::has_shell() === apply_filters('intelligence_host_has_shell', false));
+assert(HostCapabilities::has_writable_content_directory() === apply_filters('intelligence_host_has_writable_content_directory', false));
 
 $available = static fn(string $function_name): bool => in_array($function_name, array('exec', 'shell_exec', 'proc_open'), true);
 $success = static fn(string $command): array => array(
