@@ -283,6 +283,9 @@ jobs:
           - plugin-upgrade-bounds
           - runtime-signature
           - runtime-guidance-desired-state
+          - convergence-orchestrator
+          - bridge-service-adapters
+          - integration-adapters
           - upgrade-opencode-auth-plugin-sync
           - wordpress-service
           - worktree-context-projections

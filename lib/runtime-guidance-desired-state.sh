@@ -35,7 +35,7 @@ runtime_guidance_desired_state_detect() {
   if [ "${INSTALLATION_PROFILE_EXTERNAL_WORDPRESS:-${EXTERNAL_WORDPRESS:-false}}" != true ] && \
      runtime_guidance_desired_state_has_component guidance && \
      declare -F guidance_sync_all >/dev/null 2>&1; then
-    runtime_guidance_desired_state_add guidance.agents-md guidance.reconcile.sections guidance_sync_all
+    runtime_guidance_desired_state_add guidance.agents-md guidance.reconcile.sections runtime_guidance_desired_state_apply_guidance
   fi
 
   if runtime_guidance_desired_state_has_component runtime && [ -n "$runtime" ]; then
@@ -52,12 +52,12 @@ runtime_guidance_desired_state_detect() {
       runtime_guidance_desired_state_add \
         "runtime.${runtime}.${capability}" \
         "runtime.reconcile.${capability}" \
-        "$function"
+        "runtime_guidance_desired_state_apply_${capability}"
       if [ "$capability" = paths ] && [ "$external_context" = true ]; then
         runtime_guidance_desired_state_add \
           "runtime.${runtime}.context" \
           runtime.reconcile.context \
-          external_wordpress_project_context
+          runtime_guidance_desired_state_apply_context
       fi
     done <<'EOF'
 install:runtime_install
@@ -76,7 +76,7 @@ EOF
      declare -F runtime_guard_sync >/dev/null 2>&1; then
     # runtime_guard_sync retains its existing source-policy behavior: install
     # in owned mode and remove an obsolete guard in workspace mode.
-    runtime_guidance_desired_state_add runtime.guard runtime.reconcile.guard runtime_guard_sync
+    runtime_guidance_desired_state_add runtime.guard runtime.reconcile.guard runtime_guidance_desired_state_apply_guard
   fi
 }
 
@@ -93,6 +93,25 @@ runtime_guidance_desired_state_plan() {
       "${RUNTIME_GUIDANCE_DESIRED_VERIFIES[$index]}"
   done
 }
+
+runtime_guidance_desired_state_apply_function() {
+  local function="$1"
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
+  "$function"
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
+}
+
+runtime_guidance_desired_state_apply_guidance() { runtime_guidance_desired_state_apply_function guidance_sync_all; }
+runtime_guidance_desired_state_apply_install() { runtime_guidance_desired_state_apply_function runtime_install; }
+runtime_guidance_desired_state_apply_paths() { runtime_guidance_desired_state_apply_function runtime_discover_dm_paths; }
+runtime_guidance_desired_state_apply_context() { runtime_guidance_desired_state_apply_function external_wordpress_project_context; }
+runtime_guidance_desired_state_apply_config() { runtime_guidance_desired_state_apply_function runtime_generate_config; }
+runtime_guidance_desired_state_apply_hooks() { runtime_guidance_desired_state_apply_function runtime_install_hooks; }
+runtime_guidance_desired_state_apply_instructions() { runtime_guidance_desired_state_apply_function runtime_generate_instructions; }
+runtime_guidance_desired_state_apply_mcp() { runtime_guidance_desired_state_apply_function runtime_merge_mcp_servers; }
+runtime_guidance_desired_state_apply_guard() { runtime_guidance_desired_state_apply_function runtime_guard_sync; }
 
 # apply and verify — use the shared plan executor so partial-record evidence
 # and future per-record verification stay consistent with other adapters.

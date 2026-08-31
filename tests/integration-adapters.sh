@@ -15,7 +15,6 @@ log() { :; }
 warn() { :; }
 error() { fail "$1"; }
 sync_carried_plugins() {
-  CARRIED_SYNCED=true
   mkdir -p "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code"
 }
 
@@ -49,7 +48,7 @@ integration_adapters_plan
 integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release cleanup was not applied"
 [ -f "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED" ] || fail "copied DMC was changed"
-[ "${CARRIED_SYNCED:-false}" = true ] || fail "carried provider was not applied"
+[ -d "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ] || fail "carried provider was not applied"
 
 # Auto Homeboy absence and a DMC-free site create no optional integration work.
 rm -rf "$SITE_PATH/wp-content/plugins/data-machine-code"

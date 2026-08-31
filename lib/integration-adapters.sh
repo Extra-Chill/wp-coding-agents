@@ -86,6 +86,7 @@ _integration_adapter_cleanup_managed_release() {
     return 0
   fi
   rm -f "$file"
+  reconciler_adapter_changed
 }
 
 _integration_adapter_verify_managed_release() {
@@ -102,7 +103,11 @@ _integration_adapter_verify_copied_dmc() {
 }
 
 _integration_adapter_sync_carried_plugins() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   sync_carried_plugins
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
 }
 
 _integration_adapter_verify_carried_plugins() {
@@ -118,9 +123,13 @@ _integration_adapter_verify_carried_plugins() {
 }
 
 _integration_adapter_sync_homeboy() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   setup_homeboy_project
   configure_homeboy_worktree_ownership
   configure_homeboy_wordpress_extension
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
 }
 
 _integration_adapter_verify_homeboy() {
