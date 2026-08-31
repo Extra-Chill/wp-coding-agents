@@ -37,6 +37,9 @@ case "$*" in
     rm -f "$HOMEBOY_FINALIZER_STATE"
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{}}'
     ;;
+  "worktree create "*"--run-id wrong-run")
+    printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@wrong-run","component_id":"fixture","worktree_path":"/workspace/fixture@wrong-run","branch":"fix/wrong-run","base_ref":"origin/main","run_id":"other-run","state":"active"},"handoff_freshness":{"status":"verified","proof":{"schema":"homeboy/worktree-handoff-freshness/v1","proof_id":"proof-wrong-run","handle":"fixture@wrong-run","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-30T00:00:00Z"}}}}'
+    ;;
   "worktree create "*)
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","cleanup_policy":"remove_when_safe","created_at":"2026-08-30T00:00:00Z","state":"active"},"handoff_freshness":{"status":"verified","proof":{"schema":"homeboy/worktree-handoff-freshness/v1","proof_id":"proof-474","handle":"fixture@fix-474","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-30T00:00:00Z"}}}}'
     ;;
@@ -125,13 +128,16 @@ $native = $add(array('repo' => 'fixture', 'branch' => 'fix/native'));
 expect('dmc' === ($native['backend'] ?? null), 'default context and bootstrap behavior retains DMC native creation');
 $native_option = $add(array('repo' => 'fixture', 'branch' => 'fix/native-option', 'inject_context' => false, 'bootstrap' => false, 'allow_stale' => true));
 expect('dmc' === ($native_option['backend'] ?? null), 'DMC-only create options retain DMC native creation');
-$verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'inject_context' => false, 'bootstrap' => false));
+$verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'owner_run_ref' => 'run-474', 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($verified) && 'verified' === ($verified['handoff_freshness']['status'] ?? null), 'create maps Homeboy remote freshness into the DMC handoff contract');
 $created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'create projects native Homeboy record');
+expect('run-474' === ($created['metadata']['owner_run_ref'] ?? null), 'create preserves its explicit owner-run reference for audit');
 expect('verified' === ($created['handoff_freshness']['status'] ?? null), 'create retains available Homeboy freshness when unverified fallback is allowed');
-$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
+$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($manual), 'manual lifecycle intent maps to non-cleanup-eligible Homeboy policy');
+expect(is_wp_error($add(array('repo' => 'fixture', 'branch' => 'missing-owner', 'inject_context' => false, 'bootstrap' => false))), 'Homeboy create refuses a worktree without an explicit owner-run reference');
+expect(is_wp_error($add(array('repo' => 'fixture', 'branch' => 'wrong-run', 'owner_run_ref' => 'wrong-run', 'inject_context' => false, 'bootstrap' => false))), 'Homeboy create refuses a result with a different owner-run reference');
 
 $list = $ability('datamachine-code/workspace-worktree-list');
 $listed = $list(array('handle' => 'fixture@fix-474', 'include_status' => true, 'limit' => 1));
@@ -192,8 +198,8 @@ if grep -q 'datamachine-code' "$LOG"; then
   exit 1
 fi
 grep -q "^worktree create $WORKSPACE_REAL/fixture " "$LOG"
-grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD$" "$LOG"
-grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474-manual --from origin/HEAD --cleanup-policy preserve-on-failure$" "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD --run-id run-474$" "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474-manual --from origin/HEAD --run-id run-474 --cleanup-policy preserve-on-failure$" "$LOG"
 grep -q '^worktree finalize fixture@fix-474 --owner-run-ref run-474 --disposition succeeded$' "$LOG"
 grep -q '^worktree cleanup --apply$' "$LOG"
 

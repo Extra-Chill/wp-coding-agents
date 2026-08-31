@@ -217,8 +217,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 	private static function add(array $input): array|WP_Error {
 		$repo   = self::required_string($input, 'repo');
 		$branch = self::required_string($input, 'branch');
-		if (is_wp_error($repo) || is_wp_error($branch)) {
-			return is_wp_error($repo) ? $repo : $branch;
+		$owner  = self::required_string($input, 'owner_run_ref');
+		if (is_wp_error($repo) || is_wp_error($branch) || is_wp_error($owner)) {
+			return is_wp_error($repo) ? $repo : (is_wp_error($branch) ? $branch : $owner);
 		}
 		foreach (array('inject_context', 'bootstrap', 'allow_stale', 'rebase_base', 'force', 'allow_percentage_byte_floor_exception', 'remediate_capacity', 'remediate_capacity_dry_run', 'verbose') as $unsupported) {
 			if (!empty($input[$unsupported])) {
@@ -247,9 +248,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (null !== ($task_url = self::optional_string($input, 'task_url'))) {
 			$command = array_merge($command, array('--task-url', $task_url));
 		}
-		if (null !== ($owner = self::optional_string($input, 'owner_run_ref'))) {
-			$command = array_merge($command, array('--run-id', $owner));
-		}
+		$command = array_merge($command, array('--run-id', $owner));
 		if (null !== ($policy = self::cleanup_policy($input['cleanup_policy'] ?? null))) {
 			$command = array_merge($command, array('--cleanup-policy', $policy));
 		}
@@ -261,6 +260,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		$record = $data['record'] ?? null;
 		if (!is_array($record)) {
 			return self::contract_error('Homeboy create result omitted its native worktree record.', $data);
+		}
+		if ($owner !== self::optional_string($record, 'run_id')) {
+			return self::contract_error('Homeboy create result omitted the exact requested owner-run reference.', $data);
 		}
 		$freshness = self::handoff_freshness($data, $record, !empty($input['allow_unverified_freshness']));
 		if (is_wp_error($freshness)) {
@@ -284,7 +286,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			'bootstrap'        => array('outcome' => 'not_requested', 'owner' => 'homeboy'),
 			'handoff_freshness' => $freshness,
 			'message'          => 'Homeboy owns this worktree lifecycle.',
-			'metadata'         => array('homeboy' => $record),
+			'metadata'         => array('homeboy' => $record, 'owner_run_ref' => $owner),
 		);
 	}
 
