@@ -82,6 +82,8 @@ owned_discovery_carried_plugins() {
 data-machine
 data-machine-code
 wp-codebox
+wp-coding-agents-integration
+ai-provider-for-claude-code
 EOF
 }
 

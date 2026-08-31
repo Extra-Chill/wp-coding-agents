@@ -1254,13 +1254,26 @@
     "wp datamachine pipelines list --format=json",
     "Inspect Data Machine flow steps/enabled_tools, bundle manifests, DMC tables, queued jobs, Homeboy config, and workspace metadata for the identifiers in this inventory"
   ],
+  "installed_state_results": {
+    "captured_at": "2026-08-31",
+    "installation": "/Users/chubes/Studio/intelligence-chubes4",
+    "options": "No datamachine_code_% options returned",
+    "active_hooks": [
+      "datamachine_code_ability_registration_args",
+      "datamachine_code_worktree_runtime_signatures",
+      "datamachine_code_worktree_context_projection_targets",
+      "datamachine_code_worktree_context_projection_cleanup",
+      "datamachine_code_cli_channels"
+    ],
+    "ability_query": "Unavailable because the wp ability command is not registered",
+    "pr_review_flows": [
+      "Flows 4, 6, and 7 had no jobs or completed runs and were explicitly retired on 2026-08-31",
+      "Their orphaned pipelines 3, 5, and 6 were deleted after the flows",
+      "Post-deletion flow and pipeline listings contain no DMC PR-review scaffold; Homeboy is the supported GitHub Actions agent path"
+    ],
+    "confirmed_in_process_consumer": "Intelligence uses only shell and writable-content-directory capability checks"
+  },
   "unresolved_classifications": [
-    {
-      "surface": "DMC GitHub abilities, handlers, tools, and PR-review flow",
-      "decision": "retire unless installed-state queries identify a named active shell-less consumer",
-      "required_evidence": "Representative flow, pipeline, enabled_tools, webhook, schedule, and job queries",
-      "fallback": "Open a focused extraction tracker; do not retain DMC wholesale"
-    },
     {
       "surface": "DMC ability aliases and workspace_preload artifact identifier",
       "decision": "replacement owner is known, compatibility duration is not",
@@ -1275,9 +1288,9 @@
     },
     {
       "surface": "Process-path probe WordPress facade",
-      "decision": "host helper remains wp-coding-agents-owned; WordPress facade exists only if a retained in-process consumer requires it",
-      "required_evidence": "Consumer migration design for Intelligence and any DMC RuntimeCapabilities callers",
-      "fallback": "Place the narrow facade in the #530 package, not in setup shell or Homeboy"
+      "decision": "Do not extract it into the #530 package; no retained in-process consumer was found",
+      "required_evidence": "#528 must classify the wp-coding-agents host helper independently from the retired DMC option consumer",
+      "fallback": "Add a neutral facade later only if a named consumer is demonstrated"
     }
   ]
 }
