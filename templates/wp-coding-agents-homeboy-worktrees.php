@@ -25,7 +25,16 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			return $args;
 		}
 
-		$args['execute_callback'] = static fn(array $input): array|WP_Error => self::execute($slug, $input);
+		$native_callback = $args['execute_callback'] ?? null;
+		$args['execute_callback'] = static function (array $input) use ($slug, $native_callback): array|WP_Error {
+			if ('datamachine-code/workspace-worktree-add' === $slug && !self::can_delegate_add($input)) {
+				if (!is_callable($native_callback)) {
+					return self::contract_error('DMC native worktree creation is unavailable for this request.', $input);
+				}
+				return call_user_func($native_callback, $input);
+			}
+			return self::execute($slug, $input);
+		};
 		$args['meta'] = array_merge(
 			is_array($args['meta'] ?? null) ? $args['meta'] : array(),
 			array(
@@ -34,6 +43,22 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			)
 		);
 		return $args;
+	}
+
+	/** @param array<string,mixed> $input */
+	private static function can_delegate_add(array $input): bool {
+		if (($input['inject_context'] ?? true) || ($input['bootstrap'] ?? true)) {
+			return false;
+		}
+		foreach (array('allow_stale', 'rebase_base', 'force', 'allow_percentage_byte_floor_exception', 'remediate_capacity', 'remediate_capacity_dry_run', 'verbose') as $unsupported) {
+			if (!empty($input[$unsupported])) {
+				return false;
+			}
+		}
+		if (null !== self::optional_string($input, 'task_ref')) {
+			return false;
+		}
+		return !isset($input['reuse_policy']) || in_array($input['reuse_policy'], array('', 'isolated'), true);
 	}
 
 	/** @param array<string,mixed> $input @return array<string,mixed>|WP_Error */
@@ -73,7 +98,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			return self::unsupported_input('cleanup_policy', 'Homeboy cannot represent this DMC cleanup policy.');
 		}
 
-		$command = array(self::HOMEBOY, 'worktree', 'create', $repo, '--branch', $branch);
+		$command = array(self::HOMEBOY, 'worktree', 'create', self::repository_target($repo), '--branch', $branch);
 		if (empty($input['allow_unverified_freshness'])) {
 			$command[] = '--require-handoff-freshness';
 		}
@@ -121,6 +146,18 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			'message'          => 'Homeboy owns this worktree lifecycle.',
 			'metadata'         => array('homeboy' => $record),
 		);
+	}
+
+	private static function repository_target(string $repo): string {
+		if (!defined('DATAMACHINE_WORKSPACE_PATH')) {
+			return $repo;
+		}
+		$root = realpath((string) DATAMACHINE_WORKSPACE_PATH);
+		$path = false === $root ? false : realpath($root . DIRECTORY_SEPARATOR . $repo);
+		if (false === $root || false === $path || dirname($path) !== $root || !is_dir($path) || !file_exists($path . DIRECTORY_SEPARATOR . '.git')) {
+			return $repo;
+		}
+		return $path;
 	}
 
 	/** @param array<string,mixed> $data @param array<string,mixed> $record @return array<string,mixed>|WP_Error */
