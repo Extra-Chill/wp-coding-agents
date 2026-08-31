@@ -332,6 +332,39 @@ homeboy_handle_failure() {
   return 0
 }
 
+# Homeboy owns whether its WordPress extension is available. Data Machine only
+# consumes the resulting option while composing guidance.
+sync_homeboy_availability() {
+  if [ "$DRY_RUN" = true ]; then
+    if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
+    else
+      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option delete datamachine_code_homeboy_available"
+    fi
+    sync_homeboy_project_components
+    return 0
+  fi
+
+  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
+    local current=""
+    current="$(wp_cmd option get datamachine_code_homeboy_available 2>/dev/null || true)"
+    if wp_cmd option update datamachine_code_homeboy_available 1 >/dev/null 2>&1; then
+      if [ "$current" != 1 ] && [ -n "${UPDATED_ITEMS+x}" ]; then
+        UPDATED_ITEMS+=("Homeboy availability")
+      fi
+    else
+      warn "Could not record Homeboy availability for AGENTS.md compose"
+    fi
+    sync_homeboy_project_components
+  else
+    if wp_cmd option get datamachine_code_homeboy_available >/dev/null 2>&1; then
+      if wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1; then
+        [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("Homeboy availability removed")
+      fi
+    fi
+  fi
+}
+
 sync_homeboy_agents_md_guidance() {
   # The Homeboy CLI command map is presence-gated on `command -v homeboy`.
   # Since #254 the section is registered as a LIVE-enumeration block: its
@@ -451,10 +484,18 @@ configure_homeboy_worktree_ownership() {
 
   log "Configuring Homeboy as the sole worktree lifecycle owner."
   if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
-    homeboy_run config remove /worktree_providers/dmc >/dev/null || homeboy_handle_failure "Could not remove the circular DMC worktree provider."
+    if homeboy_run config remove /worktree_providers/dmc >/dev/null; then
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed circular DMC worktree provider")
+    else
+      homeboy_handle_failure "Could not remove the circular DMC worktree provider."
+    fi
   fi
   if homeboy_run config show /settings/worktree_provider_lifecycle/dmc >/dev/null 2>&1; then
-    homeboy_run config remove /settings/worktree_provider_lifecycle/dmc >/dev/null || homeboy_handle_failure "Could not remove the legacy DMC worktree finalizer."
+    if homeboy_run config remove /settings/worktree_provider_lifecycle/dmc >/dev/null; then
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed legacy DMC worktree finalizer")
+    else
+      homeboy_handle_failure "Could not remove the legacy DMC worktree finalizer."
+    fi
   fi
   if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
     homeboy_handle_failure "Circular /worktree_providers/dmc configuration remains authoritative."

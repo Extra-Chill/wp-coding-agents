@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -459,7 +459,8 @@ source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_mode
-if [ "$PLUGINS_ONLY" != true ]; then
+if [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
+   [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode
   owned_discovery_record_exclusions
   source_policy_record_owned_sources
@@ -610,7 +611,7 @@ _run_filter_active() {
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
-      reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
+      reconciliation|transport|systemd) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
       *)         return 1 ;;
     esac
   fi
@@ -686,13 +687,7 @@ reconcile_installed_plugins() {
 }
 
 reconcile_provider_and_service_state() {
-  _run_filter_active reconciliation || return 0
-  set_compose_agents_md_constant
-  if [ "${DRY_RUN:-false}" != true ]; then
-    rm -f "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
-  fi
-  sync_carried_plugins
-  configure_homeboy_worktree_ownership
+  : # Migrated integrations run through convergence_run.
 }
 
 sync_cli_transport_runtime() {
@@ -723,19 +718,7 @@ update_ai_gateway() {
 # ============================================================================
 
 sync_chat_bridge_config() {
-  _run_filter_active kimaki || return 0
-
-  if [ -z "$CHAT_BRIDGE" ]; then
-    log "Phase 3: Skipping (no chat bridge detected)"
-    return
-  fi
-
-  if ! bridge_has_hook sync_config; then
-    warn "Phase 3: $CHAT_BRIDGE does not implement bridge_sync_config — skipping"
-    return
-  fi
-
-  bridge_sync_config
+  : # Migrated bridge synchronization runs through convergence_run.
 }
 
 
@@ -1072,10 +1055,6 @@ regenerate_agents_md() {
     return 0
   fi
 
-  guidance_sync_all
-  sync_homeboy_availability
-  sync_homeboy_agents_md_guidance
-
   # Backup existing (compose writes in-place to the registered location)
   if [ -f "$AGENTS_MD" ]; then
     cp "$AGENTS_MD" "$BACKUP"
@@ -1099,7 +1078,6 @@ regenerate_agents_md() {
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
-    opencode_project_subagents_optional
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -1216,54 +1194,7 @@ sys.exit(0 if any(a.get('agent_slug') == slug for a in data) else 1)
 }
 
 sync_claude_code_runtime() {
-  _run_filter_active agents-md || return 0
-  [ "$RUNTIME" = "claude-code" ] || return 0
-
-  if ! declare -F runtime_install_hooks >/dev/null; then
-    return 0
-  fi
-
-  log "Phase 5b: Syncing Claude Code runtime (hook + CLAUDE.md)..."
-
-  _resolve_claude_code_agent_slug
-  if [ -n "${AGENT_SLUG:-}" ]; then
-    log "  Agent scope: $AGENT_SLUG (single-agent, OpenCode parity)"
-  else
-    log "  Agent scope: all active agents (no single agent resolved)"
-  fi
-
-  # Regenerate a degenerate CLAUDE.md. A healthy CLAUDE.md carries the
-  # DM_AGENT_SYNC sentinel block; if it's missing (truncated to @AGENTS.md by an
-  # older/legacy install) or the file is absent, rebuild from the template so
-  # the memory block and Studio context return. Only do this when a slug is
-  # resolved — regenerating with no agent would write an empty memory block.
-  local claude_md="$SITE_PATH/CLAUDE.md"
-  local need_regen=false
-  if [ ! -f "$claude_md" ]; then
-    need_regen=true
-  elif ! grep -q 'DM_AGENT_SYNC_START' "$claude_md"; then
-    need_regen=true
-  fi
-
-  if [ "$need_regen" = true ] && [ -n "${AGENT_SLUG:-}" ]; then
-    runtime_discover_dm_paths
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would (back up and) regenerate CLAUDE.md from template"
-    elif [ -f "$claude_md" ]; then
-      cp "$claude_md" "$claude_md.backup.$TIMESTAMP"
-      service_file_normalize_perms "$claude_md.backup.$TIMESTAMP"
-      rm -f "$claude_md"
-      log "  CLAUDE.md was missing the DM memory block — backed up to $claude_md.backup.$TIMESTAMP"
-      UPDATED_ITEMS+=("CLAUDE.md regenerated")
-    fi
-    runtime_generate_config
-  elif [ "$need_regen" = true ]; then
-    warn "  CLAUDE.md needs regeneration but no agent slug resolved — leaving as-is"
-  fi
-
-  # Recopy the SessionStart hook, refresh the agent-scope sidecar, and ensure
-  # settings.json registers the hook + workspace permissions. Idempotent.
-  runtime_install_hooks
+  : # Runtime hooks and configuration are shared adapter records.
 }
 
 sync_runtime_signature() {
@@ -1289,33 +1220,7 @@ sync_runtime_signature() {
 }
 
 sync_runtime_instructions() {
-  _run_filter_active agents-md || return 0
-
-  if _runtime_detected codex; then
-    local codex_runtime_file="$SCRIPT_DIR/runtimes/codex.sh"
-    if [ "$RUNTIME" != "codex" ]; then
-      # shellcheck disable=SC1090
-      source "$codex_runtime_file"
-    fi
-    if declare -F runtime_sync_instructions >/dev/null; then
-      log "Phase 5d: Syncing Codex runtime instructions..."
-      runtime_sync_instructions
-    fi
-    if declare -F runtime_generate_config >/dev/null; then
-      log "Phase 5d: Syncing Codex WordPress permissions..."
-      runtime_generate_config
-    fi
-    if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
-      # shellcheck disable=SC1090
-      source "$RUNTIME_FILE"
-    fi
-    return 0
-  fi
-
-  if declare -F runtime_sync_instructions >/dev/null; then
-    log "Phase 5d: Syncing $RUNTIME runtime instructions..."
-    runtime_sync_instructions
-  fi
+  : # Runtime instructions are shared adapter records.
 }
 
 # ============================================================================
@@ -1328,58 +1233,19 @@ sync_runtime_instructions() {
 # ============================================================================
 
 update_chat_bridge_systemd() {
-  _run_filter_active systemd || return 0
-
-  if [ "$LOCAL_MODE" = true ]; then
-    log "Phase 6: Skipping (local mode — no systemd)"
-    return 0
-  fi
-
-  if [ -z "$CHAT_BRIDGE" ]; then
-    log "Phase 6: Skipping (no chat bridge detected)"
-    return 0
-  fi
-
-  if [ "$EUID" -ne 0 ]; then
-    warn "Phase 6: Skipping systemd unit refresh because upgrade is running non-root"
-    warn "  Re-run as root when unit templates need refreshing; the service will not be restarted automatically."
-    return 0
-  fi
-
-  if ! bridge_has_hook update_systemd; then
-    warn "Phase 6: $CHAT_BRIDGE does not implement bridge_update_systemd — skipping"
-    return 0
-  fi
-
-  bridge_update_systemd
+  : # Migrated bridge service update runs through convergence_run.
 }
 
 update_chat_bridge_launchd() {
-  _run_filter_active systemd || return 0
-
-  if [ "$LOCAL_MODE" != true ] || [ "$PLATFORM" != "mac" ]; then
-    return 0
-  fi
-
-  if [ -z "$CHAT_BRIDGE" ] || ! bridge_has_hook update_launchd; then
-    return 0
-  fi
-
-  bridge_update_launchd
+  : # Migrated bridge service update runs through convergence_run.
 }
 
 reconcile_datamachine_worker_service() {
-  _run_filter_active systemd || return 0
-  if [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
-    warn "Skipping Data Machine worker unit refresh because upgrade is running non-root"
-    return 0
-  fi
-  datamachine_worker_reconcile
+  : # Migrated optional service runs through convergence_run.
 }
 
 reconcile_wordpress_service() {
-  _run_filter_active systemd || return 0
-  wordpress_service_reconcile
+  : # Migrated optional service runs through convergence_run.
 }
 
 # ============================================================================
@@ -1436,6 +1302,8 @@ print_summary() {
   echo "=========================================="
   if [ "$PLUGINS_ONLY" = true ] && [ "${PLUGIN_ONLY_EXIT_STATUS:-0}" -ne 0 ]; then
     warn "Plugin upgrade partially completed."
+  elif [ "${CONVERGENCE_EXIT_STATUS:-0}" -ne 0 ]; then
+    warn "Desired-state convergence partially completed."
   else
     log "Upgrade complete."
   fi
@@ -1575,9 +1443,20 @@ _print_plugins_only_verify_block() {
 # ============================================================================
 
 PLUGIN_ONLY_EXIT_STATUS=0
+CONVERGENCE_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   discover_dm_workspace_dir
+  CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
+  CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
+  [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
+  CONVERGENCE_SCOPE=all
+  if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
+  if [ "$KIMAKI_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
+  if [ "$AGENTS_MD_ONLY" = true ]; then CONVERGENCE_SCOPE=agents-md; fi
+  if [ "$SKILLS_ONLY" != true ]; then
+    convergence_run "$INSTALLATION_OPERATION_UPGRADE" || CONVERGENCE_EXIT_STATUS=$?
+  fi
 fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
@@ -1595,7 +1474,9 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
-opencode_project_subagents_optional
+if [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+  opencode_project_subagents_optional
+fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 reconcile_wordpress_service
@@ -1607,4 +1488,8 @@ fi
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
   exit "$PLUGIN_ONLY_EXIT_STATUS"
+fi
+if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
+  reconciler_print_partial_evidence
+  exit "$CONVERGENCE_EXIT_STATUS"
 fi

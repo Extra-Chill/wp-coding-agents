@@ -147,16 +147,25 @@ reconciler_plan_reset() {
   RECONCILER_PLAN_RECORDS=()
   RECONCILER_PLAN_OPERATIONS=()
   RECONCILER_PLAN_APPLY=()
+  RECONCILER_PLAN_VERIFY_STEPS=()
+  RECONCILER_PLAN_TIMEOUTS=()
+  RECONCILER_PLAN_REPLAYS=()
   RECONCILER_PLAN_VERIFY=""
   RECONCILER_COMPLETED_RECORDS=()
+  RECONCILER_CHANGED_RECORDS=()
+  RECONCILER_UNCHANGED_RECORDS=()
+  RECONCILER_STARTED_AT=""
 }
 
 reconciler_plan_add() {
-  local record="$1" operation="$2" apply="$3"
+  local record="$1" operation="$2" apply="$3" verify="${4:-}" timeout="${5:-}" replay="${6:-}"
   RECONCILER_PLAN_RECORDS+=("$record")
   RECONCILER_PLAN_OPERATIONS+=("$operation")
   RECONCILER_PLAN_APPLY+=("$apply")
-  log "[desired-state] record=$record operation=$operation planned"
+  RECONCILER_PLAN_VERIFY_STEPS+=("$verify")
+  RECONCILER_PLAN_TIMEOUTS+=("$timeout")
+  RECONCILER_PLAN_REPLAYS+=("$replay")
+  log "[desired-state] record=$record operation=$operation planned${timeout:+ timeout=${timeout}s}${replay:+ replay=$replay}"
 }
 
 reconciler_plan_set_verify() {
@@ -164,29 +173,121 @@ reconciler_plan_set_verify() {
 }
 
 reconciler_apply_plan() {
-  local index record operation apply status=0 step_status
+  local index record operation apply verify timeout replay status=0 step_status changed
+  RECONCILER_STARTED_AT="${RECONCILER_STARTED_AT:-$(date +%s)}"
   for index in "${!RECONCILER_PLAN_RECORDS[@]}"; do
     record="${RECONCILER_PLAN_RECORDS[$index]}"
     operation="${RECONCILER_PLAN_OPERATIONS[$index]}"
     apply="${RECONCILER_PLAN_APPLY[$index]}"
-    log "[desired-state] record=$record operation=$operation apply=start"
-    if "$apply"; then
+    verify="${RECONCILER_PLAN_VERIFY_STEPS[$index]}"
+    timeout="${RECONCILER_PLAN_TIMEOUTS[$index]}"
+    replay="${RECONCILER_PLAN_REPLAYS[$index]}"
+    timeout="${timeout:-${DESIRED_STATE_STEP_TIMEOUT_SECONDS:-120}}"
+    replay="${replay:-$(reconciler_replay_command)}"
+    log "[desired-state] record=$record operation=$operation apply=start timeout=${timeout}s replay=$replay"
+    if reconciler_run_bounded "$record" "$operation" "$timeout" "$apply" apply; then
+      changed="${RECONCILER_STEP_CHANGED:-false}"
+      if [ -n "$verify" ]; then
+        log "[desired-state] record=$record operation=$operation verify=start timeout=${timeout}s replay=$replay"
+        if reconciler_run_bounded "$record" "$operation" "$timeout" "$verify" verify; then
+          log "[desired-state] record=$record operation=$operation verify=complete replay=$replay"
+        else
+          step_status=$?
+          status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+          if [ "$step_status" -eq 124 ]; then
+            warn "[desired-state] record=$record operation=$operation verify=timeout timeout=${timeout}s replay=$replay"
+          else
+            warn "[desired-state] record=$record operation=$operation verify=failed status=$step_status replay=$replay"
+          fi
+          continue
+        fi
+      fi
       RECONCILER_COMPLETED_RECORDS+=("$record")
-      log "[desired-state] record=$record operation=$operation apply=complete"
+      if [ "$changed" = true ]; then
+        RECONCILER_CHANGED_RECORDS+=("$record")
+        log "[desired-state] record=$record operation=$operation apply=complete changed=true replay=$replay"
+      else
+        RECONCILER_UNCHANGED_RECORDS+=("$record")
+        log "[desired-state] record=$record operation=$operation apply=complete changed=false replay=$replay"
+      fi
     else
       step_status=$?
-      status="$PLUGIN_UPDATE_EXIT_PARTIAL"
-      warn "[desired-state] record=$record operation=$operation apply=partial-failure status=$step_status"
+      status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+      if [ "$step_status" -eq 124 ]; then
+        warn "[desired-state] record=$record operation=$operation apply=timeout timeout=${timeout}s replay=$replay"
+      else
+        warn "[desired-state] record=$record operation=$operation apply=failed status=$step_status replay=$replay"
+      fi
     fi
   done
   return "$status"
 }
 
+reconciler_replay_command() {
+  local script="${RECONCILER_ENTRYPOINT:-${0:-setup.sh}}"
+  printf '%q%s' "$script" " ${RECONCILER_REPLAY_ARGUMENTS:-}"
+}
+
+# Each adapter runs in its own process group. The only child-shell state accepted
+# by the parent is this credential-safe outcome file, never the environment.
+reconciler_run_bounded() {
+  local record="$1" operation="$2" timeout="$3" command="$4" phase="${5:-apply}"
+  local total="${DESIRED_STATE_TOTAL_TIMEOUT_SECONDS:-480}" now elapsed remaining
+  local started status=0 temp_dir outcome_file pid pgid elapsed restore_monitor=false
+  case "$timeout" in ''|*[!0-9]*|0) timeout=120 ;; esac
+  case "$total" in ''|*[!0-9]*|0) total=480 ;; esac
+  now="$(date +%s)"; elapsed=$((now - RECONCILER_STARTED_AT)); remaining=$((total - elapsed))
+  if [ "$remaining" -le 0 ]; then
+    warn "[desired-state] record=$record operation=$operation $phase=timeout aggregate_timeout=${total}s"
+    return 124
+  fi
+  [ "$remaining" -lt "$timeout" ] && timeout="$remaining"
+  temp_dir="$(mktemp -d)" || return 1
+  outcome_file="$temp_dir/outcome"
+  started="$(date +%s)"
+  case "$-" in *m*) ;; *) set -m; restore_monitor=true ;; esac
+  ( RECONCILER_STEP_CHANGED=false; "$command"; status=$?; printf 'changed=%s\n' "$RECONCILER_STEP_CHANGED" > "$outcome_file"; exit "$status" ) &
+  pid=$!
+  [ "$restore_monitor" = false ] || set +m
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - started ))
+    if [ "$elapsed" -ge "$timeout" ]; then
+      warn "[desired-state] record=$record operation=$operation $phase=deadline-exceeded elapsed=${elapsed}s timeout=${timeout}s"
+      if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -TERM -- "-$pgid" 2>/dev/null || true; else kill -TERM "$pid" 2>/dev/null || true; fi
+      sleep "${PLUGIN_UPDATE_KILL_GRACE_SECONDS:-2}"
+      if kill -0 "$pid" 2>/dev/null; then
+        if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -KILL -- "-$pgid" 2>/dev/null || true; else kill -KILL "$pid" 2>/dev/null || true; fi
+      fi
+      wait "$pid" 2>/dev/null || true
+      rm -rf "$temp_dir"
+      return 124
+    fi
+    sleep 1
+  done
+  if wait "$pid"; then status=0; else status=$?; fi
+  RECONCILER_STEP_CHANGED=false
+  if [ "$status" -eq 0 ] && [ -f "$outcome_file" ]; then
+    case "$(<"$outcome_file")" in changed=true) RECONCILER_STEP_CHANGED=true ;; esac
+  fi
+  rm -rf "$temp_dir"
+  return "$status"
+}
+
+reconciler_adapter_changed() {
+  RECONCILER_STEP_CHANGED=true
+}
+
+reconciler_mark_changed() {
+  local record="$1"
+  RECONCILER_CHANGED_RECORDS+=("$record")
+  log "[desired-state] record=$record result=changed"
+}
 reconciler_verify_plan() {
-  local status
+  local status timeout="${DESIRED_STATE_STEP_TIMEOUT_SECONDS:-120}"
   [ -n "$RECONCILER_PLAN_VERIFY" ] || return 0
   log "[desired-state] operation=plugins.reconcile.verify verification=start"
-  if "$RECONCILER_PLAN_VERIFY"; then
+  if reconciler_run_bounded plugins plugins.reconcile.verify "$timeout" "$RECONCILER_PLAN_VERIFY" verification; then
     log "[desired-state] operation=plugins.reconcile.verify verification=complete"
     return 0
   fi
@@ -197,9 +298,16 @@ reconciler_verify_plan() {
 
 reconciler_print_partial_evidence() {
   local record
-  [ "${#RECONCILER_COMPLETED_RECORDS[@]}" -gt 0 ] || return 0
-  warn "DESIRED_STATE_COMPLETED_RECORDS=${RECONCILER_COMPLETED_RECORDS[*]}"
-  for record in "${RECONCILER_COMPLETED_RECORDS[@]}"; do
-    warn "  completed desired-state record: $record"
-  done
+  if [ "${#RECONCILER_COMPLETED_RECORDS[@]}" -gt 0 ]; then
+    warn "DESIRED_STATE_COMPLETED_RECORDS=${RECONCILER_COMPLETED_RECORDS[*]}"
+    for record in "${RECONCILER_COMPLETED_RECORDS[@]}"; do
+      warn "  completed desired-state record: $record"
+    done
+  fi
+  if [ "${#RECONCILER_CHANGED_RECORDS[@]}" -gt 0 ]; then
+    warn "DESIRED_STATE_CHANGED_RECORDS=${RECONCILER_CHANGED_RECORDS[*]}"
+    for record in "${RECONCILER_CHANGED_RECORDS[@]}"; do
+      warn "  changed desired-state record: $record"
+    done
+  fi
 }

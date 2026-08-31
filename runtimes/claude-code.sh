@@ -132,8 +132,13 @@ print(content[:si] + block + content[ei:], end='')
   # Clean up stacked empty lines from conditional removal
   CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/^$/N;/^\n$/d')
 
-  write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_MD"
-  service_file_normalize_perms "$SITE_PATH/CLAUDE.md"
+  if [ "$DRY_RUN" = true ] || ! printf '%s\n' "$CLAUDE_MD" | cmp -s - "$SITE_PATH/CLAUDE.md"; then
+    write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_MD"
+    service_file_normalize_perms "$SITE_PATH/CLAUDE.md"
+    if [ "$DRY_RUN" != true ] && [ -n "${UPDATED_ITEMS+x}" ]; then
+      UPDATED_ITEMS+=("CLAUDE.md")
+    fi
+  fi
   log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md"
 }
 

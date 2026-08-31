@@ -18,7 +18,7 @@ fi
 if grep -Fq 'update_data_machine_code_copied_release' "$ROOT_DIR/lib/data-machine.sh"; then
   fail "plugin upgrades still convert copied DMC"
 fi
-grep -Fq 'rm -f "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"' "$ROOT_DIR/upgrade.sh" || fail "upgrade.sh does not remove the stale managed-release mu-plugin"
+grep -Fq 'rm -f "$file"' "$ROOT_DIR/lib/integration-adapters.sh" || fail "integration adapter does not remove the stale managed-release mu-plugin"
 
 channel_hits="$(grep -R --include='*.php' --include='*.sh' -l 'datamachine_code_managed_release_channel' "$ROOT_DIR" || true)"
 case "$channel_hits" in
@@ -37,16 +37,18 @@ SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH/wp-content/mu-plugins"
 printf 'stale-channel\n' > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
 
-load_upgrade_function() {
-  sed -n "/^$1() {/,/^}/p" "$ROOT_DIR/upgrade.sh"
-}
-eval "$(load_upgrade_function reconcile_provider_and_service_state)"
-_run_filter_active() { return 0; }
-set_compose_agents_md_constant() { :; }
-sync_carried_plugins() { :; }
-configure_homeboy_worktree_ownership() { :; }
+source "$ROOT_DIR/lib/desired-state-reconciler.sh"
+source "$ROOT_DIR/lib/integration-adapters.sh"
+log() { :; }
+warn() { :; }
+error() { fail "$1"; }
 DRY_RUN=false
-reconcile_provider_and_service_state
+INSTALLATION_PROFILE_SITE_PATH="$SITE_PATH"
+INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
+INSTALLATION_PROFILE_HOMEBOY_MODE=disabled
+reconciler_plan_reset
+integration_adapters_plan
+integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "stale managed-release mu-plugin was retained"
 
 echo "dmc-managed-release-integration tests passed"

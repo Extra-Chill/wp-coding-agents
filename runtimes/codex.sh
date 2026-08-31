@@ -87,12 +87,14 @@ wp-content/uploads/datamachine-files/agents/${DM_DRY_SLUG}/MEMORY.md"
 runtime_generate_config() {
   local config_dir="$SITE_PATH/.codex"
   local config_file="$config_dir/config.toml"
+  local config_before config_after
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would configure Codex WordPress source permissions at $config_file"
     return 0
   fi
 
+  config_before="$(cksum "$config_file" 2>/dev/null || true)"
   local version
   version=$(codex --version 2>/dev/null | sed -nE 's/.* ([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/p' || true)
   if [ -z "$version" ]; then
@@ -154,6 +156,10 @@ PY
     return 0
   fi
   service_file_normalize_perms "$config_file"
+  config_after="$(cksum "$config_file" 2>/dev/null || true)"
+  if [ "$config_before" != "$config_after" ] && [ -n "${UPDATED_ITEMS+x}" ]; then
+    UPDATED_ITEMS+=("Codex permission profile")
+  fi
   log "Configured Codex permission profile: installed WordPress source is read-only"
 }
 
