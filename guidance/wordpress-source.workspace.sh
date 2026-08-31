@@ -7,7 +7,7 @@
 # point — see the header of wordpress-source.managed.sh and #322.
 #
 # What differs from managed is only where changes land: engineering routes them
-# through a Data Machine Code workspace so they are tracked in git and reviewed.
+# through configured repositories so they are tracked in git and reviewed.
 
 guidance_id() { printf 'wordpress-source'; }
 guidance_priority() { printf '1'; }
@@ -28,6 +28,12 @@ The WordPress running this site is on disk underneath you. Read it to verify cor
 
 Grep and read these freely. They are the ground truth for how this site actually behaves.
 
-These paths are **read-only reference**. Make code changes in the configured managed workspace, not in the installed source tree.
+These paths are **read-only reference**. Make code changes in the configured repository checkout, not in the installed source tree.
 MD
+
+  local repository
+  while IFS= read -r repository; do
+    [ -n "$repository" ] || continue
+    printf '%s\n' "- \`$repository\`"
+  done < <(source_policy_workspace_repositories)
 }

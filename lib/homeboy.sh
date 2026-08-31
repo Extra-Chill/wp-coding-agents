@@ -474,7 +474,11 @@ configure_homeboy_worktree_ownership() {
     return 0
   fi
 
-  homeboy_worktree_adapter_sync
+  # The adapter is solely an integration for an installed DMC ability surface.
+  # Homeboy's generic lifecycle ownership does not require a WordPress callback.
+  if [ -d "$SITE_PATH/wp-content/plugins/data-machine-code" ]; then
+    homeboy_worktree_adapter_sync
+  fi
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} homeboy config remove /worktree_providers/dmc"

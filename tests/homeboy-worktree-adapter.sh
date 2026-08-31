@@ -14,7 +14,7 @@ SITE_PATH="$TMP/site"
 WORKSPACE="$TMP/workspace"
 FAKE_BIN="$TMP/bin"
 LOG="$TMP/homeboy.log"
-mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$WORKSPACE/fixture/.git" "$FAKE_BIN"
+mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$SITE_PATH/wp-content/plugins/data-machine-code" "$WORKSPACE/fixture/.git" "$FAKE_BIN"
 WORKSPACE_REAL="$(cd "$WORKSPACE" && pwd -P)"
 
 cat > "$FAKE_BIN/homeboy" <<'SH'

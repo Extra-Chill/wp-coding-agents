@@ -237,7 +237,12 @@ runtime_generate_config() {
   # recover the site it just broke.
   local _ext_rules=""
   if source_policy_workspace_enabled; then
-    _ext_rules="\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
+    local workspace_repository
+    while IFS= read -r workspace_repository; do
+      [ -n "$workspace_repository" ] || continue
+      _ext_rules="${_ext_rules}${_ext_rules:+,}\n      \"${workspace_repository}/**\": \"allow\""
+    done < <(source_policy_workspace_repositories)
+    [ -n "$_ext_rules" ] || _ext_rules="\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
   fi
   local _log_path
   while IFS= read -r _log_path; do

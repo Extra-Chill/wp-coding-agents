@@ -798,6 +798,21 @@
       "verification_gate": "Workspace-mode assertions exercise native repositories and Git with DMC absent"
     },
     {
+      "id": "test-dmc-free-workspace-installation",
+      "subsystem": null,
+      "surface": "DMC-free workspace installation fixture asserts the retired plugin and callback surface stay absent",
+      "source": { "repository": "wp-coding-agents", "path": "tests/workspace-installation.sh", "symbol_or_command": "DMC-free repository, WordPress integration, native Git, verify, and Homeboy fixture" },
+      "evidence_kind": "test",
+      "contracts": ["data-machine-code"],
+      "current_owner": "wp-coding-agents tests",
+      "current_consumers": ["CI", "#529 migration gate"],
+      "persistence": "Temporary WordPress site and Git checkout only",
+      "target_owner": "wp-coding-agents",
+      "disposition": "replace",
+      "migration_issue": "#529",
+      "verification_gate": "Required fixture proves the DMC-free workspace target and detects a broken repository-permission seam"
+    },
+    {
       "id": "test-homeboy-components",
       "subsystem": null,
       "surface": "DMC workspace primary checkout to Homeboy component mapping",
@@ -1239,7 +1254,7 @@
       "setup.sh", "upgrade.sh", "lib/data-machine.sh", "lib/desired-state-reconciler.sh", "lib/homeboy.sh", "lib/integration-adapters.sh", "lib/plugin-upgrade.sh", "lib/source-policy.sh", "lib/owned-source-discovery.sh", "lib/runtime-signature.sh", "lib/systems-capabilities.sh", "lib/cli-channel.sh", "lib/summary.sh", "runtimes/opencode.sh", "runtimes/claude-code.sh", "bridges/kimaki.sh", "templates/wp-coding-agents-homeboy-worktrees.php", "templates/wp-coding-agents-cli-transport.php", "templates/wp-coding-agents-source-reconcile.php"
     ],
     "tests": [
-      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/installation-profile.sh", "tests/integration-adapters.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/plugins-only-scope.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/worktree-context-projections.sh"
+      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/installation-profile.sh", "tests/integration-adapters.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/plugins-only-scope.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/workspace-installation.sh", "tests/worktree-context-projections.sh"
     ],
     "guidance": [
       "README.md", "guidance/homeboy.sh", "skills/upgrade-wp-coding-agents/SKILL.md", "operator-entrypoints/wp-coding-agents-setup/verify.md"
