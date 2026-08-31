@@ -1,5 +1,5 @@
 #!/bin/bash
-# Contract test for DMC #907 runtime-owned context projections.
+# Contract test for Homeboy runtime-owned context projections.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,7 +18,7 @@ UPDATED_ITEMS=()
 cat > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php" <<'PHP'
 <?php
 defined( 'ABSPATH' ) || exit;
-add_filter( 'datamachine_code_worktree_runtime_signatures', function ( $signatures ) {
+add_filter( 'homeboy_worktree_runtime_signatures', function ( $signatures ) {
     // BEGIN runtimes
     // BEGIN runtime:legacy
     $signatures['legacy'] = [ 'session_id' => 'LEGACY_SESSION_ID' ];
@@ -28,7 +28,8 @@ add_filter( 'datamachine_code_worktree_runtime_signatures', function ( $signatur
 } );
 PHP
 runtime_signature_register opencode '{"run_id":"OPENCODE_RUN_ID"}'
-grep -q "datamachine_code_worktree_context_projection_targets" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
+grep -q "homeboy_worktree_context_projection_targets" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
+! grep -q "datamachine""_code_worktree_context_projection_targets" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
 grep -q "BEGIN runtime:legacy" "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
 
 cat > "$TMP/test.php" <<PHP
@@ -42,11 +43,11 @@ class WP_Error { public function __construct( \$code, \$message ) {} }
 require '$TMP/site/wp-content/mu-plugins/wp-coding-agents-runtimes.php';
 \$payload = array( 'agents_md_path' => ROOT . '/site/AGENTS.md' );
 file_put_contents( \$payload['agents_md_path'], 'site context' );
-\$targets = apply_filters( 'datamachine_code_worktree_context_projection_targets', array(), \$payload );
+\$targets = apply_filters( 'homeboy_worktree_context_projection_targets', array(), \$payload );
 if ( ! isset( \$targets['claude_local_context'], \$targets['site_agents_md'] ) || '.claude/CLAUDE.local.md' !== \$targets['claude_local_context']['path'] ) { exit( 1 ); }
 \$written = \$targets['site_agents_md']['projector']( ROOT . '/worktree', \$payload, \$targets['site_agents_md'] );
 if ( ! is_link( ROOT . '/worktree/AGENTS.md' ) || count( \$written ) !== 2 ) { exit( 2 ); }
-\$cleanup = apply_filters( 'datamachine_code_worktree_context_projection_cleanup', array() );
+\$cleanup = apply_filters( 'homeboy_worktree_context_projection_cleanup', array() );
 \$cleanup['site_agents_md']['cleanup']( ROOT . '/worktree', \$cleanup['site_agents_md'] );
 if ( file_exists( ROOT . '/worktree/AGENTS.md' ) || is_link( ROOT . '/worktree/AGENTS.md' ) ) { exit( 3 ); }
 mkdir( ROOT . '/worktree/.opencode', 0777, true );

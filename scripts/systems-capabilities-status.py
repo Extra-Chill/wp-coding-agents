@@ -18,7 +18,7 @@ def status():
 
 def audit():
     try:
-        result = subprocess.run(["journalctl", "-t", "wp-coding-agents-dmc-process-inspect", "--no-pager", "-o", "short-iso"], text=True, capture_output=True)
+        result = subprocess.run(["journalctl", "-t", "wp-coding-agents-process-inspect", "--no-pager", "-o", "short-iso"], text=True, capture_output=True)
     except OSError as error:
         print(json.dumps({"status": "unavailable", "entries": [], "error": str(error)}))
         return

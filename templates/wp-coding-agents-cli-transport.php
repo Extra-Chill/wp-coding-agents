@@ -16,9 +16,6 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 		/** New wp-coding-agents-owned registry key. */
 		public const REGISTRY_KEY = 'wp_coding_agents_cli_channels';
 
-		/** Legacy DMC registry key kept for migration compatibility. */
-		public const LEGACY_REGISTRY_KEY = 'datamachine_code_cli_channels';
-
 		/**
 		 * Return the normalized registered channel map.
 		 *
@@ -27,7 +24,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 		public static function get_channels(): array {
 			$channels = array();
 
-			foreach ( array( self::LEGACY_REGISTRY_KEY, self::REGISTRY_KEY ) as $key ) {
+			foreach ( array( self::REGISTRY_KEY ) as $key ) {
 				$option_value = array();
 				if ( function_exists( 'get_option' ) ) {
 					$raw = get_option( $key, array() );

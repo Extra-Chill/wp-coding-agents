@@ -212,13 +212,13 @@ _kimaki_seed_external_credential() {
 # default/build agent when a requested agent is unavailable, so wp-coding-agents
 # must not rewrite `--agent` itself.
 #
-# The command we register here is shelled by the Data Machine Code CLI transport
+# The command we register here is shelled by the wp-coding-agents CLI transport
 # from the `agents/dispatch-message` ability, which runs inside PHP-FPM as the
 # WordPress web user (www-data) on WP-cron / Action Scheduler fires — NOT as the
 # kimaki.service user. On a RUN_AS_ROOT install the kimaki binary resolves under
 # /root/.kimaki/bin (and the data dir under /root, mode 0700); www-data cannot
 # traverse 0700 /root, so proc_open fails with EACCES and every scheduled
-# dispatch dies as datamachine_code_cli_dispatch_spawn_failed. The opencode
+# dispatch fails to start. The opencode
 # service-user home (/home/opencode, mode 0750) is the same trap. We therefore
 # only register a path whose ancestor directories are world-traversable
 # (`o+x`), preferring a system-prefix binary (e.g. /usr/bin/kimaki, the

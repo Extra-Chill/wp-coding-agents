@@ -108,7 +108,7 @@ _guidance_homeboy_live_block() {
             return <<<'MD'
 ## Homeboy
 
-Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook. Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities; it does not own Homeboy worktrees.
+Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook.
 
 **Default routing**
 - One tracked change: `homeboy agent-task cook`
@@ -124,28 +124,11 @@ Run `homeboy release` or `homeboy deploy` only when the user explicitly asks.
 **Discovery**
 Use `homeboy --help` and `homeboy <command> --help` for the live command contract. Inspect active configuration with `homeboy config show` and provider readiness with `homeboy agent-task providers`.
 
-**DMC Cook handoff**
-After DMC creates or returns a workspace, pass that JSON unchanged to `wp wp-coding-agents homeboy cook-destination --workspace-result='<DMC workspace result JSON>'`. This wp-coding-agents resolver emits one machine-readable Cook destination with replayable `cook.argv`; use it rather than inferring `--repo`, `--component`, or `--cwd`. It preserves root-only repositories and refuses ambiguous component mappings or canonical-remote mismatches.
 MD;
         }
     }
 
-    if ( ! function_exists( 'wp_coding_agents_render_homeboy_datamachine_section' ) ) {
-        function wp_coding_agents_render_homeboy_datamachine_section() {
-            if ( wp_coding_agents_homeboy_binary() === null ) {
-                return '';
-            }
-
-            return <<<'MD'
-## Data Machine Code and Homeboy
-
-Use Homeboy directly for its native Rust worktree lifecycle (`homeboy worktree --help`) and Cook (`homeboy agent-task cook`). After a DMC workspace result, resolve the exact Cook destination with `wp wp-coding-agents homeboy cook-destination --workspace-result='<DMC workspace result JSON>'`; do not compose repository and component identities manually. Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities.
-MD;
-        }
-    }
-
-    // Gate registration itself at composition time so an absent Homeboy binary
-    // leaves Data Machine Code's standalone section intact.
+    // Gate registration itself at composition time.
     if ( wp_coding_agents_homeboy_binary() !== null ) {
         \DataMachine\Engine\AI\SectionRegistry::register(
             'AGENTS.md',
@@ -163,21 +146,6 @@ MD;
             )
         );
 
-        \DataMachine\Engine\AI\SectionRegistry::register(
-            'AGENTS.md',
-            'datamachine-code',
-            20,
-            static function () {
-                return wp_coding_agents_render_homeboy_datamachine_section();
-            },
-            array(
-                'label'       => 'Data Machine Code + Homeboy',
-                'description' => 'Homeboy-present integration routing for Data Machine Code and Homeboy capabilities.',
-                'owner'       => 'wp-coding-agents',
-                'freshness'   => 'live',
-                'conditions'  => 'Replaces Data Machine Code\'s standalone section only while the homeboy binary is executable at AGENTS.md compose time.',
-            )
-        );
     }
     // END agents-md-guidance:homeboy-cli
 PHP_BLOCK

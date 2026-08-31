@@ -116,16 +116,6 @@ $assert( 'non-positive timeout resets to bounded default', 30 === WpCodingAgents
 $assert( 'missing command is rejected', null === WpCodingAgents_Cli_Channel_Registry::normalize_entry( array( 'args' => array() ) ) );
 $assert( 'non-string arg is rejected', null === WpCodingAgents_Cli_Channel_Registry::normalize_entry( array( 'command' => $echo_bin, 'args' => array( 123 ) ) ) );
 
-$wp_coding_agents_test_options['datamachine_code_cli_channels'] = array(
-	'legacy-option' => array(
-		'command' => $echo_bin,
-		'args'    => array( 'legacy-option' ),
-	),
-	'collision'     => array(
-		'command' => $echo_bin,
-		'args'    => array( 'legacy' ),
-	),
-);
 $wp_coding_agents_test_options['wp_coding_agents_cli_channels'] = array(
 	'new-option' => array(
 		'command' => $echo_bin,
@@ -138,16 +128,6 @@ $wp_coding_agents_test_options['wp_coding_agents_cli_channels'] = array(
 );
 
 add_filter(
-	'datamachine_code_cli_channels',
-	static function ( array $channels ) use ( $echo_bin ): array {
-		$channels['legacy-filter'] = array(
-			'command' => $echo_bin,
-			'args'    => array( 'legacy-filter' ),
-		);
-		return $channels;
-	}
-);
-add_filter(
 	'wp_coding_agents_cli_channels',
 	static function ( array $channels ) use ( $echo_bin ): array {
 		$channels['new-filter'] = array(
@@ -159,9 +139,7 @@ add_filter(
 );
 
 $channels = WpCodingAgents_Cli_Channel_Registry::get_channels();
-$assert( 'legacy option channel is present', isset( $channels['legacy-option'] ) );
 $assert( 'new option channel is present', isset( $channels['new-option'] ) );
-$assert( 'legacy filter channel is present', isset( $channels['legacy-filter'] ) );
 $assert( 'new filter channel is present', isset( $channels['new-filter'] ) );
 $assert( 'new registry wins collisions', isset( $channels['collision']['args'][0] ) && 'new' === $channels['collision']['args'][0] );
 

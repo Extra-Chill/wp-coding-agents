@@ -3,7 +3,7 @@
 #
 # Asserts:
 #   1. Fresh scaffold writes a syntactically-valid PHP mu-plugin that wires
-#      add_filter( 'datamachine_code_worktree_runtime_signatures', … ).
+#      add_filter( 'homeboy_worktree_runtime_signatures', … ).
 #   2. Register is idempotent — re-running with the same signature does not
 #      mutate the file.
 #   3. Re-registering with a different signature replaces just that runtime's
@@ -14,7 +14,7 @@
 #
 # The PHP-execution assertion (step 5) uses a tiny shim that stubs the
 # WordPress filter primitives so the mu-plugin can run outside a real WP
-# install. It validates the *shape* of the data DMC#416 will consume, not
+# install. It validates the *shape* of the data Homeboy consumes, not
 # the WP runtime integration itself.
 set -eu
 
@@ -229,7 +229,7 @@ function apply_filters( \$tag, \$value ) {
     return \$value;
 }
 require '$MU_FILE';
-\$result = apply_filters( 'datamachine_code_worktree_runtime_signatures', [] );
+\$result = apply_filters( 'homeboy_worktree_runtime_signatures', [] );
 echo json_encode( \$result );
 PHP
 RESULT=$(php "$SHIM")

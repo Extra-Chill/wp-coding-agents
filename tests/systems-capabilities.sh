@@ -1,5 +1,5 @@
 #!/bin/bash
-# Managed VPS systems-capability profile and its fixed DMC inspection boundary.
+# Managed VPS systems-capability profile and its fixed inspection boundary.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,7 +40,7 @@ for directive in 'OnCalendar=' 'OnCalendar=*:0/5' 'AccuracySec=1min' 'Randomized
   case "$timer" in *"$directive"*) ;; *) fail "logrotate timer misses $directive" ;; esac
 done
 [ "$(systems_capabilities_logrotate_timer_file)" = "$SYSTEMS_CAPABILITIES_SYSTEMD_DIR/logrotate.timer.d/wp-coding-agents.conf" ] && ok "logrotate cadence extends the owner timer" || fail "logrotate timer path is not fixed"
-[ "$(systems_capabilities_sudoers_content)" = "opencode ALL=(root) NOPASSWD: $SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect $(systems_capabilities_profile_file)" ] && ok "sudo rule binds the adapter to one profile" || fail "sudo rule is not exact"
+[ "$(systems_capabilities_sudoers_content)" = "opencode ALL=(root) NOPASSWD: $SYSTEMS_CAPABILITIES_LIB_DIR/process-inspect $(systems_capabilities_profile_file)" ] && ok "sudo rule binds the adapter to one profile" || fail "sudo rule is not exact"
 SITE_PATH="$TMP/example.com"
 case "$(basename "$(systems_capabilities_sudoers_file)")" in *.*) fail "sudoers filename contains an ignored dot" ;; *) ok "sudoers filename is include-safe" ;; esac
 first_key="$(systems_capabilities_profile_key)"
@@ -48,15 +48,8 @@ SITE_PATH="$TMP/other/example.com"
 mkdir -p "$SITE_PATH"
 [ "$first_key" != "$(systems_capabilities_profile_key)" ] && ok "same-basename sites have collision-resistant keys" || fail "site profile keys collide"
 SITE_PATH="$TMP/site"
-case "$(systems_capabilities_profile_content)" in *'"invocation":"printf candidate-path | sudo -n '* ) ok "discovery records DMC's fixed stdin sudo contract" ;; *) fail "DMC invocation contract missing" ;; esac
+case "$(systems_capabilities_profile_content)" in *'"invocation":"printf candidate-path | sudo -n '* ) ok "discovery records the fixed stdin sudo contract" ;; *) fail "inspection invocation contract missing" ;; esac
 case "$(systems_capabilities_profile_content)" in *'"timer":"logrotate.timer"'*'"schedule":"*:0/5"'* ) ok "discovery records frequent owner-policy evaluation" ;; *) fail "logrotate timer contract missing" ;; esac
-
-echo "DMC consumer wiring uses the fixed adapter contract"
-DRY_RUN=false
-systems_capabilities_configure_dmc
-expected_argv="$(systems_capabilities_process_probe_argv)"
-[ "$(cat "$TMP/wp-call")" = "option update datamachine_code_external_process_path_probe_argv $expected_argv --format=json" ] && ok "DMC option receives the fixed probe argv" || fail "DMC option wiring drifted"
-DRY_RUN=true
 
 echo "adapter rejects ambient paths and reports only configured workspace processes"
 printf '{"workspace_roots":["%s"]}\n' "$DM_WORKSPACE_DIR" > "$TMP/profile.json"
@@ -64,11 +57,11 @@ if [ -d /proc ] && [ "$(id -u)" -ne 0 ]; then
   (cd "$DM_WORKSPACE_DIR/repo" && sleep 20) & sleeper=$!
   trap 'kill "$sleeper" 2>/dev/null || true; rm -rf "$TMP"' EXIT
   adapter_status=0
-  out="$(printf '%s\n' "$DM_WORKSPACE_DIR/repo" | python3 scripts/dmc-process-inspect.py "$TMP/profile.json")" || adapter_status=$?
+  out="$(printf '%s\n' "$DM_WORKSPACE_DIR/repo" | python3 scripts/process-inspect.py "$TMP/profile.json")" || adapter_status=$?
   if [ "$adapter_status" -eq 0 ]; then
-    case "$out" in *'"status": "available"'* ) ;; *) fail "adapter did not return DMC's available status" ;; esac
+    case "$out" in *'"status": "available"'* ) ;; *) fail "adapter did not return available status" ;; esac
     case "$out" in *"\"pid\": $sleeper"*|*"\"pid\":$sleeper"*) ok "configured workspace process is visible" ;; *) fail "adapter did not report workspace process" ;; esac
-    case "$out" in *'"path": "'"$DM_WORKSPACE_DIR/repo"'"'* ) ok "adapter returns candidate-scoped process paths" ;; *) fail "adapter process evidence does not match DMC contract" ;; esac
+    case "$out" in *'"path": "'"$DM_WORKSPACE_DIR/repo"'"'* ) ok "adapter returns candidate-scoped process paths" ;; *) fail "adapter process evidence does not match contract" ;; esac
   elif [ "$adapter_status" -eq 3 ]; then
     case "$out" in *'"status": "unavailable"'*'"error": "process inspection was incomplete"'*'"unreadable_count": '* ) ok "unreadable proc descriptors return bounded unavailable evidence" ;; *) fail "adapter did not bound incomplete process evidence" ;; esac
   else
@@ -77,12 +70,12 @@ if [ -d /proc ] && [ "$(id -u)" -ne 0 ]; then
 else
   ok "live adapter evidence is exercised by the root VPS acceptance test"
 fi
-if printf '%s\n' "$TMP/outside" | python3 scripts/dmc-process-inspect.py "$TMP/profile.json" >/dev/null 2>&1; then
+if printf '%s\n' "$TMP/outside" | python3 scripts/process-inspect.py "$TMP/profile.json" >/dev/null 2>&1; then
   fail "adapter accepted a path outside configured roots"
 else
   ok "outside path is rejected"
 fi
-if python3 scripts/dmc-process-inspect.py "$TMP/profile.json" --path "$DM_WORKSPACE_DIR/repo" >/dev/null 2>&1; then
+if python3 scripts/process-inspect.py "$TMP/profile.json" --path "$DM_WORKSPACE_DIR/repo" >/dev/null 2>&1; then
   fail "adapter accepted argv"
 else
   ok "adapter rejects arbitrary command-style argv"

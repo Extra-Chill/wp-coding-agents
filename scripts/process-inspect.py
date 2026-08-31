@@ -139,11 +139,11 @@ for entry in Path("/proc").iterdir():
             processes.append({"pid": int(pid), "command": command, "match_type": match_type, "path": str(path)})
 
 if incomplete:
-    syslog.openlog("wp-coding-agents-dmc-process-inspect", syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    syslog.openlog("wp-coding-agents-process-inspect", syslog.LOG_PID, syslog.LOG_AUTHPRIV)
     syslog.syslog(syslog.LOG_WARNING, "incomplete process inspection candidate=%s unreadable=%d" % (path, len(incomplete)))
     print(json.dumps({"status": "unavailable", "path": str(path), "error": "process inspection was incomplete", "unreadable_count": len(incomplete)}))
     raise SystemExit(3)
 
-syslog.openlog("wp-coding-agents-dmc-process-inspect", syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+syslog.openlog("wp-coding-agents-process-inspect", syslog.LOG_PID, syslog.LOG_AUTHPRIV)
 syslog.syslog(syslog.LOG_INFO, "inspected configured DMC workspace candidate=%s matches=%d" % (path, len(processes)))
 print(json.dumps({"status": "available", "path": str(path), "processes": processes}, sort_keys=True))

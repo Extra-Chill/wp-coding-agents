@@ -10,8 +10,7 @@
 #
 # This module owns that discovery surface. It writes a mu-plugin file in the
 # target WordPress install that registers each bridge's channel entry via the
-# `wp_coding_agents_cli_channels` filter, with a legacy
-# `datamachine_code_cli_channels` registration kept for migration. Each bridge
+# `wp_coding_agents_cli_channels` filter. Each bridge
 # install/sync calls cli_channel_register; each bridge uninstall calls
 # cli_channel_unregister.
 #
@@ -84,8 +83,7 @@ cli_channel_mu_plugin_path() {
 # Create the mu-plugin file with the filter scaffold if it does not exist.
 # Idempotent — does nothing if the file already exists. The scaffold contains
 # a single marker-delimited callback registered to both the new
-# `wp_coding_agents_cli_channels` filter and the legacy
-# `datamachine_code_cli_channels` filter.
+# `wp_coding_agents_cli_channels` filter.
 #
 # The PHP closure walks the existing $channels array, applies each
 # // BEGIN/END marker block in source order, and returns the merged map. If
@@ -147,8 +145,7 @@ cli_channel_ensure_mu_plugin_file() {
  * transport, so a bridge can pin a writable HOME / data-dir independent of the
  * caller (e.g. WP-cron running as www-data with HOME=/var/www, unwritable).
  *
- * New filter contract: wp_coding_agents_cli_channels.
- * Legacy migration filter: datamachine_code_cli_channels.
+ * Filter contract: wp_coding_agents_cli_channels.
  *
  * @package wp-coding-agents
  */
@@ -169,7 +166,6 @@ if ( ! function_exists( 'wp_coding_agents_register_cli_channels' ) ) {
 }
 
 add_filter( 'wp_coding_agents_cli_channels', 'wp_coding_agents_register_cli_channels' );
-add_filter( 'datamachine_code_cli_channels', 'wp_coding_agents_register_cli_channels' );
 PHP
 
   service_file_normalize_perms "$file"

@@ -2,17 +2,16 @@
 # lib/runtime-signature.sh — Per-runtime worktree session-attribution signature
 # writer.
 #
-# Data Machine Code's worktree-attribution code captures "origin session"
+# Homeboy's worktree-attribution code captures "origin session"
 # metadata when an agent spawns a worktree. Historically DMC hardcoded the
 # env-var → field map for each coding-agent runtime it knew about
 # (OPENCODE_RUN_ID → opencode_run_id,
 # etc.). Per the platform's layer-purity rule, those vendor names do not
-# belong in DMC — DMC is runtime-agnostic substrate.
+# belong in Homeboy's generic lifecycle layer.
 #
-# Extra-Chill/data-machine-code#416 generalises the DMC surface to read the
-# map from a filter:
+# Homeboy reads the map from its owning-layer filter:
 #
-#   apply_filters( 'datamachine_code_worktree_runtime_signatures', [] )
+#   apply_filters( 'homeboy_worktree_runtime_signatures', [] )
 #
 # Each entry is keyed by an opaque runtime ID (a string the integration layer
 # chooses, e.g. 'kimaki', 'opencode') and maps subkeys (session_id, thread_id,
@@ -22,7 +21,7 @@
 # opencode — it installs both, writes systemd units that pass KIMAKI_* /
 # OPENCODE_* into the spawned processes, and is the only honest place those
 # brand names live. This module owns publishing that knowledge into the
-# DMC filter via a mu-plugin file.
+# Homeboy filter via a mu-plugin file.
 #
 # Resolved file: $SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php
 #
@@ -85,7 +84,7 @@ runtime_signature_mu_plugin_path() {
 #
 # Create the mu-plugin file with the filter scaffold if it does not exist.
 # Idempotent — does nothing if the file already exists. The scaffold contains
-# a single `add_filter( 'datamachine_code_worktree_runtime_signatures', … )`
+# a single `add_filter( 'homeboy_worktree_runtime_signatures', … )`
 # callback whose body is the marker-delimited region that runtimes write into.
 runtime_signature_ensure_mu_plugin_file() {
   local file
@@ -95,6 +94,7 @@ runtime_signature_ensure_mu_plugin_file() {
   }
 
   if [ -f "$file" ]; then
+    runtime_signature_migrate_mu_plugin "$file"
     runtime_context_projection_upgrade_mu_plugin "$file"
     return 0
   fi
@@ -119,7 +119,7 @@ runtime_signature_ensure_mu_plugin_file() {
 /**
  * Plugin Name: wp-coding-agents — Worktree runtime registry
  * Description: Registers per-coding-agent-runtime env-var signatures and
- *              worktree context projections that Data Machine Code consumes.
+ *              worktree context projections consumed by Homeboy.
  *              Runtime paths, config schemas, markers, and cleanup remain in
  *              this integration layer. Managed by wp-coding-agents.
  *
@@ -138,8 +138,8 @@ if ( ! class_exists( 'WpCodingAgents_Worktree_Context_Projections', false ) ) {
 		private const CONFIG_MARKER = '.datamachine/opencode-config.json.previous';
 
 		public static function register(): void {
-			add_filter( 'datamachine_code_worktree_context_projection_targets', array( self::class, 'targets' ), 10, 2 );
-			add_filter( 'datamachine_code_worktree_context_projection_cleanup', array( self::class, 'cleanup' ) );
+			add_filter( 'homeboy_worktree_context_projection_targets', array( self::class, 'targets' ), 10, 2 );
+			add_filter( 'homeboy_worktree_context_projection_cleanup', array( self::class, 'cleanup' ) );
 		}
 
 		public static function targets( $targets, array $payload = array() ): array {
@@ -219,11 +219,11 @@ WpCodingAgents_Worktree_Context_Projections::register();
 
 /**
  * Registers per-coding-agent-runtime env-var signatures that
- *              Data Machine Code reads when capturing origin-session
+ *              Homeboy reads when capturing origin-session
  *              metadata for spawned worktrees. wp-coding-agents installs
  *              kimaki and opencode and is the only layer that legitimately
  *              knows the brand-specific env-var names those runtimes set;
- *              this file publishes that knowledge so DMC stays runtime-
+ *              this file publishes that knowledge so Homeboy stays runtime-
  *              agnostic. Managed by wp-coding-agents runtime/bridge
  *              installers — do not edit by hand. Runtime install/upgrade
  *              rewrites the marker blocks below; runtime/bridge removal
@@ -238,16 +238,16 @@ WpCodingAgents_Worktree_Context_Projections::register();
  *   ];
  *   // END runtime:<runtime_id>
  *
- * The subkey set is open — DMC does not validate against a closed schema.
+ * The subkey set is open — Homeboy does not validate against a closed schema.
  * Conventional subkeys are: session_id, thread_id, thread_url, run_id.
  * Integrations may add more.
  *
- * Filter contract: Extra-Chill/data-machine-code#416.
+ * Filter contract: homeboy_worktree_runtime_signatures.
  *
  * @package wp-coding-agents
  */
 
-add_filter( 'datamachine_code_worktree_runtime_signatures', function ( $signatures ) {
+add_filter( 'homeboy_worktree_runtime_signatures', function ( $signatures ) {
     if ( ! is_array( $signatures ) ) {
         $signatures = [];
     }
@@ -267,11 +267,33 @@ PHP
   fi
 }
 
+# Migrate the generated registry in place. Runtime marker blocks are owned by
+# individual installers and remain byte-for-byte intact.
+runtime_signature_migrate_mu_plugin() {
+  local file="$1"
+  grep -q "datamachine""_code_" "$file" || return 0
+  [ "${DRY_RUN:-false}" = true ] && { echo -e "${BLUE}[dry-run]${NC} Would migrate retired runtime hooks in $file"; return 0; }
+  python3 - "$file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+content = path.read_text(encoding="utf-8")
+legacy = "datamachine" + "_code_worktree_"
+content = content.replace(legacy + "runtime_signatures", "homeboy_worktree_runtime_signatures")
+content = content.replace(legacy + "context_projection_targets", "homeboy_worktree_context_projection_targets")
+content = content.replace(legacy + "context_projection_cleanup", "homeboy_worktree_context_projection_cleanup")
+path.write_text(content, encoding="utf-8")
+PY
+  service_file_normalize_perms "$file"
+  log "  Migrated runtime registry hooks in $file"
+}
+
 # Upgrade existing runtime-registry mu-plugins in place without disturbing the
 # marker-delimited runtime signature blocks that individual installers own.
 runtime_context_projection_upgrade_mu_plugin() {
   local file="$1"
-  grep -q "datamachine_code_worktree_context_projection_targets" "$file" && return 0
+  grep -q "homeboy_worktree_context_projection_targets" "$file" && return 0
   [ "${DRY_RUN:-false}" = true ] && { echo -e "${BLUE}[dry-run]${NC} Would add worktree context projections to $file"; return 0; }
 
   local tmp
