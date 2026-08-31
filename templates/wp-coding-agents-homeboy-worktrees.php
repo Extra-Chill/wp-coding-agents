@@ -55,10 +55,17 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (is_wp_error($repo) || is_wp_error($branch)) {
 			return is_wp_error($repo) ? $repo : $branch;
 		}
-		foreach (array('inject_context', 'bootstrap', 'allow_stale', 'allow_unverified_freshness', 'rebase_base', 'force', 'allow_percentage_byte_floor_exception', 'remediate_capacity', 'remediate_capacity_dry_run', 'verbose') as $unsupported) {
+		foreach (array('inject_context', 'bootstrap', 'allow_stale', 'rebase_base', 'force', 'allow_percentage_byte_floor_exception', 'remediate_capacity', 'remediate_capacity_dry_run', 'verbose') as $unsupported) {
 			if (!empty($input[$unsupported])) {
 				return self::unsupported_input($unsupported, 'Homeboy create cannot preserve this DMC-specific behavior.');
 			}
+		}
+		if (empty($input['allow_unverified_freshness'])) {
+			return new WP_Error(
+				'worktree_handoff_freshness_unverified',
+				'Homeboy does not provide DMC handoff freshness proof. Retry with allow_unverified_freshness only after accepting that limitation.',
+				array('status' => 409, 'owner' => 'homeboy', 'retryable' => true)
+			);
 		}
 		if (null !== self::optional_string($input, 'task_ref')) {
 			return self::unsupported_input('task_ref', 'Homeboy create accepts a canonical task URL, not a DMC task reference.');
@@ -110,6 +117,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			'context_injected' => false,
 			'context_files'    => array(),
 			'bootstrap'        => array('outcome' => 'not_requested', 'owner' => 'homeboy'),
+			'handoff_freshness' => array('status' => 'unverified', 'reason' => 'remote_freshness_probe_unsupported'),
 			'message'          => 'Homeboy owns this worktree lifecycle.',
 			'metadata'         => array('homeboy' => $record),
 		);

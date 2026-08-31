@@ -112,9 +112,12 @@ $ability = static function (string $slug) use ($callback): callable {
 };
 
 $add = $ability('datamachine-code/workspace-worktree-add');
-$created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success'));
+$refused = $add(array('repo' => 'fixture', 'branch' => 'fix/474'));
+expect(is_wp_error($refused) && 'worktree_handoff_freshness_unverified' === $refused->code, 'create refuses before mutation without explicit unverified freshness acceptance');
+$created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true));
 expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'create projects native Homeboy record');
-$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual'));
+expect('unverified' === ($created['handoff_freshness']['status'] ?? null) && 'remote_freshness_probe_unsupported' === ($created['handoff_freshness']['reason'] ?? null), 'create projects the required DMC handoff freshness decision');
+$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true));
 expect(!is_wp_error($manual), 'manual lifecycle intent maps to non-cleanup-eligible Homeboy policy');
 expect(is_wp_error($add(array('repo' => 'fixture', 'branch' => 'unsupported', 'bootstrap' => true))), 'explicit DMC-only create behavior returns typed refusal');
 
