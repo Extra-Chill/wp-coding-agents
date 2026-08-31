@@ -57,6 +57,9 @@ case "$*" in
   "worktree remove "*)
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"remove","record":{"id":"fixture@fix-474","state":"removed"}}}'
     ;;
+  "component list")
+    cat "$HOMEBOY_COMPONENTS_FILE"
+    ;;
   *)
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":false,"error":{"message":"unexpected fixture command"}}'
     exit 1
@@ -150,6 +153,35 @@ expect(false === $cleanup(array('force' => true))['dry_run'], 'cleanup force rem
 
 $remove = $ability('datamachine-code/workspace-worktree-remove');
 expect(true === $remove(array('repo' => 'fixture', 'branch' => 'fix/474'))['success'], 'remove uses Homeboy safety path');
+
+$root = __DIR__ . '/dmc/blocks-engine@fix-543';
+mkdir($root . '/php-transformer', 0777, true);
+$registered = __DIR__ . '/registered/not-blocks-engine/php-transformer';
+mkdir($registered, 0777, true);
+foreach (array(dirname($root), dirname($registered)) as $repository) {
+	passthru('git init -q ' . escapeshellarg($repository));
+	passthru('git -C ' . escapeshellarg($repository) . ' remote add origin git@github.com:Extra-Chill/blocks-engine.git');
+}
+$workspace = array('repository_prefix' => 'blocks-engine', 'workspace_path' => $root, 'component' => array('registered' => false));
+putenv('HOMEBOY_COMPONENTS_FILE=' . __DIR__ . '/components.json');
+$components = static function (array $components): void { file_put_contents(__DIR__ . '/components.json', json_encode(array('schema' => 'homeboy/command-result/v3', 'success' => true, 'data' => array('entities' => $components)))); };
+passthru('git -C ' . escapeshellarg(dirname($registered)) . ' remote set-url origin https://github.com/Extra-Chill/blocks-engine.git');
+$components(array(array('id' => 'php-transformer', 'local_path' => $registered)));
+$destination = WP_Coding_Agents_Homeboy_Worktrees::cook_destination($workspace);
+expect(!is_wp_error($destination), 'DMC workspace result resolves to a Cook destination');
+expect('github.com/extra-chill/blocks-engine' === $destination['canonical_remote'], 'resolver canonicalizes SSH and HTTPS component remotes');
+expect('blocks-engine' === $destination['repository'] && 'php-transformer' === $destination['component'], 'resolver separates owning repository from registered execution component');
+expect($root . '/php-transformer' === $destination['cwd'], 'resolver maps the registered component path into the DMC workspace');
+expect(array('agent-task', 'cook', '--repo', 'blocks-engine', '--component', 'php-transformer', '--cwd', $root . '/php-transformer') === array_slice($destination['cook']['argv'], 1), 'resolver emits exact replayable Cook argv');
+$components(array());
+$root_only = WP_Coding_Agents_Homeboy_Worktrees::cook_destination($workspace);
+expect(!is_wp_error($root_only) && null === $root_only['component'] && $root === $root_only['cwd'], 'root-only repository remains a root Cook destination');
+$components(array(array('id' => 'one', 'local_path' => $registered), array('id' => 'two', 'local_path' => $registered)));
+expect(is_wp_error(WP_Coding_Agents_Homeboy_Worktrees::cook_destination($workspace)), 'ambiguous registered components fail closed');
+passthru('git init -q ' . escapeshellarg($root . '/php-transformer'));
+passthru('git -C ' . escapeshellarg($root . '/php-transformer') . ' remote add origin git@github.com:Extra-Chill/other.git');
+$components(array(array('id' => 'php-transformer', 'local_path' => $registered)));
+expect(is_wp_error(WP_Coding_Agents_Homeboy_Worktrees::cook_destination($workspace)), 'canonical remote mismatch fails closed');
 
 PHP
 php "$TMP/adapter-harness.php" "$ADAPTER"

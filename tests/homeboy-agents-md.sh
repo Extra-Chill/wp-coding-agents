@@ -128,6 +128,12 @@ PHP
 RESULT=$(PATH="$TMP/bin:$PATH" php "$SHIM")
 EXPECTED='{"homeboy_registered":true,"filename":"AGENTS.md","slug":"homeboy-cli","priority":30,"label":"Homeboy","owner":"wp-coding-agents","freshness":"live","has_heading":true,"has_homeboy_ownership":true,"has_dmc_boundary":true,"no_dmc_worktree_commands":true,"no_legacy_dmc_ownership":true,"has_cook":true,"has_fanout":true,"has_review":true,"has_runs":true,"has_stateful":true,"has_health":true,"has_operator_boundary":true,"has_discovery":true,"no_exhaustive_map":true,"dmc_priority":20,"dmc_label":"Data Machine Code + Homeboy","dmc_owner":"wp-coding-agents","dmc_freshness":"live","dmc_live_condition":true,"dmc_has_homeboy_worktree_route":true,"dmc_has_cook_route":true,"dmc_has_dmc_boundary":true,"dmc_has_no_dmc_worktree_commands":true}'
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives concise Homeboy routing guidance"
+if grep -q 'wp-coding-agents homeboy cook-destination' "$MU_FILE" && grep -q 'cook.argv' "$MU_FILE"; then
+  echo "  ok   generated guidance uses the DMC Cook destination resolver"
+else
+  echo "  FAIL generated guidance omits the DMC Cook destination resolver"
+  FAILED=$((FAILED + 1))
+fi
 
 echo "==> re-sync with homeboy present (idempotent)"
 HASH_BEFORE=$(md5sum "$MU_FILE" | cut -d' ' -f1)
