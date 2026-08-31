@@ -282,6 +282,7 @@ jobs:
           - plugins-only-scope
           - plugin-upgrade-bounds
           - runtime-signature
+          - runtime-guidance-desired-state
           - upgrade-opencode-auth-plugin-sync
           - wordpress-service
           - worktree-context-projections
