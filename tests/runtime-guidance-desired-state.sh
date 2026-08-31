@@ -11,6 +11,7 @@ warn() { :; }
 
 guidance_sync_all() { :; }
 runtime_guard_sync() { :; }
+external_wordpress_project_context() { :; }
 
 records_for() {
   local operation="$1" runtime="$2" external="$3" components="$4" without_mcp="${5:-false}"
@@ -57,6 +58,7 @@ done
 external_records="$(records_for setup opencode true 'runtime guidance')"
 assert_eq "$external_records" "runtime.opencode.install
 runtime.opencode.paths
+runtime.opencode.context
 runtime.opencode.config
 runtime.opencode.hooks
 runtime.opencode.instructions
