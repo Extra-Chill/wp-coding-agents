@@ -202,7 +202,7 @@ def atomic_write(path, contents, root):
 
 
 def manifest(path, root):
-    if not path.exists(): return {"agents": [], "artifacts": [], "task_permission": None, "skill_permission": {}}
+    if not path.exists(): return {"agents": [], "artifacts": [], "task_permission": None, "skill_permission": {}, "general_agent": None}
     regular(path, "managed manifest", root)
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("sentinel") != SENTINEL: fail("managed manifest is unrecognized")
@@ -216,6 +216,7 @@ def manifest(path, root):
     if data.get("task_permission") is not None: permission({"task": data["task_permission"]}, "managed manifest task permission")
     if not isinstance(data.get("skill_permission", {}), dict): fail("managed manifest skill permission is invalid")
     permission({"skill": data.get("skill_permission", {})}, "managed manifest skill permission")
+    if data.get("general_agent") is not None and not isinstance(data["general_agent"], dict): fail("managed manifest general agent is invalid")
     return data
 
 
@@ -276,6 +277,11 @@ def main():
         task = {"*": "deny", "general": "allow", **{edge: "allow" for edge in edges[coordinator]}}
         current = config["permission"].get("task")
         if current not in (None, previous["task_permission"]): fail("refusing to overwrite user-owned OpenCode permission.task")
+        agents_config = config.get("agent", {})
+        if not isinstance(agents_config, dict): fail("OpenCode config agent must be an object")
+        general_agent = {"model": nodes[coordinator]["model"]} if nodes[coordinator]["model"] else {}
+        current_general_agent = agents_config.get("general")
+        if current_general_agent not in (None, previous["general_agent"]): fail("refusing to overwrite user-owned OpenCode agent.general")
         current_skill = config["permission"].get("skill", {})
         if not isinstance(current_skill, dict): fail("refusing to overwrite non-map OpenCode permission.skill")
         previous_skill = previous["skill_permission"]
@@ -296,13 +302,19 @@ def main():
                 path.unlink()
         if current != task:
             config["permission"]["task"] = task
+        if general_agent:
+            config.setdefault("agent", {})["general"] = general_agent
+        elif current_general_agent is not None:
+            config["agent"].pop("general", None)
+            if not config["agent"]:
+                config.pop("agent")
         if coordinator_skill_permission:
             config["permission"]["skill"] = {**current_skill, **coordinator_skill_permission}
         elif previous_skill:
             config["permission"]["skill"] = {key: value for key, value in current_skill.items() if key not in previous_skill}
-        if config["permission"].get("task") != current or config["permission"].get("skill", {}) != current_skill:
+        if config["permission"].get("task") != current or config["permission"].get("skill", {}) != current_skill or config.get("agent", {}).get("general") != current_general_agent:
             atomic_write(config_path, (json.dumps(config, indent=2) + "\n").encode(), project)
-        data = {"sentinel": SENTINEL, "agents": sorted(agents), "artifacts": sorted(artifacts), "task_permission": task, "skill_permission": coordinator_skill_permission}
+        data = {"sentinel": SENTINEL, "agents": sorted(agents), "artifacts": sorted(artifacts), "task_permission": task, "skill_permission": coordinator_skill_permission, "general_agent": general_agent or None}
         serialized = (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()
         if not manifest_path.is_file() or manifest_path.read_bytes() != serialized: atomic_write(manifest_path, serialized, root)
     except (OSError, ValueError, json.JSONDecodeError) as error:

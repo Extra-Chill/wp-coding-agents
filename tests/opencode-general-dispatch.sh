@@ -71,6 +71,7 @@ class Handler(BaseHTTPRequestHandler):
                     "description": f"fixture task {index}",
                     "prompt": f"Complete this independent coding fixture. Return exactly {marker}.",
                     "subagent_type": "general",
+                    "model": "fixture/test",
                 })
                 calls.append({"id": f"call_{index}", "type": "function", "function": {"name": "task", "arguments": arguments}})
             body = response(tool_calls=calls, finish="tool_calls")
@@ -117,7 +118,6 @@ import json, sys
 path, workspace, port = sys.argv[1:]
 json.dump({
     "$schema": "https://opencode.ai/config.json",
-    "model": "fixture/test",
     "provider": {"fixture": {
         "npm": "@ai-sdk/openai-compatible",
         "name": "Fixture",
@@ -138,7 +138,7 @@ json.dump({
     "success": True,
     "coordinator": "coordinator",
     "nodes": [{
-        "slug": "coordinator", "description": "Routes work", "subagents": [], "model": "",
+        "slug": "coordinator", "description": "Routes work", "subagents": [], "model": "fixture/test",
         "sources": {"instructions": {"SOUL.md": soul}, "skills": {}, "references": {}},
         "tool_policy": {"default": "deny", "allow": []}, "skill_policy": {"paths": []},
     }],
@@ -158,6 +158,7 @@ config = json.load(open(sys.argv[1]))
 assert config["permission"]["task"] == {"*": "deny", "general": "allow"}
 assert config["permission"]["external_directory"] == {f"{sys.argv[2]}/**": "allow"}
 assert config["permission"]["edit"] == {"wp-content/plugins/**": "deny"}
+assert config["agent"]["general"] == {"model": "fixture/test"}
 PY
 
 (cd "$SITE" && opencode agent list --pure) > "$TMP/agents.txt"
