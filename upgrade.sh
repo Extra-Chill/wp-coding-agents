@@ -81,6 +81,7 @@ source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
+source "$SCRIPT_DIR/services/wordpress-service.sh"
 
 # Discover available runtimes
 AVAILABLE_RUNTIMES=()
@@ -104,6 +105,9 @@ SKIP_PLUGINS=false
 WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
+WORDPRESS_SERVICE_REQUEST=""
+WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
+WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 SHOW_HELP=false
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
@@ -154,6 +158,10 @@ while [[ $# -gt 0 ]]; do
     --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
     --with-datamachine-worker) DATAMACHINE_WORKER_REQUEST=enabled; shift ;;
     --no-datamachine-worker) DATAMACHINE_WORKER_REQUEST=disabled; shift ;;
+    --with-wordpress-service) WORDPRESS_SERVICE_REQUEST=enabled; shift ;;
+    --no-wordpress-service) WORDPRESS_SERVICE_REQUEST=disabled; shift ;;
+    --wordpress-service-host) WORDPRESS_SERVICE_HOST="$2"; shift 2 ;;
+    --wordpress-service-port) WORDPRESS_SERVICE_PORT="$2"; shift 2 ;;
     --with-claude-code-auth) WITH_CLAUDE_CODE_AUTH=true; shift ;;
     --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
@@ -265,6 +273,13 @@ USAGE:
   ./upgrade.sh --no-datamachine-worker
                                  Disable the worker and remove its managed
                                  launchd or systemd service.
+  ./upgrade.sh --with-wordpress-service
+                                 Run this local WordPress site with a managed
+                                 macOS launchd service backed by `wp server`.
+  ./upgrade.sh --no-wordpress-service
+                                 Disable and remove the managed local service.
+  ./upgrade.sh --wordpress-service-host 127.0.0.1 --wordpress-service-port 8080
+                                 Set the local WordPress bind address.
   ./upgrade.sh --with-ai-gateway --rotate-ai-gateway-token
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
@@ -1310,6 +1325,11 @@ reconcile_datamachine_worker_service() {
   datamachine_worker_reconcile
 }
 
+reconcile_wordpress_service() {
+  _run_filter_active systemd || return 0
+  wordpress_service_reconcile
+}
+
 # ============================================================================
 # Phase 7: Refresh the opencode runtime signature
 #
@@ -1525,6 +1545,7 @@ sync_runtime_instructions
 opencode_project_subagents_optional
 update_chat_bridge_systemd
 update_chat_bridge_launchd
+reconcile_wordpress_service
 reconcile_datamachine_worker_service
 refresh_opencode_runtime_signature_phase
 print_summary
