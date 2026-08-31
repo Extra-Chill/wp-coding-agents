@@ -221,6 +221,146 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		};
 	}
 
+	/**
+	 * Compose DMC's workspace result with Homeboy's component registry. Neither
+	 * upstream contract needs to know that the other exists.
+	 *
+	 * @param array<string,mixed> $workspace @return array<string,mixed>|WP_Error
+	 */
+	public static function cook_destination(array $workspace): array|WP_Error {
+		$repository = self::required_string($workspace, 'repository_prefix');
+		$path       = self::required_string($workspace, 'workspace_path');
+		if (is_wp_error($repository) || is_wp_error($path)) {
+			return is_wp_error($repository) ? $repository : $path;
+		}
+		$root = realpath($path);
+		if (false === $root || !is_dir($root)) {
+			return self::contract_error('DMC workspace_path is not an accessible directory.', $workspace);
+		}
+		$remote = self::git_remote($root);
+		if (is_wp_error($remote)) {
+			return $remote;
+		}
+		$data = self::homeboy(array(self::HOMEBOY, 'component', 'list'));
+		if (is_wp_error($data)) {
+			return $data;
+		}
+		$components = is_array($data['entities'] ?? null) ? $data['entities'] : array();
+		$candidates = array();
+		foreach ($components as $component) {
+			if (!is_array($component) || !is_string($component['id'] ?? null) || '' === trim($component['id']) || !is_string($component['local_path'] ?? null)) {
+				continue;
+			}
+			$registered = realpath($component['local_path']);
+			if (false === $registered || !is_dir($registered)) {
+				continue;
+			}
+			$registered_root = self::git_root($registered);
+			if (is_wp_error($registered_root)) {
+				continue;
+			}
+			$registered_remote = self::git_remote($registered_root);
+			if (is_wp_error($registered_remote) || $remote !== $registered_remote) {
+				continue;
+			}
+			$relative = self::registered_component_relative_path($registered_root, $registered);
+			if (null === $relative || '' === $relative) {
+				continue;
+			}
+			$candidates[] = array('id' => trim($component['id']), 'relative' => $relative, 'registered_path' => $registered, 'registered_root' => $registered_root);
+		}
+		if (count($candidates) > 1) {
+			return self::contract_error('Homeboy has multiple registered execution components for this DMC repository.', array('repository' => $repository, 'candidates' => $candidates));
+		}
+
+		$component = null;
+		$cwd       = $root;
+		if (1 === count($candidates)) {
+			$candidate = $candidates[0];
+			$cwd       = realpath($root . DIRECTORY_SEPARATOR . $candidate['relative']);
+			if (false === $cwd || !is_dir($cwd)) {
+				return self::contract_error('The registered Homeboy component is absent from the DMC workspace.', array('workspace_path' => $root, 'component' => $candidate));
+			}
+			if (null === self::registered_component_relative_path($root, $cwd)) {
+				return self::contract_error('The registered Homeboy component escapes the DMC workspace.', array('workspace_path' => $root, 'component' => $candidate, 'cwd' => $cwd));
+			}
+			$component_remote = self::git_remote($cwd);
+			if (is_wp_error($component_remote)) {
+				return $component_remote;
+			}
+			if ($remote !== $component_remote) {
+				return self::contract_error('DMC workspace and Homeboy execution component have different canonical remotes.', array('workspace_remote' => $remote, 'component_remote' => $component_remote, 'component' => $candidate));
+			}
+			$component = $candidate['id'];
+		}
+
+		$argv = array(self::HOMEBOY, 'agent-task', 'cook', '--repo', $repository);
+		if (null !== $component) {
+			$argv = array_merge($argv, array('--component', $component));
+		}
+		$argv = array_merge($argv, array('--cwd', $cwd));
+		return array(
+			'schema' => 'wp-coding-agents/dmc-cook-destination/v1',
+			'repository' => $repository,
+			'component' => $component,
+			'workspace_path' => $root,
+			'cwd' => $cwd,
+			'canonical_remote' => $remote,
+			'cook' => array('argv' => $argv, 'fields' => array('repo' => $repository, 'component' => $component, 'cwd' => $cwd)),
+		);
+	}
+
+	private static function registered_component_relative_path(string $root, string $path): ?string {
+		$prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+		return str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : null;
+	}
+
+	/** @return string|WP_Error */
+	private static function git_root(string $path): string|WP_Error {
+		$descriptors = array(1 => array('pipe', 'w'), 2 => array('pipe', 'w'));
+		$process = proc_open(array('git', '-C', $path, 'rev-parse', '--show-toplevel'), $descriptors, $pipes, null, null, array('bypass_shell' => true));
+		if (!is_resource($process)) {
+			return self::contract_error('Git root probe could not be started.', array('path' => $path));
+		}
+		$stdout = trim((string) stream_get_contents($pipes[1]));
+		$stderr = trim((string) stream_get_contents($pipes[2]));
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		if (0 !== proc_close($process) || '' === $stdout || false === ($root = realpath($stdout)) || !is_dir($root)) {
+			return self::contract_error('Git repository root is unavailable for a registered Homeboy component.', array('path' => $path, 'stderr' => $stderr));
+		}
+		return $root;
+	}
+
+	/** @return string|WP_Error */
+	private static function git_remote(string $path): string|WP_Error {
+		$descriptors = array(1 => array('pipe', 'w'), 2 => array('pipe', 'w'));
+		$process = proc_open(array('git', '-C', $path, 'remote', 'get-url', 'origin'), $descriptors, $pipes, null, null, array('bypass_shell' => true));
+		if (!is_resource($process)) {
+			return self::contract_error('Git remote probe could not be started.', array('path' => $path));
+		}
+		$stdout = trim((string) stream_get_contents($pipes[1]));
+		$stderr = trim((string) stream_get_contents($pipes[2]));
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		if (0 !== proc_close($process) || '' === $stdout) {
+			return self::contract_error('Git origin remote is unavailable for a Cook destination.', array('path' => $path, 'stderr' => $stderr));
+		}
+		if (!str_contains($stdout, '://') && preg_match('#^(?:[^@/:]+@)?([^/:]+):/?(.+)$#', $stdout, $matches)) {
+			$host = $matches[1];
+			$path = $matches[2];
+		} else {
+			$parts = parse_url($stdout);
+			$host = is_array($parts) && is_string($parts['host'] ?? null) ? $parts['host'] : '';
+			$path = is_array($parts) && is_string($parts['path'] ?? null) ? $parts['path'] : '';
+		}
+		$path = preg_replace('#^/+|\.git/?$#', '', $path);
+		if ('' === $host || '' === $path) {
+			return self::contract_error('Git origin remote is not a canonical repository URL.', array('path' => $path, 'remote' => $stdout));
+		}
+		return strtolower($host . '/' . $path);
+	}
+
 	/** @param array<string,mixed> $input @return array<string,mixed>|WP_Error */
 	private static function add(array $input): array|WP_Error {
 		$repo   = self::required_string($input, 'repo');
@@ -760,3 +900,20 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 
 add_filter('datamachine_code_ability_registration_args', array(WP_Coding_Agents_Homeboy_Worktrees::class, 'filter_ability'), 10, 2);
 add_action('plugins_loaded', array(WP_Coding_Agents_Homeboy_Worktrees::class, 'adapt_cli'), 22);
+
+if (defined('WP_CLI') && WP_CLI) {
+	WP_CLI::add_command(
+		'wp-coding-agents homeboy cook-destination',
+		static function (array $args, array $assoc_args): void {
+			$input = json_decode((string) ($assoc_args['workspace-result'] ?? ''), true);
+			if (!is_array($input)) {
+				WP_CLI::error('--workspace-result must be one DMC workspace result JSON object.');
+			}
+			$result = WP_Coding_Agents_Homeboy_Worktrees::cook_destination($input);
+			if (is_wp_error($result)) {
+				WP_CLI::error($result->message);
+			}
+			WP_CLI::log((string) wp_json_encode($result));
+		}
+	);
+}

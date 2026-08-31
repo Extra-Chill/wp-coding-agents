@@ -2,7 +2,7 @@
 
 The authoritative inventory for [#527](https://github.com/Extra-Chill/wp-coding-agents/issues/527) is [`data-machine-code-migration-inventory.json`](./data-machine-code-migration-inventory.json). JSON is intentional: ownership and migration decisions gate the implementation issues under #525 and must remain machine-checkable.
 
-The decision record includes reopened #455, #525 through #530, the completed #474 adapter tracker, and merged PRs #516 and #517. PR #516 removed wp-coding-agents' copied-release ownership but did not satisfy #455's shared reconciler contract. PR #517 made Homeboy the effective worktree owner while deliberately retaining DMC ability schemas; those remaining seams are inventory evidence, not the target architecture.
+The decision record includes reopened #455, #525 through #530, the completed #474 adapter tracker, and merged PRs #516 and #517. PR #516 removed wp-coding-agents' copied-release ownership but did not satisfy #455's shared reconciler contract. PR #517 made Homeboy the effective worktree owner while deliberately retaining DMC ability schemas; those remaining seams are inventory evidence, not the target architecture. The target source/runtime shapes and sole operation owners are defined in [`workspace-ownership.md`](./workspace-ownership.md).
 
 ## Scope
 

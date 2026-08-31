@@ -123,6 +123,9 @@ Run `homeboy release` or `homeboy deploy` only when the user explicitly asks.
 
 **Discovery**
 Use `homeboy --help` and `homeboy <command> --help` for the live command contract. Inspect active configuration with `homeboy config show` and provider readiness with `homeboy agent-task providers`.
+
+**DMC Cook handoff**
+After DMC creates or returns a workspace, pass that JSON unchanged to `wp wp-coding-agents homeboy cook-destination --workspace-result='<DMC workspace result JSON>'`. This wp-coding-agents resolver emits one machine-readable Cook destination with replayable `cook.argv`; use it rather than inferring `--repo`, `--component`, or `--cwd`. It preserves root-only repositories and refuses ambiguous component mappings or canonical-remote mismatches.
 MD;
         }
     }
@@ -136,7 +139,7 @@ MD;
             return <<<'MD'
 ## Data Machine Code and Homeboy
 
-Use Homeboy directly for its native Rust worktree lifecycle (`homeboy worktree --help`) and Cook (`homeboy agent-task cook`). Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities.
+Use Homeboy directly for its native Rust worktree lifecycle (`homeboy worktree --help`) and Cook (`homeboy agent-task cook`). After a DMC workspace result, resolve the exact Cook destination with `wp wp-coding-agents homeboy cook-destination --workspace-result='<DMC workspace result JSON>'`; do not compose repository and component identities manually. Data Machine Code independently provides WordPress-side repository, workspace, GitHub, and data-machine capabilities.
 MD;
         }
     }

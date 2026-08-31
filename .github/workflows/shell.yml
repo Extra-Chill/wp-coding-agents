@@ -283,6 +283,7 @@ jobs:
           - plugin-upgrade-bounds
           - runtime-signature
           - upgrade-opencode-auth-plugin-sync
+          - wordpress-service
           - worktree-context-projections
           - wp-cli-machine-output
           - wp-config-permissions

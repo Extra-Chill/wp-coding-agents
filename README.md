@@ -164,6 +164,24 @@ or systemd service with `./upgrade.sh --no-datamachine-worker`. The worker runs
 one bounded `wp datamachine worker run --once` pass every two minutes; it does
 not execute generic due WP-Cron events.
 
+### Optional Local WordPress Service
+
+On macOS, an existing site can run without a separate local development app by
+using WP-CLI's built-in HTTP server under launchd:
+
+```bash
+EXISTING_WP=/path/to/wordpress ./setup.sh --local \
+  --with-wordpress-service --wordpress-service-port 8080
+```
+
+The service binds to `127.0.0.1` by default, is identified by the site's absolute
+path, and remains enabled across upgrades. It requires a direct `wp` transport.
+Disable it with:
+
+```bash
+./upgrade.sh --local --wp-path /path/to/wordpress --no-wordpress-service
+```
+
 ### External WordPress Runtime
 
 Run the coding runtime on a host without a mounted WordPress tree. The control

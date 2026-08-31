@@ -37,6 +37,7 @@ source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
+source "$SCRIPT_DIR/services/wordpress-service.sh"
 
 # Discover available runtimes from runtimes/ directory
 AVAILABLE_RUNTIMES=()
@@ -69,6 +70,9 @@ WITH_HOMEBOY=false
 WITH_AI_GATEWAY=false
 WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
+WORDPRESS_SERVICE_REQUEST=""
+WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
+WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 RUNTIME=""
 CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
@@ -182,6 +186,22 @@ while [[ $# -gt 0 ]]; do
     --with-datamachine-worker)
       DATAMACHINE_WORKER_REQUEST=enabled
       shift
+      ;;
+    --with-wordpress-service)
+      WORDPRESS_SERVICE_REQUEST=enabled
+      shift
+      ;;
+    --no-wordpress-service)
+      WORDPRESS_SERVICE_REQUEST=disabled
+      shift
+      ;;
+    --wordpress-service-host)
+      WORDPRESS_SERVICE_HOST="$2"
+      shift 2
+      ;;
+    --wordpress-service-port)
+      WORDPRESS_SERVICE_PORT="$2"
+      shift 2
       ;;
     --no-datamachine-worker)
       DATAMACHINE_WORKER_REQUEST=disabled
@@ -386,6 +406,15 @@ OPTIONS:
                       generic WP-Cron events.
   --no-datamachine-worker
                       Disable the worker and remove its managed service state.
+  --with-wordpress-service
+                      Run this local WordPress site with a managed macOS
+                      launchd service backed by `wp server`.
+  --no-wordpress-service
+                      Disable and remove the managed local WordPress service.
+  --wordpress-service-host <host>
+                      Bind host for the local service (default: 127.0.0.1).
+  --wordpress-service-port <port>
+                      Bind port for the local service (default: 8080).
   --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
                      Installs/activates the gateway/provider stack, configures
                      the gateway route, mints/reuses a gateway token, and adds
@@ -627,5 +656,6 @@ if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_
 # way a live change will.
 if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
 install_chat_bridge
+if [ "$EXTERNAL_WORDPRESS" != true ]; then wordpress_service_reconcile; fi
 if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_reconcile; fi
 print_summary
