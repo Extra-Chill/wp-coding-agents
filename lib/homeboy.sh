@@ -463,6 +463,23 @@ PY
   service_file_normalize_perms "$file"
 }
 
+homeboy_worktree_adapter_remove() {
+  local file
+  file="$(homeboy_worktree_adapter_file)"
+  [ -e "$file" ] || return 0
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would remove stale Homeboy worktree ability adapter at $file"
+    return 0
+  fi
+
+  if rm -f "$file"; then
+    [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed stale Homeboy worktree ability adapter")
+  else
+    homeboy_handle_failure "Could not remove stale Homeboy worktree ability adapter."
+  fi
+}
+
 configure_homeboy_worktree_ownership() {
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
     log "Skipping Homeboy worktree ownership setup (--no-homeboy)"
@@ -478,6 +495,8 @@ configure_homeboy_worktree_ownership() {
   # Homeboy's generic lifecycle ownership does not require a WordPress callback.
   if [ -d "$SITE_PATH/wp-content/plugins/data-machine-code" ]; then
     homeboy_worktree_adapter_sync
+  else
+    homeboy_worktree_adapter_remove
   fi
 
   if [ "${DRY_RUN:-false}" = true ]; then

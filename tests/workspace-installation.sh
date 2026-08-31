@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 SITE="$TMP/site"
-REPOSITORY="$TMP/repository"
+REPOSITORY="$TMP/repository with spaces and \"quotes\""
 BIN="$TMP/bin"
 mkdir -p "$SITE/wp-content/plugins" "$REPOSITORY" "$BIN"
 : > "$SITE/wp-config.php"
@@ -113,11 +113,13 @@ source "$ROOT/lib/homeboy.sh"
 HOMEBOY_LOG="$TMP/homeboy.log"
 HOMEBOY_PROVIDER="$TMP/provider"
 touch "$HOMEBOY_PROVIDER"
+mkdir -p "$SITE/wp-content/mu-plugins"
+printf 'stale adapter\n' > "$SITE/wp-content/mu-plugins/wp-coding-agents-homeboy-worktrees.php"
 export HOMEBOY_LOG HOMEBOY_PROVIDER PATH
 UPDATED_ITEMS=()
 configure_homeboy_worktree_ownership
 test ! -e "$HOMEBOY_PROVIDER" || fail "Homeboy retained a DMC provider"
-test ! -e "$SITE/wp-content/mu-plugins/wp-coding-agents-homeboy-worktrees.php" || fail "DMC-free Homeboy ownership installed an ability callback"
+test ! -e "$SITE/wp-content/mu-plugins/wp-coding-agents-homeboy-worktrees.php" || fail "DMC-free Homeboy ownership retained an ability callback"
 
 test ! -d "$SITE/wp-content/plugins/data-machine-code" || fail "fixture installed data-machine-code"
 echo "PASS: DMC-free workspace installation fixture"

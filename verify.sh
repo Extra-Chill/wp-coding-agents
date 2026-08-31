@@ -164,7 +164,7 @@ PY
       else
         fail "declared repository $repository is a Git checkout but opencode.json does not allow it — native edits and Git cannot reach the declared authority"
       fi
-    done < <(printf '%s\n' "$DECLARED_WORKSPACE_REPOSITORIES" | tr ' ' '\n')
+    done < <(printf '%s\n' "$DECLARED_WORKSPACE_REPOSITORIES" | tr ':' '\n')
   fi
 fi
 

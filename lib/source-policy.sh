@@ -726,11 +726,12 @@ source_policy_workspace_enabled() {
   esac
 }
 
-# Explicit primary checkout roots for workspace mode. These are the repository
-# authority; when unset, older installs retain their existing runtime workspace.
+# Explicit primary checkout roots for workspace mode, colon-separated so paths
+# remain literal when they contain spaces. These are the repository authority;
+# when unset, older installs retain their existing runtime workspace.
 source_policy_workspace_repositories() {
   source_policy_workspace_enabled || return 0
-  printf '%s\n' "${WORKSPACE_REPOSITORIES:-}" | tr ' ' '\n' | while IFS= read -r path; do
+  printf '%s\n' "${WORKSPACE_REPOSITORIES:-}" | tr ':' '\n' | while IFS= read -r path; do
     [ -n "$path" ] && printf '%s\n' "${path%/}"
   done
 }
