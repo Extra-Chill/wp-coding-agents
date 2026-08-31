@@ -15,6 +15,8 @@ integration_adapters_detect() {
     INTEGRATION_ADAPTER_RECORDS+=("integrations.dmc-managed-release-cleanup")
   fi
 
+  INTEGRATION_ADAPTER_RECORDS+=("integrations.retired-homeboy-option-cleanup")
+
   # A non-git DMC directory was copied by Homeboy. It is intentionally not a
   # wp-coding-agents release channel and must never be converted or updated.
   if [ -d "$site_path/wp-content/plugins/data-machine-code" ] && \
@@ -35,8 +37,6 @@ integration_adapters_detect() {
     done
   fi
 
-  # The adapter also owns absence cleanup, including stale WordPress
-  # availability state after Homeboy is disabled or removed.
   INTEGRATION_ADAPTER_RECORDS+=("integrations.homeboy")
 }
 
@@ -55,6 +55,9 @@ integration_adapters_plan() {
         ;;
       integrations.dmc-copied-release)
         reconciler_plan_add "$record" integrations.dmc-copied-release _integration_adapter_preserve_copied_dmc _integration_adapter_verify_copied_dmc
+        ;;
+      integrations.retired-homeboy-option-cleanup)
+        reconciler_plan_add "$record" integrations.retired-homeboy-option-cleanup _integration_adapter_cleanup_retired_homeboy_option _integration_adapter_verify_retired_homeboy_option
         ;;
       integrations.carried-plugin.*)
         [ "$carried_plugins_planned" = false ] || continue
@@ -88,6 +91,23 @@ _integration_adapter_cleanup_managed_release() {
 
 _integration_adapter_verify_managed_release() {
   [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ]
+}
+
+_integration_adapter_cleanup_retired_homeboy_option() {
+  local count
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE:-}[dry-run]${NC:-} wp option delete datamachine_code_homeboy_available"
+    return 0
+  fi
+  count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null || true)"
+  [ "$count" = 0 ] && return 0
+  wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1 || return 1
+  reconciler_adapter_changed
+}
+
+_integration_adapter_verify_retired_homeboy_option() {
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  [ "$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" = 0 ]
 }
 
 _integration_adapter_preserve_copied_dmc() {
@@ -137,29 +157,20 @@ _integration_adapter_sync_homeboy() {
 }
 
 _integration_adapter_verify_homeboy() {
-  local config availability_count
+  local config
   [ "${DRY_RUN:-false}" = true ] && return 0
   case "${INSTALLATION_PROFILE_HOMEBOY_MODE:-${HOMEBOY_MODE:-auto}}" in
     disabled)
-      availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
-      [ "$availability_count" = 0 ]
-      return $?
+      return 0
       ;;
   esac
   command -v homeboy >/dev/null 2>&1 || {
     homeboy_required && return 1
-    availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
-    [ "$availability_count" = 0 ]
-    return $?
+    return 0
   }
   config="$(homeboy_run config show)" || return 1
   python3 -c 'import json,sys; result=json.load(sys.stdin); data=result.get("data", {}).get("config", result); providers=data.get("worktree_providers") or {}; raise SystemExit(not isinstance(providers, dict) or "dmc" in providers)' <<< "$config" || return 1
   homeboy_required && ! homeboy_wordpress_extension_ready && return 1
-  if homeboy_wordpress_extension_ready; then
-    [ "$(wp_cmd option get datamachine_code_homeboy_available 2>/dev/null)" = 1 ] || return 1
-  else
-    availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
-    [ "$availability_count" = 0 ] || return 1
-  fi
+  homeboy_wordpress_extension_ready || ! homeboy_required || return 1
   return 0
 }

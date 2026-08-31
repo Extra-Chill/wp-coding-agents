@@ -2,14 +2,14 @@
 # tests/cli-channel-binary-path.sh — Regression coverage for issue #198.
 #
 # The command registered for the kimaki CLI channel is shelled by the Data
-# Machine Code CLI transport from `agents/dispatch-message`, which runs inside
+# wp-coding-agents CLI transport from `agents/dispatch-message`, which runs inside
 # PHP-FPM as the WordPress web user (www-data) on WP-cron / Action Scheduler
 # fires. That user is NOT the kimaki.service user.
 #
 # On a RUN_AS_ROOT install the kimaki binary resolves under /root/.kimaki/bin
 # (and the data dir under /root, mode 0700). www-data cannot traverse 0700
 # /root, so proc_open fails with EACCES and every scheduled dispatch dies as
-# `datamachine_code_cli_dispatch_spawn_failed`. The opencode service-user home
+# a process start failure. The opencode service-user home
 # (/home/opencode, mode 0750) is the same trap.
 #
 # The resolver (_kimaki_find_native_binary) and the KIMAKI_BIN short-circuit in

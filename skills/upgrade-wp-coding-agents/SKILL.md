@@ -56,18 +56,16 @@ The user says something like:
    homeboy config show /worktree_providers/dmc  # expected: not found
    homeboy project show <project-id>
    homeboy project components list <project-id>
-   wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";' --path=/path/to/site
    wp config get DATAMACHINE_COMPOSE_AGENTS_MD --path=/path/to/site
    wp datamachine memory compose AGENTS.md --path=/path/to/site
    ```
    For WordPress Studio installs, run:
    ```bash
-   studio wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";'
    studio wp datamachine memory compose AGENTS.md
    ```
-   Homeboy config must not contain a `dmc` command provider; the MU-plugin filter makes Homeboy the sole lifecycle owner while retaining DMC's public ability schemas. The optional legacy `datamachine_code_homeboy_available` option is not a runtime readiness check; its absence is not a verification failure.
+    Homeboy config must not contain a retired `dmc` command provider. Homeboy is the sole lifecycle owner.
 
-   Attribute failures to the owning layer. A missing adapter filter belongs to wp-coding-agents setup/upgrade. A present `/worktree_providers/dmc` entry is circular legacy configuration and must be removed by rerunning reconciliation. Extension readiness and project/component lookup failures belong to Homeboy. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
+    Attribute failures to the owning layer. A present `/worktree_providers/dmc` entry is stale configuration and must be removed by rerunning reconciliation. Extension readiness and project/component lookup failures belong to Homeboy. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
 
    Setup and upgrade write `define( 'DATAMACHINE_COMPOSE_AGENTS_MD', true )` to wp-config.php (idempotent grep-guard; skipped on Studio and dry-run). This is the gate that turns on core-owned AGENTS.md composition — `wp config get DATAMACHINE_COMPOSE_AGENTS_MD` should return `true` after either run.
 
@@ -78,7 +76,7 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 - **Never leave the chat bridge running after a successful upgrade.** Restart it with the summary command so managed config changes take effect.
 - **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.kimaki/` auth state and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
 - **Never vendor Homeboy** into wp-coding-agents or scaffold `homeboy.json` in the WordPress site root. The site root is a Homeboy project; component metadata belongs in attached primary workspace repos.
-- **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific DMC worktrees and are skipped by default.
+- **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific worktrees and are skipped by default.
 - **Never hardcode workspace paths** (`/var/lib/...`, `/opt/...`, `/var/www/...`, `/root/...`) in commands you give the user. Use `git rev-parse --show-toplevel`, `$(npm root -g)`, `$KIMAKI_DATA_DIR`, and the script's auto-detection.
 
 ## Source of truth

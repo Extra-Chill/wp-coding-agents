@@ -212,13 +212,13 @@ _kimaki_seed_external_credential() {
 # default/build agent when a requested agent is unavailable, so wp-coding-agents
 # must not rewrite `--agent` itself.
 #
-# The command we register here is shelled by the Data Machine Code CLI transport
+# The command we register here is shelled by the wp-coding-agents CLI transport
 # from the `agents/dispatch-message` ability, which runs inside PHP-FPM as the
 # WordPress web user (www-data) on WP-cron / Action Scheduler fires — NOT as the
 # kimaki.service user. On a RUN_AS_ROOT install the kimaki binary resolves under
 # /root/.kimaki/bin (and the data dir under /root, mode 0700); www-data cannot
 # traverse 0700 /root, so proc_open fails with EACCES and every scheduled
-# dispatch dies as datamachine_code_cli_dispatch_spawn_failed. The opencode
+# dispatch fails to start. The opencode
 # service-user home (/home/opencode, mode 0750) is the same trap. We therefore
 # only register a path whose ancestor directories are world-traversable
 # (`o+x`), preferring a system-prefix binary (e.g. /usr/bin/kimaki, the
@@ -352,20 +352,11 @@ _kimaki_find_native_binary() {
 
 # _kimaki_register_runtime_signature
 #
-# Kimaki does not currently export stable session/thread/channel attribution env
-# vars to OpenCode/tool subprocesses. Register the documented upstream #137
-# contract now so the DMC worktree signature and the invocation-scoped Homeboy
-# notification adapter consume the same values when Kimaki starts exporting them.
-# Until then both consumers remain fail-closed.
-# https://github.com/remorses/kimaki/issues/137
+# The generated runtime registry was consumed only by Data Machine Code. Do not
+# publish speculative Homeboy hooks for Kimaki's future attribution variables.
 _kimaki_register_runtime_signature() {
-  if ! declare -F runtime_signature_register >/dev/null; then
-    return 0
-  fi
-
-  runtime_signature_register \
-    "kimaki" \
-    '{"session_id":"KIMAKI_SESSION_ID","thread_id":"KIMAKI_THREAD_ID","channel_id":"KIMAKI_CHANNEL_ID"}'
+  declare -F runtime_signature_cleanup_retired_mu_plugin >/dev/null || return 0
+  runtime_signature_cleanup_retired_mu_plugin
 }
 
 _kimaki_sync_bin_helpers() {
@@ -1119,13 +1110,11 @@ _kimaki_effective_prompt_runner() {
     fi
   fi
 
-  # Refresh the CLI-channel registration so DMC's dispatch runtime uses native
-  # kimaki instead of the removed adapter path.
+  # Refresh the CLI-channel registration so the wp-coding-agents transport uses
+  # the native Kimaki binary instead of the removed adapter path.
   _kimaki_register_cli_channel
 
-  # Refresh the worktree runtime-signature registration. Idempotent — only
-  # touches disk when the env-var map drifts (e.g. a new subkey is added in
-  # a future kimaki release).
+  # Remove any old generated registry; Homeboy has no matching WordPress hook.
   _kimaki_register_runtime_signature
 
   log "  Done."

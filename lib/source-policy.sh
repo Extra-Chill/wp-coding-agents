@@ -4,8 +4,8 @@
 # wp-coding-agents installs two fundamentally different kinds of agent:
 #
 #   engineering  The agent treats installed WordPress source as read-only
-#                reference and makes every code change in a Data Machine Code
-#                workspace, tracked in git and reviewed through GitHub. This is
+#                reference and makes every code change in a tracked workspace,
+#                reviewed through GitHub. This is
 #                the historical (and default) behavior.
 #
 #   managed      The agent edits the live theme and plugins in place at the
@@ -40,8 +40,8 @@
 # Honors DRY_RUN (logs intent, makes no changes).
 
 # The wp option wp-coding-agents records the chosen source mode in. Mirrors the
-# existing `datamachine_code_homeboy_available` pattern: a setup-time fact that
-# upgrade.sh has to be able to rediscover without asking again.
+# existing installation-profile pattern: a setup-time fact that upgrade.sh has
+# to be able to rediscover without asking again.
 SOURCE_POLICY_OPTION="wp_coding_agents_source_mode"
 SOURCE_POLICY_DEFAULT_MODE="workspace"
 # Newline-separated wp-content paths the site owns under owned mode.
@@ -714,11 +714,11 @@ source_policy_assert_runtime_supports_mode() {
   error "Owned source mode is not supported on the '${RUNTIME:-unknown}' runtime yet — only 'opencode' can express scoped source permissions safely. See lib/source-policy.sh."
 }
 
-# Whether the Data Machine Code workspace (and therefore git/GitHub) is part of
-# this install's architecture.
+# Whether a tracked workspace (and therefore git/GitHub) is part of this
+# install's architecture.
 #
 # Consumed by the runtimes (workspace allow rules) and by lib/data-machine.sh
-# (whether data-machine-code is installed at all). Returns 0 for yes.
+# (whether workspace policy applies). Returns 0 for yes.
 source_policy_workspace_enabled() {
   case "${SOURCE_MODE:-$SOURCE_POLICY_DEFAULT_MODE}" in
     owned) return 1 ;;

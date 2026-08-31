@@ -228,14 +228,6 @@ jobs:
       - name: Run tests/codex-permissions.sh
         run: ./tests/codex-permissions.sh
 
-  homeboy-agents-md:
-    name: Homeboy CLI command map (#208, #254)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/homeboy-agents-md.sh
-        run: ./tests/homeboy-agents-md.sh
-
   claude-code-hook-scope:
     name: Claude Code hook agent scoping
     runs-on: ubuntu-latest
@@ -263,14 +255,13 @@ jobs:
           - detect-site-domain
           - dmc-migration-inventory
           - dmc-managed-release
-          - dmc-managed-release-integration
           - external-wordpress-runtime
           - dm-workspace-discovery
           - homeboy-codebox-canary
           - homeboy-components
-          - homeboy-worktree-adapter
           - homeboy-project-id
           - homeboy-verification-guidance
+          - homeboy-worktree-adapter
           - kimaki-credential-seeding
           - kimaki-install-existing
           - kimaki-launchd-start

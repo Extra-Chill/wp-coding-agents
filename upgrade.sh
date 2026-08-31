@@ -27,7 +27,7 @@
 #      Each unit's existing Environment= lines are preserved (host custom
 #      values, secrets) while structural lines are refreshed from the same
 #      template the install path uses (bridges/<name>.sh::bridge_render_*).
-#   7. Refresh the opencode runtime signature
+#   7. Remove the retired runtime registry
 #   8. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
@@ -1209,7 +1209,7 @@ sync_runtime_signature() {
   fi
 
   if declare -F _codex_register_runtime_signature >/dev/null; then
-    log "Phase 5c: Syncing Codex runtime signature..."
+    log "Phase 5c: Removing retired Codex runtime registry..."
     _codex_register_runtime_signature
   fi
 
@@ -1249,12 +1249,10 @@ reconcile_wordpress_service() {
 }
 
 # ============================================================================
-# Phase 7: Refresh the opencode runtime signature
+# Phase 7: Remove the retired runtime registry
 #
-# Keeps the worktree runtime-signature registration current, so existing
-# installs pick up the opencode entry on upgrade and track any future
-# signature drift. Idempotent — only mutates the mu-plugin file when the
-# env-var map actually differs from what is already on disk.
+# Removes the generated registry consumed only by Data Machine Code. Homeboy
+# has no replacement WordPress hook contract.
 #
 # This phase also used to strip a legacy opencode-claude-auth bash wrapper.
 # That integration was retired in #117 on 2026-05-03, and the strip could only
@@ -1272,7 +1270,7 @@ refresh_opencode_runtime_signature_phase() {
     return 0
   fi
 
-  log "Phase 7: Refreshing opencode runtime signature..."
+  log "Phase 7: Removing retired runtime registry..."
 
   if ! declare -F _opencode_register_runtime_signature >/dev/null; then
     # Source runtime file for the helper without running a full install.

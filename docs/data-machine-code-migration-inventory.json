@@ -638,13 +638,13 @@
       "source": { "repository": "wp-coding-agents", "path": "scripts/dmc-process-inspect.py", "symbol_or_command": "dmc-process-inspect" },
       "evidence_kind": "runtime",
       "contracts": [],
-      "current_owner": "wp-coding-agents",
-      "current_consumers": ["systems_capabilities_configure_dmc"],
+      "current_owner": "retire",
+      "current_consumers": ["None; the DMC option consumer was removed"],
       "persistence": "/usr/local/lib helper, /usr/local/bin status command, sudoers and journald names",
-      "target_owner": "wp-coding-agents",
-      "disposition": "move",
+      "target_owner": "retire",
+      "disposition": "delete",
       "migration_issue": "#528",
-      "verification_gate": "Upgrade atomically renames helper/profile/sudoers references and preserves security tests"
+      "verification_gate": "Upgrade removes the helper and sudoers entry; managed-VPS policy remains covered"
     },
     {
       "id": "wca-orphan-resolver",
@@ -1251,15 +1251,18 @@
   ],
   "reference_file_classification": {
     "runtime": [
-      "setup.sh", "upgrade.sh", "lib/data-machine.sh", "lib/desired-state-reconciler.sh", "lib/homeboy.sh", "lib/integration-adapters.sh", "lib/plugin-upgrade.sh", "lib/source-policy.sh", "lib/owned-source-discovery.sh", "lib/runtime-signature.sh", "lib/systems-capabilities.sh", "lib/cli-channel.sh", "lib/summary.sh", "runtimes/opencode.sh", "runtimes/claude-code.sh", "bridges/kimaki.sh", "templates/wp-coding-agents-homeboy-worktrees.php", "templates/wp-coding-agents-cli-transport.php", "templates/wp-coding-agents-source-reconcile.php"
+      "lib/integration-adapters.sh",
+      "templates/wp-coding-agents-homeboy-worktrees.php",
+      "templates/wp-coding-agents-cli-transport.php"
     ],
     "tests": [
-      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/installation-profile.sh", "tests/integration-adapters.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/plugins-only-scope.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/workspace-installation.sh", "tests/worktree-context-projections.sh"
+      "tests/homeboy-worktree-adapter.sh",
+      "tests/integration-adapters.sh",
+      "tests/smoke-cli-transport.php",
+      "tests/worktree-context-projections.sh"
     ],
-    "guidance": [
-      "README.md", "guidance/homeboy.sh", "skills/upgrade-wp-coding-agents/SKILL.md", "operator-entrypoints/wp-coding-agents-setup/verify.md"
-    ],
-    "history": ["docs/changelog.md", "lib/wordpress.sh"]
+    "guidance": [],
+    "history": []
   },
   "installed_state_queries": [
     "wp option list --search='datamachine_code_%' --format=json",

@@ -332,39 +332,6 @@ homeboy_handle_failure() {
   return 0
 }
 
-# Homeboy owns whether its WordPress extension is available. Data Machine only
-# consumes the resulting option while composing guidance.
-sync_homeboy_availability() {
-  if [ "$DRY_RUN" = true ]; then
-    if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
-    else
-      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option delete datamachine_code_homeboy_available"
-    fi
-    sync_homeboy_project_components
-    return 0
-  fi
-
-  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-    local current=""
-    current="$(wp_cmd option get datamachine_code_homeboy_available 2>/dev/null || true)"
-    if wp_cmd option update datamachine_code_homeboy_available 1 >/dev/null 2>&1; then
-      if [ "$current" != 1 ] && [ -n "${UPDATED_ITEMS+x}" ]; then
-        UPDATED_ITEMS+=("Homeboy availability")
-      fi
-    else
-      warn "Could not record Homeboy availability for AGENTS.md compose"
-    fi
-    sync_homeboy_project_components
-  else
-    if wp_cmd option get datamachine_code_homeboy_available >/dev/null 2>&1; then
-      if wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1; then
-        [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("Homeboy availability removed")
-      fi
-    fi
-  fi
-}
-
 sync_homeboy_agents_md_guidance() {
   # The Homeboy CLI command map is presence-gated on `command -v homeboy`.
   # Since #254 the section is registered as a LIVE-enumeration block: its
@@ -508,16 +475,16 @@ configure_homeboy_worktree_ownership() {
   log "Configuring Homeboy as the sole worktree lifecycle owner."
   if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
     if homeboy_run config remove /worktree_providers/dmc >/dev/null; then
-      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed circular DMC worktree provider")
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed retired worktree provider")
     else
-      homeboy_handle_failure "Could not remove the circular DMC worktree provider."
+      homeboy_handle_failure "Could not remove the retired worktree provider."
     fi
   fi
   if homeboy_run config show /settings/worktree_provider_lifecycle/dmc >/dev/null 2>&1; then
     if homeboy_run config remove /settings/worktree_provider_lifecycle/dmc >/dev/null; then
-      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed legacy DMC worktree finalizer")
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("removed retired worktree finalizer")
     else
-      homeboy_handle_failure "Could not remove the legacy DMC worktree finalizer."
+      homeboy_handle_failure "Could not remove the retired worktree finalizer."
     fi
   fi
   if homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1; then
@@ -529,7 +496,6 @@ configure_homeboy_wordpress_extension() {
   HOMEBOY_WORDPRESS_READY=false
 
   if [ "${HOMEBOY_MODE:-auto}" = "disabled" ]; then
-    sync_homeboy_availability
     sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
@@ -537,7 +503,6 @@ configure_homeboy_wordpress_extension() {
 
   if ! command -v homeboy >/dev/null 2>&1; then
     homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping Homeboy WordPress extension setup."
-    sync_homeboy_availability
     sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
@@ -552,7 +517,6 @@ configure_homeboy_wordpress_extension() {
     else
       warn "Homeboy is callable, but the WordPress extension is not ready. Run setup with --with-homeboy to install and verify it."
     fi
-    sync_homeboy_availability
     sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
@@ -565,7 +529,6 @@ configure_homeboy_wordpress_extension() {
     echo -e "${BLUE}[dry-run]${NC} homeboy extension update wordpress  # if already installed and not linked"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension setup wordpress"
     echo -e "${BLUE}[dry-run]${NC} homeboy extension list"
-    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     print_homeboy_verification_commands
     return 0
@@ -593,7 +556,6 @@ configure_homeboy_wordpress_extension() {
     homeboy_handle_failure "Homeboy WordPress extension did not pass readiness verification."
   fi
 
-  sync_homeboy_availability
   sync_homeboy_agents_md_guidance
   recompose_agents_md_for_homeboy
   print_homeboy_verification_commands
@@ -613,10 +575,10 @@ recompose_agents_md_for_homeboy() {
   # root re-bakes `wp --allow-root` into the examples and would silently undo the
   # correct file the main compose phase just wrote.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
-    log "AGENTS.md recomposed after Homeboy availability sync."
+    log "AGENTS.md recomposed after Homeboy reconciliation."
     opencode_project_subagents_optional
   else
-    homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy availability sync."
+    homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy reconciliation."
   fi
 }
 
@@ -632,7 +594,6 @@ print_homeboy_verification_commands() {
   echo "  homeboy config show /worktree_providers/dmc  # expected: not found"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
-  printf '%s\n' "  $(wp_cli_transport_display) eval 'echo has_filter(\"datamachine_code_ability_registration_args\") ? \"homeboy-worktree-adapter\\n\" : \"missing\\n\";'$verification_wp_flags"
   echo "  $(wp_cli_transport_display) datamachine memory compose AGENTS.md$verification_wp_flags"
   echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
 }

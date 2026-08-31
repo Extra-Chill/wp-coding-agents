@@ -20,7 +20,14 @@ configure_homeboy_wordpress_extension() { printf 'homeboy\n' >> "$HOMEBOY_TRACE"
 homeboy_required() { return 1; }
 wp_cmd() {
   case "$1 $2" in
-    'option list') printf '0\n' ;;
+    'option list')
+      if [ "${3:-}" = '--search=datamachine_code_homeboy_available' ]; then
+        [ -e "$RETIRED_HOMEBOY_OPTION_STATE" ] && printf '1\n' || printf '0\n'
+      else
+        printf '0\n'
+      fi
+      ;;
+    'option delete') rm -f "$RETIRED_HOMEBOY_OPTION_STATE" ;;
     'plugin is-active') return 0 ;;
     'eval exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
     *) return 1 ;;
@@ -41,6 +48,8 @@ RUNTIME=claude-code
 DETECTED_RUNTIMES=(claude-code)
 INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration ai-provider-for-claude-code)
 DRY_RUN=false
+RETIRED_HOMEBOY_OPTION_STATE="$TMP/retired-homeboy-option"
+touch "$RETIRED_HOMEBOY_OPTION_STATE"
 CARRIED_TRACE="$TMP/carried-sync"
 HOMEBOY_TRACE="$TMP/homeboy-sync"
 BLUE=""; NC=""
@@ -56,14 +65,15 @@ INSTALLATION_PROFILE_OPERATION=upgrade
 integration_adapters_detect
 [ "$setup_records" = "${INTEGRATION_ADAPTER_RECORDS[*]}" ] || fail "setup and upgrade derived different records"
 case "$setup_records" in
-  *"integrations.dmc-managed-release-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.ai-provider-for-claude-code"*"integrations.carried-plugin.wp-coding-agents-integration"*) ;;
-  *) fail "expected managed-release, copied-DMC, and carried-plugin records" ;;
+  *"integrations.dmc-managed-release-cleanup"*"integrations.retired-homeboy-option-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.ai-provider-for-claude-code"*"integrations.carried-plugin.wp-coding-agents-integration"*) ;;
+  *) fail "expected stale-state, copied-DMC, and carried-plugin records" ;;
 esac
 
 reconciler_plan_reset
 integration_adapters_plan
 integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release cleanup was not applied"
+[ ! -e "$RETIRED_HOMEBOY_OPTION_STATE" ] || fail "retired Homeboy option was not removed"
 [ -f "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED" ] || fail "copied DMC was changed"
 [ -d "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ] || fail "carried provider was not applied"
 [ -d "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration" ] || fail "WordPress integration package was not applied"
@@ -111,11 +121,9 @@ homeboy_run() {
 }
 _integration_adapter_verify_homeboy || fail "clean Homeboy envelope failed verification"
 
-# Disabled cleanup is complete only when WordPress can prove the stale option
-# is absent; transport failure must remain a convergence failure.
-INSTALLATION_PROFILE_HOMEBOY_MODE=disabled
+# Retired-option cleanup must fail closed when WordPress cannot confirm absence.
 wp_cmd() { return 1; }
-if _integration_adapter_verify_homeboy; then fail "unverified Homeboy availability cleanup passed"; fi
+if _integration_adapter_verify_retired_homeboy_option; then fail "unverified retired Homeboy option cleanup passed"; fi
 
 EXTERNAL_SITE="$TMP/external"
 INSTALLATION_PROFILE_SITE_PATH="$EXTERNAL_SITE"

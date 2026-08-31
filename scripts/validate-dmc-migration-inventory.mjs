@@ -65,7 +65,7 @@ for (const path of classifications.keys()) {
 
 const extensions = new Set(['.js', '.json', '.md', '.mjs', '.php', '.py', '.sh', '.ts', '.yaml', '.yml']);
 const ignoredDirectories = new Set(['.git', 'node_modules']);
-const referencePattern = /DataMachineCode\\|datamachine_code_|datamachine-code|data-machine-code/;
+const referencePattern = /DataMachineCode\\|datamachine_code_|datamachine-code\//;
 const exactContractPattern = /datamachine_code_[a-z0-9_]+|datamachine-code\/[a-z0-9_/-]+|DataMachineCode\\[A-Za-z0-9_\\]+/g;
 const allContracts = inventory.rows.flatMap((row) => row.contracts);
 
@@ -99,7 +99,9 @@ function walk(directory) {
     ) continue;
     const content = readFileSync(path, 'utf8');
     if (!referencePattern.test(content)) continue;
-    if (!classifications.has(repositoryPath)) failures.push(`DMC reference file is not classified: ${repositoryPath}`);
+    if (!classifications.has(repositoryPath)) {
+      failures.push(`DMC reference file is not classified: ${repositoryPath}`);
+    }
     for (const contract of content.match(exactContractPattern) ?? []) {
       if (!contractCovered(contract)) failures.push(`DMC contract is not inventoried: ${contract} (${repositoryPath})`);
     }
@@ -111,7 +113,7 @@ walk(root);
 for (const path of classifications.keys()) {
   try {
     if (!referencePattern.test(readFileSync(join(root, path), 'utf8'))) {
-      failures.push(`classified file no longer contains a DMC reference: ${path}`);
+      failures.push(`classified reference file no longer contains a DMC reference: ${path}`);
     }
   } catch {
     failures.push(`classified reference file does not exist: ${path}`);

@@ -16,8 +16,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 		/** New wp-coding-agents-owned registry key. */
 		public const REGISTRY_KEY = 'wp_coding_agents_cli_channels';
 
-		/** Legacy DMC registry key kept for migration compatibility. */
-		public const LEGACY_REGISTRY_KEY = 'datamachine_code_cli_channels';
+		/** Retired key read once so installed bridge channels are not lost. */
+		private const RETIRED_REGISTRY_KEY = 'datamachine_code_cli_channels';
 
 		/**
 		 * Return the normalized registered channel map.
@@ -27,7 +27,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 		public static function get_channels(): array {
 			$channels = array();
 
-			foreach ( array( self::LEGACY_REGISTRY_KEY, self::REGISTRY_KEY ) as $key ) {
+			foreach ( array( self::RETIRED_REGISTRY_KEY, self::REGISTRY_KEY ) as $key ) {
 				$option_value = array();
 				if ( function_exists( 'get_option' ) ) {
 					$raw = get_option( $key, array() );
@@ -59,7 +59,27 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Registry', false ) ) {
 				}
 			}
 
+			self::migrate_retired_registry( $valid );
+
 			return $valid;
+		}
+
+		/**
+		 * Preserve the persisted option while retiring its DMC filter consumer.
+		 *
+		 * @param array<string, array<string, mixed>> $channels
+		 */
+		private static function migrate_retired_registry( array $channels ): void {
+			if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) || ! function_exists( 'delete_option' ) ) {
+				return;
+			}
+
+			if ( ! is_array( get_option( self::RETIRED_REGISTRY_KEY, null ) ) ) {
+				return;
+			}
+
+			update_option( self::REGISTRY_KEY, $channels );
+			delete_option( self::RETIRED_REGISTRY_KEY );
 		}
 
 		/**

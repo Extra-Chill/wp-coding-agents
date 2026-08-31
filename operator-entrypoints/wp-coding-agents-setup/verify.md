@@ -152,7 +152,7 @@ Verify the selected runtime can be started manually in the terminal or over SSH.
 
 ### `verify-homeboy`
 
-This overlay proves Homeboy is installed and linked, DMC worktree abilities are adapted to Homeboy without circular provider configuration, and the project/component model is inspectable. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
+This overlay proves Homeboy is installed and linked, its native worktree lifecycle has no stale provider configuration, and the project/component model is inspectable. It does **not** prove the repo-aware Homeboy Codebox `agent-task` path can launch a sandbox, hydrate provider auth, mount the workspace at `/workspace`, and return patch/change evidence.
 
 ```bash
 homeboy --version
@@ -161,31 +161,28 @@ homeboy extension show wordpress
 homeboy config show /worktree_providers/dmc  # expected: not found
 homeboy project show <project-id>
 homeboy project components list <project-id>
-wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";' --path=/path/to/site
 wp datamachine memory compose AGENTS.md --path=/path/to/site
 ```
 
 For WordPress Studio:
 
 ```bash
-studio wp eval 'echo has_filter("datamachine_code_ability_registration_args") ? "homeboy-worktree-adapter\n" : "missing\n";'
 studio wp datamachine memory compose AGENTS.md
 ```
 
-The filter probe should print `homeboy-worktree-adapter`. `homeboy config show /worktree_providers/dmc` should report that the path is absent. The optional legacy `datamachine_code_homeboy_available` option is not part of this readiness contract; do not fail verification when it is absent.
+`homeboy config show /worktree_providers/dmc` should report that the path is absent.
 
 Attribute failures before retrying:
 
-- A missing adapter filter is owned by wp-coding-agents setup/upgrade.
-- A present `/worktree_providers/dmc` entry is circular legacy configuration. Rerun wp-coding-agents reconciliation to remove it.
+- A present `/worktree_providers/dmc` entry is stale configuration. Rerun wp-coding-agents reconciliation to remove it.
 - Extension readiness and project/component lookup failures are owned by Homeboy. Use the failed command's diagnostics and repair that Homeboy configuration.
 
 Expected model:
 
 ```text
 WordPress site root = Homeboy project
-DMC primary workspace checkouts = Homeboy components
-DMC repo@branch worktrees = skipped by default
+Primary workspace checkouts = Homeboy components
+Task worktrees = skipped by default
 ```
 
 Do not create `homeboy.json` in the WordPress site root to fix a missing Homeboy project.
@@ -206,13 +203,13 @@ Example for a WordPress Studio install with Data Machine-bundled Agents API:
 
 ```bash
 ./scripts/verify-homeboy-codebox-canary.sh \
-  --workspace /path/to/existing/repo-or-dmc-worktree \
+  --workspace /path/to/existing/repo-or-worktree \
   --repo wp-coding-agents \
   --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/190 \
   --secret-env OPENAI_API_KEY \
   --agents-api /path/to/wp-content/plugins/data-machine/vendor/wordpress/agents-api \
   --agent-runtime /path/to/wp-content/plugins/data-machine \
-  --agent-runtime-tools /path/to/wp-content/plugins/data-machine-code \
+  --agent-runtime-tools /path/to/wp-content/plugins/wp-coding-agents-integration \
   --provider-plugin-path /path/to/wp-content/plugins/ai-provider-for-openai \
   --homeboy-extensions "$HOME/.config/homeboy/extensions/wordpress" \
   --model gpt-4.1-mini \

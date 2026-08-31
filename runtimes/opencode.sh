@@ -53,29 +53,12 @@ opencode_install_claude_code_auth_plugin() {
 
 # _opencode_register_runtime_signature
 #
-# Publish opencode's worktree session-attribution env-var contract for the
-# Data Machine Code worktree-attribution code (Extra-Chill/data-machine-code#416).
-# OpenCode sets OPENCODE_RUN_ID on worker/tool processes. Source review and a
-# live Kimaki/OpenCode 0.13 smoke did not find OPENCODE_SESSION_ID, so only the
-# real exported run identifier is registered here.
-#
-# Registered from runtime_install (setup-time) and from the legacy-wrapper-
-# removal phase in upgrade.sh, which is the upgrade-time entry point that
-# already sources runtimes/opencode.sh. Re-running is harmless: the writer
-# is idempotent and only mutates the mu-plugin file when the env-var map
-# actually differs.
+# Remove the registry previously consumed by Data Machine Code. Homeboy does
+# not expose a replacement WordPress hook, so attribution remains its native
+# responsibility rather than a generated MU-plugin contract.
 _opencode_register_runtime_signature() {
-  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
-  if ! declare -F runtime_signature_register >/dev/null; then
-    # The helper lives in lib/runtime-signature.sh, sourced by setup.sh and
-    # upgrade.sh. When this function is invoked outside those entry points
-    # (e.g. by a test that sources just runtimes/opencode.sh in isolation),
-    # silently skip — registration is not the runtime's primary job.
-    return 0
-  fi
-  runtime_signature_register \
-    "opencode" \
-    '{"run_id":"OPENCODE_RUN_ID"}'
+  declare -F runtime_signature_cleanup_retired_mu_plugin >/dev/null || return 0
+  runtime_signature_cleanup_retired_mu_plugin
 }
 
 runtime_discover_dm_paths() {
