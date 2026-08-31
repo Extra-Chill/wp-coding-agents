@@ -270,6 +270,7 @@ jobs:
           - kimaki-multi-instance
           - kimaki-restart-continuation
           - kimaki-system-message-patch
+          - installation-profile
           - opencode-claude-auth-refresh-hardening
           - opencode-subagents-optional
           - owned-source-discovery

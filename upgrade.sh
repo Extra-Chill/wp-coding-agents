@@ -414,6 +414,9 @@ if [ "$PLUGINS_ONLY" = true ]; then
   detect_plugins_only_environment
   installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"
 else
+  # Load declarative setup intent before runtime selection and source-policy
+  # resolution. The profile never contains transport argv, tokens, or secrets.
+  installation_profile_load
   # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
   # full list (drives multi-runtime skills install); RUNTIME is the primary
   # (first-match cascade: claude-code > opencode > codex). Explicit --runtime
@@ -464,6 +467,7 @@ if [ "$PLUGINS_ONLY" != true ]; then
   source_policy_record_log_paths
 fi
 systems_capabilities_resolve_profile
+installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
@@ -1592,6 +1596,9 @@ update_chat_bridge_launchd
 reconcile_wordpress_service
 reconcile_datamachine_worker_service
 refresh_opencode_runtime_signature_phase
+if [ "$PLUGINS_ONLY" != true ]; then
+  installation_profile_write
+fi
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
   exit "$PLUGIN_ONLY_EXIT_STATUS"
