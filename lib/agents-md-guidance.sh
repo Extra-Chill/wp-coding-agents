@@ -182,8 +182,8 @@ agents_md_guidance_register() {
 }
 
 # Keep all core and extension-provided AGENTS.md CLI examples replayable in the
-# environment that setup detected. The core generators own their command prose;
-# their shared `datamachine_wp_cli_cmd` filter is the integration boundary.
+# environment that setup detected. The filter is written at mu-plugin file scope
+# so it exists before ordinary plugins register or render any sections.
 agents_md_guidance_sync_wp_cli_transport() {
   local file transport new_block
   file="$(agents_md_guidance_mu_plugin_path)" || return 1
@@ -304,18 +304,18 @@ import os
 transport = os.environ["AGENTS_MD_GUIDANCE_WP_CLI_TRANSPORT"]
 escaped = transport.replace("\\", "\\\\").replace("'", "\\'")
 
-print("    // BEGIN agents-md-guidance:wp-cli-transport")
-print("    add_filter(")
-print("        'datamachine_wp_cli_cmd',")
-print("        static function ( $default ) {")
-print("            if ( ! is_string( $default ) || 0 !== strpos( $default, 'wp' ) || ( isset( $default[2] ) && ! ctype_space( $default[2] ) ) ) {")
-print("                return $default;")
-print("            }")
-print(f"            return '{escaped}' . substr( $default, 2 );")
-print("        },")
-print("        100")
-print("    );")
-print("    // END agents-md-guidance:wp-cli-transport")
+print("// BEGIN agents-md-guidance:wp-cli-transport")
+print("add_filter(")
+print("    'datamachine_wp_cli_cmd',")
+print("    static function ( $default ) {")
+print("        if ( ! is_string( $default ) || 0 !== strpos( $default, 'wp' ) || ( isset( $default[2] ) && ! ctype_space( $default[2] ) ) ) {")
+print("            return $default;")
+print("        }")
+print(f"        return '{escaped}' . substr( $default, 2 );")
+print("    },")
+print("    100")
+print(");")
+print("// END agents-md-guidance:wp-cli-transport")
 PY
 }
 
@@ -343,9 +343,9 @@ _agents_md_guidance_block_matches() {
   local file="$1" section_id="$2" new_block="$3"
   local existing
   existing=$(awk -v sid="$section_id" '
-    $0 == "    // BEGIN agents-md-guidance:" sid { capturing=1 }
+    $0 ~ "^[[:space:]]*// BEGIN agents-md-guidance:" sid "$" { capturing=1 }
     capturing { print }
-    $0 == "    // END agents-md-guidance:" sid { exit }
+    $0 ~ "^[[:space:]]*// END agents-md-guidance:" sid "$" { exit }
   ' "$file")
   [ "$existing" = "$new_block" ]
 }
@@ -358,8 +358,8 @@ import sys
 
 file_path, section_id = sys.argv[1], sys.argv[2]
 new_block = os.environ.get("AGENTS_MD_GUIDANCE_NEW_BLOCK", "")
-begin_marker = f"    // BEGIN agents-md-guidance:{section_id}"
-end_marker = f"    // END agents-md-guidance:{section_id}"
+begin_marker = f"// BEGIN agents-md-guidance:{section_id}"
+end_marker = f"// END agents-md-guidance:{section_id}"
 
 with open(file_path, "r", encoding="utf-8") as fh:
     lines = fh.read().splitlines()
@@ -369,17 +369,23 @@ skipping = False
 out = []
 
 for line in lines:
-    if line == begin_marker:
+    if line.strip() == begin_marker:
         skipping = True
-        if new_block:
+        if new_block and section_id != "wp-cli-transport":
             out.extend(new_block.splitlines())
             inserted = True
         continue
 
     if skipping:
-        if line == end_marker:
+        if line.strip() == end_marker:
             skipping = False
         continue
+
+    if not inserted and section_id == "wp-cli-transport" and line.startswith("add_action( 'datamachine_sections'"):
+        if new_block:
+            out.extend(new_block.splitlines())
+            out.append("")
+            inserted = True
 
     if not inserted and line == "    // END agents-md-guidance-sections":
         if new_block:
