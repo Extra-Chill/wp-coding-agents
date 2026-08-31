@@ -111,6 +111,10 @@ wp_opt() {
   wp_cli option get "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
 }
 
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || true
+}
+
 SOURCE_MODE="$(wp_opt wp_coding_agents_source_mode | tr -d '[:space:]')"
 [ -n "$SOURCE_MODE" ] || SOURCE_MODE="$(wp_opt wp_coding_agents_posture | tr -d '[:space:]')"
 case "$SOURCE_MODE" in
@@ -121,6 +125,48 @@ esac
 _say "wp-coding-agents verify"
 _say "  site:        $SITE_PATH"
 _say "  source mode: ${SOURCE_MODE:-<unset>}"
+
+# ---------------------------------------------------------------------------
+# Seam 0: workspace declarations must point at native repositories and match
+# the runtime permission surface that makes them editable.
+# ---------------------------------------------------------------------------
+
+section "workspace repository agreement"
+
+if [ "$SOURCE_MODE" != "workspace" ]; then
+  skip "not a workspace-mode install"
+else
+  PROFILE="$SITE_PATH/.wp-coding-agents/installation-profile"
+  DECLARED_WORKSPACE_REPOSITORIES=""
+  if [ -f "$PROFILE" ]; then
+    DECLARED_WORKSPACE_REPOSITORIES="$(awk -F= '$1 == "workspace_repositories" { print substr($0, index($0, "=") + 1); exit }' "$PROFILE")"
+  fi
+
+  if [ -z "$DECLARED_WORKSPACE_REPOSITORIES" ]; then
+    skip "no declared workspace repositories — cannot validate repository authority"
+  elif [ ! -f "$SITE_PATH/opencode.json" ]; then
+    fail "workspace repositories are declared but opencode.json is missing — the runtime has no configured repository access"
+  else
+    while IFS= read -r repository; do
+      [ -n "$repository" ] || continue
+      if ! git -C "$repository" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        fail "declared workspace repository $repository is not a reachable Git checkout"
+        continue
+      fi
+      if python3 - "$SITE_PATH/opencode.json" "$repository" <<'PY' >/dev/null 2>&1
+import json, sys
+data = json.load(open(sys.argv[1]))
+rules = data.get("permission", {}).get("external_directory", {})
+sys.exit(0 if rules.get(sys.argv[2] + "/**") == "allow" else 1)
+PY
+      then
+        pass "declared repository $repository is a Git checkout and OpenCode may access it"
+      else
+        fail "declared repository $repository is a Git checkout but opencode.json does not allow it — native edits and Git cannot reach the declared authority"
+      fi
+    done < <(printf '%s\n' "$DECLARED_WORKSPACE_REPOSITORIES" | tr ':' '\n')
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Seam 1: the recorded set, the manifest, and the permissions must agree
@@ -157,7 +203,7 @@ else
 
     # The reader is a deliberately unprivileged identity that cannot reach the
     # database. A manifest it cannot read is the same as no manifest.
-    MODE="$(stat -c '%a' "$MANIFEST" 2>/dev/null)"
+    MODE="$(file_mode "$MANIFEST")"
     case "$MODE" in
       *4|*5|*6|*7) pass "manifest is world-readable ($MODE) — the capture identity can read it" ;;
       *) fail "manifest mode $MODE is not world-readable — the capture identity cannot read it" ;;
@@ -283,7 +329,7 @@ else
   # creates a new inode owned by whoever ran it, so a reconcile run as root left
   # this root:root 0644 and every later one failed without saying so.
   if [ -f "$OPENCODE_JSON" ]; then
-    OJ_MODE="$(stat -c '%a' "$OPENCODE_JSON" 2>/dev/null)"
+    OJ_MODE="$(file_mode "$OPENCODE_JSON")"
     case "$OJ_MODE" in
       *[67]*) pass "opencode.json is group-writable ($OJ_MODE) — the runtime can update permissions" ;;
       *) fail "opencode.json mode $OJ_MODE is not group-writable — the reactive reconcile cannot update the permission surface" ;;

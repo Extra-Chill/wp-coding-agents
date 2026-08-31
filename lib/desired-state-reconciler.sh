@@ -34,6 +34,7 @@ installation_profile_value() {
     install_chat) printf '%s' "$INSTALLATION_PROFILE_INSTALL_CHAT" ;;
     chat_bridge) printf '%s' "$INSTALLATION_PROFILE_CHAT_BRIDGE" ;;
     homeboy_mode) printf '%s' "$INSTALLATION_PROFILE_HOMEBOY_MODE" ;;
+    workspace_repositories) printf '%s' "$INSTALLATION_PROFILE_WORKSPACE_REPOSITORIES" ;;
     components) printf '%s' "${INSTALLATION_PROFILE_COMPONENTS[*]}" ;;
     plugin_candidates) printf '%s' "${INSTALLATION_PROFILE_PLUGIN_CANDIDATES[*]}" ;;
     *) return 1 ;;
@@ -61,6 +62,7 @@ installation_profile_normalize() {
     INSTALLATION_PROFILE_CHAT_BRIDGE=""
   fi
   INSTALLATION_PROFILE_HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
+  INSTALLATION_PROFILE_WORKSPACE_REPOSITORIES="${WORKSPACE_REPOSITORIES:-}"
   INSTALLATION_PROFILE_PLUGIN_CANDIDATES=(data-machine data-machine-code wp-codebox)
   INSTALLATION_PROFILE_CARRIED_PLUGINS=()
   if [ "$INSTALLATION_PROFILE_EXTERNAL_WORDPRESS" != true ]; then
@@ -118,7 +120,7 @@ installation_profile_write() {
     local key
     umask 077
     : > "$tmp"
-    for key in operation site_path local_mode external_wordpress studio source_mode runtime install_chat chat_bridge homeboy_mode components plugin_candidates; do
+    for key in operation site_path local_mode external_wordpress studio source_mode runtime install_chat chat_bridge homeboy_mode workspace_repositories components plugin_candidates; do
       printf '%s=%s\n' "$key" "$(installation_profile_value "$key")" >> "$tmp"
     done
     mv "$tmp" "$file"
@@ -147,6 +149,7 @@ installation_profile_load() {
         ;;
       chat_bridge) [ -n "${CHAT_BRIDGE:-}" ] || CHAT_BRIDGE="$value" ;;
       homeboy_mode) [ "${HOMEBOY_MODE:-auto}" != auto ] || HOMEBOY_MODE="$value" ;;
+      workspace_repositories) [ -n "${WORKSPACE_REPOSITORIES:-}" ] || WORKSPACE_REPOSITORIES="$value" ;;
     esac
   done < "$file"
 }

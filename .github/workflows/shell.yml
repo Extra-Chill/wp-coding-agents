@@ -297,6 +297,7 @@ jobs:
           - upgrade-opencode-auth-plugin-sync
           - wordpress-service
           - worktree-context-projections
+          - workspace-installation
           - wp-cli-machine-output
           - wp-config-permissions
     steps:

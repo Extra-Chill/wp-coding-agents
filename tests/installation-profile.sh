@@ -17,6 +17,7 @@ SOURCE_MODE=workspace
 RUNTIME=opencode
 CHAT_BRIDGE=kimaki
 HOMEBOY_MODE=enabled
+WORKSPACE_REPOSITORIES="/tmp/workspace-repository"
 INSTALL_CHAT=true
 DRY_RUN=false
 KIMAKI_BOT_TOKEN='must-not-be-persisted'
@@ -44,6 +45,7 @@ SOURCE_MODE=""
 RUNTIME=""
 CHAT_BRIDGE=""
 HOMEBOY_MODE=auto
+WORKSPACE_REPOSITORIES=""
 INSTALL_CHAT=false
 SOURCE_MODE_EXPLICIT=false
 installation_profile_load
@@ -51,6 +53,7 @@ test "$SOURCE_MODE" = workspace
 test "$RUNTIME" = opencode
 test "$CHAT_BRIDGE" = kimaki
 test "$HOMEBOY_MODE" = enabled
+test "$WORKSPACE_REPOSITORIES" = /tmp/workspace-repository
 test "$INSTALL_CHAT" = true
 
 # Explicit command-line intent remains authoritative over persisted defaults.

@@ -372,7 +372,7 @@ function add_filter( \$tag, \$callback, \$priority = 10 ) {
         'source_has_core' => str_contains( \$source_content, '\`wp-includes/\`' ),
         'source_has_code' => str_contains( \$source_content, '\`wp-content/plugins/\`' ) && str_contains( \$source_content, '\`wp-content/themes/\`' ),
         'source_promotes_direct_reference' => str_contains( \$source_content, 'verify core APIs, hooks, conventions, and runtime behavior instead of relying on assumptions' ),
-        'source_keeps_installed_tree_read_only' => str_contains( \$source_content, 'Make code changes in the configured managed workspace' ),
+        'source_keeps_installed_tree_read_only' => str_contains( \$source_content, 'Make code changes in the configured repository checkout' ),
         'abilities_has_tools' => str_contains( \$abilities_content, 'active runtime tool listings' ),
     ]);
 }

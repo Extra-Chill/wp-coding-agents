@@ -342,7 +342,7 @@ ENG_PROSE="$(guidance_call wordpress-source render)"
 assert_eq "$(guidance_call wordpress-source id)" "wordpress-source" \
   "section id is stable across postures"
 assert_contains "$ENG_PROSE" "read-only" "workspace mode prose says read-only"
-assert_contains "$ENG_PROSE" "managed workspace" "workspace mode prose routes changes to the workspace"
+assert_contains "$ENG_PROSE" "configured repository checkout" "workspace mode prose routes changes to the configured repository"
 
 SOURCE_MODE=owned
 OWNED_SOURCES="wp-content/themes/acme
@@ -631,7 +631,7 @@ wp-content/plugins/acme-core" \
 
 # The reader is an unprivileged identity that is not us. A mode that keeps it
 # out defeats the only reason the file exists.
-assert_eq "$(stat -c '%a' "$MANI" 2>/dev/null)" "644" "manifest is world-readable"
+assert_eq "$(stat -c '%a' "$MANI" 2>/dev/null || stat -f '%Lp' "$MANI" 2>/dev/null)" "644" "manifest is world-readable"
 
 # SITE_PATH is the nginx docroot on a real install (verified on
 # h44lacrosse.com: `root /var/www/h44lacrosse.com;`). A manifest written there
