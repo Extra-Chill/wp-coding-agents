@@ -1256,7 +1256,7 @@
   ],
   "installed_state_results": {
     "captured_at": "2026-08-31",
-    "installation": "/Users/chubes/Studio/intelligence-chubes4",
+    "installation": "representative local WordPress installation",
     "options": "No datamachine_code_% options returned",
     "active_hooks": [
       "datamachine_code_ability_registration_args",
