@@ -9,7 +9,9 @@ export SITE_PATH="$root/site & one" SERVICE_HOME="$root/home" LOCAL_MODE=true PL
 export WORDPRESS_SERVICE_LAUNCHD_DIR="$root/LaunchAgents"
 mkdir -p "$SITE_PATH" "$SERVICE_HOME" "$WORDPRESS_SERVICE_LAUNCHD_DIR" "$root/bin"
 printf '#!/bin/sh\n' > "$root/bin/wp"
+printf '#!/bin/sh\n' > "$root/bin/php"
 chmod +x "$root/bin/wp"
+chmod +x "$root/bin/php"
 PATH="$root/bin:$PATH"
 
 source "$SCRIPT_DIR/lib/common.sh"
@@ -33,10 +35,11 @@ grep -q 'launchctl bootstrap' "$root/calls"
 
 if command -v plutil >/dev/null 2>&1; then
   plutil -lint "$plist" >/dev/null
-  [ "$(plutil -extract ProgramArguments.0 raw -o - "$plist")" = "$root/bin/wp" ]
-  [ "$(plutil -extract ProgramArguments.2 raw -o - "$plist")" = "--path=$SITE_PATH" ]
-  [ "$(plutil -extract ProgramArguments.3 raw -o - "$plist")" = "--host=127.0.0.1" ]
-  [ "$(plutil -extract ProgramArguments.4 raw -o - "$plist")" = "--port=8881" ]
+  [ "$(plutil -extract ProgramArguments.0 raw -o - "$plist")" = "$root/bin/php" ]
+  [ "$(plutil -extract ProgramArguments.1 raw -o - "$plist")" = "$root/bin/wp" ]
+  [ "$(plutil -extract ProgramArguments.3 raw -o - "$plist")" = "--path=$SITE_PATH" ]
+  [ "$(plutil -extract ProgramArguments.4 raw -o - "$plist")" = "--host=127.0.0.1" ]
+  [ "$(plutil -extract ProgramArguments.5 raw -o - "$plist")" = "--port=8881" ]
 fi
 
 first_label="$label"

@@ -54,12 +54,15 @@ port=$WORDPRESS_SERVICE_PORT"
 }
 
 wordpress_service_prepare_command() {
-  local executable
+  local executable php_executable
   wp_cli_transport_ensure
   [ "${#WP_CLI_TRANSPORT[@]}" -eq 1 ] || error "The local WordPress service requires a direct wp transport"
   executable="$(command -v "${WP_CLI_TRANSPORT[0]}" 2>/dev/null || true)"
   [ -n "$executable" ] || error "The local WordPress service requires WP-CLI on PATH"
+  php_executable="$(command -v php 2>/dev/null || true)"
+  [ -n "$php_executable" ] || error "The local WordPress service requires PHP on PATH"
   WORDPRESS_SERVICE_WP="$executable"
+  WORDPRESS_SERVICE_PHP="$php_executable"
 }
 
 _wordpress_service_xml_text() {
@@ -81,6 +84,7 @@ wordpress_service_render_launchd() {
     <string>$(_wordpress_service_xml_text "$label")</string>
     <key>ProgramArguments</key>
     <array>
+        <string>$(_wordpress_service_xml_text "$WORDPRESS_SERVICE_PHP")</string>
         <string>$(_wordpress_service_xml_text "$WORDPRESS_SERVICE_WP")</string>
         <string>server</string>
         <string>--path=$(_wordpress_service_xml_text "$SITE_PATH")</string>
