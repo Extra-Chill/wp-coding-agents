@@ -698,7 +698,7 @@
       "surface": "DMC ability-to-Homeboy mapping contract",
       "source": { "repository": "wp-coding-agents", "path": "tests/homeboy-worktree-adapter.sh", "symbol_or_command": "datamachine_code_ability_registration_args and datamachine-code/workspace-worktree-*" },
       "evidence_kind": "test",
-      "contracts": ["datamachine_code_ability_registration_args", "datamachine-code/workspace-*"],
+      "contracts": ["datamachine_code_ability_registration_args", "datamachine_code_finish_bounded_workspace_cli_request", "datamachine-code/workspace-*"],
       "current_owner": "wp-coding-agents tests",
       "current_consumers": ["CI"],
       "persistence": "None",
@@ -706,6 +706,51 @@
       "disposition": "replace",
       "migration_issue": "#529",
       "verification_gate": "Direct Homeboy lifecycle fixture replaces callback mapping assertions"
+    },
+    {
+      "id": "test-homeboy-adapter-integration",
+      "subsystem": null,
+      "surface": "Pinned DMC command compatibility through the real WP-CLI dispatcher",
+      "source": { "repository": "wp-coding-agents", "path": "tests/homeboy-worktree-adapter-integration.sh", "symbol_or_command": "datamachine-code workspace worktree add" },
+      "evidence_kind": "test",
+      "contracts": ["datamachine-code/workspace-*"],
+      "current_owner": "wp-coding-agents tests",
+      "current_consumers": ["CI"],
+      "persistence": "Checksum-keyed test cache only",
+      "target_owner": "Homeboy",
+      "disposition": "replace",
+      "migration_issue": "#534",
+      "verification_gate": "Pinned production DMC command classes remain compatible with guarded Homeboy delegation"
+    },
+    {
+      "id": "test-homeboy-adapter-dispatch-fixture",
+      "subsystem": null,
+      "surface": "Minimal WordPress dispatcher harness for pinned DMC command classes",
+      "source": { "repository": "wp-coding-agents", "path": "tests/fixtures/homeboy-worktree-adapter-dispatch.php", "symbol_or_command": "datamachine_code_finish_bounded_workspace_cli_request" },
+      "evidence_kind": "test",
+      "contracts": ["datamachine_code_finish_bounded_workspace_cli_request"],
+      "current_owner": "wp-coding-agents tests",
+      "current_consumers": ["Adapter integration CI"],
+      "persistence": "None",
+      "target_owner": "Homeboy",
+      "disposition": "replace",
+      "migration_issue": "#534",
+      "verification_gate": "Harness executes the guarded adapter through real WP-CLI dispatch without claiming full plugin bootstrap"
+    },
+    {
+      "id": "test-homeboy-adapter-provenance",
+      "subsystem": null,
+      "surface": "Immutable source and checksum provenance for adapter compatibility fixtures",
+      "source": { "repository": "wp-coding-agents", "path": "tests/fixtures/homeboy-worktree-adapter.PROVENANCE.md", "symbol_or_command": "Pinned Data Machine Code and WP-CLI fixture sources" },
+      "evidence_kind": "test",
+      "contracts": ["data-machine-code"],
+      "current_owner": "wp-coding-agents tests",
+      "current_consumers": ["Maintainers and CI"],
+      "persistence": "None",
+      "target_owner": "Homeboy",
+      "disposition": "replace",
+      "migration_issue": "#534",
+      "verification_gate": "Every downloaded compatibility fixture is immutable or checksum-verified before execution"
     },
     {
       "id": "test-runtime-projections",
@@ -1164,7 +1209,7 @@
       "setup.sh", "upgrade.sh", "lib/data-machine.sh", "lib/homeboy.sh", "lib/plugin-upgrade.sh", "lib/source-policy.sh", "lib/owned-source-discovery.sh", "lib/runtime-signature.sh", "lib/systems-capabilities.sh", "lib/cli-channel.sh", "lib/summary.sh", "runtimes/opencode.sh", "runtimes/claude-code.sh", "bridges/kimaki.sh", "templates/wp-coding-agents-homeboy-worktrees.php", "templates/wp-coding-agents-cli-transport.php", "templates/wp-coding-agents-source-reconcile.php"
     ],
     "tests": [
-      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/worktree-context-projections.sh"
+      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/fixtures/homeboy-worktree-adapter-dispatch.php", "tests/fixtures/homeboy-worktree-adapter.PROVENANCE.md", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter-integration.sh", "tests/homeboy-worktree-adapter.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/worktree-context-projections.sh"
     ],
     "guidance": [
       "README.md", "guidance/homeboy.sh", "skills/upgrade-wp-coding-agents/SKILL.md", "operator-entrypoints/wp-coding-agents-setup/verify.md"
