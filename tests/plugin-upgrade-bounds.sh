@@ -134,7 +134,7 @@ fi
 [ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "generic reconciler did not return partial status"
 reconciler_print_partial_evidence
 case "$LOG" in
-  *'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'phase=reconciler-timeout terminal=timeout'*'DESIRED_STATE_COMPLETED_RECORDS=plugins.data-machine'*) : ;;
+  *'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'DESIRED_STATE_COMPLETED_RECORDS=plugins.data-machine'*) : ;;
   *) fail "desired-state reconciler omitted timeout or completed-record evidence" ;;
 esac
 

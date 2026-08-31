@@ -88,6 +88,7 @@ bridge_service_adapters_plan() {
   bridge_service_adapter_operation_validate "$operation"
   BRIDGE_SERVICE_ADAPTER_OPERATION="$operation"
   for adapter in $(bridge_service_adapter_names); do
+    [ "${BRIDGE_SERVICE_ADAPTER_SCOPE:-all}" != bridge ] || [ "$adapter" = bridge ] || continue
     bridge_service_adapter_plan "$adapter"
   done
 }
@@ -96,19 +97,19 @@ bridge_service_adapter_apply_bridge() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then
-    bridge_install
+    bridge_install || return $?
     declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
     return
   fi
-  bridge_sync_config
+  bridge_sync_config || return $?
   if [ "${LOCAL_MODE:-false}" = true ]; then
     if [ "${PLATFORM:-}" = mac ] && bridge_has_hook update_launchd; then
-      bridge_update_launchd
+      bridge_update_launchd || return $?
     fi
     declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
     return 0
   elif [ "${EUID:-$(id -u)}" -eq 0 ]; then
-    bridge_update_systemd
+    bridge_update_systemd || return $?
   else
     warn "Skipping chat bridge unit refresh because upgrade is running non-root"
   fi
@@ -119,7 +120,7 @@ bridge_service_adapter_apply_bridge() {
 bridge_service_adapter_apply_wordpress_service() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
-  wordpress_service_reconcile
+  wordpress_service_reconcile || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }
@@ -127,7 +128,7 @@ bridge_service_adapter_apply_wordpress_service() {
 bridge_service_adapter_apply_datamachine_worker() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
-  datamachine_worker_reconcile
+  datamachine_worker_reconcile || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }

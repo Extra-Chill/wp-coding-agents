@@ -148,19 +148,21 @@ reconciler_apply_plan() {
     log "[desired-state] record=$record operation=$operation apply=start timeout=${timeout}s replay=$replay"
     if reconciler_run_bounded "$record" "$operation" "$timeout" "$apply"; then
       RECONCILER_COMPLETED_RECORDS+=("$record")
-      if [ -n "$verify" ] && ! "$verify"; then
-        step_status=$?
-        status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
-        warn "[desired-state] record=$record operation=$operation verify=failed status=$step_status replay=$replay"
-      else
-        changed="${RECONCILER_STEP_CHANGED:-false}"
-        if [ "$changed" = true ]; then
-          RECONCILER_CHANGED_RECORDS+=("$record")
-          log "[desired-state] record=$record operation=$operation apply=complete changed=true replay=$replay"
-        else
-          RECONCILER_UNCHANGED_RECORDS+=("$record")
-          log "[desired-state] record=$record operation=$operation apply=complete changed=false replay=$replay"
+      if [ -n "$verify" ]; then
+        if "$verify"; then :; else
+          step_status=$?
+          status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+          warn "[desired-state] record=$record operation=$operation verify=failed status=$step_status replay=$replay"
+          continue
         fi
+      fi
+      changed="${RECONCILER_STEP_CHANGED:-false}"
+      if [ "$changed" = true ]; then
+        RECONCILER_CHANGED_RECORDS+=("$record")
+        log "[desired-state] record=$record operation=$operation apply=complete changed=true replay=$replay"
+      else
+        RECONCILER_UNCHANGED_RECORDS+=("$record")
+        log "[desired-state] record=$record operation=$operation apply=complete changed=false replay=$replay"
       fi
     else
       step_status=$?
@@ -180,13 +182,12 @@ reconciler_replay_command() {
   printf '%q%s' "$script" " ${RECONCILER_REPLAY_ARGUMENTS:-}"
 }
 
-# Adapters run in this shell because their explicit outcomes and service-state
-# bookkeeping are shell state. Nested commands retain their own bounded runners;
-# the engine enforces an aggregate budget and rejects a step that exceeds it.
+# Each adapter runs in its own process group. The only child-shell state accepted
+# by the parent is this credential-safe outcome file, never the environment.
 reconciler_run_bounded() {
   local record="$1" operation="$2" timeout="$3" apply="$4"
   local total="${DESIRED_STATE_TOTAL_TIMEOUT_SECONDS:-480}" now elapsed remaining
-  local started status=0
+  local started status=0 temp_dir outcome_file pid pgid elapsed restore_monitor=false
   case "$timeout" in ''|*[!0-9]*|0) timeout=120 ;; esac
   case "$total" in ''|*[!0-9]*|0) total=480 ;; esac
   now="$(date +%s)"; elapsed=$((now - RECONCILER_STARTED_AT)); remaining=$((total - elapsed))
@@ -195,14 +196,35 @@ reconciler_run_bounded() {
     return 124
   fi
   [ "$remaining" -lt "$timeout" ] && timeout="$remaining"
+  temp_dir="$(mktemp -d)" || return 1
+  outcome_file="$temp_dir/outcome"
   started="$(date +%s)"
+  case "$-" in *m*) ;; *) set -m; restore_monitor=true ;; esac
+  ( RECONCILER_STEP_CHANGED=false; "$apply"; status=$?; printf 'changed=%s\n' "$RECONCILER_STEP_CHANGED" > "$outcome_file"; exit "$status" ) &
+  pid=$!
+  [ "$restore_monitor" = false ] || set +m
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - started ))
+    if [ "$elapsed" -ge "$timeout" ]; then
+      warn "[desired-state] record=$record operation=$operation deadline-exceeded elapsed=${elapsed}s timeout=${timeout}s"
+      if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -TERM -- "-$pgid" 2>/dev/null || true; else kill -TERM "$pid" 2>/dev/null || true; fi
+      sleep "${PLUGIN_UPDATE_KILL_GRACE_SECONDS:-2}"
+      if kill -0 "$pid" 2>/dev/null; then
+        if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -KILL -- "-$pgid" 2>/dev/null || true; else kill -KILL "$pid" 2>/dev/null || true; fi
+      fi
+      wait "$pid" 2>/dev/null || true
+      rm -rf "$temp_dir"
+      return 124
+    fi
+    sleep 1
+  done
+  if wait "$pid"; then status=0; else status=$?; fi
   RECONCILER_STEP_CHANGED=false
-  if "$apply"; then status=0; else status=$?; fi
-  elapsed=$(( $(date +%s) - started ))
-  if [ "$elapsed" -gt "$timeout" ]; then
-    warn "[desired-state] record=$record operation=$operation deadline-exceeded elapsed=${elapsed}s timeout=${timeout}s"
-    return 124
+  if [ "$status" -eq 0 ] && [ -f "$outcome_file" ]; then
+    case "$(<"$outcome_file")" in changed=true) RECONCILER_STEP_CHANGED=true ;; esac
   fi
+  rm -rf "$temp_dir"
   return "$status"
 }
 

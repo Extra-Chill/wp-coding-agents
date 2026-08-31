@@ -52,7 +52,7 @@ integration_adapters_plan() {
   }
 
   integration_adapters_detect
-  local record
+  local record carried_plugins_planned=false
   for record in "${INTEGRATION_ADAPTER_RECORDS[@]}"; do
     case "$record" in
       integrations.dmc-managed-release-cleanup)
@@ -62,7 +62,9 @@ integration_adapters_plan() {
         reconciler_plan_add "$record" integrations.dmc-copied-release _integration_adapter_preserve_copied_dmc _integration_adapter_verify_copied_dmc
         ;;
       integrations.carried-plugin.*)
-        reconciler_plan_add "$record" integrations.carried-plugin _integration_adapter_sync_carried_plugins _integration_adapter_verify_carried_plugins
+        [ "$carried_plugins_planned" = false ] || continue
+        reconciler_plan_add integrations.carried-plugins integrations.carried-plugin _integration_adapter_sync_carried_plugins _integration_adapter_verify_carried_plugins
+        carried_plugins_planned=true
         ;;
       integrations.homeboy)
         reconciler_plan_add "$record" integrations.homeboy _integration_adapter_sync_homeboy _integration_adapter_verify_homeboy
@@ -105,7 +107,7 @@ _integration_adapter_verify_copied_dmc() {
 _integration_adapter_sync_carried_plugins() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
-  sync_carried_plugins
+  sync_carried_plugins || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }
@@ -125,9 +127,9 @@ _integration_adapter_verify_carried_plugins() {
 _integration_adapter_sync_homeboy() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
-  setup_homeboy_project
-  configure_homeboy_worktree_ownership
-  configure_homeboy_wordpress_extension
+  setup_homeboy_project || return $?
+  configure_homeboy_worktree_ownership || return $?
+  configure_homeboy_wordpress_extension || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }

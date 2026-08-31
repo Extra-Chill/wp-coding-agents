@@ -627,7 +627,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
   fi
 fi
 
-if [ "$EXTERNAL_WORDPRESS" != true ]; then
+if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
   source_policy_record_mode
   owned_discovery_record_exclusions
   source_policy_record_owned_sources
@@ -637,16 +637,18 @@ if [ "$EXTERNAL_WORDPRESS" != true ]; then
 fi
 
 discover_dm_workspace_dir
-systems_capabilities_apply
+[ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
 CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
-CONVERGENCE_REPLAY_ARGUMENTS="${DRY_RUN:+--dry-run}"
+CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"
+[ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
+[ "$RUNTIME_ONLY" != true ] || CONVERGENCE_SCOPE=runtime
 convergence_run "$INSTALLATION_OPERATION_SETUP"
-ai_gateway_configure_opencode
-opencode_project_subagents_optional
-install_skills
-if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi
+[ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
+[ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
+[ "$RUNTIME_ONLY" != true ] && install_skills
+if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
-if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
-installation_profile_write
+if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
+[ "$RUNTIME_ONLY" != true ] && installation_profile_write
 print_summary
