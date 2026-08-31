@@ -4,4 +4,4 @@
 
 Generated MU-plugins remain limited to installation governance that must always load, such as runtime registration, channel transport, inbound events, and source reconciliation. Host installation, repository policy, and Homeboy lifecycle stay outside the WordPress package.
 
-The initial package surface is `WpCodingAgents\Integration\HostCapabilities`, extracted for Intelligence's confirmed shell and writable-content-directory checks. No DMC workspace, GitHub, ability, flow, task, or lifecycle implementation is included.
+The initial package keeps `WpCodingAgents\Integration\HostCapabilities` private to the provider package and adapts its probes onto Intelligence-owned `intelligence_host_has_shell` and `intelligence_host_has_writable_content_directory` filters. Intelligence and Data Machine do not reference this package or namespace. No DMC workspace, GitHub, ability, flow, task, or lifecycle implementation is included.

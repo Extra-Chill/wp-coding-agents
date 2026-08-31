@@ -22,7 +22,7 @@ wp_cmd() {
   case "$1 $2" in
     'option list') printf '0\n' ;;
     'plugin is-active') return 0 ;;
-    'eval exit(class_exists("\\WpCodingAgents\\Integration\\HostCapabilities") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
+    'eval exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
     *) return 1 ;;
   esac
 }
@@ -69,7 +69,7 @@ integration_adapters_apply
 [ -d "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration" ] || fail "WordPress integration package was not applied"
 [ "$(grep -c '^homeboy$' "$HOMEBOY_TRACE")" -eq 1 ] || fail "disabled Homeboy cleanup was not applied"
 HOST_CAPABILITIES_AVAILABLE=false
-if _integration_adapter_verify_carried_plugins; then fail "missing integration package runtime contract passed verification"; fi
+if _integration_adapter_verify_carried_plugins; then fail "missing integration hook adapters passed verification"; fi
 HOST_CAPABILITIES_AVAILABLE=true
 
 # Multiple eligible carried sources are one aggregate desired-state effect.

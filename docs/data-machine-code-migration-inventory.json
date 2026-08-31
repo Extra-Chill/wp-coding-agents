@@ -1271,7 +1271,7 @@
       "Their orphaned pipelines 3, 5, and 6 were deleted after the flows",
       "Post-deletion flow and pipeline listings contain no DMC PR-review scaffold; Homeboy is the supported GitHub Actions agent path"
     ],
-    "confirmed_in_process_consumer": "Intelligence uses only shell and writable-content-directory capability checks"
+    "confirmed_in_process_consumer": "Intelligence defines fail-closed shell and writable-content-directory filters; the focused package supplies those capabilities without a package dependency in Intelligence"
   },
   "unresolved_classifications": [
     {

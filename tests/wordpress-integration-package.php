@@ -5,11 +5,31 @@ declare(strict_types=1);
 define('ABSPATH', __DIR__);
 define('WP_CONTENT_DIR', __DIR__);
 
+$GLOBALS['wp_coding_agents_test_filters'] = array();
+function add_filter(string $hook, callable $callback): void {
+	$GLOBALS['wp_coding_agents_test_filters'][$hook][] = $callback;
+}
+
+function apply_filters(string $hook, $value) {
+	foreach ($GLOBALS['wp_coding_agents_test_filters'][$hook] ?? array() as $callback) {
+		$value = $callback($value);
+	}
+	return $value;
+}
+
 require_once dirname(__DIR__) . '/carried-plugins/wp-coding-agents-integration/wp-coding-agents-integration.php';
 
 use WpCodingAgents\Integration\HostCapabilities;
 
 assert(class_exists(HostCapabilities::class));
+assert(isset($GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_shell']));
+assert(isset($GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_writable_content_directory']));
+assert(
+	'WpCodingAgents\\Integration\\provide_intelligence_shell_capability'
+	=== $GLOBALS['wp_coding_agents_test_filters']['intelligence_host_has_shell'][0]
+);
+assert(true === apply_filters('intelligence_host_has_shell', true));
+assert(true === apply_filters('intelligence_host_has_writable_content_directory', false));
 
 $available = static fn(string $function_name): bool => in_array($function_name, array('exec', 'shell_exec', 'proc_open'), true);
 $success = static fn(string $command): array => array(
