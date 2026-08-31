@@ -96,20 +96,20 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (!self::has_required_add_definition($definition, $synopsis)) {
 			return;
 		}
-		$definition['longdesc'] = "On this Homeboy-owned runtime, context injection and dependency bootstrap are omitted by default, and native handoff freshness is always requested first. The existing --skip-context-injection and --skip-bootstrap flags remain supported aliases. Use --inject-context or --bootstrap to explicitly request DMC-owned behavior; unsupported requests return a typed refusal.\n\n" . (string) ($definition['longdesc'] ?? '');
+		$definition['longdesc'] = "On this Homeboy-owned runtime, context injection and dependency bootstrap are omitted by default, and native handoff freshness is always requested first. The existing --skip-context-injection and --skip-bootstrap flags remain supported aliases. Use --inject-context or --bootstrap to explicitly request DMC-owned behavior.\n\n" . (string) ($definition['longdesc'] ?? '');
 		$definition['synopsis'] = array_merge(
 			$definition['synopsis'],
 			array(
 				array(
 					'type'        => 'flag',
 					'name'        => 'inject-context',
-					'description' => 'Explicitly request DMC context injection (unsupported by the Homeboy adapter).',
+					'description' => 'Route creation through DMC with context injection.',
 					'optional'    => true,
 				),
 				array(
 					'type'        => 'flag',
 					'name'        => 'bootstrap',
-					'description' => 'Explicitly request DMC dependency bootstrap (unsupported by the Homeboy adapter).',
+					'description' => 'Route creation through DMC with dependency bootstrap.',
 					'optional'    => true,
 				),
 			)

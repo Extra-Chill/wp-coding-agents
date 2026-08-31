@@ -113,17 +113,11 @@ if "${WP[@]}" datamachine-code workspace worktree add homeboy invalid --unknown-
   exit 1
 fi
 
-if EXPLICIT="$("${WP[@]}" datamachine-code workspace worktree add homeboy explicit-context --inject-context --format=json)"; then
-  echo "FAIL: explicit context injection unexpectedly succeeded" >&2
-  exit 1
-fi
-php -r '$e=json_decode($argv[1],true)["error"]??array(); if (($e["code"]??null)!=="wp_coding_agents_homeboy_worktree_unsupported_input" || ($e["data"]["field"]??null)!=="inject_context") exit(1);' "$EXPLICIT"
-
-if EXPLICIT="$("${WP[@]}" datamachine-code workspace worktree add homeboy explicit-bootstrap --bootstrap --format=json)"; then
-  echo "FAIL: explicit dependency bootstrap unexpectedly succeeded" >&2
-  exit 1
-fi
-php -r '$e=json_decode($argv[1],true)["error"]??array(); if (($e["code"]??null)!=="wp_coding_agents_homeboy_worktree_unsupported_input" || ($e["data"]["field"]??null)!=="bootstrap") exit(1);' "$EXPLICIT"
+: > "$LOG"
+"${WP[@]}" datamachine-code workspace worktree add homeboy explicit-context --inject-context --format=json >/dev/null
+[ ! -s "$LOG" ] || { echo "FAIL: explicit context injection reached Homeboy instead of native DMC" >&2; exit 1; }
+"${WP[@]}" datamachine-code workspace worktree add homeboy explicit-bootstrap --bootstrap --format=json >/dev/null
+[ ! -s "$LOG" ] || { echo "FAIL: explicit dependency bootstrap reached Homeboy instead of native DMC" >&2; exit 1; }
 
 : > "$LOG"
 if LEGACY="$(HOMEBOY_LEGACY=true "${COMMAND[@]}")"; then
