@@ -184,6 +184,8 @@ guidance_call() {
 # be synced on their own (lib/homeboy.sh re-syncs the homeboy section after the
 # binary's availability is settled); both paths are idempotent.
 guidance_sync_all() {
+  agents_md_guidance_sync_wp_cli_transport
+
   local id
   for id in $(guidance_names); do
     guidance_sync_unit "$id"

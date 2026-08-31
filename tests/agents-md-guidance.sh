@@ -243,6 +243,12 @@ path.write_text(content)
 PY
 guidance_sync_all
 assert_php_lint "$MU_FILE" "WordPress boundary guidance parses with php -l"
+if grep -q "BEGIN agents-md-guidance:wp-cli-transport" "$MU_FILE"; then
+  echo "  ok   WordPress CLI transport filter present"
+else
+  echo "  FAIL WordPress CLI transport filter missing"
+  FAILED=$((FAILED + 1))
+fi
 if grep -q '^}, 100 );$' "$MU_FILE"; then
   echo "  ok   existing action wrapper normalized to priority 100"
 else
@@ -267,6 +273,59 @@ guidance_sync_all
 HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HASH_AFTER" "$HASH_BEFORE" "WordPress boundary sync is idempotent"
 
+echo "==> generated Studio commands use the selected transport non-interactively"
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/studio" <<'SH'
+#!/bin/bash
+[ "$1" = wp ] || exit 1
+shift
+case " $* " in *" datamachine memory compose AGENTS.md "*) exit 0 ;; esac
+exit 1
+SH
+chmod +x "$TMP/bin/studio"
+wp_cli_transport_set studio wp
+guidance_sync_all
+if grep -q "return 'studio wp'" "$MU_FILE"; then
+  echo "  ok   Studio transport stored in generated guidance"
+else
+  echo "  FAIL Studio transport was not stored in generated guidance"
+  FAILED=$((FAILED + 1))
+fi
+TRANSPORT_SHIM="$TMP/transport-shim.php"
+cat > "$TRANSPORT_SHIM" <<PHP
+<?php
+define( 'ABSPATH', '/' );
+\$GLOBALS['actions'] = [];
+\$GLOBALS['filters'] = [];
+class TransportSectionRegistry { public static function register( \$file, \$section, \$priority, \$callback, \$metadata = [] ): void {} }
+class_alias( 'TransportSectionRegistry', 'DataMachine\\Engine\\AI\\SectionRegistry' );
+function add_action( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['actions'][\$tag][\$priority][] = \$callback; }
+function add_filter( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['filters'][\$tag][\$priority][] = \$callback; }
+function apply_filters( \$tag, \$value ) {
+    if ( empty( \$GLOBALS['filters'][\$tag] ) ) { return \$value; }
+    ksort( \$GLOBALS['filters'][\$tag] );
+    foreach ( \$GLOBALS['filters'][\$tag] as \$callbacks ) { foreach ( \$callbacks as \$callback ) { \$value = \$callback( \$value ); } }
+    return \$value;
+}
+function datamachine_agents_md_enabled(): bool { return true; }
+require '$MU_FILE';
+ksort( \$GLOBALS['actions']['datamachine_sections'] );
+foreach ( \$GLOBALS['actions']['datamachine_sections'] as \$callbacks ) { foreach ( \$callbacks as \$callback ) { \$callback(); } }
+echo apply_filters( 'datamachine_wp_cli_cmd', 'wp --path=/path/to/site' );
+PHP
+GENERATED_PREFIX=$(php "$TRANSPORT_SHIM")
+assert_eq "$GENERATED_PREFIX" "studio wp --path=/path/to/site" "Studio AGENTS command prefix preserves path"
+if env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$GENERATED_PREFIX datamachine memory compose AGENTS.md"; then
+  echo "  ok   generated Studio command executes without bare wp"
+else
+  echo "  FAIL generated Studio command does not execute without bare wp"
+  FAILED=$((FAILED + 1))
+fi
+wp_cli_transport_set wp
+guidance_sync_all
+GENERATED_PREFIX=$(php "$TRANSPORT_SHIM")
+assert_eq "$GENERATED_PREFIX" "wp --path=/path/to/site" "generic AGENTS command prefix retains wp"
+
 echo "==> WordPress guidance wins mixed-version registration"
 MIXED_SHIM="$TMP/mixed-section-shim.php"
 cat > "$MIXED_SHIM" <<PHP
@@ -285,8 +344,11 @@ namespace {
     function datamachine_agents_md_enabled(): bool { return true; }
     \$GLOBALS['actions'] = [];
     function add_action( \$tag, \$callback, \$priority = 10 ) {
-        \$GLOBALS['actions'][\$tag][\$priority][] = \$callback;
-    }
+    \$GLOBALS['actions'][\$tag][\$priority][] = \$callback;
+}
+function add_filter( \$tag, \$callback, \$priority = 10 ) {
+    \$GLOBALS['filters'][\$tag][\$priority][] = \$callback;
+}
     add_action( 'datamachine_sections', static function () {
         \DataMachine\Engine\AI\SectionRegistry::register( 'AGENTS.md', 'wordpress-source', 30, static fn() => 'old source', [ 'owner' => 'data-machine-code' ] );
         \DataMachine\Engine\AI\SectionRegistry::register( 'AGENTS.md', 'abilities', 20, static fn() => 'old abilities', [ 'owner' => 'data-machine-code' ] );

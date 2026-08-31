@@ -19,6 +19,7 @@
 # Public surface:
 #   agents_md_guidance_mu_plugin_path
 #   agents_md_guidance_ensure_mu_plugin_file
+#   agents_md_guidance_sync_wp_cli_transport
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
 #
@@ -180,6 +181,33 @@ agents_md_guidance_register() {
   fi
 }
 
+# Keep all core and extension-provided AGENTS.md CLI examples replayable in the
+# environment that setup detected. The core generators own their command prose;
+# their shared `datamachine_wp_cli_cmd` filter is the integration boundary.
+agents_md_guidance_sync_wp_cli_transport() {
+  local file transport new_block
+  file="$(agents_md_guidance_mu_plugin_path)" || return 1
+  agents_md_guidance_ensure_mu_plugin_file || return 1
+  transport="$(wp_cli_transport_display)"
+  new_block="$(_agents_md_guidance_render_wp_cli_transport_block "$transport")" || return 1
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would register AGENTS.md WP-CLI transport in $file"
+    return 0
+  fi
+
+  if _agents_md_guidance_block_matches "$file" "wp-cli-transport" "$new_block"; then
+    return 0
+  fi
+
+  local tmp
+  tmp=$(mktemp "${file}.XXXXXX")
+  _agents_md_guidance_rewrite "$file" "wp-cli-transport" "$new_block" > "$tmp"
+  mv "$tmp" "$file"
+  service_file_normalize_perms "$file"
+  log "  Registered AGENTS.md WP-CLI transport: $transport"
+}
+
 agents_md_guidance_unregister() {
   local section_id="$1"
   if [ -z "$section_id" ]; then
@@ -266,6 +294,28 @@ print(f"            'conditions'  => '{esc(conditions)}',")
 print("        )")
 print("    );")
 print(f"    // END agents-md-guidance:{section_id}")
+PY
+}
+
+_agents_md_guidance_render_wp_cli_transport_block() {
+  AGENTS_MD_GUIDANCE_WP_CLI_TRANSPORT="$1" python3 <<'PY'
+import os
+
+transport = os.environ["AGENTS_MD_GUIDANCE_WP_CLI_TRANSPORT"]
+escaped = transport.replace("\\", "\\\\").replace("'", "\\'")
+
+print("    // BEGIN agents-md-guidance:wp-cli-transport")
+print("    add_filter(")
+print("        'datamachine_wp_cli_cmd',")
+print("        static function ( $default ) {")
+print("            if ( ! is_string( $default ) || 0 !== strpos( $default, 'wp' ) || ( isset( $default[2] ) && ! ctype_space( $default[2] ) ) ) {")
+print("                return $default;")
+print("            }")
+print(f"            return '{escaped}' . substr( $default, 2 );")
+print("        },")
+print("        100")
+print("    );")
+print("    // END agents-md-guidance:wp-cli-transport")
 PY
 }
 
