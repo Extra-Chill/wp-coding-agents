@@ -345,13 +345,15 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (is_wp_error($result)) {
 			return $result;
 		}
-		if (0 !== $result['exit_code'] || 1 !== preg_match('/\Ahomeboy ([0-9]+\.[0-9]+\.[0-9]+)\s*\z/', trim($result['stdout']), $matches)) {
+		$number  = '(?:0|[1-9][0-9]*)';
+		$pattern = '/\Ahomeboy ((' . $number . '\.' . $number . '\.' . $number . ')(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)\z/D';
+		if (0 !== $result['exit_code'] || 1 !== preg_match($pattern, trim($result['stdout']), $matches)) {
 			return self::contract_error(
 				'Homeboy repository-path capability probe returned an invalid version result.',
-				array('capability' => 'worktree_create_repository_path', 'exit_code' => $result['exit_code'], 'stdout' => trim($result['stdout']), 'stderr' => trim($result['stderr']))
+				array('capability' => 'worktree_create_repository_path', 'exit_code' => $result['exit_code'], 'output_redacted' => true, 'stdout_bytes' => strlen($result['stdout']), 'stderr_bytes' => strlen($result['stderr']))
 			);
 		}
-		return array('supported' => version_compare($matches[1], self::REPOSITORY_PATH_MIN_VERSION, '>='), 'version' => $matches[1]);
+		return array('supported' => version_compare($matches[2], self::REPOSITORY_PATH_MIN_VERSION, '>='), 'version' => $matches[1]);
 	}
 
 	private static function is_repository_path_capability_error(array|WP_Error $result): bool {

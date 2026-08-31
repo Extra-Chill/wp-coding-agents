@@ -21,7 +21,11 @@ cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$HOMEBOY_ADAPTER_TEST_LOG"
 if [ "$*" = "--version" ]; then
-	printf 'homeboy %s\n' "${HOMEBOY_VERSION:-0.367.3}"
+	if [ -n "${HOMEBOY_VERSION_OUTPUT:-}" ]; then
+		printf '%s\n' "$HOMEBOY_VERSION_OUTPUT"
+	else
+		printf 'homeboy %s\n' "${HOMEBOY_VERSION:-0.367.3+3fa0c185d41b}"
+	fi
 	exit 0
 fi
 case "$*" in
@@ -154,6 +158,15 @@ expect('upgrade_homeboy' === ($legacy_path_error->data['remediation'] ?? null) &
 putenv('HOMEBOY_VERSION=0.367.3');
 $verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($verified) && 'verified' === ($verified['handoff_freshness']['status'] ?? null), 'create maps Homeboy remote freshness into the DMC handoff contract');
+putenv('HOMEBOY_VERSION_OUTPUT=homeboy 0.367.3+3fa0c185d41b');
+$metadata_version = $add(array('repo' => 'fixture', 'branch' => 'fix/metadata-version', 'inject_context' => false, 'bootstrap' => false));
+expect(!is_wp_error($metadata_version), 'official Homeboy SemVer build metadata retains repository-path delegation');
+putenv('HOMEBOY_VERSION_OUTPUT=homeboy malformed secret-version-output');
+$malformed_version = WP_Coding_Agents_Homeboy_Worktrees::execute('datamachine-code/workspace-worktree-add', array('repo' => 'fixture', 'branch' => 'fix/malformed-version'));
+expect(is_wp_error($malformed_version) && 'wp_coding_agents_homeboy_worktree_contract_error' === $malformed_version->code, 'malformed Homeboy version output fails closed');
+$malformed_evidence = $malformed_version->data['evidence'] ?? array();
+expect(true === ($malformed_evidence['output_redacted'] ?? false) && !str_contains((string) json_encode($malformed_evidence), 'secret-version-output'), 'malformed Homeboy version evidence is redacted');
+putenv('HOMEBOY_VERSION_OUTPUT');
 $created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'create projects native Homeboy record');
 expect('verified' === ($created['handoff_freshness']['status'] ?? null), 'create retains available Homeboy freshness when unverified fallback is allowed');

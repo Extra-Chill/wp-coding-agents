@@ -18,6 +18,15 @@ DMC_VERSION="0.74.1"
 DMC_COMMIT="f9509db9168cdc1274237ce2e32f1179647bb756"
 DMC_SHA256="45107900643a74e6a76b51b28cd7332aea68756ddb2eaac5f9360e0f9823b62b"
 DMC_URL="https://codeload.github.com/Extra-Chill/data-machine-code/tar.gz/${DMC_COMMIT}"
+HOMEBOY_RELEASE_VERSION="0.367.3"
+HOMEBOY_RELEASE_BUILD="3fa0c185d41b"
+HOMEBOY_RELEASE_TARGET=""
+HOMEBOY_RELEASE_SHA256=""
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) HOMEBOY_RELEASE_TARGET="aarch64-apple-darwin"; HOMEBOY_RELEASE_SHA256="634731246fb92bc6846e2576552dc2c903f990b2252e161cf77645020e1e59e8" ;;
+  Linux-x86_64) HOMEBOY_RELEASE_TARGET="x86_64-unknown-linux-gnu"; HOMEBOY_RELEASE_SHA256="cd373e81613de9140e5ada23189cca408ddd06a8160fb7cc4031cf536b9ea6e4" ;;
+  Linux-aarch64) HOMEBOY_RELEASE_TARGET="aarch64-unknown-linux-gnu"; HOMEBOY_RELEASE_SHA256="c0726076f8ab6620e50e761a534240ee49e49b0046732474ed20ba974e1cf764" ;;
+esac
 FIXTURE_CACHE_DIR="${WP_CODING_AGENTS_FIXTURE_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-$TMP}/.cache}/wp-coding-agents/test-fixtures}"
 mkdir -p "$FIXTURE_CACHE_DIR"
 
@@ -49,6 +58,20 @@ download_verified "$DMC_URL" "$DMC_SHA256" "$DMC_ARCHIVE"
 verify_sha256 "$WP_CLI_SHA256" "$WP_CLI_PHAR" || { echo "FAIL: cached WP-CLI checksum changed" >&2; exit 1; }
 verify_sha256 "$DMC_SHA256" "$DMC_ARCHIVE" || { echo "FAIL: cached DMC checksum changed" >&2; exit 1; }
 
+HOMEBOY_VERSION_OUTPUT="homeboy ${HOMEBOY_RELEASE_VERSION}+${HOMEBOY_RELEASE_BUILD}"
+if [ -n "$HOMEBOY_RELEASE_TARGET" ]; then
+  HOMEBOY_RELEASE_URL="https://github.com/Extra-Chill/homeboy/releases/download/v${HOMEBOY_RELEASE_VERSION}/homeboy-${HOMEBOY_RELEASE_TARGET}.tar.xz"
+  HOMEBOY_RELEASE_ARCHIVE="$FIXTURE_CACHE_DIR/homeboy-${HOMEBOY_RELEASE_VERSION}-${HOMEBOY_RELEASE_TARGET}-${HOMEBOY_RELEASE_SHA256}.tar.xz"
+  download_verified "$HOMEBOY_RELEASE_URL" "$HOMEBOY_RELEASE_SHA256" "$HOMEBOY_RELEASE_ARCHIVE"
+  verify_sha256 "$HOMEBOY_RELEASE_SHA256" "$HOMEBOY_RELEASE_ARCHIVE" || { echo "FAIL: cached Homeboy checksum changed" >&2; exit 1; }
+  mkdir -p "$TMP/homeboy-release"
+  tar -xJf "$HOMEBOY_RELEASE_ARCHIVE" -C "$TMP/homeboy-release"
+  OFFICIAL_HOMEBOY="$TMP/homeboy-release/homeboy-${HOMEBOY_RELEASE_TARGET}/homeboy"
+  [ -x "$OFFICIAL_HOMEBOY" ] || { echo "FAIL: pinned Homeboy archive omitted its executable" >&2; exit 1; }
+  HOMEBOY_VERSION_OUTPUT="$("$OFFICIAL_HOMEBOY" --version)"
+  [ "$HOMEBOY_VERSION_OUTPUT" = "homeboy ${HOMEBOY_RELEASE_VERSION}+${HOMEBOY_RELEASE_BUILD}" ] || { echo "FAIL: pinned Homeboy release returned unexpected version output" >&2; exit 1; }
+fi
+
 DMC_FIXTURE_ROOT="$TMP/data-machine-code-${DMC_COMMIT}"
 mkdir -p "$DMC_FIXTURE_ROOT"
 tar -xzf "$DMC_ARCHIVE" --strip-components=1 -C "$DMC_FIXTURE_ROOT"
@@ -60,7 +83,11 @@ cat > "$BIN/homeboy" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$HOMEBOY_ADAPTER_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf 'homeboy %s\n' "${HOMEBOY_VERSION:-0.367.3}"
+  if [ "${HOMEBOY_VERSION+x}" = x ]; then
+    printf 'homeboy %s\n' "$HOMEBOY_VERSION"
+  else
+    printf '%s\n' "$HOMEBOY_VERSION_OUTPUT"
+  fi
   exit 0
 fi
 if [ "${HOMEBOY_LEGACY:-false}" = true ]; then
@@ -86,7 +113,7 @@ esac
 SH
 chmod +x "$BIN/homeboy"
 
-export PATH="$BIN:$PATH" HOMEBOY_ADAPTER_TEST_LOG="$LOG" HOMEBOY_TEST_REPOSITORY_PATH="$WORKSPACE_REAL/homeboy"
+export PATH="$BIN:$PATH" HOMEBOY_ADAPTER_TEST_LOG="$LOG" HOMEBOY_TEST_REPOSITORY_PATH="$WORKSPACE_REAL/homeboy" HOMEBOY_VERSION_OUTPUT
 SCRIPT_DIR="$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/lib/common.sh"
