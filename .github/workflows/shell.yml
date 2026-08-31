@@ -261,6 +261,7 @@ jobs:
           - homeboy-codebox-canary
           - homeboy-components
           - homeboy-worktree-adapter
+          - homeboy-worktree-adapter-integration
           - homeboy-project-id
           - homeboy-verification-guidance
           - kimaki-credential-seeding
@@ -287,5 +288,11 @@ jobs:
           - wp-config-permissions
     steps:
       - uses: actions/checkout@v4
+      - name: Cache pinned WP-CLI and DMC integration artifacts
+        if: matrix.test == 'homeboy-worktree-adapter-integration'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/wp-coding-agents/test-fixtures
+          key: homeboy-worktree-adapter-fixtures-wp-cli-2.12.0-dmc-f9509db9168cdc1274237ce2e32f1179647bb756
       - name: Run tests/${{ matrix.test }}.sh
         run: bash tests/${{ matrix.test }}.sh

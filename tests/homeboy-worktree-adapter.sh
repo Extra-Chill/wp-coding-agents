@@ -38,7 +38,15 @@ case "$*" in
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{}}'
     ;;
   "worktree create "*)
-    printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","cleanup_policy":"remove_when_safe","created_at":"2026-08-30T00:00:00Z","state":"active"},"handoff_freshness":{"status":"verified","proof":{"schema":"homeboy/worktree-handoff-freshness/v1","proof_id":"proof-474","handle":"fixture@fix-474","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-30T00:00:00Z"}}}}'
+	if [ "${HOMEBOY_LEGACY:-false}" = true ] && [[ "$*" = *"--require-handoff-freshness"* ]]; then
+		printf '%s\n' "error: unexpected argument '--require-handoff-freshness' found" >&2
+		exit 2
+	fi
+	if [ "${HOMEBOY_MISSING_PROOF:-false}" = true ]; then
+		printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","state":"active"}}}'
+		exit 0
+	fi
+	printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","cleanup_policy":"remove_when_safe","created_at":"2026-08-30T00:00:00Z","state":"active"},"handoff_freshness":{"status":"verified","proof":{"schema":"homeboy/worktree-handoff-freshness/v1","proof_id":"proof-474","handle":"fixture@fix-474","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-30T00:00:00Z"}}}}'
     ;;
   "worktree list")
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"list","worktrees":[{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","created_at":"2026-08-30T00:00:00Z","state":"active"},{"id":"fixture@removed","component_id":"fixture","worktree_path":"/workspace/fixture@removed","branch":"removed","state":"removed"}]}}'
@@ -84,6 +92,8 @@ define('DATAMACHINE_WORKSPACE_PATH', __DIR__ . '/workspace');
 
 final class WP_Error {
 	public function __construct(public string $code, public string $message, public array $data = array()) {}
+	public function get_error_code(): string { return $this->code; }
+	public function get_error_data(): array { return $this->data; }
 }
 function is_wp_error(mixed $value): bool { return $value instanceof WP_Error; }
 function wp_json_encode(mixed $value): string|false { return json_encode($value); }
@@ -92,6 +102,7 @@ function add_filter(string $hook, callable $callback, int $priority = 10, int $a
 	global $filters;
 	$filters[$hook] = $callback;
 }
+function add_action(string $hook, callable $callback, int $priority = 10, int $accepted_args = 1): void {}
 function expect(bool $condition, string $message): void {
 	if (!$condition) {
 		fwrite(STDERR, "FAIL: {$message}\n");
@@ -129,6 +140,20 @@ expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'crea
 expect('verified' === ($created['handoff_freshness']['status'] ?? null), 'create retains available Homeboy freshness when unverified fallback is allowed');
 $manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($manual), 'manual lifecycle intent maps to non-cleanup-eligible Homeboy policy');
+$before_legacy = count(file(getenv('HOMEBOY_ADAPTER_TEST_LOG')));
+putenv('HOMEBOY_LEGACY=true');
+$strict_legacy = $add(array('repo' => 'fixture', 'branch' => 'legacy-strict', 'inject_context' => false, 'bootstrap' => false));
+expect(is_wp_error($strict_legacy) && 'worktree_handoff_freshness_unverified' === $strict_legacy->code, 'strict freshness maps typed unsupported capability to remediation');
+$fallback_legacy = $add(array('repo' => 'fixture', 'branch' => 'legacy-fallback', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
+expect(!is_wp_error($fallback_legacy), 'explicit unverified policy retries after typed unsupported capability');
+putenv('HOMEBOY_LEGACY=false');
+$legacy_commands = array_slice(file(getenv('HOMEBOY_ADAPTER_TEST_LOG'), FILE_IGNORE_NEW_LINES), $before_legacy);
+expect(3 === count($legacy_commands), 'strict refusal performs once and permitted fallback performs exactly twice');
+expect(str_contains($legacy_commands[1], '--require-handoff-freshness') && !str_contains($legacy_commands[2], '--require-handoff-freshness'), 'fallback occurs only after the freshness option is rejected');
+putenv('HOMEBOY_MISSING_PROOF=true');
+$missing_proof = $add(array('repo' => 'fixture', 'branch' => 'missing-proof', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
+expect(is_wp_error($missing_proof) && 'wp_coding_agents_homeboy_worktree_contract_error' === $missing_proof->code, 'permitted fallback does not excuse a supported response that omits freshness proof');
+putenv('HOMEBOY_MISSING_PROOF=false');
 
 $list = $ability('datamachine-code/workspace-worktree-list');
 $listed = $list(array('handle' => 'fixture@fix-474', 'include_status' => true, 'limit' => 1));
@@ -161,7 +186,7 @@ if grep -q 'datamachine-code' "$LOG"; then
 fi
 grep -q "^worktree create $WORKSPACE_REAL/fixture " "$LOG"
 grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD$" "$LOG"
-grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474-manual --from origin/HEAD --cleanup-policy preserve-on-failure$" "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474-manual --require-handoff-freshness --from origin/HEAD --cleanup-policy preserve-on-failure$" "$LOG"
 grep -q '^worktree finalize fixture@fix-474 --owner-run-ref run-474 --disposition succeeded$' "$LOG"
 grep -q '^worktree cleanup --apply$' "$LOG"
 

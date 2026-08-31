@@ -61,6 +61,146 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		return !isset($input['reuse_policy']) || in_array($input['reuse_policy'], array('', 'isolated'), true);
 	}
 
+	public static function adapt_cli(): void {
+		$workspace_command = 'DataMachineCode\\Cli\\Commands\\WorkspaceCommand';
+		if (
+			!defined('WP_CLI')
+			|| !WP_CLI
+			|| !class_exists('WP_CLI')
+			|| !class_exists($workspace_command)
+			|| !method_exists($workspace_command, 'worktree_command_definitions')
+			|| !method_exists($workspace_command, '__worktree_operation')
+		) {
+			return;
+		}
+		$reflection  = new \ReflectionClass($workspace_command);
+		$definitions = $reflection->getMethod('worktree_command_definitions');
+		$dispatcher  = $reflection->getMethod('__worktree_operation');
+		$constructor = $reflection->getConstructor();
+		if (
+			!$reflection->isInstantiable()
+			|| (null !== $constructor && 0 < $constructor->getNumberOfRequiredParameters())
+			|| !self::has_exact_method_contract($definitions, true, array(), 'array')
+			|| !self::has_exact_method_contract($dispatcher, false, array('string', 'array', 'array'), 'void')
+		) {
+			return;
+		}
+
+		try {
+			$command_definitions = \DataMachineCode\Cli\Commands\WorkspaceCommand::worktree_command_definitions();
+		} catch (\Throwable) {
+			return;
+		}
+		$definition = is_array($command_definitions) ? ($command_definitions['add'] ?? null) : null;
+		$synopsis   = is_array($definition) ? ($definition['synopsis'] ?? null) : null;
+		if (!self::has_required_add_definition($definition, $synopsis)) {
+			return;
+		}
+		$definition['longdesc'] = "On this Homeboy-owned runtime, context injection and dependency bootstrap are omitted by default, and native handoff freshness is always requested first. The existing --skip-context-injection and --skip-bootstrap flags remain supported aliases. Use --inject-context or --bootstrap to explicitly request DMC-owned behavior; unsupported requests return a typed refusal.\n\n" . (string) ($definition['longdesc'] ?? '');
+		$definition['synopsis'] = array_merge(
+			$definition['synopsis'],
+			array(
+				array(
+					'type'        => 'flag',
+					'name'        => 'inject-context',
+					'description' => 'Explicitly request DMC context injection (unsupported by the Homeboy adapter).',
+					'optional'    => true,
+				),
+				array(
+					'type'        => 'flag',
+					'name'        => 'bootstrap',
+					'description' => 'Explicitly request DMC dependency bootstrap (unsupported by the Homeboy adapter).',
+					'optional'    => true,
+				),
+			)
+		);
+		$definition['synopsis'] = array_map(
+			static function (array $argument): array {
+				return match ($argument['name'] ?? null) {
+					'skip-context-injection' => array_merge($argument, array('description' => 'Alias confirming that Homeboy should omit DMC context injection (the adapter default).')),
+					'skip-bootstrap'         => array_merge($argument, array('description' => 'Alias confirming that Homeboy should omit DMC dependency bootstrap (the adapter default).')),
+					default => $argument,
+				};
+			},
+			$definition['synopsis']
+		);
+
+		\WP_CLI::add_command(
+			'datamachine-code workspace worktree add',
+			static function (array $args, array $assoc_args): void {
+				if (!empty($assoc_args['inject-context']) && !empty($assoc_args['skip-context-injection'])) {
+					\WP_CLI::error('Use only one of --inject-context or --skip-context-injection.');
+				}
+				if (!empty($assoc_args['bootstrap']) && !empty($assoc_args['skip-bootstrap'])) {
+					\WP_CLI::error('Use only one of --bootstrap or --skip-bootstrap.');
+				}
+				if (empty($assoc_args['inject-context'])) {
+					$assoc_args['skip-context-injection'] = true;
+				}
+				if (empty($assoc_args['bootstrap'])) {
+					$assoc_args['skip-bootstrap'] = true;
+				}
+				unset($assoc_args['inject-context'], $assoc_args['bootstrap']);
+				(new \DataMachineCode\Cli\Commands\WorkspaceCommand())->__worktree_operation('add', $args, $assoc_args);
+			},
+			$definition
+		);
+	}
+
+	/** @param list<string> $parameter_types */
+	private static function has_exact_method_contract(\ReflectionMethod $method, bool $static, array $parameter_types, string $return_type): bool {
+		if (!$method->isPublic() || $static !== $method->isStatic() || count($parameter_types) !== $method->getNumberOfParameters()) {
+			return false;
+		}
+		$type = $method->getReturnType();
+		if (!$type instanceof \ReflectionNamedType || $type->allowsNull() || !$type->isBuiltin() || $return_type !== $type->getName()) {
+			return false;
+		}
+		foreach ($method->getParameters() as $index => $parameter) {
+			$type = $parameter->getType();
+			if (
+				$parameter->isOptional()
+				|| $parameter->isVariadic()
+				|| $parameter->isPassedByReference()
+				|| !$type instanceof \ReflectionNamedType
+				|| $type->allowsNull()
+				|| !$type->isBuiltin()
+				|| $parameter_types[$index] !== $type->getName()
+			) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static function has_required_add_definition(mixed $definition, mixed $synopsis): bool {
+		if (!is_array($definition) || !is_string($definition['shortdesc'] ?? null) || !is_string($definition['longdesc'] ?? null) || !is_array($synopsis)) {
+			return false;
+		}
+		$arguments = array();
+		foreach ($synopsis as $argument) {
+			$name = is_array($argument) ? ($argument['name'] ?? null) : null;
+			if (!is_string($name) || '' === $name || isset($arguments[$name])) {
+				return false;
+			}
+			$arguments[$name] = $argument;
+		}
+		$required = array(
+			'repo'                   => array('type' => 'positional', 'required' => true),
+			'branch'                 => array('type' => 'positional', 'required' => true),
+			'skip-context-injection' => array('type' => 'flag', 'optional' => true),
+			'skip-bootstrap'         => array('type' => 'flag', 'optional' => true),
+		);
+		foreach ($required as $name => $semantics) {
+			foreach ($semantics as $key => $value) {
+				if (($arguments[$name][$key] ?? null) !== $value) {
+					return false;
+				}
+			}
+		}
+		return !isset($arguments['inject-context']) && !isset($arguments['bootstrap']);
+	}
+
 	/** @param array<string,mixed> $input @return array<string,mixed>|WP_Error */
 	public static function execute(string $slug, array $input): array|WP_Error {
 		return match ($slug) {
@@ -98,10 +238,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			return self::unsupported_input('cleanup_policy', 'Homeboy cannot represent this DMC cleanup policy.');
 		}
 
-		$command = array(self::HOMEBOY, 'worktree', 'create', self::repository_target($repo), '--branch', $branch);
-		if (empty($input['allow_unverified_freshness'])) {
-			$command[] = '--require-handoff-freshness';
-		}
+		$command = array(self::HOMEBOY, 'worktree', 'create', self::repository_target($repo), '--branch', $branch, '--require-handoff-freshness');
 		$from    = self::optional_string($input, 'from') ?? 'origin/HEAD';
 		$command = array_merge($command, array('--from', $from));
 		if (null !== ($task_url = self::optional_string($input, 'task_url'))) {
@@ -114,7 +251,19 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			$command = array_merge($command, array('--cleanup-policy', $policy));
 		}
 
-		$data = self::homeboy($command);
+		$data                     = self::homeboy($command);
+		$used_unverified_fallback = false;
+		if (self::is_unsupported_freshness_result($data)) {
+			if (empty($input['allow_unverified_freshness'])) {
+				return new WP_Error(
+					'worktree_handoff_freshness_unverified',
+					'Installed Homeboy cannot provide native handoff freshness. Upgrade Homeboy or explicitly permit an unverified fallback.',
+					array('status' => 409, 'owner' => 'homeboy', 'retryable' => true, 'remediation' => 'upgrade_homeboy', 'cause' => 'unsupported_option')
+				);
+			}
+			$data                     = self::homeboy(array_values(array_filter($command, static fn(string $argument): bool => '--require-handoff-freshness' !== $argument)));
+			$used_unverified_fallback = true;
+		}
 		if (is_wp_error($data)) {
 			return $data;
 		}
@@ -122,7 +271,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (!is_array($record)) {
 			return self::contract_error('Homeboy create result omitted its native worktree record.', $data);
 		}
-		$freshness = self::handoff_freshness($data, $record, !empty($input['allow_unverified_freshness']));
+		$freshness = self::handoff_freshness($data, $record, $used_unverified_fallback);
 		if (is_wp_error($freshness)) {
 			return $freshness;
 		}
@@ -406,6 +555,43 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 
 	/** @param list<string> $command @return array<string,mixed>|WP_Error */
 	private static function homeboy(array $command): array|WP_Error {
+		$result = self::run($command);
+		if (is_wp_error($result)) {
+			return $result;
+		}
+		$stdout = $result['stdout'];
+		$stderr = $result['stderr'];
+		$exit   = $result['exit_code'];
+
+		$payload = json_decode($stdout, true);
+		if (2 === $exit && str_contains($stderr, "unexpected argument '--require-handoff-freshness' found")) {
+			return new WP_Error(
+				'wp_coding_agents_homeboy_worktree_unsupported_option',
+				'Installed Homeboy does not support required handoff freshness.',
+				array('status' => 409, 'owner' => 'homeboy', 'option' => '--require-handoff-freshness', 'retryable' => false)
+			);
+		}
+		if (!is_array($payload) || 'homeboy/command-result/v3' !== ($payload['schema'] ?? null)) {
+			return self::contract_error('Homeboy returned malformed command-result JSON.', array('exit_code' => $exit, 'stderr' => trim($stderr)));
+		}
+		if (0 !== $exit || empty($payload['success'])) {
+			return new WP_Error(
+				'wp_coding_agents_homeboy_worktree_failed',
+				(string) ($payload['diagnostics']['message'] ?? $payload['summary'] ?? 'Homeboy worktree operation failed.'),
+				array('status' => 409, 'owner' => 'homeboy', 'homeboy' => $payload)
+			);
+		}
+		return is_array($payload['data'] ?? null) ? $payload['data'] : array();
+	}
+
+	private static function is_unsupported_freshness_result(array|WP_Error $result): bool {
+		return is_wp_error($result)
+			&& 'wp_coding_agents_homeboy_worktree_unsupported_option' === $result->get_error_code()
+			&& '--require-handoff-freshness' === ($result->get_error_data()['option'] ?? null);
+	}
+
+	/** @param list<string> $command @return array{stdout:string,stderr:string,exit_code:int}|WP_Error */
+	private static function run(array $command): array|WP_Error {
 		$descriptors = array(1 => array('pipe', 'w'), 2 => array('pipe', 'w'));
 		$process = proc_open($command, $descriptors, $pipes, null, null, array('bypass_shell' => true));
 		if (!is_resource($process)) {
@@ -444,19 +630,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			return self::contract_error('Homeboy output exceeded the bounded adapter limit.', array());
 		}
 		self::close_process($process, $pipes);
-
-		$payload = json_decode($stdout, true);
-		if (!is_array($payload) || 'homeboy/command-result/v3' !== ($payload['schema'] ?? null)) {
-			return self::contract_error('Homeboy returned malformed command-result JSON.', array('exit_code' => $exit, 'stderr' => trim($stderr)));
-		}
-		if (0 !== $exit || empty($payload['success'])) {
-			return new WP_Error(
-				'wp_coding_agents_homeboy_worktree_failed',
-				(string) ($payload['diagnostics']['message'] ?? $payload['summary'] ?? 'Homeboy worktree operation failed.'),
-				array('status' => 409, 'owner' => 'homeboy', 'homeboy' => $payload)
-			);
-		}
-		return is_array($payload['data'] ?? null) ? $payload['data'] : array();
+		return array('stdout' => $stdout, 'stderr' => $stderr, 'exit_code' => $exit ?? -1);
 	}
 
 	/** @param resource $process @param array<int,resource> $pipes */
@@ -525,3 +699,4 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 }
 
 add_filter('datamachine_code_ability_registration_args', array(WP_Coding_Agents_Homeboy_Worktrees::class, 'filter_ability'), 10, 2);
+add_action('plugins_loaded', array(WP_Coding_Agents_Homeboy_Worktrees::class, 'adapt_cli'), 22);
