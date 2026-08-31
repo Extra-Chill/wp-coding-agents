@@ -36,7 +36,7 @@ case "$*" in
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{}}'
     ;;
   "worktree create "*)
-    printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","cleanup_policy":"remove_when_safe","created_at":"2026-08-30T00:00:00Z","state":"active"}}}'
+    printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"create","record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","cleanup_policy":"remove_when_safe","created_at":"2026-08-30T00:00:00Z","state":"active"},"handoff_freshness":{"status":"verified","proof":{"schema":"homeboy/worktree-handoff-freshness/v1","proof_id":"proof-474","handle":"fixture@fix-474","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-30T00:00:00Z"}}}}'
     ;;
   "worktree list")
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"action":"list","worktrees":[{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","task_url":"https://example.test/474","run_id":"run-474","created_at":"2026-08-30T00:00:00Z","state":"active"},{"id":"fixture@removed","component_id":"fixture","worktree_path":"/workspace/fixture@removed","branch":"removed","state":"removed"}]}}'
@@ -83,6 +83,7 @@ final class WP_Error {
 	public function __construct(public string $code, public string $message, public array $data = array()) {}
 }
 function is_wp_error(mixed $value): bool { return $value instanceof WP_Error; }
+function wp_json_encode(mixed $value): string|false { return json_encode($value); }
 $filters = array();
 function add_filter(string $hook, callable $callback, int $priority = 10, int $accepted_args = 1): void {
 	global $filters;
@@ -112,11 +113,11 @@ $ability = static function (string $slug) use ($callback): callable {
 };
 
 $add = $ability('datamachine-code/workspace-worktree-add');
-$refused = $add(array('repo' => 'fixture', 'branch' => 'fix/474'));
-expect(is_wp_error($refused) && 'worktree_handoff_freshness_unverified' === $refused->code, 'create refuses before mutation without explicit unverified freshness acceptance');
+$verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474'));
+expect(!is_wp_error($verified) && 'verified' === ($verified['handoff_freshness']['status'] ?? null), 'create maps Homeboy remote freshness into the DMC handoff contract');
 $created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true));
 expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'create projects native Homeboy record');
-expect('unverified' === ($created['handoff_freshness']['status'] ?? null) && 'remote_freshness_probe_unsupported' === ($created['handoff_freshness']['reason'] ?? null), 'create projects the required DMC handoff freshness decision');
+expect('verified' === ($created['handoff_freshness']['status'] ?? null), 'create retains available Homeboy freshness when unverified fallback is allowed');
 $manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true));
 expect(!is_wp_error($manual), 'manual lifecycle intent maps to non-cleanup-eligible Homeboy policy');
 expect(is_wp_error($add(array('repo' => 'fixture', 'branch' => 'unsupported', 'bootstrap' => true))), 'explicit DMC-only create behavior returns typed refusal');
@@ -151,6 +152,7 @@ if grep -q 'datamachine-code' "$LOG"; then
   exit 1
 fi
 grep -q '^worktree create fixture ' "$LOG"
+grep -q '^worktree create fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD$' "$LOG"
 grep -q '^worktree create fixture --branch fix/474-manual --from origin/HEAD --cleanup-policy preserve-on-failure$' "$LOG"
 grep -q '^worktree finalize fixture@fix-474 --owner-run-ref run-474 --disposition succeeded$' "$LOG"
 grep -q '^worktree cleanup --apply$' "$LOG"
