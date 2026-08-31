@@ -251,6 +251,7 @@ jobs:
           - datamachine-worker
           - detect-php-version
           - detect-site-domain
+          - dmc-migration-inventory
           - dmc-managed-release
           - dmc-managed-release-integration
           - external-wordpress-runtime
