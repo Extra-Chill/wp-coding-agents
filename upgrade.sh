@@ -467,7 +467,6 @@ if [ "$PLUGINS_ONLY" != true ]; then
   source_policy_record_log_paths
 fi
 systems_capabilities_resolve_profile
-installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 
 # Detect chat bridge from installed services / installed binaries via the
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
@@ -478,8 +477,10 @@ installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 # Codex has no managed bridge in wp-coding-agents today. An explicit
 # `--runtime codex` upgrade should sync Codex-owned files only, not pick up an
 # unrelated local Kimaki/cc-connect install and rewrite its config.
-if [ "$RUNTIME" = "codex" ]; then
+if [ "$RUNTIME" = "codex" ] || [ "$INSTALL_CHAT" != true ]; then
   CHAT_BRIDGE=""
+elif [ -n "$CHAT_BRIDGE" ]; then
+  log "Using chat bridge from installation profile: $CHAT_BRIDGE"
 elif [ "$LOCAL_MODE" = true ]; then
   CHAT_BRIDGE=$(bridge_detect_local)
 else
@@ -497,6 +498,10 @@ fi
 if [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
   _kimaki_resolve_instance
 fi
+
+# Snapshot the fully resolved invocation only after runtime, environment, source
+# policy, and optional bridge intent have converged.
+installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 
 # On upgrade, the installed unit's User= is the source of truth for the
 # service identity. upgrade.sh defaults RUN_AS_ROOT=true, which on a
