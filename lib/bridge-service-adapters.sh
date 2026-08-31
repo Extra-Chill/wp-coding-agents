@@ -93,8 +93,11 @@ bridge_service_adapters_plan() {
 }
 
 bridge_service_adapter_apply_bridge() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then
     bridge_install
+    declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
     return
   fi
   bridge_sync_config
@@ -102,20 +105,31 @@ bridge_service_adapter_apply_bridge() {
     if [ "${PLATFORM:-}" = mac ] && bridge_has_hook update_launchd; then
       bridge_update_launchd
     fi
+    declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
     return 0
   elif [ "${EUID:-$(id -u)}" -eq 0 ]; then
     bridge_update_systemd
   else
     warn "Skipping chat bridge unit refresh because upgrade is running non-root"
   fi
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
 }
 
 bridge_service_adapter_apply_wordpress_service() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   wordpress_service_reconcile
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
 }
 
 bridge_service_adapter_apply_datamachine_worker() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   datamachine_worker_reconcile
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
 }
 
 bridge_service_adapter_verify_bridge() {

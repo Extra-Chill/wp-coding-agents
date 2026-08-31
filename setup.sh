@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery desired-state-reconciler wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -620,9 +620,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
     create_service_user
     install_data_machine
     create_dm_agent
-    sync_carried_plugins
     install_extra_plugins
-    setup_homeboy_project
     setup_nginx
     setup_ssl
     setup_service_permissions
@@ -635,32 +633,20 @@ if [ "$EXTERNAL_WORDPRESS" != true ]; then
   source_policy_record_owned_sources
   source_policy_record_writable_paths
   source_policy_record_log_paths
-  guidance_sync_all
   setup_ai_gateway
 fi
 
-runtime_install
-runtime_discover_dm_paths
-external_wordpress_project_context
 discover_dm_workspace_dir
-if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
-  configure_homeboy_worktree_ownership
-fi
 systems_capabilities_apply
-runtime_generate_config
+CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
+CONVERGENCE_REPLAY_ARGUMENTS="${DRY_RUN:+--dry-run}"
+convergence_run "$INSTALLATION_OPERATION_SETUP"
 ai_gateway_configure_opencode
-runtime_install_hooks
-if [ "$EXTERNAL_WORDPRESS" != true ]; then configure_homeboy_wordpress_extension; fi
-runtime_generate_instructions
 opencode_project_subagents_optional
-runtime_merge_mcp_servers
 install_skills
-if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; runtime_guard_sync; else inbound_event_connector_install; fi
+if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
-install_chat_bridge
-if [ "$EXTERNAL_WORDPRESS" != true ]; then wordpress_service_reconcile; fi
-if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_reconcile; fi
 installation_profile_write
 print_summary
