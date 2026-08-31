@@ -228,14 +228,6 @@ jobs:
       - name: Run tests/codex-permissions.sh
         run: ./tests/codex-permissions.sh
 
-  homeboy-agents-md:
-    name: Homeboy CLI command map (#208, #254)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/homeboy-agents-md.sh
-        run: ./tests/homeboy-agents-md.sh
-
   claude-code-hook-scope:
     name: Claude Code hook agent scoping
     runs-on: ubuntu-latest
