@@ -642,7 +642,11 @@ CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
 CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"
 [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
 [ "$RUNTIME_ONLY" != true ] || CONVERGENCE_SCOPE=runtime
-convergence_run "$INSTALLATION_OPERATION_SETUP"
+if convergence_run "$INSTALLATION_OPERATION_SETUP"; then :; else
+  CONVERGENCE_EXIT_STATUS=$?
+  reconciler_print_partial_evidence
+  exit "$CONVERGENCE_EXIT_STATUS"
+fi
 [ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
 [ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
 [ "$RUNTIME_ONLY" != true ] && install_skills

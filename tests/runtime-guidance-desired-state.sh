@@ -44,8 +44,7 @@ assert_eq() {
 
 expected_runtime_records() {
   local runtime="$1"
-  printf 'guidance.agents-md\nruntime.%s.install\nruntime.%s.paths\nruntime.%s.config\nruntime.%s.hooks\nruntime.%s.instructions\nruntime.%s.mcp\nruntime.guard' \
-    "$runtime" "$runtime" "$runtime" "$runtime" "$runtime" "$runtime"
+  printf 'guidance.agents-md\nruntime.%s' "$runtime"
 }
 
 for runtime in opencode claude-code codex; do
@@ -55,25 +54,42 @@ for runtime in opencode claude-code codex; do
   assert_eq "$setup_records" "$(expected_runtime_records "$runtime")" "$runtime exposes its supported runtime and guidance records"
 done
 
+source "$ROOT_DIR/runtimes/opencode.sh"
+INSTALLATION_PROFILE_RUNTIME=opencode
+INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
+INSTALLATION_PROFILE_COMPONENTS=(runtime guidance)
+reconciler_plan_reset
+runtime_guidance_desired_state_plan
+[ "${RECONCILER_PLAN_TIMEOUTS[1]}" = 360 ] || { echo "FAIL: aggregate runtime timeout" >&2; exit 1; }
+
 external_records="$(records_for setup opencode true 'runtime guidance')"
-assert_eq "$external_records" "runtime.opencode.install
-runtime.opencode.paths
-runtime.opencode.context
-runtime.opencode.config
-runtime.opencode.hooks
-runtime.opencode.instructions
-runtime.opencode.mcp" "external WordPress omits local guidance and guard records"
+assert_eq "$external_records" "runtime.opencode" "external WordPress omits local guidance records"
 
 optional_records="$(records_for upgrade opencode false 'runtime guidance' true)"
 assert_eq "$optional_records" "guidance.agents-md
-runtime.opencode.install
-runtime.opencode.paths
-runtime.opencode.config
-runtime.opencode.hooks
-runtime.opencode.instructions
-runtime.guard" "an unavailable optional runtime capability is omitted"
+runtime.opencode" "an unavailable optional runtime capability is omitted"
 
 absent_records="$(records_for upgrade '' false 'plugins')"
 assert_eq "$absent_records" "" "absent optional runtime and guidance produce no records"
+
+# Runtime capabilities execute as one ordered component so path/context state
+# reaches config and instruction generation inside the bounded child.
+TRACE="$(mktemp)"
+runtime_install() { printf 'install\n' >> "$TRACE"; }
+runtime_discover_dm_paths() { DM_AGENT_FILES='memory/SOUL.md'; printf 'paths\n' >> "$TRACE"; }
+external_wordpress_project_context() { DM_AGENT_FILES="$DM_AGENT_FILES memory/REMOTE.md"; printf 'context\n' >> "$TRACE"; }
+runtime_generate_config() { [ "$DM_AGENT_FILES" = 'memory/SOUL.md memory/REMOTE.md' ]; printf 'config\n' >> "$TRACE"; }
+runtime_install_hooks() { printf 'hooks\n' >> "$TRACE"; }
+runtime_generate_instructions() { [ "$DM_AGENT_FILES" = 'memory/SOUL.md memory/REMOTE.md' ]; printf 'instructions\n' >> "$TRACE"; }
+runtime_merge_mcp_servers() { printf 'mcp\n' >> "$TRACE"; }
+INSTALLATION_PROFILE_RUNTIME=fixture
+INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=true
+INSTALLATION_PROFILE_COMPONENTS=(runtime)
+EXTERNAL_WORDPRESS=true
+reconciler_plan_reset
+runtime_guidance_desired_state_plan
+reconciler_apply_plan
+assert_eq "$(<"$TRACE")" $'install\npaths\ncontext\nconfig\nhooks\ninstructions\nmcp' "runtime state survives its ordered component step"
+rm -f "$TRACE"
 
 echo "OK: runtime and guidance desired-state adapter"

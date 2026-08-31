@@ -20,8 +20,8 @@ bridge_service_adapter_detect() {
 
   case "$adapter" in
     bridge)
+      [ "${INSTALL_CHAT:-false}" = true ] || return 0
       if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then
-        [ "${INSTALL_CHAT:-false}" = true ] || return 0
         [ -n "${CHAT_BRIDGE:-}" ] || return 0
       else
         if [ "${RUNTIME:-}" = codex ]; then
@@ -121,6 +121,9 @@ bridge_service_adapter_apply_wordpress_service() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   wordpress_service_reconcile || return $?
+  if [ "${DRY_RUN:-false}" != true ] && [ "${LOCAL_MODE:-false}" = true ] && [ "${PLATFORM:-}" = mac ]; then
+    reconciler_adapter_changed
+  fi
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }
@@ -129,6 +132,7 @@ bridge_service_adapter_apply_datamachine_worker() {
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   datamachine_worker_reconcile || return $?
+  [ "${DRY_RUN:-false}" = true ] || reconciler_adapter_changed
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }

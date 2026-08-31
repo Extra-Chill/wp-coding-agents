@@ -34,15 +34,9 @@ integration_adapters_detect() {
     done
   fi
 
-  case "${INSTALLATION_PROFILE_HOMEBOY_MODE:-${HOMEBOY_MODE:-auto}}" in
-    disabled) ;;
-    enabled) INTEGRATION_ADAPTER_RECORDS+=("integrations.homeboy") ;;
-    *)
-      if command -v homeboy >/dev/null 2>&1; then
-        INTEGRATION_ADAPTER_RECORDS+=("integrations.homeboy")
-      fi
-      ;;
-  esac
+  # The adapter also owns absence cleanup, including stale WordPress
+  # availability state after Homeboy is disabled or removed.
+  INTEGRATION_ADAPTER_RECORDS+=("integrations.homeboy")
 }
 
 integration_adapters_plan() {
@@ -135,9 +129,29 @@ _integration_adapter_sync_homeboy() {
 }
 
 _integration_adapter_verify_homeboy() {
-  command -v homeboy >/dev/null 2>&1 || return 1
-  if [ "${DRY_RUN:-false}" = true ]; then
-    return 0
+  local config availability_count
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  case "${INSTALLATION_PROFILE_HOMEBOY_MODE:-${HOMEBOY_MODE:-auto}}" in
+    disabled)
+      availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
+      [ "$availability_count" = 0 ]
+      return $?
+      ;;
+  esac
+  command -v homeboy >/dev/null 2>&1 || {
+    homeboy_required && return 1
+    availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
+    [ "$availability_count" = 0 ]
+    return $?
+  }
+  config="$(homeboy_run config show)" || return 1
+  python3 -c 'import json,sys; result=json.load(sys.stdin); data=result.get("data", {}).get("config", result); providers=data.get("worktree_providers") or {}; raise SystemExit(not isinstance(providers, dict) or "dmc" in providers)' <<< "$config" || return 1
+  homeboy_required && ! homeboy_wordpress_extension_ready && return 1
+  if homeboy_wordpress_extension_ready; then
+    [ "$(wp_cmd option get datamachine_code_homeboy_available 2>/dev/null)" = 1 ] || return 1
+  else
+    availability_count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" || return 1
+    [ "$availability_count" = 0 ] || return 1
   fi
-  ! homeboy_run config show /worktree_providers/dmc >/dev/null 2>&1
+  return 0
 }

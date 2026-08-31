@@ -63,6 +63,12 @@ bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
 [ ! -e "$WORDPRESS_SERVICE_LAUNCHD_DIR" ] || error "absent optional integrations created launchd state"
 [ ! -e "$SERVICE_HOME/.config" ] || error "absent optional integrations created persisted state"
 
+# Upgrade must honor the persisted disabled-chat intent even if a bridge binary
+# remains detectable on disk.
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "disabled chat was rediscovered during upgrade"
+
 # External WordPress owns neither local service, even when callers supplied an
 # opt-in request. The bridge remains independently eligible.
 EXTERNAL_WORDPRESS=true

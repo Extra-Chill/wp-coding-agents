@@ -43,7 +43,7 @@ convergence_verify() {
 
 convergence_run() {
   local operation="$1" status=0
-  convergence_plan "$operation"
+  convergence_plan "$operation" || return $?
   convergence_apply || status=$?
   convergence_verify || status=$?
   return "$status"

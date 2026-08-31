@@ -290,8 +290,11 @@ runtime_generate_config() {
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would write to $SITE_PATH/opencode.json"
   else
-    echo -e "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
-    service_file_normalize_perms "$SITE_PATH/opencode.json"
+    if ! printf '%b\n' "$OPENCODE_JSON" | cmp -s - "$SITE_PATH/opencode.json"; then
+      printf '%b\n' "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
+      service_file_normalize_perms "$SITE_PATH/opencode.json"
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("opencode.json")
+    fi
   fi
 }
 
@@ -377,11 +380,13 @@ _runtime_repair_opencode_json_additive() {
     additive_repaired)
       log "  opencode.json repaired additively (backup: $SITE_PATH/opencode.json.backup.$SUFFIX)"
       log "  $repair_out"
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("opencode.json additive repair")
       ;;
     needs_full_repair)
       warn "  opencode.json additively repaired, but unexpected plugin entries remain"
       warn "  Review and run './upgrade.sh --repair-opencode-json' if you want them removed"
       warn "  $repair_out"
+      [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("opencode.json additive repair")
       ;;
     *)
       warn "  repair-opencode-json.py returned status=$repair_status (rc=$repair_rc)"

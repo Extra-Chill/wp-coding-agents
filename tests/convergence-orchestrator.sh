@@ -44,6 +44,16 @@ wordpress_service_reconcile() { printf 'wordpress-service\n' >> "$TRACE"; }
 datamachine_worker_reconcile() { printf 'worker-service\n' >> "$TRACE"; }
 wordpress_service_desired_state() { :; }
 datamachine_worker_desired_state() { :; }
+setup_homeboy_project() { :; }
+configure_homeboy_worktree_ownership() { :; }
+configure_homeboy_wordpress_extension() { :; }
+homeboy_required() { return 1; }
+wp_cmd() {
+  case "$1 $2" in
+    'option list') printf '0\n' ;;
+    *) return 1 ;;
+  esac
+}
 
 graph_for() {
   local operation="$1"
@@ -98,7 +108,7 @@ runtime_trace="$(<"$TMP/runtime.trace")"
 case "$runtime_trace" in *bridge*|*service*) error "runtime scope crossed into bridge or services" ;; esac
 case "$runtime_trace" in *runtime-install*|*guidance*) ;; *) error "runtime scope omitted runtime/guidance" ;; esac
 agents_trace="$(<"$TMP/agents-md.trace")"
-[ "$agents_trace" = $'guidance\nruntime-instructions' ] || error "agents-md scope was not bounded: $agents_trace"
+[ "$agents_trace" = $'guidance\nruntime-paths\nruntime-instructions' ] || error "agents-md scope was not bounded: $agents_trace"
 [ "$(<"$TMP/bridge.trace")" = bridge ] || error "bridge scope executed unrelated effects"
 services_trace="$(<"$TMP/services.trace")"
 case "$services_trace" in *runtime-*|*guidance*) error "services scope installed runtime/guidance" ;; esac
@@ -127,13 +137,35 @@ if reconciler_apply_plan; then error "hanging step unexpectedly passed"; fi
 sleep 1
 kill -0 "$(<"$HANG_PID_FILE")" 2>/dev/null && error "hanging child survived deadline"
 
+# Verification shares the interrupting aggregate deadline with apply.
+verify_hang() { sleep 30; }
+reconciler_plan_reset
+reconciler_plan_add fixture.verify-hang fixture apply_ok verify_hang 1
+started="$(date +%s)"
+if reconciler_apply_plan; then error "hanging verifier unexpectedly passed"; fi
+[ $(( $(date +%s) - started )) -lt 5 ] || error "hanging verifier was not interrupted by deadline"
+
+# Only apply-and-verify successes are terminal completed records.
+verify_fail() { return 41; }
+reconciler_plan_reset
+reconciler_plan_add fixture.incomplete fixture apply_ok verify_fail
+if reconciler_apply_plan; then error "failed verifier unexpectedly completed"; fi
+[ "${#RECONCILER_COMPLETED_RECORDS[@]}" -eq 0 ] || error "failed verification was classified as completed"
+
 # Adapter wrappers must expose component failure to the reconciler.
 runtime_generate_config() { return 37; }
-if runtime_guidance_desired_state_apply_config; then error "runtime wrapper swallowed failure"; fi
+RUNTIME_GUIDANCE_DESIRED_RUNTIME_FUNCTIONS=(runtime_generate_config)
+if runtime_guidance_desired_state_apply_runtime; then error "runtime wrapper swallowed failure"; fi
 bridge_sync_config() { return 38; }
 BRIDGE_SERVICE_ADAPTER_OPERATION="$INSTALLATION_OPERATION_UPGRADE"
 if bridge_service_adapter_apply_bridge; then error "bridge wrapper swallowed failure"; fi
 sync_carried_plugins() { return 39; }
 if _integration_adapter_sync_carried_plugins; then error "integration wrapper swallowed failure"; fi
+
+# Planning failures stop orchestration before apply/verify can mask them.
+convergence_plan() { return 44; }
+plan_status=0
+convergence_run "$INSTALLATION_OPERATION_UPGRADE" || plan_status=$?
+[ "$plan_status" -eq 44 ] || error "planning failure status was not preserved"
 
 echo "PASS: convergence scopes, verification status, and deadlines are behavioral"

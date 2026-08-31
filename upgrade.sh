@@ -1302,6 +1302,8 @@ print_summary() {
   echo "=========================================="
   if [ "$PLUGINS_ONLY" = true ] && [ "${PLUGIN_ONLY_EXIT_STATUS:-0}" -ne 0 ]; then
     warn "Plugin upgrade partially completed."
+  elif [ "${CONVERGENCE_EXIT_STATUS:-0}" -ne 0 ]; then
+    warn "Desired-state convergence partially completed."
   else
     log "Upgrade complete."
   fi
@@ -1441,19 +1443,20 @@ _print_plugins_only_verify_block() {
 # ============================================================================
 
 PLUGIN_ONLY_EXIT_STATUS=0
+CONVERGENCE_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   discover_dm_workspace_dir
-CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
-CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
-[ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
-CONVERGENCE_SCOPE=all
-if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
-if [ "$KIMAKI_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
-if [ "$AGENTS_MD_ONLY" = true ]; then CONVERGENCE_SCOPE=agents-md; fi
-if [ "$SKILLS_ONLY" != true ]; then
-  convergence_run "$INSTALLATION_OPERATION_UPGRADE"
-fi
+  CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
+  CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
+  [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
+  CONVERGENCE_SCOPE=all
+  if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
+  if [ "$KIMAKI_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
+  if [ "$AGENTS_MD_ONLY" = true ]; then CONVERGENCE_SCOPE=agents-md; fi
+  if [ "$SKILLS_ONLY" != true ]; then
+    convergence_run "$INSTALLATION_OPERATION_UPGRADE" || CONVERGENCE_EXIT_STATUS=$?
+  fi
 fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
@@ -1485,4 +1488,8 @@ fi
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
   exit "$PLUGIN_ONLY_EXIT_STATUS"
+fi
+if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
+  reconciler_print_partial_evidence
+  exit "$CONVERGENCE_EXIT_STATUS"
 fi
