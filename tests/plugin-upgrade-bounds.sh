@@ -5,6 +5,7 @@ set -eu
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/lib/plugin-upgrade.sh"
+source "$ROOT_DIR/lib/desired-state-reconciler.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -113,5 +114,42 @@ PY
 [ "$before" = "$after" ] || fail "copied DMC mutated during a timed-out plugin update"
 [ ! -e "$PLUGIN/.wp-coding-agents-releases" ] || fail "copied DMC was converted to .wp-coding-agents-releases"
 case "$LOG" in *"installed-after version=1.0.0 active=yes"*"terminal=partial-failure"*) : ;; *) fail "partial terminal verification evidence missing" ;; esac
+
+# Reconciliation reports the records that completed before a bounded later step
+# timed out, making the partial result safe to replay without claiming a change
+# when an idempotent apply was already converged.
+LOG=""
+PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS=1
+PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
+reconciler_fixture_complete() { return 0; }
+reconciler_fixture_timeout() { plugin_update_run_phase fixture reconciler-timeout "$hung"; }
+reconciler_plan_reset
+reconciler_plan_add plugins.data-machine plugins.reconcile.data-machine reconciler_fixture_complete
+reconciler_plan_add plugins.data-machine-code plugins.reconcile.data-machine-code reconciler_fixture_timeout
+if reconciler_apply_plan; then
+  fail "generic reconciler completed a timed-out plan"
+else
+  status=$?
+fi
+[ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "generic reconciler did not return partial status"
+reconciler_print_partial_evidence
+case "$LOG" in
+  *'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'phase=reconciler-timeout terminal=timeout'*'DESIRED_STATE_COMPLETED_RECORDS=plugins.data-machine'*) : ;;
+  *) fail "desired-state reconciler omitted timeout or completed-record evidence" ;;
+esac
+
+# Normalized profiles carry installation shape, never credential runtime input.
+SITE_PATH="$TMP/site"
+LOCAL_MODE=true
+EXTERNAL_WORDPRESS=false
+IS_STUDIO=false
+KIMAKI_BOT_TOKEN=credential-must-not-appear
+installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"
+profile="$(installation_profile_record)"
+case "$profile" in
+  *credential-must-not-appear*|*KIMAKI_BOT_TOKEN*) fail "profile retained a credential" ;;
+  *'operation=plugins-only'*'local=true'*'external_wordpress=false'*) : ;;
+  *) fail "profile omitted plugins-only installation shape" ;;
+esac
 
 echo "plugin-upgrade-bounds tests passed"
