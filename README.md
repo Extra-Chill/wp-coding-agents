@@ -474,6 +474,10 @@ behavior on a production site is unverified.
 
 The chosen mode is recorded on the install, so `./upgrade.sh` converges to it
 without repeating the flag. Pass `--source-mode` to either script to change it.
+Setup also records the resolved runtime and optional-component intent in
+`.wp-coding-agents/installation-profile`. Upgrade loads that credential-free
+profile before detection; explicit invocation values remain authoritative, and
+tokens or command transports are never persisted there.
 
 On VPS hosts with multiple Kimaki services, setup and upgrade select the unit
 whose `WorkingDirectory=` exactly matches the WordPress site path. Ambiguous or

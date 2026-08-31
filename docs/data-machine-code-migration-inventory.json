@@ -409,17 +409,17 @@
     {
       "id": "wca-desired-state-reconciler",
       "subsystem": null,
-      "surface": "Credential-free plugins-only operation profile and named plan/apply/verify records",
+      "surface": "Credential-free installation profile persistence and named plugins-only plan/apply/verify records",
       "source": { "repository": "wp-coding-agents", "path": "lib/desired-state-reconciler.sh", "symbol_or_command": "installation_profile_normalize; reconciler_plan_add; reconciler_apply_plan; reconciler_verify_plan" },
       "evidence_kind": "upgrade",
       "contracts": ["data-machine-code"],
       "current_owner": "wp-coding-agents",
-      "current_consumers": ["upgrade.sh --plugins-only"],
-      "persistence": "None; the normalized operation profile and plan exist for one invocation",
+      "current_consumers": ["setup.sh", "upgrade.sh"],
+      "persistence": "Credential-free declarative intent in .wp-coding-agents/installation-profile; operation plans remain invocation-local",
       "target_owner": "wp-coding-agents",
       "disposition": "replace",
       "migration_issue": "#455, #525",
-      "verification_gate": "The normalized profile is sole component authority and plugins-only updates only installed setup-managed plugins with bounded replay evidence"
+      "verification_gate": "Setup intent survives upgrade without credentials; the normalized profile is sole component authority and plugins-only updates only installed setup-managed plugins with bounded replay evidence"
     },
     {
       "id": "wca-plugin-upgrade",
@@ -873,6 +873,21 @@
       "verification_gate": "Generic plugin bounds remain covered after DMC-specific cases are removed"
     },
     {
+      "id": "test-installation-profile",
+      "subsystem": null,
+      "surface": "Credential-free installation intent persistence and path safety",
+      "source": { "repository": "wp-coding-agents", "path": "tests/installation-profile.sh", "symbol_or_command": "installation_profile_write; installation_profile_load" },
+      "evidence_kind": "test",
+      "contracts": ["data-machine-code"],
+      "current_owner": "wp-coding-agents tests",
+      "current_consumers": ["CI"],
+      "persistence": "Temporary installation-profile fixture",
+      "target_owner": "wp-coding-agents",
+      "disposition": "replace",
+      "migration_issue": "#455, #525",
+      "verification_gate": "Declarative setup intent round-trips without credentials and profile state refuses unsafe paths"
+    },
+    {
       "id": "test-plugins-only-reconciler",
       "subsystem": null,
       "surface": "Plugins-only desired-state component authority and phase isolation",
@@ -1194,7 +1209,7 @@
       "setup.sh", "upgrade.sh", "lib/data-machine.sh", "lib/desired-state-reconciler.sh", "lib/homeboy.sh", "lib/plugin-upgrade.sh", "lib/source-policy.sh", "lib/owned-source-discovery.sh", "lib/runtime-signature.sh", "lib/systems-capabilities.sh", "lib/cli-channel.sh", "lib/summary.sh", "runtimes/opencode.sh", "runtimes/claude-code.sh", "bridges/kimaki.sh", "templates/wp-coding-agents-homeboy-worktrees.php", "templates/wp-coding-agents-cli-transport.php", "templates/wp-coding-agents-source-reconcile.php"
     ],
     "tests": [
-      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/plugins-only-scope.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/worktree-context-projections.sh"
+      "tests/agents-md-composition-integration.sh", "tests/agents-md-guidance.sh", "tests/cli-channel-binary-path.sh", "tests/dm-workspace-discovery.sh", "tests/dmc-managed-release-integration.sh", "tests/dmc-managed-release.sh", "tests/homeboy-agents-md.sh", "tests/homeboy-codebox-canary.sh", "tests/homeboy-verification-guidance.sh", "tests/homeboy-worktree-adapter.sh", "tests/installation-profile.sh", "tests/owned-source-discovery.sh", "tests/plugin-upgrade-bounds.sh", "tests/plugins-only-scope.sh", "tests/runtime-signature.sh", "tests/service-migration.sh", "tests/smoke-cli-transport.php", "tests/source-mode.sh", "tests/systems-capabilities.sh", "tests/worktree-context-projections.sh"
     ],
     "guidance": [
       "README.md", "guidance/homeboy.sh", "skills/upgrade-wp-coding-agents/SKILL.md", "operator-entrypoints/wp-coding-agents-setup/verify.md"

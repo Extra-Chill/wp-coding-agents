@@ -23,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery desired-state-reconciler wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -596,6 +596,10 @@ if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE
   _kimaki_resolve_instance
 fi
 
+# Persist only declarative installation intent after environment and optional
+# component selection have settled. Credentials remain runtime-only inputs.
+installation_profile_normalize "$INSTALLATION_OPERATION_SETUP"
+
 # --skills-only early exit
 if [ "$SKILLS_ONLY" = true ]; then
   install_skills
@@ -658,4 +662,5 @@ if [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconci
 install_chat_bridge
 if [ "$EXTERNAL_WORDPRESS" != true ]; then wordpress_service_reconcile; fi
 if [ "$EXTERNAL_WORDPRESS" != true ]; then datamachine_worker_reconcile; fi
+installation_profile_write
 print_summary
