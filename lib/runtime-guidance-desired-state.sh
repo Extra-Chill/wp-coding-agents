@@ -39,6 +39,13 @@ runtime_guidance_desired_state_detect() {
   fi
 
   if runtime_guidance_desired_state_has_component runtime && [ -n "$runtime" ]; then
+    local external_context=false
+    if [ "${INSTALLATION_PROFILE_EXTERNAL_WORDPRESS:-${EXTERNAL_WORDPRESS:-false}}" = true ] && \
+       declare -F external_wordpress_project_context >/dev/null 2>&1; then
+      # Projection follows Data Machine path discovery, matching setup's
+      # existing external-runtime ordering before config generation.
+      external_context=true
+    fi
     local capability function
     while IFS=':' read -r capability function; do
       declare -F "$function" >/dev/null 2>&1 || continue
@@ -46,6 +53,12 @@ runtime_guidance_desired_state_detect() {
         "runtime.${runtime}.${capability}" \
         "runtime.reconcile.${capability}" \
         "$function"
+      if [ "$capability" = paths ] && [ "$external_context" = true ]; then
+        runtime_guidance_desired_state_add \
+          "runtime.${runtime}.context" \
+          runtime.reconcile.context \
+          external_wordpress_project_context
+      fi
     done <<'EOF'
 install:runtime_install
 paths:runtime_discover_dm_paths
