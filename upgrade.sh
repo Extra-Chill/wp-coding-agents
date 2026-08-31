@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -412,6 +412,7 @@ fi
 
 if [ "$PLUGINS_ONLY" = true ]; then
   detect_plugins_only_environment
+  installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"
 else
   # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
   # full list (drives multi-runtime skills install); RUNTIME is the primary
@@ -618,18 +619,60 @@ _run_filter_active() {
 
 update_data_machine_plugins() {
   _run_filter_active plugins || return 0
+  if [ "$PLUGINS_ONLY" = true ]; then
+    reconcile_installed_plugins
+    return $?
+  fi
   local status=0
   upgrade_data_machine_plugins || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-  if [ "$PLUGINS_ONLY" = true ]; then
-    if [ -d "$SITE_PATH/wp-content/plugins/wp-codebox" ]; then
-      plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-    else
-      log "[wp-codebox] terminal=skipped reason=not-installed"
-    fi
-  else
-    plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-  fi
+  plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   plugin_update_verify_installed_plugins data-machine data-machine-code wp-codebox || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  return "$status"
+}
+
+_reconcile_data_machine_plugin() {
+  plugin_update_execute data-machine update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
+}
+
+_reconcile_data_machine_code_plugin() {
+  plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+}
+
+_reconcile_wp_codebox_plugin() {
+  plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree
+}
+
+_reconcile_installed_plugins_verify() {
+  [ "${#RECONCILER_INSTALLED_PLUGIN_SLUGS[@]}" -gt 0 ] || return 0
+  plugin_update_verify_installed_plugins "${RECONCILER_INSTALLED_PLUGIN_SLUGS[@]}"
+}
+
+# The plugins-only operation has no runtime, bridge, Homeboy, guidance, or
+# service adapters. Its profile plans only setup-installed plugin records.
+reconcile_installed_plugins() {
+  local plugin_dir status=0
+  [ "${INSTALLATION_PROFILE_OPERATION:-}" = "$INSTALLATION_OPERATION_PLUGINS_ONLY" ] || \
+    error "Installed plugin reconciliation requires a plugins-only installation profile"
+  reconciler_plan_reset
+  RECONCILER_INSTALLED_PLUGIN_SLUGS=()
+  log "[desired-state] profile=$(installation_profile_record)"
+
+  for plugin_dir in "${INSTALLATION_PROFILE_PLUGIN_CANDIDATES[@]}"; do
+    [ -d "$INSTALLATION_PROFILE_SITE_PATH/wp-content/plugins/$plugin_dir" ] || {
+      log "[$plugin_dir] terminal=skipped reason=not-installed"
+      continue
+    }
+    RECONCILER_INSTALLED_PLUGIN_SLUGS+=("$plugin_dir")
+    case "$plugin_dir" in
+      data-machine) reconciler_plan_add "plugins.data-machine" plugins.reconcile.data-machine _reconcile_data_machine_plugin ;;
+      data-machine-code) reconciler_plan_add "plugins.data-machine-code" plugins.reconcile.data-machine-code _reconcile_data_machine_code_plugin ;;
+      wp-codebox) reconciler_plan_add "plugins.wp-codebox" plugins.reconcile.wp-codebox _reconcile_wp_codebox_plugin ;;
+    esac
+  done
+
+  reconciler_plan_set_verify _reconcile_installed_plugins_verify
+  reconciler_apply_plan || status=$?
+  reconciler_verify_plan || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   return "$status"
 }
 
@@ -1432,6 +1475,7 @@ print_summary() {
   echo ""
   if [ "$PLUGINS_ONLY" = true ]; then
     plugin_update_print_terminal_summary
+    [ "${PLUGIN_ONLY_EXIT_STATUS:-0}" -eq 0 ] || reconciler_print_partial_evidence
     echo ""
     _print_plugins_only_verify_block
   else
