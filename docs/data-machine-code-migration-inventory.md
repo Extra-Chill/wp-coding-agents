@@ -22,7 +22,7 @@ Each row identifies a source path and symbol or command, current owner and consu
 
 Source evidence cannot prove the contents of long-lived WordPress databases, bundle directories, queued jobs, or Homeboy configuration. Before #528 removes aliases or #525 removes DMC, run the `installed_state_queries` against representative local, VPS, Studio/external WordPress, and Homeboy-enabled installations. Record a replacement or explicit retirement for every returned DMC ability, handler, tool, flow, bundle artifact, option, table row, queue item, and external command reference.
 
-The four entries under `unresolved_classifications` are bounded decisions, not indefinite compatibility promises. If a query identifies a real shell-less GitHub/pipeline consumer, create a focused extraction tracker. Do not transplant the DMC control plane.
+The representative local census is recorded under `installed_state_results`. The three DMC PR-review flows had no jobs or completed runs and were explicitly retired with their orphaned pipelines; Homeboy is the supported GitHub Actions agent path. Intelligence's confirmed requirement is limited to shell and writable-content-directory checks, so #530 does not include the DMC process-path facade or GitHub control plane.
 
 ## Validation
 

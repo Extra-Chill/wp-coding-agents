@@ -74,9 +74,15 @@ if ( ! defined( 'WP_CODING_AGENTS_INVENTORY_OPTION' ) ) {
  * @return string[]
  */
 function wp_coding_agents_carried_slugs() {
+	$slugs = array( 'data-machine', 'data-machine-code', 'wp-codebox' );
+	$plugin_dir = defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : ABSPATH . 'wp-content/plugins';
+	foreach ( glob( $plugin_dir . '/*/.wp-coding-agents-carried' ) ?: array() as $marker ) {
+		$slugs[] = basename( dirname( $marker ) );
+	}
+
 	return apply_filters(
 		'wp_coding_agents_carried_slugs',
-		array( 'data-machine', 'data-machine-code', 'wp-codebox' )
+		array_values( array_unique( $slugs ) )
 	);
 }
 

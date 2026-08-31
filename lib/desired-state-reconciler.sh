@@ -62,6 +62,14 @@ installation_profile_normalize() {
   fi
   INSTALLATION_PROFILE_HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
   INSTALLATION_PROFILE_PLUGIN_CANDIDATES=(data-machine data-machine-code wp-codebox)
+  INSTALLATION_PROFILE_CARRIED_PLUGINS=()
+  if [ "$INSTALLATION_PROFILE_EXTERNAL_WORDPRESS" != true ]; then
+    INSTALLATION_PROFILE_CARRIED_PLUGINS+=(wp-coding-agents-integration)
+    local runtime
+    for runtime in "${DETECTED_RUNTIMES[@]:-${INSTALLATION_PROFILE_RUNTIME}}"; do
+      [ "$runtime" = claude-code ] && INSTALLATION_PROFILE_CARRIED_PLUGINS+=(ai-provider-for-claude-code)
+    done
+  fi
   if [ "$operation" = "$INSTALLATION_OPERATION_PLUGINS_ONLY" ]; then
     INSTALLATION_PROFILE_COMPONENTS=(plugins)
   else

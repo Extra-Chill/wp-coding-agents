@@ -24,11 +24,12 @@ integration_adapters_detect() {
 
   if [ -d "${SCRIPT_DIR:-.}/carried-plugins" ] && \
      declare -F carried_plugin_should_install >/dev/null 2>&1; then
-    local source_dir slug
+    local source_dir slug target_dir
     for source_dir in "${SCRIPT_DIR:-.}/carried-plugins"/*; do
       [ -d "$source_dir" ] || continue
       slug="${source_dir##*/}"
-      if carried_plugin_should_install "$slug"; then
+      target_dir="$site_path/wp-content/plugins/$slug"
+      if carried_plugin_should_install "$slug" || carried_plugin_is_managed "$target_dir"; then
         INTEGRATION_ADAPTER_RECORDS+=("integrations.carried-plugin.$slug")
       fi
     done
@@ -107,14 +108,21 @@ _integration_adapter_sync_carried_plugins() {
 }
 
 _integration_adapter_verify_carried_plugins() {
-  local record slug
-  for record in "${INTEGRATION_ADAPTER_RECORDS[@]}"; do
-    case "$record" in
-      integrations.carried-plugin.*)
-        slug="${record##*.}"
-        [ -d "$SITE_PATH/wp-content/plugins/$slug" ] || return 1
-        ;;
-    esac
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  local source_dir slug target_dir
+  for source_dir in "${SCRIPT_DIR:-.}/carried-plugins"/*; do
+    [ -d "$source_dir" ] || continue
+    slug="${source_dir##*/}"
+    target_dir="$SITE_PATH/wp-content/plugins/$slug"
+    if carried_plugin_should_install "$slug"; then
+      [ -d "$target_dir" ] || return 1
+      wp_cmd plugin is-active "$slug" >/dev/null 2>&1 || return 1
+      if [ "$slug" = wp-coding-agents-integration ]; then
+        wp_cmd eval 'exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);' >/dev/null 2>&1 || return 1
+      fi
+    elif carried_plugin_is_managed "$target_dir"; then
+      return 1
+    fi
   done
 }
 

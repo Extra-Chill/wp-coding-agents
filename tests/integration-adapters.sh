@@ -21,12 +21,15 @@ homeboy_required() { return 1; }
 wp_cmd() {
   case "$1 $2" in
     'option list') printf '0\n' ;;
+    'plugin is-active') return 0 ;;
+    'eval exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
     *) return 1 ;;
   esac
 }
 sync_carried_plugins() {
   printf 'sync\n' >> "$CARRIED_TRACE"
   mkdir -p "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code"
+  mkdir -p "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration"
 }
 
 SCRIPT_DIR="$ROOT_DIR"
@@ -36,6 +39,7 @@ INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
 INSTALLATION_PROFILE_HOMEBOY_MODE=disabled
 RUNTIME=claude-code
 DETECTED_RUNTIMES=(claude-code)
+INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration ai-provider-for-claude-code)
 DRY_RUN=false
 CARRIED_TRACE="$TMP/carried-sync"
 HOMEBOY_TRACE="$TMP/homeboy-sync"
@@ -52,7 +56,7 @@ INSTALLATION_PROFILE_OPERATION=upgrade
 integration_adapters_detect
 [ "$setup_records" = "${INTEGRATION_ADAPTER_RECORDS[*]}" ] || fail "setup and upgrade derived different records"
 case "$setup_records" in
-  *"integrations.dmc-managed-release-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.ai-provider-for-claude-code"*) ;;
+  *"integrations.dmc-managed-release-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.ai-provider-for-claude-code"*"integrations.carried-plugin.wp-coding-agents-integration"*) ;;
   *) fail "expected managed-release, copied-DMC, and carried-plugin records" ;;
 esac
 
@@ -62,7 +66,11 @@ integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release cleanup was not applied"
 [ -f "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED" ] || fail "copied DMC was changed"
 [ -d "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ] || fail "carried provider was not applied"
+[ -d "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration" ] || fail "WordPress integration package was not applied"
 [ "$(grep -c '^homeboy$' "$HOMEBOY_TRACE")" -eq 1 ] || fail "disabled Homeboy cleanup was not applied"
+HOST_CAPABILITIES_AVAILABLE=false
+if _integration_adapter_verify_carried_plugins; then fail "missing integration hook adapters passed verification"; fi
+HOST_CAPABILITIES_AVAILABLE=true
 
 # Multiple eligible carried sources are one aggregate desired-state effect.
 mkdir -p "$TMP/carried-plugins/one" "$TMP/carried-plugins/two"
@@ -83,8 +91,10 @@ INSTALLATION_PROFILE_HOMEBOY_MODE=auto
 # Keep core utilities available while removing the test-local fake Homeboy path.
 PATH="/usr/bin:/bin"
 integration_adapters_detect
-[ "${#INTEGRATION_ADAPTER_RECORDS[@]}" -eq 2 ] || fail "absent Homeboy cleanup was not planned"
-[ "${INTEGRATION_ADAPTER_RECORDS[1]}" = "integrations.homeboy" ] || fail "Homeboy cleanup record missing"
+case "${INTEGRATION_ADAPTER_RECORDS[*]}" in
+  *"integrations.homeboy") ;;
+  *) fail "Homeboy cleanup record missing" ;;
+esac
 
 # Verification reads Homeboy's command-result envelope and rejects a nested
 # legacy DMC provider rather than treating the envelope root as config.

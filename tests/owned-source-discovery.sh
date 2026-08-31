@@ -121,7 +121,7 @@ refute_line "$DERIVED" "wp-content/themes/twentytwentyfive" "excludes a wp.org b
 
 # The agent's own runtime is replaced wholesale by the next upgrade, and
 # capturing it would commit this project's source into the site's repository.
-for p in data-machine data-machine-code wp-codebox; do
+for p in data-machine data-machine-code wp-codebox wp-coding-agents-integration ai-provider-for-claude-code; do
   refute_line "$DERIVED" "wp-content/plugins/$p" "excludes carried plugin $p"
 done
 

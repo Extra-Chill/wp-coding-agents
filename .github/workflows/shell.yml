@@ -94,6 +94,14 @@ jobs:
       - name: Run tests/smoke-cli-transport.php
         run: php tests/smoke-cli-transport.php
 
+  wordpress-integration-package:
+    name: WordPress integration package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/wordpress-integration-package.php
+        run: php -d zend.assertions=1 -d assert.exception=1 tests/wordpress-integration-package.php
+
   inbound-event-bridge:
     name: durable inbound event bridge
     runs-on: ubuntu-latest

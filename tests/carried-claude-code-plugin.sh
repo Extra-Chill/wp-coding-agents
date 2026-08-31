@@ -43,11 +43,12 @@ source "$SCRIPT_DIR/lib/carried-plugins.sh"
 
 DETECTED_RUNTIMES=(claude-code)
 RUNTIME=claude-code
+INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration ai-provider-for-claude-code)
 
 output="$(sync_carried_plugins)"
 
 case "$output" in
-  *"Syncing carried plugin: ai-provider-for-claude-code"*"rsync -a --no-perms --no-owner --no-group --omit-dir-times --delete"*"wp plugin activate ai-provider-for-claude-code"*) ;;
+  *"Syncing carried plugin: ai-provider-for-claude-code"*"wp plugin activate ai-provider-for-claude-code"*"Syncing carried plugin: wp-coding-agents-integration"*"wp plugin activate wp-coding-agents-integration"*) ;;
   *)
     printf 'Expected Claude Code carried plugin sync, got:\n%s\n' "$output" >&2
     exit 1
@@ -56,11 +57,53 @@ esac
 
 DETECTED_RUNTIMES=(opencode)
 RUNTIME=opencode
+INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration)
+mkdir -p "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code"
+printf 'wp-coding-agents/carried-plugin/v1\n' > "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code/.wp-coding-agents-carried"
 
 output="$(sync_carried_plugins)"
-if [ -n "$output" ]; then
-  printf 'Expected no carried plugin sync for opencode, got:\n%s\n' "$output" >&2
+case "$output" in
+  *"Removing undesired carried plugin: ai-provider-for-claude-code"*"plugin deactivate ai-provider-for-claude-code"*"Syncing carried plugin: wp-coding-agents-integration"*) ;;
+  *) printf 'Expected the WordPress integration package for opencode, got:\n%s\n' "$output" >&2; exit 1 ;;
+esac
+
+# Removal fails closed when WordPress cannot deactivate the managed plugin.
+DRY_RUN=false
+MULTISITE=false
+wp_cmd() { return 1; }
+activate_plugin() { :; }
+fix_ownership() { :; }
+if sync_carried_plugins >/dev/null 2>&1; then
+  printf 'Expected failed plugin deactivation to fail reconciliation.\n' >&2
   exit 1
 fi
+if [ ! -f "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code/.wp-coding-agents-carried" ]; then
+  printf 'Failed deactivation removed the managed plugin files.\n' >&2
+  exit 1
+fi
+
+# Multisite removal deactivates the plugin network-wide and on every site.
+MULTISITE=true
+WP_TRACE="$TMP/wp-trace"
+wp_cmd() {
+  printf '%s\n' "$*" >> "$WP_TRACE"
+  if [ "$1 $2 $3" = "site list --field=url" ]; then
+    printf '%s\n' 'https://one.example/' 'https://two.example/'
+  fi
+}
+sync_carried_plugins >/dev/null
+if [ -e "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ]; then
+  printf 'Multisite reconciliation retained an undesired managed plugin.\n' >&2
+  exit 1
+fi
+for expected in \
+  'plugin deactivate ai-provider-for-claude-code --network' \
+  'plugin deactivate ai-provider-for-claude-code --url=https://one.example/' \
+  'plugin deactivate ai-provider-for-claude-code --url=https://two.example/'; do
+  if ! grep -qF "$expected" "$WP_TRACE"; then
+    printf 'Missing multisite deactivation: %s\n' "$expected" >&2
+    exit 1
+  fi
+done
 
 echo "PASS: tests/carried-claude-code-plugin.sh"
