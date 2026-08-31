@@ -20,16 +20,10 @@ runtime_install() {
   _codex_register_runtime_signature
 }
 
-# Codex exports CODEX_THREAD_ID into shell/tool subprocesses. Register it so
-# Data Machine Code can attribute worktree activity back to the active Codex
-# thread when the runtime is launched from a managed site.
+# The old generated runtime registry was consumed only by Data Machine Code.
 _codex_register_runtime_signature() {
-  if ! declare -F runtime_signature_register >/dev/null; then
-    return 0
-  fi
-  runtime_signature_register \
-    "codex" \
-    '{"thread_id":"CODEX_THREAD_ID"}'
+  declare -F runtime_signature_cleanup_retired_mu_plugin >/dev/null || return 0
+  runtime_signature_cleanup_retired_mu_plugin
 }
 
 runtime_discover_dm_paths() {

@@ -124,10 +124,10 @@ fi
 
 _codex_register_runtime_signature
 RUNTIME_MU="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-runtimes.php"
-if grep -q "BEGIN runtime:codex" "$RUNTIME_MU" && grep -q "CODEX_THREAD_ID" "$RUNTIME_MU"; then
-  pass "Codex runtime signature registered"
+if [ ! -e "$RUNTIME_MU" ]; then
+  pass "Codex removes retired runtime registry"
 else
-  fail "Codex runtime signature registered"
+  fail "Codex removes retired runtime registry"
 fi
 
 echo ""

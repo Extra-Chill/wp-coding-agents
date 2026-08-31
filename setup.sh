@@ -396,8 +396,8 @@ OPTIONS:
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip installing the wp-coding-agents upgrade skill
   --systems-capabilities managed-vps
-                      Opt in to root-managed journald, debug-log rotation, and
-                      DMC process-inspection capabilities on a VPS.
+                       Opt in to root-managed journald and debug-log rotation on
+                       a VPS.
   --with-homeboy     Create/update a Homeboy project and install/verify the
                        WordPress Homeboy extension
   --with-datamachine-worker

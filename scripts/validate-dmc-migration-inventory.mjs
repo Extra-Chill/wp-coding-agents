@@ -66,10 +66,19 @@ for (const path of classifications.keys()) {
 const extensions = new Set(['.js', '.json', '.md', '.mjs', '.php', '.py', '.sh', '.ts', '.yaml', '.yml']);
 const ignoredDirectories = new Set(['.git', 'node_modules']);
 const referencePattern = /DataMachineCode\\|datamachine_code_|datamachine-code\//;
-const supportedCompatibilityReferences = new Set([
-  'templates/wp-coding-agents-homeboy-worktrees.php',
-  'tests/homeboy-worktree-adapter.sh',
-]);
+const exactContractPattern = /datamachine_code_[a-z0-9_]+|datamachine-code\/[a-z0-9_/-]+|DataMachineCode\\[A-Za-z0-9_\\]+/g;
+const allContracts = inventory.rows.flatMap((row) => row.contracts);
+
+function contractCovered(contract) {
+  return allContracts.some((known) => {
+    if (known.endsWith('*')) return contract.startsWith(known.slice(0, -1));
+    if (known.includes('*')) {
+      const expression = known.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+      return new RegExp(`^${expression}$`).test(contract);
+    }
+    return known === contract || (known === 'DataMachineCode\\*' && contract.startsWith('DataMachineCode\\'));
+  });
+}
 
 function walk(directory) {
   for (const name of readdirSync(directory)) {
@@ -89,13 +98,27 @@ function walk(directory) {
       || repositoryPath === 'scripts/validate-dmc-migration-inventory.mjs'
     ) continue;
     const content = readFileSync(path, 'utf8');
-    if (referencePattern.test(content) && !supportedCompatibilityReferences.has(repositoryPath)) {
-      failures.push(`retired DMC contract remains: ${repositoryPath}`);
+    if (!referencePattern.test(content)) continue;
+    if (!classifications.has(repositoryPath)) {
+      failures.push(`DMC reference file is not classified: ${repositoryPath}`);
+    }
+    for (const contract of content.match(exactContractPattern) ?? []) {
+      if (!contractCovered(contract)) failures.push(`DMC contract is not inventoried: ${contract} (${repositoryPath})`);
     }
   }
 }
 
 walk(root);
+
+for (const path of classifications.keys()) {
+  try {
+    if (!referencePattern.test(readFileSync(join(root, path), 'utf8'))) {
+      failures.push(`classified reference file no longer contains a DMC reference: ${path}`);
+    }
+  } catch {
+    failures.push(`classified reference file does not exist: ${path}`);
+  }
+}
 
 if (failures.length > 0) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);

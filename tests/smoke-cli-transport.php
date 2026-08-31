@@ -64,6 +64,22 @@ if ( ! function_exists( 'get_option' ) ) {
 	}
 }
 
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( string $key, mixed $value ): bool {
+		global $wp_coding_agents_test_options;
+		$wp_coding_agents_test_options[ $key ] = $value;
+		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( string $key ): bool {
+		global $wp_coding_agents_test_options;
+		unset( $wp_coding_agents_test_options[ $key ] );
+		return true;
+	}
+}
+
 require __DIR__ . '/../templates/wp-coding-agents-cli-transport.php';
 
 $failures = array();
@@ -126,6 +142,12 @@ $wp_coding_agents_test_options['wp_coding_agents_cli_channels'] = array(
 		'args'    => array( 'new' ),
 	),
 );
+$wp_coding_agents_test_options['datamachine_code_cli_channels'] = array(
+	'legacy-option' => array(
+		'command' => $echo_bin,
+		'args'    => array( 'legacy-option' ),
+	),
+);
 
 add_filter(
 	'wp_coding_agents_cli_channels',
@@ -139,6 +161,9 @@ add_filter(
 );
 
 $channels = WpCodingAgents_Cli_Channel_Registry::get_channels();
+$assert( 'legacy option channel is migrated', isset( $channels['legacy-option'] ) );
+$assert( 'retired option is removed after migration', ! isset( $wp_coding_agents_test_options['datamachine_code_cli_channels'] ) );
+$assert( 'migrated channel is stored in the canonical option', isset( $wp_coding_agents_test_options['wp_coding_agents_cli_channels']['legacy-option'] ) );
 $assert( 'new option channel is present', isset( $channels['new-option'] ) );
 $assert( 'new filter channel is present', isset( $channels['new-filter'] ) );
 $assert( 'new registry wins collisions', isset( $channels['collision']['args'][0] ) && 'new' === $channels['collision']['args'][0] );

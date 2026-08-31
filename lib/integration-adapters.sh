@@ -15,6 +15,8 @@ integration_adapters_detect() {
     INTEGRATION_ADAPTER_RECORDS+=("integrations.dmc-managed-release-cleanup")
   fi
 
+  INTEGRATION_ADAPTER_RECORDS+=("integrations.retired-homeboy-option-cleanup")
+
   # A non-git DMC directory was copied by Homeboy. It is intentionally not a
   # wp-coding-agents release channel and must never be converted or updated.
   if [ -d "$site_path/wp-content/plugins/data-machine-code" ] && \
@@ -54,6 +56,9 @@ integration_adapters_plan() {
       integrations.dmc-copied-release)
         reconciler_plan_add "$record" integrations.dmc-copied-release _integration_adapter_preserve_copied_dmc _integration_adapter_verify_copied_dmc
         ;;
+      integrations.retired-homeboy-option-cleanup)
+        reconciler_plan_add "$record" integrations.retired-homeboy-option-cleanup _integration_adapter_cleanup_retired_homeboy_option _integration_adapter_verify_retired_homeboy_option
+        ;;
       integrations.carried-plugin.*)
         [ "$carried_plugins_planned" = false ] || continue
         reconciler_plan_add integrations.carried-plugins integrations.carried-plugin _integration_adapter_sync_carried_plugins _integration_adapter_verify_carried_plugins
@@ -86,6 +91,23 @@ _integration_adapter_cleanup_managed_release() {
 
 _integration_adapter_verify_managed_release() {
   [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ]
+}
+
+_integration_adapter_cleanup_retired_homeboy_option() {
+  local count
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE:-}[dry-run]${NC:-} wp option delete datamachine_code_homeboy_available"
+    return 0
+  fi
+  count="$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null || true)"
+  [ "$count" = 0 ] && return 0
+  wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1 || return 1
+  reconciler_adapter_changed
+}
+
+_integration_adapter_verify_retired_homeboy_option() {
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  [ "$(wp_cmd option list --search=datamachine_code_homeboy_available --format=count 2>/dev/null)" = 0 ]
 }
 
 _integration_adapter_preserve_copied_dmc() {
