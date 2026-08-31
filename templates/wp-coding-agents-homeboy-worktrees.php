@@ -60,13 +60,6 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 				return self::unsupported_input($unsupported, 'Homeboy create cannot preserve this DMC-specific behavior.');
 			}
 		}
-		if (empty($input['allow_unverified_freshness'])) {
-			return new WP_Error(
-				'worktree_handoff_freshness_unverified',
-				'Homeboy does not provide DMC handoff freshness proof. Retry with allow_unverified_freshness only after accepting that limitation.',
-				array('status' => 409, 'owner' => 'homeboy', 'retryable' => true)
-			);
-		}
 		if (null !== self::optional_string($input, 'task_ref')) {
 			return self::unsupported_input('task_ref', 'Homeboy create accepts a canonical task URL, not a DMC task reference.');
 		}
@@ -81,6 +74,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		}
 
 		$command = array(self::HOMEBOY, 'worktree', 'create', $repo, '--branch', $branch);
+		if (empty($input['allow_unverified_freshness'])) {
+			$command[] = '--require-handoff-freshness';
+		}
 		$from    = self::optional_string($input, 'from') ?? 'origin/HEAD';
 		$command = array_merge($command, array('--from', $from));
 		if (null !== ($task_url = self::optional_string($input, 'task_url'))) {
@@ -101,6 +97,10 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (!is_array($record)) {
 			return self::contract_error('Homeboy create result omitted its native worktree record.', $data);
 		}
+		$freshness = self::handoff_freshness($data, $record, !empty($input['allow_unverified_freshness']));
+		if (is_wp_error($freshness)) {
+			return $freshness;
+		}
 
 		return array(
 			'success'          => true,
@@ -117,10 +117,51 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			'context_injected' => false,
 			'context_files'    => array(),
 			'bootstrap'        => array('outcome' => 'not_requested', 'owner' => 'homeboy'),
-			'handoff_freshness' => array('status' => 'unverified', 'reason' => 'remote_freshness_probe_unsupported'),
+			'handoff_freshness' => $freshness,
 			'message'          => 'Homeboy owns this worktree lifecycle.',
 			'metadata'         => array('homeboy' => $record),
 		);
+	}
+
+	/** @param array<string,mixed> $data @param array<string,mixed> $record @return array<string,mixed>|WP_Error */
+	private static function handoff_freshness(array $data, array $record, bool $allow_unverified): array|WP_Error {
+		$source = $data['handoff_freshness']['proof'] ?? null;
+		if (!is_array($source) || 'verified' !== ($data['handoff_freshness']['status'] ?? null)) {
+			if ($allow_unverified) {
+				return array('status' => 'unverified', 'reason' => 'remote_freshness_probe_unsupported');
+			}
+			return self::contract_error('Homeboy create result omitted required handoff freshness proof.', $data);
+		}
+		$proof = array(
+			'version'                       => 3,
+			'proof_id'                      => (string) ($source['proof_id'] ?? ''),
+			'handle'                        => (string) ($record['id'] ?? ''),
+			'worktree_sha'                  => (string) ($source['worktree_sha'] ?? ''),
+			'resolved_base_ref'             => (string) ($source['resolved_base_ref'] ?? ''),
+			'resolved_base_sha'             => (string) ($source['resolved_base_sha'] ?? ''),
+			'remote_default_ref'            => (string) ($source['remote_default_ref'] ?? ''),
+			'remote_default_sha'            => (string) ($source['remote_default_sha'] ?? ''),
+			'remote_default_advertised_sha' => (string) ($source['remote_default_advertised_sha'] ?? ''),
+			'verified_at'                   => (string) ($source['verified_at'] ?? ''),
+		);
+		if (in_array('', array_values($proof), true)) {
+			return self::contract_error('Homeboy handoff freshness proof is incomplete.', $data);
+		}
+		$proof['digest'] = hash('sha256', (string) wp_json_encode(self::canonicalize($proof)));
+		return array('status' => 'verified', 'proof' => $proof);
+	}
+
+	private static function canonicalize(mixed $value): mixed {
+		if (!is_array($value)) {
+			return $value;
+		}
+		foreach ($value as $key => $item) {
+			$value[$key] = self::canonicalize($item);
+		}
+		if (array_keys($value) !== range(0, count($value) - 1)) {
+			ksort($value, SORT_STRING);
+		}
+		return $value;
 	}
 
 	/** @param array<string,mixed> $input @return array<string,mixed>|WP_Error */
