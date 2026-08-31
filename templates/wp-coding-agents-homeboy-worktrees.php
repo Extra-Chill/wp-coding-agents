@@ -11,6 +11,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 	private const HOMEBOY = '@HOMEBOY_BINARY@';
 	private const TIMEOUT_SECONDS = 120;
 	private const OUTPUT_LIMIT_BYTES = 1048576;
+	private const REPOSITORY_PATH_MIN_VERSION = '0.367.3';
 	private const DELEGATED_ABILITIES = array(
 		'datamachine-code/workspace-worktree-add',
 		'datamachine-code/workspace-worktree-list',
@@ -33,7 +34,11 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 				}
 				return call_user_func($native_callback, $input);
 			}
-			return self::execute($slug, $input);
+			$result = self::execute($slug, $input);
+			if ('datamachine-code/workspace-worktree-add' === $slug && self::is_repository_path_capability_error($result) && is_callable($native_callback)) {
+				return call_user_func($native_callback, $input);
+			}
+			return $result;
 		};
 		$args['meta'] = array_merge(
 			is_array($args['meta'] ?? null) ? $args['meta'] : array(),
@@ -56,6 +61,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			}
 		}
 		if (null !== self::optional_string($input, 'task_ref')) {
+			return false;
+		}
+		if (self::has_input_value($input, 'purpose')) {
 			return false;
 		}
 		return !isset($input['reuse_policy']) || in_array($input['reuse_policy'], array('', 'isolated'), true);
@@ -225,6 +233,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 				return self::unsupported_input($unsupported, 'Homeboy create cannot preserve this DMC-specific behavior.');
 			}
 		}
+		if (self::has_input_value($input, 'purpose')) {
+			return self::unsupported_input('purpose', 'Homeboy create cannot preserve DMC worktree purpose metadata.');
+		}
 		if (null !== self::optional_string($input, 'task_ref')) {
 			return self::unsupported_input('task_ref', 'Homeboy create accepts a canonical task URL, not a DMC task reference.');
 		}
@@ -238,7 +249,13 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 			return self::unsupported_input('cleanup_policy', 'Homeboy cannot represent this DMC cleanup policy.');
 		}
 
-		$command = array(self::HOMEBOY, 'worktree', 'create', self::repository_target($repo), '--branch', $branch, '--require-handoff-freshness');
+		$target = self::repository_target($repo);
+		if (is_wp_error($target)) {
+			return $target;
+		}
+		$command                  = array(self::HOMEBOY, 'worktree', 'create', $target, '--branch', $branch);
+		$freshness_argument_index = count($command);
+		$command[]                = '--require-handoff-freshness';
 		$from    = self::optional_string($input, 'from') ?? 'origin/HEAD';
 		$command = array_merge($command, array('--from', $from));
 		if (null !== ($task_url = self::optional_string($input, 'task_url'))) {
@@ -261,7 +278,9 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 					array('status' => 409, 'owner' => 'homeboy', 'retryable' => true, 'remediation' => 'upgrade_homeboy', 'cause' => 'unsupported_option')
 				);
 			}
-			$data                     = self::homeboy(array_values(array_filter($command, static fn(string $argument): bool => '--require-handoff-freshness' !== $argument)));
+			$fallback_command = $command;
+			array_splice($fallback_command, $freshness_argument_index, 1);
+			$data                     = self::homeboy($fallback_command);
 			$used_unverified_fallback = true;
 		}
 		if (is_wp_error($data)) {
@@ -297,7 +316,7 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		);
 	}
 
-	private static function repository_target(string $repo): string {
+	private static function repository_target(string $repo): string|WP_Error {
 		if (!defined('DATAMACHINE_WORKSPACE_PATH')) {
 			return $repo;
 		}
@@ -306,7 +325,41 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 		if (false === $root || false === $path || dirname($path) !== $root || !is_dir($path) || !file_exists($path . DIRECTORY_SEPARATOR . '.git')) {
 			return $repo;
 		}
+		$capability = self::repository_path_capability();
+		if (is_wp_error($capability)) {
+			return $capability;
+		}
+		if (!$capability['supported']) {
+			return new WP_Error(
+				'wp_coding_agents_homeboy_worktree_repository_path_unsupported',
+				'Installed Homeboy cannot create a worktree from the DMC repository path. Upgrade Homeboy before delegating this request.',
+				array('status' => 409, 'owner' => 'homeboy', 'capability' => 'worktree_create_repository_path', 'installed_version' => $capability['version'], 'minimum_version' => self::REPOSITORY_PATH_MIN_VERSION, 'remediation' => 'upgrade_homeboy', 'retryable' => true)
+			);
+		}
 		return $path;
+	}
+
+	/** @return array{supported:bool,version:string}|WP_Error */
+	private static function repository_path_capability(): array|WP_Error {
+		$result = self::run(array(self::HOMEBOY, '--version'));
+		if (is_wp_error($result)) {
+			return $result;
+		}
+		if (0 !== $result['exit_code'] || 1 !== preg_match('/\Ahomeboy ([0-9]+\.[0-9]+\.[0-9]+)\s*\z/', trim($result['stdout']), $matches)) {
+			return self::contract_error(
+				'Homeboy repository-path capability probe returned an invalid version result.',
+				array('capability' => 'worktree_create_repository_path', 'exit_code' => $result['exit_code'], 'stdout' => trim($result['stdout']), 'stderr' => trim($result['stderr']))
+			);
+		}
+		return array('supported' => version_compare($matches[1], self::REPOSITORY_PATH_MIN_VERSION, '>='), 'version' => $matches[1]);
+	}
+
+	private static function is_repository_path_capability_error(array|WP_Error $result): bool {
+		if (!is_wp_error($result)) {
+			return false;
+		}
+		$data = $result->get_error_data();
+		return 'worktree_create_repository_path' === ($data['capability'] ?? $data['evidence']['capability'] ?? null);
 	}
 
 	/** @param array<string,mixed> $data @param array<string,mixed> $record @return array<string,mixed>|WP_Error */
@@ -650,6 +703,11 @@ final class WP_Coding_Agents_Homeboy_Worktrees {
 	/** @param array<string,mixed> $input */
 	private static function optional_string(array $input, string $field): ?string {
 		return isset($input[$field]) && is_scalar($input[$field]) && '' !== trim((string) $input[$field]) ? trim((string) $input[$field]) : null;
+	}
+
+	/** @param array<string,mixed> $input */
+	private static function has_input_value(array $input, string $field): bool {
+		return array_key_exists($field, $input) && (!is_scalar($input[$field]) || '' !== trim((string) $input[$field]));
 	}
 
 	private static function cleanup_policy(mixed $value): ?string {

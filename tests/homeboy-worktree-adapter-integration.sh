@@ -5,9 +5,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 SITE_PATH="$TMP/site"
+WORKSPACE="$TMP/workspace"
 BIN="$TMP/bin"
 LOG="$TMP/homeboy.log"
-mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$BIN"
+mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$WORKSPACE/homeboy/.git" "$BIN"
+WORKSPACE_REAL="$(cd "$WORKSPACE" && pwd -P)"
 
 WP_CLI_VERSION="2.12.0"
 WP_CLI_SHA256="ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c"
@@ -57,15 +59,23 @@ done
 cat > "$BIN/homeboy" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$HOMEBOY_ADAPTER_TEST_LOG"
-if [ "${HOMEBOY_LEGACY:-false}" = true ] && [[ "$*" = *"--require-handoff-freshness"* ]]; then
-  printf '%s\n' "error: unexpected argument '--require-handoff-freshness' found" >&2
-  exit 2
+if [ "$*" = "--version" ]; then
+  printf 'homeboy %s\n' "${HOMEBOY_VERSION:-0.367.3}"
+  exit 0
+fi
+if [ "${HOMEBOY_LEGACY:-false}" = true ]; then
+  case "$*" in
+    worktree\ create\ *\ --branch\ *\ --require-handoff-freshness\ --from\ *)
+      printf '%s\n' "error: unexpected argument '--require-handoff-freshness' found" >&2
+      exit 2
+      ;;
+  esac
 fi
 case "$*" in
-  "worktree create homeboy --branch fix/534-adapter-defaults --require-handoff-freshness --from origin/main --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/534 --run-id studio-run-534 --cleanup-policy remove-when-safe")
+  "worktree create $HOMEBOY_TEST_REPOSITORY_PATH --branch fix/534-adapter-defaults --require-handoff-freshness --from origin/main --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/534 --run-id studio-run-534 --cleanup-policy remove-when-safe")
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"record":{"id":"homeboy@fix-534-adapter-defaults","component_id":"homeboy","worktree_path":"/workspace/homeboy@fix-534-adapter-defaults","branch":"fix/534-adapter-defaults","base_ref":"origin/main","run_id":"studio-run-534","state":"active"},"handoff_freshness":{"status":"verified","proof":{"proof_id":"proof-534","worktree_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved_base_ref":"origin/main","resolved_base_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_ref":"refs/remotes/origin/main","remote_default_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","remote_default_advertised_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified_at":"2026-08-31T00:00:00Z"}}}}'
     ;;
-  "worktree create homeboy --branch fix/534-adapter-defaults --from origin/main --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/534 --run-id studio-run-534 --cleanup-policy remove-when-safe")
+  "worktree create $HOMEBOY_TEST_REPOSITORY_PATH --branch fix/534-adapter-defaults --from origin/main --task-url https://github.com/Extra-Chill/wp-coding-agents/issues/534 --run-id studio-run-534 --cleanup-policy remove-when-safe")
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"record":{"id":"homeboy@fix-534-adapter-defaults","component_id":"homeboy","worktree_path":"/workspace/homeboy@fix-534-adapter-defaults","branch":"fix/534-adapter-defaults","base_ref":"origin/main","run_id":"studio-run-534","state":"active"}}}'
     ;;
   *)
@@ -76,7 +86,7 @@ esac
 SH
 chmod +x "$BIN/homeboy"
 
-export PATH="$BIN:$PATH" HOMEBOY_ADAPTER_TEST_LOG="$LOG"
+export PATH="$BIN:$PATH" HOMEBOY_ADAPTER_TEST_LOG="$LOG" HOMEBOY_TEST_REPOSITORY_PATH="$WORKSPACE_REAL/homeboy"
 SCRIPT_DIR="$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/lib/common.sh"
@@ -92,13 +102,14 @@ BOOTSTRAP="$ROOT_DIR/tests/fixtures/homeboy-worktree-adapter-dispatch.php"
 export HOMEBOY_ADAPTER_PATH="$ADAPTER"
 export WP_CLI_PHAR
 export DMC_FIXTURE_ROOT
+export DMC_WORKSPACE_PATH="$WORKSPACE_REAL"
 export DMC_FINALIZER_LOG="$TMP/finalizer.log"
 WP=(php -d error_reporting=22527 "$BOOTSTRAP")
 
-COMMAND=("${WP[@]}" datamachine-code workspace worktree add homeboy fix/534-adapter-defaults --from=origin/main --task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/534 --reuse-policy=isolated --purpose=issue-534 --owner-run-ref=studio-run-534 --cleanup-policy=remove_on_success --format=json)
+COMMAND=("${WP[@]}" datamachine-code workspace worktree add homeboy fix/534-adapter-defaults --from=origin/main --task-url=https://github.com/Extra-Chill/wp-coding-agents/issues/534 --reuse-policy=isolated --owner-run-ref=studio-run-534 --cleanup-policy=remove_on_success --format=json)
 RESULT="$("${COMMAND[@]}")"
 php -r '$r=json_decode($argv[1],true); if (($r["success"]??false)!==true || ($r["context_injected"]??true)!==false || ($r["handoff_freshness"]["status"]??null)!=="verified") exit(1);' "$RESULT"
-[ "$(grep -c '^worktree create homeboy ' "$LOG")" -eq 1 ]
+[ "$(grep -c "^worktree create $WORKSPACE_REAL/homeboy " "$LOG")" -eq 1 ]
 grep -q -- '--require-handoff-freshness' "$LOG"
 [ "$(grep -c '^finalized$' "$DMC_FINALIZER_LOG")" -eq 1 ]
 
@@ -114,6 +125,18 @@ if "${WP[@]}" datamachine-code workspace worktree add homeboy invalid --unknown-
 fi
 
 : > "$LOG"
+"${WP[@]}" datamachine-code workspace worktree add homeboy native-purpose --purpose=issue-534 --format=json >/dev/null
+[ ! -s "$LOG" ] || { echo "FAIL: non-empty purpose reached Homeboy instead of native DMC" >&2; exit 1; }
+
+: > "$LOG"
+HOMEBOY_VERSION=0.367.2 "${COMMAND[@]}" >/dev/null
+grep -q '^--version$' "$LOG"
+if grep -q '^worktree create ' "$LOG"; then
+  echo "FAIL: pre-0.367.3 Homeboy received an unsupported repository path" >&2
+  exit 1
+fi
+
+: > "$LOG"
 "${WP[@]}" datamachine-code workspace worktree add homeboy explicit-context --inject-context --format=json >/dev/null
 [ ! -s "$LOG" ] || { echo "FAIL: explicit context injection reached Homeboy instead of native DMC" >&2; exit 1; }
 "${WP[@]}" datamachine-code workspace worktree add homeboy explicit-bootstrap --bootstrap --format=json >/dev/null
@@ -125,13 +148,13 @@ if LEGACY="$(HOMEBOY_LEGACY=true "${COMMAND[@]}")"; then
   exit 1
 fi
 php -r '$e=json_decode($argv[1],true)["error"]??array(); if (($e["code"]??null)!=="worktree_handoff_freshness_unverified" || ($e["data"]["remediation"]??null)!=="upgrade_homeboy") exit(1);' "$LEGACY"
-[ "$(grep -c '^worktree create homeboy ' "$LOG")" -eq 1 ]
+[ "$(grep -c "^worktree create $WORKSPACE_REAL/homeboy " "$LOG")" -eq 1 ]
 grep -q -- '--require-handoff-freshness' "$LOG"
 
 : > "$LOG"
 FALLBACK="$(HOMEBOY_LEGACY=true "${COMMAND[@]}" --allow-unverified-freshness)"
 php -r '$r=json_decode($argv[1],true); if (($r["handoff_freshness"]["status"]??null)!=="unverified") exit(1);' "$FALLBACK"
-[ "$(grep -c '^worktree create homeboy ' "$LOG")" -eq 2 ]
+[ "$(grep -c "^worktree create $WORKSPACE_REAL/homeboy " "$LOG")" -eq 2 ]
 grep -q -- '--require-handoff-freshness' "$LOG"
 
 : > "$LOG"

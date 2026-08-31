@@ -5,6 +5,10 @@
 
 define('WP_CLI', true);
 define('ABSPATH', __DIR__ . '/');
+$workspace_path = getenv('DMC_WORKSPACE_PATH');
+if (is_string($workspace_path) && '' !== $workspace_path) {
+	define('DATAMACHINE_WORKSPACE_PATH', $workspace_path);
+}
 $wp_cli_phar = getenv('WP_CLI_PHAR');
 define('WP_CLI_ROOT', 'phar://' . $wp_cli_phar . '/vendor/wp-cli/wp-cli');
 define('WP_CLI_VENDOR_DIR', 'phar://' . $wp_cli_phar . '/vendor');

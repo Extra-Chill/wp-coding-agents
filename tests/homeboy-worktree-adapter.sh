@@ -20,6 +20,10 @@ WORKSPACE_REAL="$(cd "$WORKSPACE" && pwd -P)"
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$HOMEBOY_ADAPTER_TEST_LOG"
+if [ "$*" = "--version" ]; then
+	printf 'homeboy %s\n' "${HOMEBOY_VERSION:-0.367.3}"
+	exit 0
+fi
 case "$*" in
   "config show /worktree_providers/dmc")
     [ -f "$HOMEBOY_PROVIDER_STATE" ] || exit 1
@@ -38,9 +42,13 @@ case "$*" in
     printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{}}'
     ;;
   "worktree create "*)
-	if [ "${HOMEBOY_LEGACY:-false}" = true ] && [[ "$*" = *"--require-handoff-freshness"* ]]; then
-		printf '%s\n' "error: unexpected argument '--require-handoff-freshness' found" >&2
-		exit 2
+	if [ "${HOMEBOY_LEGACY:-false}" = true ]; then
+		case "$*" in
+		  worktree\ create\ *\ --branch\ *\ --require-handoff-freshness\ --from\ *)
+			printf '%s\n' "error: unexpected argument '--require-handoff-freshness' found" >&2
+			exit 2
+			;;
+		esac
 	fi
 	if [ "${HOMEBOY_MISSING_PROOF:-false}" = true ]; then
 		printf '%s\n' '{"schema":"homeboy/command-result/v3","success":true,"data":{"record":{"id":"fixture@fix-474","component_id":"fixture","worktree_path":"/workspace/fixture@fix-474","branch":"fix/474","base_ref":"origin/main","state":"active"}}}'
@@ -133,6 +141,17 @@ $native = $add(array('repo' => 'fixture', 'branch' => 'fix/native'));
 expect('dmc' === ($native['backend'] ?? null), 'default context and bootstrap behavior retains DMC native creation');
 $native_option = $add(array('repo' => 'fixture', 'branch' => 'fix/native-option', 'inject_context' => false, 'bootstrap' => false, 'allow_stale' => true));
 expect('dmc' === ($native_option['backend'] ?? null), 'DMC-only create options retain DMC native creation');
+$native_purpose = $add(array('repo' => 'fixture', 'branch' => 'fix/native-purpose', 'inject_context' => false, 'bootstrap' => false, 'purpose' => 'review-fix'));
+expect('dmc' === ($native_purpose['backend'] ?? null), 'non-empty purpose retains DMC native creation');
+$native_zero_purpose = $add(array('repo' => 'fixture', 'branch' => 'fix/native-zero-purpose', 'inject_context' => false, 'bootstrap' => false, 'purpose' => '0'));
+expect('dmc' === ($native_zero_purpose['backend'] ?? null), 'string-zero purpose retains DMC native validation');
+putenv('HOMEBOY_VERSION=0.367.2');
+$native_legacy_path = $add(array('repo' => 'fixture', 'branch' => 'fix/native-legacy-path', 'inject_context' => false, 'bootstrap' => false));
+expect('dmc' === ($native_legacy_path['backend'] ?? null), 'pre-repository-path Homeboy preserves native DMC creation');
+$legacy_path_error = WP_Coding_Agents_Homeboy_Worktrees::execute('datamachine-code/workspace-worktree-add', array('repo' => 'fixture', 'branch' => 'fix/legacy-path-remediation'));
+expect(is_wp_error($legacy_path_error) && 'wp_coding_agents_homeboy_worktree_repository_path_unsupported' === $legacy_path_error->code, 'direct repository-path delegation returns a typed capability refusal');
+expect('upgrade_homeboy' === ($legacy_path_error->data['remediation'] ?? null) && '0.367.3' === ($legacy_path_error->data['minimum_version'] ?? null), 'repository-path refusal includes exact upgrade remediation');
+putenv('HOMEBOY_VERSION=0.367.3');
 $verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($verified) && 'verified' === ($verified['handoff_freshness']['status'] ?? null), 'create maps Homeboy remote freshness into the DMC handoff contract');
 $created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
@@ -147,9 +166,18 @@ expect(is_wp_error($strict_legacy) && 'worktree_handoff_freshness_unverified' ==
 $fallback_legacy = $add(array('repo' => 'fixture', 'branch' => 'legacy-fallback', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($fallback_legacy), 'explicit unverified policy retries after typed unsupported capability');
 putenv('HOMEBOY_LEGACY=false');
-$legacy_commands = array_slice(file(getenv('HOMEBOY_ADAPTER_TEST_LOG'), FILE_IGNORE_NEW_LINES), $before_legacy);
+$legacy_commands = array_values(array_filter(array_slice(file(getenv('HOMEBOY_ADAPTER_TEST_LOG'), FILE_IGNORE_NEW_LINES), $before_legacy), static fn(string $command): bool => str_starts_with($command, 'worktree create ')));
 expect(3 === count($legacy_commands), 'strict refusal performs once and permitted fallback performs exactly twice');
 expect(str_contains($legacy_commands[1], '--require-handoff-freshness') && !str_contains($legacy_commands[2], '--require-handoff-freshness'), 'fallback occurs only after the freshness option is rejected');
+$before_equal_fallback = count(file(getenv('HOMEBOY_ADAPTER_TEST_LOG')));
+putenv('HOMEBOY_LEGACY=true');
+$equal_fallback = $add(array('repo' => 'fixture', 'branch' => 'legacy-equal-value', 'from' => '--require-handoff-freshness', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
+expect(!is_wp_error($equal_fallback), 'legacy fallback preserves a user value equal to the adapter freshness argument');
+putenv('HOMEBOY_LEGACY=false');
+$equal_commands = array_values(array_filter(array_slice(file(getenv('HOMEBOY_ADAPTER_TEST_LOG'), FILE_IGNORE_NEW_LINES), $before_equal_fallback), static fn(string $command): bool => str_starts_with($command, 'worktree create ')));
+expect(2 === count($equal_commands), 'equal-value fallback attempts strict creation once and fallback once');
+expect(2 === substr_count($equal_commands[0], '--require-handoff-freshness') && 1 === substr_count($equal_commands[1], '--require-handoff-freshness'), 'fallback removes only the adapter-inserted freshness argument');
+expect(str_contains($equal_commands[1], '--from --require-handoff-freshness'), 'fallback retains the equal user-supplied base value');
 putenv('HOMEBOY_MISSING_PROOF=true');
 $missing_proof = $add(array('repo' => 'fixture', 'branch' => 'missing-proof', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(is_wp_error($missing_proof) && 'wp_coding_agents_homeboy_worktree_contract_error' === $missing_proof->code, 'permitted fallback does not excuse a supported response that omits freshness proof');
