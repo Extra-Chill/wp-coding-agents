@@ -11,9 +11,11 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/homeboy.sh"
 
 SITE_PATH="$TMP/site"
+WORKSPACE="$TMP/workspace"
 FAKE_BIN="$TMP/bin"
 LOG="$TMP/homeboy.log"
-mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$FAKE_BIN"
+mkdir -p "$SITE_PATH/wp-content/mu-plugins" "$WORKSPACE/fixture/.git" "$FAKE_BIN"
+WORKSPACE_REAL="$(cd "$WORKSPACE" && pwd -P)"
 
 cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/bash
@@ -78,6 +80,7 @@ php -l "$ADAPTER" >/dev/null
 cat > "$TMP/adapter-harness.php" <<'PHP'
 <?php
 define('ABSPATH', __DIR__);
+define('DATAMACHINE_WORKSPACE_PATH', __DIR__ . '/workspace');
 
 final class WP_Error {
 	public function __construct(public string $code, public string $message, public array $data = array()) {}
@@ -112,15 +115,20 @@ $ability = static function (string $slug) use ($callback): callable {
 	return $args['execute_callback'];
 };
 
-$add = $ability('datamachine-code/workspace-worktree-add');
-$verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474'));
+$native_add = static fn(array $input): array => array('success' => true, 'backend' => 'dmc', 'input' => $input);
+$add_args = $callback(array('execute_callback' => $native_add, 'meta' => array('show_in_rest' => false)), 'datamachine-code/workspace-worktree-add');
+$add = $add_args['execute_callback'];
+$native = $add(array('repo' => 'fixture', 'branch' => 'fix/native'));
+expect('dmc' === ($native['backend'] ?? null), 'default context and bootstrap behavior retains DMC native creation');
+$native_option = $add(array('repo' => 'fixture', 'branch' => 'fix/native-option', 'inject_context' => false, 'bootstrap' => false, 'allow_stale' => true));
+expect('dmc' === ($native_option['backend'] ?? null), 'DMC-only create options retain DMC native creation');
+$verified = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($verified) && 'verified' === ($verified['handoff_freshness']['status'] ?? null), 'create maps Homeboy remote freshness into the DMC handoff contract');
-$created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true));
+$created = $add(array('repo' => 'fixture', 'branch' => 'fix/474', 'from' => 'origin/main', 'task_url' => 'https://example.test/474', 'owner_run_ref' => 'run-474', 'cleanup_policy' => 'remove_on_success', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($created) && 'fixture@fix-474' === $created['handle'], 'create projects native Homeboy record');
 expect('verified' === ($created['handoff_freshness']['status'] ?? null), 'create retains available Homeboy freshness when unverified fallback is allowed');
-$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true));
+$manual = $add(array('repo' => 'fixture', 'branch' => 'fix/474-manual', 'cleanup_policy' => 'manual', 'allow_unverified_freshness' => true, 'inject_context' => false, 'bootstrap' => false));
 expect(!is_wp_error($manual), 'manual lifecycle intent maps to non-cleanup-eligible Homeboy policy');
-expect(is_wp_error($add(array('repo' => 'fixture', 'branch' => 'unsupported', 'bootstrap' => true))), 'explicit DMC-only create behavior returns typed refusal');
 
 $list = $ability('datamachine-code/workspace-worktree-list');
 $listed = $list(array('handle' => 'fixture@fix-474', 'include_status' => true, 'limit' => 1));
@@ -151,9 +159,9 @@ if grep -q 'datamachine-code' "$LOG"; then
   cat "$LOG" >&2
   exit 1
 fi
-grep -q '^worktree create fixture ' "$LOG"
-grep -q '^worktree create fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD$' "$LOG"
-grep -q '^worktree create fixture --branch fix/474-manual --from origin/HEAD --cleanup-policy preserve-on-failure$' "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture " "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474 --require-handoff-freshness --from origin/HEAD$" "$LOG"
+grep -q "^worktree create $WORKSPACE_REAL/fixture --branch fix/474-manual --from origin/HEAD --cleanup-policy preserve-on-failure$" "$LOG"
 grep -q '^worktree finalize fixture@fix-474 --owner-run-ref run-474 --disposition succeeded$' "$LOG"
 grep -q '^worktree cleanup --apply$' "$LOG"
 
