@@ -15,6 +15,7 @@ log() { :; }
 warn() { :; }
 error() { fail "$1"; }
 sync_carried_plugins() {
+  printf 'sync\n' >> "$CARRIED_TRACE"
   mkdir -p "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code"
 }
 
@@ -26,6 +27,7 @@ INSTALLATION_PROFILE_HOMEBOY_MODE=disabled
 RUNTIME=claude-code
 DETECTED_RUNTIMES=(claude-code)
 DRY_RUN=false
+CARRIED_TRACE="$TMP/carried-sync"
 BLUE=""; NC=""
 mkdir -p "$SITE_PATH/wp-content/plugins/data-machine-code"
 printf 'copied\n' > "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED"
@@ -49,6 +51,19 @@ integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release cleanup was not applied"
 [ -f "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED" ] || fail "copied DMC was changed"
 [ -d "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ] || fail "carried provider was not applied"
+
+# Multiple eligible carried sources are one aggregate desired-state effect.
+mkdir -p "$TMP/carried-plugins/one" "$TMP/carried-plugins/two"
+mkdir -p "$SITE_PATH/wp-content/plugins/one" "$SITE_PATH/wp-content/plugins/two"
+SCRIPT_DIR="$TMP"
+carried_plugin_should_install() { return 0; }
+integration_adapters_detect
+reconciler_plan_reset
+integration_adapters_plan
+[ "$(printf '%s\n' "${RECONCILER_PLAN_RECORDS[@]}" | grep -c '^integrations.carried-plugins$')" -eq 1 ] || fail "carried plugins were planned more than once"
+integration_adapters_apply
+[ "$(grep -c '^sync$' "$CARRIED_TRACE")" -eq 2 ] || fail "carried plugins did not execute as one aggregate sync"
+SCRIPT_DIR="$ROOT_DIR"
 
 # Auto Homeboy absence and a DMC-free site create no optional integration work.
 rm -rf "$SITE_PATH/wp-content/plugins/data-machine-code"

@@ -7,11 +7,30 @@ convergence_plan() {
   RECONCILER_ENTRYPOINT="${CONVERGENCE_ENTRYPOINT:-$0}"
   RECONCILER_REPLAY_ARGUMENTS="${CONVERGENCE_REPLAY_ARGUMENTS:-}"
   log "[desired-state] profile=$(installation_profile_record)"
-  integration_adapters_plan
-  if [ "${CONVERGENCE_SCOPE:-all}" = all ]; then
-    runtime_guidance_desired_state_plan
-  fi
-  bridge_service_adapters_plan "$operation"
+  case "${CONVERGENCE_SCOPE:-all}" in
+    all)
+      integration_adapters_plan
+      runtime_guidance_desired_state_plan
+      bridge_service_adapters_plan "$operation"
+      ;;
+    runtime)
+      runtime_guidance_desired_state_plan
+      ;;
+    agents-md)
+      RUNTIME_GUIDANCE_DESIRED_SCOPE=agents-md runtime_guidance_desired_state_plan
+      ;;
+    bridge)
+      BRIDGE_SERVICE_ADAPTER_SCOPE=bridge bridge_service_adapters_plan "$operation"
+      ;;
+    services)
+      integration_adapters_plan
+      bridge_service_adapters_plan "$operation"
+      ;;
+    *)
+      error "Unknown convergence scope: ${CONVERGENCE_SCOPE}"
+      return 1
+      ;;
+  esac
 }
 
 convergence_apply() {

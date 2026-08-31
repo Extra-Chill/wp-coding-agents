@@ -22,12 +22,12 @@ require_file_source() {
 }
 
 require_source 'plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;' "plugins-only plugin phase"
-require_source 'reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;' "separate reconciliation phases"
+require_source 'reconciliation|transport|systemd) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;' "separate reconciliation phases"
 require_source 'convergence_run "$INSTALLATION_OPERATION_UPGRADE"' "shared full reconciliation entrypoint"
 require_file_source "$ROOT_DIR/lib/convergence-orchestrator.sh" 'integration_adapters_plan' "integration adapter composition"
 require_file_source "$ROOT_DIR/lib/convergence-orchestrator.sh" 'bridge_service_adapters_plan' "bridge/service adapter composition"
 require_source './upgrade.sh --reconcile-services' "explicit reconciliation command"
-require_source 'if [ "$PLUGINS_ONLY" != true ]; then' "plugins-only source-policy mutation guard"
+require_source '[ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then' "narrow-mode source-policy mutation guard"
 require_source 'detect_plugins_only_environment' "narrow plugin-only environment detection"
 require_source 'installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"' "credential-free plugins-only profile normalization"
 require_source 'reconcile_installed_plugins() {' "plugins-only desired-state reconciliation"

@@ -459,7 +459,8 @@ source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_assert_runtime_supports_mode
-if [ "$PLUGINS_ONLY" != true ]; then
+if [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
+   [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode
   owned_discovery_record_exclusions
   source_policy_record_owned_sources
@@ -610,7 +611,7 @@ _run_filter_active() {
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
-      reconciliation|transport|systemd|patch) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
+      reconciliation|transport|systemd) [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
       *)         return 1 ;;
     esac
   fi
@@ -1077,7 +1078,6 @@ regenerate_agents_md() {
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
     service_file_normalize_perms "$AGENTS_MD"
-    opencode_project_subagents_optional
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -1444,13 +1444,16 @@ PLUGIN_ONLY_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   discover_dm_workspace_dir
-  CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
-  CONVERGENCE_REPLAY_ARGUMENTS="${DRY_RUN:+--dry-run}"
-  CONVERGENCE_SCOPE=all
-  if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
-  if [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ]; then
-    convergence_run "$INSTALLATION_OPERATION_UPGRADE"
-  fi
+CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
+CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
+[ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
+CONVERGENCE_SCOPE=all
+if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
+if [ "$KIMAKI_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
+if [ "$AGENTS_MD_ONLY" = true ]; then CONVERGENCE_SCOPE=agents-md; fi
+if [ "$SKILLS_ONLY" != true ]; then
+  convergence_run "$INSTALLATION_OPERATION_UPGRADE"
+fi
 fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
@@ -1468,7 +1471,9 @@ regenerate_agents_md
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
-opencode_project_subagents_optional
+if [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+  opencode_project_subagents_optional
+fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 reconcile_wordpress_service

@@ -85,3 +85,55 @@ done
 [ ! -s "$TMP/external.trace" ] || error "external fixture unexpectedly executed local effects"
 
 echo "PASS: shared convergence derives equivalent graphs and executes no duplicate optional effects"
+
+# Narrow scopes execute only their declared component families.
+for scope in runtime agents-md bridge services; do
+  TRACE="$TMP/$scope.trace"
+  INSTALL_CHAT=true; CHAT_BRIDGE=kimaki; WORDPRESS_SERVICE_REQUEST=enabled; DATAMACHINE_WORKER_REQUEST=enabled
+  HOMEBOY_MODE=disabled; EXTERNAL_WORDPRESS=false; LOCAL_MODE=true; PLATFORM=mac
+  installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
+  CONVERGENCE_SCOPE="$scope" convergence_run "$INSTALLATION_OPERATION_UPGRADE"
+done
+runtime_trace="$(<"$TMP/runtime.trace")"
+case "$runtime_trace" in *bridge*|*service*) error "runtime scope crossed into bridge or services" ;; esac
+case "$runtime_trace" in *runtime-install*|*guidance*) ;; *) error "runtime scope omitted runtime/guidance" ;; esac
+agents_trace="$(<"$TMP/agents-md.trace")"
+[ "$agents_trace" = $'guidance\nruntime-instructions' ] || error "agents-md scope was not bounded: $agents_trace"
+[ "$(<"$TMP/bridge.trace")" = bridge ] || error "bridge scope executed unrelated effects"
+services_trace="$(<"$TMP/services.trace")"
+case "$services_trace" in *runtime-*|*guidance*) error "services scope installed runtime/guidance" ;; esac
+case "$services_trace" in *bridge*wordpress-service*worker-service*) ;; *) error "services scope omitted bridge/service effects" ;; esac
+
+# A failed verifier preserves its real status in the warning and yields partial.
+VERIFY_LOG="$TMP/verify.log"
+warn() { printf '%s\n' "$*" >> "$VERIFY_LOG"; }
+verify_42() { return 42; }
+apply_ok() { :; }
+reconciler_plan_reset
+reconciler_plan_add fixture.verify fixture apply_ok verify_42
+if reconciler_apply_plan; then error "verify failure unexpectedly passed"; fi
+grep -q 'verify=failed status=42' "$VERIFY_LOG" || error "verify status was not preserved"
+
+# A hanging step is terminated, including its process group, at the deadline.
+HANG_PID_FILE="$TMP/hang.pid"
+hang_step() { sleep 30 & printf '%s\n' "$!" > "$HANG_PID_FILE"; wait; }
+DESIRED_STATE_STEP_TIMEOUT_SECONDS=1
+DESIRED_STATE_TOTAL_TIMEOUT_SECONDS=2
+reconciler_plan_reset
+reconciler_plan_add fixture.hang fixture hang_step
+started="$(date +%s)"
+if reconciler_apply_plan; then error "hanging step unexpectedly passed"; fi
+[ $(( $(date +%s) - started )) -lt 5 ] || error "hanging step was not interrupted by deadline"
+sleep 1
+kill -0 "$(<"$HANG_PID_FILE")" 2>/dev/null && error "hanging child survived deadline"
+
+# Adapter wrappers must expose component failure to the reconciler.
+runtime_generate_config() { return 37; }
+if runtime_guidance_desired_state_apply_config; then error "runtime wrapper swallowed failure"; fi
+bridge_sync_config() { return 38; }
+BRIDGE_SERVICE_ADAPTER_OPERATION="$INSTALLATION_OPERATION_UPGRADE"
+if bridge_service_adapter_apply_bridge; then error "bridge wrapper swallowed failure"; fi
+sync_carried_plugins() { return 39; }
+if _integration_adapter_sync_carried_plugins; then error "integration wrapper swallowed failure"; fi
+
+echo "PASS: convergence scopes, verification status, and deadlines are behavioral"

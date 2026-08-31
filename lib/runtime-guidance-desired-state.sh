@@ -86,6 +86,12 @@ runtime_guidance_desired_state_plan() {
   local index
   runtime_guidance_desired_state_detect
   for index in "${!RUNTIME_GUIDANCE_DESIRED_RECORDS[@]}"; do
+    if [ "${RUNTIME_GUIDANCE_DESIRED_SCOPE:-all}" = agents-md ]; then
+      case "${RUNTIME_GUIDANCE_DESIRED_RECORDS[$index]}" in
+        guidance.agents-md|runtime.*.instructions) ;;
+        *) continue ;;
+      esac
+    fi
     reconciler_plan_add \
       "${RUNTIME_GUIDANCE_DESIRED_RECORDS[$index]}" \
       "${RUNTIME_GUIDANCE_DESIRED_OPERATIONS[$index]}" \
@@ -98,7 +104,7 @@ runtime_guidance_desired_state_apply_function() {
   local function="$1"
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
-  "$function"
+  "$function" || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0
 }
