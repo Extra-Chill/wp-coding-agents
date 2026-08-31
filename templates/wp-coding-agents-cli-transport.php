@@ -290,7 +290,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				return $existing;
 			}
 
-			if ( ! is_array( $input ) || ! function_exists( 'proc_open' ) ) {
+			if ( ! is_array( $input ) || ! self::can_execute_processes() ) {
 				return $existing;
 			}
 
@@ -433,8 +433,8 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 		 * @return resource|WP_Error
 		 */
 		private static function open_process( array $argv, array $descriptors, ?string $cwd, ?array $env, array &$pipes = array() ) {
-			if ( ! function_exists( 'proc_open' ) ) {
-				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_proc_open', 'proc_open is not available on this host.' );
+			if ( ! self::can_execute_processes() ) {
+				return new WP_Error( 'wp_coding_agents_cli_dispatch_process_execution_unavailable', 'Child-process execution is not available on this host.' );
 			}
 			if ( ! function_exists( 'posix_kill' ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_posix_kill', 'The POSIX process extension is required for bounded CLI process-tree cleanup.' );
@@ -452,6 +452,11 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			}
 
 			return $process;
+		}
+
+		/** Return the host integration's fail-closed child-process declaration. */
+		private static function can_execute_processes(): bool {
+			return function_exists( 'apply_filters' ) && true === apply_filters( 'wp_coding_agents_host_can_execute_processes', false );
 		}
 
 		/** Locate the POSIX session launcher without invoking a shell. */
