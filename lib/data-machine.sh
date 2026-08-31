@@ -131,26 +131,6 @@ create_dm_agent() {
   fi
 }
 
-sync_homeboy_availability() {
-  if [ "$DRY_RUN" = true ]; then
-    if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update datamachine_code_homeboy_available 1"
-    else
-      echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option delete datamachine_code_homeboy_available"
-    fi
-    sync_homeboy_project_components
-    return 0
-  fi
-
-  if [ "${HOMEBOY_WORDPRESS_READY:-false}" = true ] || homeboy_wordpress_extension_ready; then
-    wp_cmd option update datamachine_code_homeboy_available 1 >/dev/null 2>&1 || \
-      warn "Could not record Homeboy availability for AGENTS.md compose"
-    sync_homeboy_project_components
-  else
-    wp_cmd option delete datamachine_code_homeboy_available >/dev/null 2>&1 || true
-  fi
-}
-
 discover_dm_workspace_dir() {
   if [ -n "${DATAMACHINE_WORKSPACE_PATH:-}" ]; then
     DM_WORKSPACE_DIR="$DATAMACHINE_WORKSPACE_PATH"
