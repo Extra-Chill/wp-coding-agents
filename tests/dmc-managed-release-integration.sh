@@ -42,6 +42,16 @@ source "$ROOT_DIR/lib/integration-adapters.sh"
 log() { :; }
 warn() { :; }
 error() { fail "$1"; }
+setup_homeboy_project() { :; }
+configure_homeboy_worktree_ownership() { :; }
+configure_homeboy_wordpress_extension() { :; }
+homeboy_required() { return 1; }
+wp_cmd() {
+  case "$1 $2" in
+    'option list') printf '0\n' ;;
+    *) return 1 ;;
+  esac
+}
 DRY_RUN=false
 INSTALLATION_PROFILE_SITE_PATH="$SITE_PATH"
 INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
