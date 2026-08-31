@@ -346,11 +346,19 @@ require_once __DIR__ . '/../carried-plugins/wp-coding-agents-integration/wp-codi
 $installed_host_can_execute = \WpCodingAgents\Integration\HostCapabilities::can_execute_processes();
 $claim_known = WpCodingAgents_Cli_Channel_Transport::maybe_claim( null, array( 'channel' => 'sync-true' ) );
 $assert( 'installed host claim reflects executable capability', $installed_host_can_execute === is_callable( $claim_known ) );
-$assert( 'installed provider preserves an explicit capable declaration', true === apply_filters( 'wp_coding_agents_host_can_execute_processes', true ) );
+$assert( 'installed provider rechecks an explicit capable declaration', $installed_host_can_execute === apply_filters( 'wp_coding_agents_host_can_execute_processes', true ) );
 add_filter( 'wp_coding_agents_host_can_execute_processes', static fn( bool $available ): bool => false, 20 );
 $assert( 'later denial overrides an explicit capable declaration', false === apply_filters( 'wp_coding_agents_host_can_execute_processes', true ) );
 $assert( 'later integration-owned denial overrides installed provider', null === WpCodingAgents_Cli_Channel_Transport::maybe_claim( null, array( 'channel' => 'sync-true' ) ) );
 $wp_coding_agents_test_filters['wp_coding_agents_host_can_execute_processes'][20] = array();
+$portable_argv = Closure::bind(
+	static function (): array {
+		return self::session_launcher_argv( '/fixture/setsid', array( '/bin/true', '--child-option' ) );
+	},
+	null,
+	WpCodingAgents_Cli_Channel_Transport::class
+)();
+$assert( 'portable setsid invocation keeps the child command first', array( '/fixture/setsid', '/bin/true', '--child-option' ) === $portable_argv );
 if ( ! $installed_host_can_execute ) {
 	echo "  [SKIP] installed host cannot meet the session-safe process contract\n";
 	exit( 0 );

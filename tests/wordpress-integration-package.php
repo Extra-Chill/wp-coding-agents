@@ -97,7 +97,10 @@ $failed = HostCapabilities::evaluate_shell_capability(
 assert(false === $failed['ok']);
 assert('probe_failed' === $failed['reason']);
 
-assert(true === apply_filters('wp_coding_agents_host_can_execute_processes', true));
+assert(
+	HostCapabilities::can_execute_processes()
+	=== apply_filters('wp_coding_agents_host_can_execute_processes', true)
+);
 add_filter('wp_coding_agents_host_can_execute_processes', static fn(bool $available): bool => false, 20);
 assert(false === apply_filters('wp_coding_agents_host_can_execute_processes', true));
 assert(true === apply_filters('wp_coding_agents_host_has_writable_process_workspace', true));

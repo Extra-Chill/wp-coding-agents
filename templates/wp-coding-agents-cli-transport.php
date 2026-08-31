@@ -445,8 +445,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_no_session_launcher', 'A POSIX setsid executable is required for bounded CLI process-tree cleanup.' );
 			}
 
-			array_unshift( $argv, $session_launcher, '--' );
-			$process = @proc_open( $argv, $descriptors, $pipes, $cwd, $env );
+			$process = @proc_open( self::session_launcher_argv( $session_launcher, $argv ), $descriptors, $pipes, $cwd, $env );
 			if ( ! is_resource( $process ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_spawn_failed', 'Failed to spawn CLI process.' );
 			}
@@ -478,6 +477,11 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			}
 
 			return null;
+		}
+
+		/** Build the setsid PROGRAM [ARGS...] contract shared by GNU and BusyBox. */
+		private static function session_launcher_argv( string $session_launcher, array $argv ): array {
+			return array_merge( array( $session_launcher ), $argv );
 		}
 
 		/**
