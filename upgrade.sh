@@ -829,8 +829,12 @@ check_opencode_json_drift() {
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
 
-  # Kimaki plugins dir — match what bridges/kimaki.sh::bridge_sync_config resolved.
+  # Resolve independently because desired-state bridge sync runs in a child
+  # process and cannot return shell variables to this parent process.
   local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  if declare -F bridge_managed_plugins_dir >/dev/null 2>&1; then
+    PLUGINS_DIR="$(bridge_managed_plugins_dir)"
+  fi
   upgrade_install_opencode_claude_code_auth_plugin
   local CLAUDE_CODE_AUTH_PLUGIN=""
   local claude_code_auth_args=()

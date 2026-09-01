@@ -36,6 +36,14 @@ source "$SCRIPT_DIR/lib/source-policy.sh"
 SOURCE_MODE="${SOURCE_MODE:-workspace}"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/opencode.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/bridges/kimaki.sh"
+
+RESOLVED_KIMAKI_PLUGINS_DIR=/opt/kimaki-config/plugins
+[ "$(bridge_managed_plugins_dir)" = "$KIMAKI_DATA_DIR/kimaki-config/plugins" ] || {
+  echo "FAIL: local plugin path depended on child-process bridge state"
+  exit 1
+}
 
 runtime_generate_config
 
