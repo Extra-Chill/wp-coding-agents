@@ -183,12 +183,35 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
   assert.ok(!plan.warnings.some((warning) => warning.includes("Legacy profile has no source declaration")))
 }
 
+{
+  const plan = compile({
+    install_target: "local",
+    target: { wordpress_path: "/tmp/site" },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "none" },
+    source: {
+      mode: "workspace",
+      workspace_repositories: [
+        { path: "/work/new checkout", remote: "https://github.com/example/project.git" },
+      ],
+    },
+    overlays: {},
+  })
+  assert.match(plan.commands.apply, /--workspace-repository-clone https:\/\/github\.com\/example\/project\.git '[/]work[/]new checkout'/)
+  assert.deepEqual(plan.summary.workspace_repositories, ["/work/new checkout"])
+  assert.deepEqual(plan.summary.workspace_repository_clones, [
+    { path: "/work/new checkout", remote: "https://github.com/example/project.git" },
+  ])
+}
+
 for (const source of [
   null,
   { mode: "workspace" },
   { mode: "workspace", workspace_repositories: [] },
   { mode: "workspace", workspace_repositories: ["relative"] },
   { mode: "workspace", workspace_repositories: ["/work/repo", "/work/repo"] },
+  { mode: "workspace", workspace_repositories: [{ path: "/work/repo", remote: "https://token@example.com/repo.git" }] },
+  { mode: "workspace", workspace_repositories: [{ path: "/work/repo", remote: "ssh://git:secret@example.com/repo.git" }] },
   { mode: "owned", workspace_repositories: ["/work/repo"] },
 ]) {
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {

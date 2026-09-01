@@ -107,7 +107,13 @@ Return the profile as JSON in this shape so the compiler script can map it deter
   "codex_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
   "source": {
     "mode": "workspace | owned",
-    "workspace_repositories": ["/absolute/path/to/primary-checkout"]
+    "workspace_repositories": [
+      "/absolute/path/to/existing-primary-checkout",
+      {
+        "path": "/absolute/path/to/missing-primary-checkout",
+        "remote": "https://github.com/example/project.git"
+      }
+    ]
   },
   "overlays": {
     "homeboy": false,

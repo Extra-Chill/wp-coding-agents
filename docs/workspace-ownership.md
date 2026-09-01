@@ -1,8 +1,8 @@
 # Workspace ownership after DMC
 
-Status: target architecture for [#526](https://github.com/Extra-Chill/wp-coding-agents/issues/526), prerequisite to [#525](https://github.com/Extra-Chill/wp-coding-agents/issues/525).
+Status: active architecture for [#526](https://github.com/Extra-Chill/wp-coding-agents/issues/526), completed as a prerequisite to [#525](https://github.com/Extra-Chill/wp-coding-agents/issues/525).
 
-This document defines where coding work happens and which layer owns each operation after DMC is removed. It is a target contract, not a description of the current installer. The migration inventory remains the source of truth for current dependencies and persisted-state gates.
+This document defines where coding work happens and which layer owns each operation after DMC is removed. The migration inventory remains the source of truth for current dependencies and persisted-state gates.
 
 ## Invariants
 
@@ -29,9 +29,11 @@ Homeboy is an optional orchestration axis, not a source mode. When it is unavail
 
 ## Repository contract
 
-The desired-state profile must carry an explicit list of repository roots for workspace mode. The storage syntax is implementation work, but the following semantics are fixed:
+The desired-state profile carries an explicit list of repository roots for workspace mode. Existing checkouts are declared by absolute path. A repository object with `path` and credential-free `remote` fields additionally authorizes setup and upgrade to clone that primary checkout when the destination is missing.
 
-- Each entry is an absolute, canonical path to one primary Git checkout accessible to the coding runtime.
+- Each entry is an absolute path to one primary Git checkout accessible to the coding runtime. Filesystem aliases are resolved when proving checkout-root identity.
+- Materialization creates only a missing destination. An existing destination must already be the primary checkout root and its `origin` must exactly match the declaration; setup and upgrade never replace it.
+- Materialization rejects direct symlink destinations and user-controlled symlink ancestors. Privileged materialization additionally requires root-owned ancestors that are not group/world-writable; root-owned aliases in protected system directories remain valid.
 - The list is the sole repository authority for runtime permissions, guidance, verification, and optional Homeboy component attachment.
 - The WordPress site root is read-only reference unless it is separately and explicitly listed as a repository root. Local path coincidence is not authority.
 - Directory scanning, plugin inventories, `homeboy.json`, and DMC options may help migrate an existing install, but none is ongoing repository discovery authority.
@@ -77,7 +79,7 @@ The following are not target resident capabilities: repository discovery; file m
 
 ## Failure behavior
 
-- Missing or invalid repository roots make workspace verification unhealthy and leave installed WordPress source read-only.
+- Missing materialized repositories are restored from their declarations during setup or upgrade. Missing path-only repositories and invalid destinations make workspace verification unhealthy and leave installed WordPress source read-only.
 - Missing Homeboy leaves native primary-checkout workflow available and all orchestrated-worktree guidance absent.
 - Homeboy configured but unhealthy fails the Homeboy seam explicitly; WordPress does not assume its lifecycle operations.
 - An unavailable external WordPress transport blocks WordPress operations but does not change local repository authority.

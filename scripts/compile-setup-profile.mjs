@@ -104,7 +104,7 @@ function normalizeBridge(profile, availableBridges) {
 function normalizeSource(profile) {
   const source = profile.source
   if (source === undefined) {
-    return { mode: "workspace", repositories: [], legacy: true }
+    return { mode: "workspace", repositories: [], entries: [], legacy: true }
   }
   if (!source || typeof source !== "object") {
     throw new Error("source must be an object")
@@ -115,10 +115,33 @@ function normalizeSource(profile) {
     throw new Error("source.mode must be workspace or owned")
   }
 
-  const repositories = source.workspace_repositories
-  if (!Array.isArray(repositories) || repositories.some((repository) => typeof repository !== "string" || !repository || !path.isAbsolute(repository))) {
-    throw new Error("source.workspace_repositories must be an array of absolute paths")
+  const declarations = source.workspace_repositories
+  if (!Array.isArray(declarations)) {
+    throw new Error("source.workspace_repositories must be an array")
   }
+  const entries = declarations.map((repository) => {
+    if (typeof repository === "string") return { path: repository }
+    if (!repository || typeof repository !== "object" || Array.isArray(repository)) {
+      throw new Error("source.workspace_repositories entries must be absolute paths or {path, remote} objects")
+    }
+    return { path: repository.path, remote: repository.remote }
+  })
+  if (entries.some((repository) => typeof repository.path !== "string" || !repository.path || !path.isAbsolute(repository.path))) {
+    throw new Error("source.workspace_repositories paths must be absolute")
+  }
+  if (entries.some((repository) => repository.remote !== undefined && (typeof repository.remote !== "string" || !repository.remote))) {
+    throw new Error("source.workspace_repositories remote must be a non-empty string")
+  }
+  if (entries.some((repository) => repository.remote && (/^-|[\t\n]/.test(repository.remote) || /[:\t\n]/.test(repository.path)))) {
+    throw new Error("materialized workspace repository remotes and destinations contain invalid characters")
+  }
+  if (entries.some((repository) => /^https:\/\/[^/]*@/.test(repository.remote || "") || /^ssh:\/\/[^/@]*:[^/@]*@/.test(repository.remote || ""))) {
+    throw new Error("source.workspace_repositories remotes must not contain embedded credentials")
+  }
+  if (entries.some((repository) => repository.remote && !(/^(\/|file:\/\/\/|https:\/\/|ssh:\/\/|git@[^:]+:)/.test(repository.remote)))) {
+    throw new Error("source.workspace_repositories remotes must use an absolute local path, file, HTTPS, or SSH URL")
+  }
+  const repositories = entries.map((repository) => repository.path)
   if (new Set(repositories).size !== repositories.length) {
     throw new Error("source.workspace_repositories must not contain duplicate paths")
   }
@@ -129,7 +152,7 @@ function normalizeSource(profile) {
     throw new Error("owned source mode must not declare source.workspace_repositories")
   }
 
-  return { mode, repositories, legacy: false }
+  return { mode, repositories, entries, legacy: false }
 }
 
 function compile(profile) {
@@ -206,8 +229,13 @@ function compile(profile) {
 
   if (!source.legacy) {
     addFlag(command, "--source-mode", source.mode)
-    for (const repository of source.repositories) {
-      addFlag(command, "--workspace-repository", repository)
+    for (const repository of source.entries) {
+      if (repository.remote) {
+        addFlag(command, "--workspace-repository-clone", repository.remote)
+        command.push(repository.path)
+      } else {
+        addFlag(command, "--workspace-repository", repository.path)
+      }
     }
   }
 
@@ -286,6 +314,7 @@ function compile(profile) {
       systems_capabilities: systemsCapabilities.profile || "none",
       source_mode: source.mode,
       workspace_repositories: source.repositories,
+      workspace_repository_clones: source.entries.filter((repository) => repository.remote),
     },
     commands: {
       dry_run: formatCommand(env, command, true),
