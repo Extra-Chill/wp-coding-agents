@@ -50,7 +50,7 @@ configure_homeboy_wordpress_extension() { :; }
 homeboy_required() { return 1; }
 wp_cmd() {
   case "$1 $2" in
-    'option list') printf '0\n' ;;
+    'eval $missing = new stdClass(); exit( $missing === get_option( "datamachine_code_homeboy_available", $missing ) ? 0 : 1 );') return 0 ;;
     *) return 1 ;;
   esac
 }
