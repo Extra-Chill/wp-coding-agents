@@ -306,21 +306,20 @@ _runtime_repair_opencode_json_additive() {
   local _owned_path
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
-    _managed_source_args+=(--managed-source "$_owned_path")
+    _managed_source_args+=(--owned-source "$_owned_path")
   done < <(source_policy_owned_sources)
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
-    _managed_source_args+=(--managed-writable "$_owned_path")
+    _managed_source_args+=(--owned-writable "$_owned_path")
   done < <(source_policy_writable_paths)
   while IFS= read -r _owned_path; do
     [ -n "$_owned_path" ] || continue
     _managed_source_args+=(--log-path "$_owned_path")
   done < <(source_policy_log_paths)
-  local workspace_repository
-  workspace_repository="$(source_policy_workspace_repositories | awk 'NR == 1 { print; exit }')"
-  if [ -n "$workspace_repository" ]; then
-    _managed_source_args+=(--workspace-dir "$workspace_repository")
-  fi
+  while IFS= read -r _owned_path; do
+    [ -n "$_owned_path" ] || continue
+    _managed_source_args+=(--workspace-dir "$_owned_path")
+  done < <(source_policy_workspace_repositories)
   if [ ! -f "$HELPER" ]; then
     log "opencode.json exists but repair helper not found ($HELPER) — leaving as-is"
     return
