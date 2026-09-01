@@ -142,7 +142,9 @@ update_wp_codebox_plugin_subtree() {
     local phase_status=$?
     return "$phase_status"
   fi
-  plugin_update_run_phase wp-codebox ownership-normalization fix_ownership "$plugin_dir" || return $?
-
+  # Record the completed subtree write before bounded ownership normalization,
+  # so a later timeout still exposes the mutation to the reconciler.
   UPDATED_ITEMS+=("wp-codebox $latest_tag")
+  PLUGIN_UPDATE_MUTATED=true
+  plugin_update_run_phase wp-codebox ownership-normalization fix_ownership "$plugin_dir" || return $?
 }

@@ -122,6 +122,7 @@ update_plugin_to_latest_tag() {
   if [ ! -d "$plugin_dir" ]; then
     log "Plugin $slug missing — installing before tag checkout..."
     install_plugin "$slug" "$repo_url"
+    [ ! -d "$plugin_dir" ] || PLUGIN_UPDATE_MUTATED=true
   fi
 
   if [ ! -d "$plugin_dir/.git" ]; then
@@ -193,6 +194,7 @@ update_plugin_to_latest_tag() {
       return "$phase_status"
     fi
     UPDATED_ITEMS+=("$slug $latest_tag")
+    PLUGIN_UPDATE_MUTATED=true
   fi
 
   install_plugin_dependencies_bounded "$slug" "$plugin_dir" || return $?

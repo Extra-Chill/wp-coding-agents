@@ -224,6 +224,10 @@ reconciler_apply_plan() {
     else
       step_status=$?
       status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+      if [ "${RECONCILER_STEP_CHANGED:-false}" = true ]; then
+        RECONCILER_CHANGED_RECORDS+=("$record")
+        log "[desired-state] record=$record operation=$operation apply=partial changed=true replay=$replay"
+      fi
       if [ "$step_status" -eq 124 ]; then
         warn "[desired-state] record=$record operation=$operation apply=timeout timeout=${timeout}s replay=$replay"
       else
@@ -245,6 +249,9 @@ reconciler_run_bounded() {
   local record="$1" operation="$2" timeout="$3" command="$4" phase="${5:-apply}"
   local total="${DESIRED_STATE_TOTAL_TIMEOUT_SECONDS:-480}" now elapsed remaining
   local started status=0 temp_dir outcome_file pid pgid elapsed restore_monitor=false
+  # Each bounded record owns its result; a prior record must not leak a change
+  # into an aggregate or phase deadline that runs no current child outcome.
+  RECONCILER_STEP_CHANGED=false
   case "$timeout" in ''|*[!0-9]*|0) timeout=120 ;; esac
   case "$total" in ''|*[!0-9]*|0) total=480 ;; esac
   now="$(date +%s)"; elapsed=$((now - RECONCILER_STARTED_AT)); remaining=$((total - elapsed))
@@ -278,7 +285,9 @@ reconciler_run_bounded() {
   done
   if wait "$pid"; then status=0; else status=$?; fi
   RECONCILER_STEP_CHANGED=false
-  if [ "$status" -eq 0 ] && [ -f "$outcome_file" ]; then
+  # The child writes its mutation outcome before returning its own status.
+  # Preserve a completed mutation even when a later bounded updater phase fails.
+  if [ -f "$outcome_file" ]; then
     case "$(<"$outcome_file")" in changed=true) RECONCILER_STEP_CHANGED=true ;; esac
   fi
   rm -rf "$temp_dir"

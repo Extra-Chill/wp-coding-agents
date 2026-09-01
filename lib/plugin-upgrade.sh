@@ -195,6 +195,9 @@ plugin_update_execute() {
   # Read by updater modules sourced into the same shell.
   # shellcheck disable=SC2034
   PLUGIN_UPDATE_ACTIVE=true
+  # Updaters set this only after their managed plugin state changes.
+  # shellcheck disable=SC2034
+  PLUGIN_UPDATE_MUTATED=false
   if "$@"; then update_status=0; else update_status=$?; fi
   # shellcheck disable=SC2034
   PLUGIN_UPDATE_ACTIVE=false
@@ -203,6 +206,13 @@ plugin_update_execute() {
 
   if [ "$update_status" -ne 0 ]; then
     plugin_update_record_failure "$slug" "$( [ "$update_status" -eq 124 ] && printf timeout || printf command-failure )" "$update_status"
+  fi
+
+  # Preserve an updater-reported mutation for reconciliation, including a
+  # later bounded-step failure.
+  if [ "$PLUGIN_UPDATE_MUTATED" = true ] \
+    && declare -F reconciler_adapter_changed >/dev/null 2>&1; then
+    reconciler_adapter_changed
   fi
 
   if [ "$update_status" -eq 0 ]; then
