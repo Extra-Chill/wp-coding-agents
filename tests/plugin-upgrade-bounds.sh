@@ -115,17 +115,18 @@ PY
 [ ! -e "$PLUGIN/.wp-coding-agents-releases" ] || fail "copied DMC was converted to .wp-coding-agents-releases"
 case "$LOG" in *"installed-after version=1.0.0 active=yes"*"terminal=partial-failure"*) : ;; *) fail "partial terminal verification evidence missing" ;; esac
 
-# Reconciliation reports the records that completed before a bounded later step
-# timed out, making the partial result safe to replay without claiming a change
-# when an idempotent apply was already converged.
+# Reconciliation preserves a mutation when the same plugin updater later times
+# out, without classifying that record as completed.
 LOG=""
 PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS=1
 PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
-reconciler_fixture_complete() { return 0; }
-reconciler_fixture_timeout() { plugin_update_run_phase fixture reconciler-timeout "$hung"; }
+reconciler_fixture_mutating_timeout() {
+  PLUGIN_UPDATE_MUTATED=true
+  plugin_update_run_phase data-machine-code reconciler-timeout "$hung"
+}
+reconciler_fixture_apply() { plugin_update_execute data-machine-code reconciler_fixture_mutating_timeout; }
 reconciler_plan_reset
-reconciler_plan_add plugins.data-machine plugins.reconcile.data-machine reconciler_fixture_complete
-reconciler_plan_add plugins.data-machine-code plugins.reconcile.data-machine-code reconciler_fixture_timeout
+reconciler_plan_add plugins.data-machine-code plugins.reconcile.data-machine-code reconciler_fixture_apply
 if reconciler_apply_plan; then
   fail "generic reconciler completed a timed-out plan"
 else
@@ -133,10 +134,77 @@ else
 fi
 [ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "generic reconciler did not return partial status"
 reconciler_print_partial_evidence
+[ "${RECONCILER_CHANGED_RECORDS[*]}" = "plugins.data-machine-code" ] || fail "desired-state reconciler dropped or misreported the partial mutation"
+[ "${#RECONCILER_COMPLETED_RECORDS[@]}" -eq 0 ] || fail "desired-state reconciler misclassified a partial mutation as completed"
 case "$LOG" in
-  *'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'DESIRED_STATE_COMPLETED_RECORDS=plugins.data-machine'*) : ;;
-  *) fail "desired-state reconciler omitted timeout or completed-record evidence" ;;
+  *'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=partial changed=true'*'DESIRED_STATE_CHANGED_RECORDS=plugins.data-machine-code'*) : ;;
+  *) fail "desired-state reconciler omitted partial mutation evidence" ;;
 esac
+
+# A later aggregate deadline must not inherit the changed outcome from a
+# completed prior record when its own child never runs.
+LOG=""
+reconciler_fixture_first_changed() { reconciler_adapter_changed; }
+reconciler_fixture_second_must_not_run() { : > "$TMP/aggregate-second-ran"; }
+date() {
+  case "${record:-}" in
+    plugins.aggregate-first) printf '100\n' ;;
+    plugins.aggregate-second) printf '101\n' ;;
+    *) command date "$@" ;;
+  esac
+}
+reconciler_plan_reset
+reconciler_plan_add plugins.aggregate-first plugins.reconcile.aggregate-first reconciler_fixture_first_changed
+reconciler_plan_add plugins.aggregate-second plugins.reconcile.aggregate-second reconciler_fixture_second_must_not_run
+DESIRED_STATE_TOTAL_TIMEOUT_SECONDS=1
+RECONCILER_STARTED_AT=100
+if reconciler_apply_plan; then
+  unset -f date
+  fail "aggregate deadline plan completed"
+else
+  status=$?
+fi
+unset -f date
+unset DESIRED_STATE_TOTAL_TIMEOUT_SECONDS
+[ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "aggregate deadline did not return partial status"
+[ ! -e "$TMP/aggregate-second-ran" ] || fail "aggregate deadline ran the second record"
+[ "${RECONCILER_CHANGED_RECORDS[*]}" = "plugins.aggregate-first" ] || fail "aggregate deadline inherited a stale changed record"
+[ "${RECONCILER_COMPLETED_RECORDS[*]}" = "plugins.aggregate-first" ] || fail "aggregate deadline completed the second record"
+reconciler_print_partial_evidence
+case "$LOG" in
+  *'record=plugins.aggregate-second operation=plugins.reconcile.aggregate-second apply=timeout'*'DESIRED_STATE_CHANGED_RECORDS=plugins.aggregate-first'*) : ;;
+  *) fail "desired-state reconciler omitted aggregate deadline evidence" ;;
+esac
+
+# A per-step child deadline likewise must not inherit a changed first record.
+# This adapter hangs directly so the reconciler, rather than an inner plugin
+# updater, owns the timeout and process-group cleanup.
+LOG=""
+reconciler_fixture_step_first_changed() { reconciler_adapter_changed; }
+reconciler_fixture_step_hang() { : > "$TMP/step-hang-started"; sleep 30; }
+reconciler_plan_reset
+reconciler_plan_add plugins.step-first plugins.reconcile.step-first reconciler_fixture_step_first_changed
+reconciler_plan_add plugins.step-second plugins.reconcile.step-second reconciler_fixture_step_hang
+DESIRED_STATE_STEP_TIMEOUT_SECONDS=1
+DESIRED_STATE_TOTAL_TIMEOUT_SECONDS=20
+RECONCILER_STARTED_AT="$(date +%s)"
+if reconciler_apply_plan; then
+  fail "per-step deadline plan completed"
+else
+  status=$?
+fi
+unset DESIRED_STATE_STEP_TIMEOUT_SECONDS
+unset DESIRED_STATE_TOTAL_TIMEOUT_SECONDS
+[ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "per-step deadline did not return partial status"
+[ -e "$TMP/step-hang-started" ] || fail "per-step deadline never started its child"
+[ "${RECONCILER_CHANGED_RECORDS[*]}" = "plugins.step-first" ] || fail "per-step deadline inherited a stale changed record"
+[ "${RECONCILER_COMPLETED_RECORDS[*]}" = "plugins.step-first" ] || fail "per-step deadline completed the hanging record"
+reconciler_print_partial_evidence
+case "$LOG" in
+  *'record=plugins.step-second operation=plugins.reconcile.step-second apply=deadline-exceeded'*'record=plugins.step-second operation=plugins.reconcile.step-second apply=timeout timeout=1s'*'DESIRED_STATE_CHANGED_RECORDS=plugins.step-first'*) : ;;
+  *) fail "desired-state reconciler omitted per-step deadline evidence" ;;
+esac
+case "$LOG" in *'aggregate_timeout='*) fail "per-step deadline used aggregate preflight" ;; esac
 
 # Normalized profiles carry installation shape, never credential runtime input.
 SITE_PATH="$TMP/site"
