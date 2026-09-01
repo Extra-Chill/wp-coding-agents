@@ -8,7 +8,9 @@ trap 'rm -rf "$TMP"' EXIT
 
 SITE_PATH="$TMP/site"
 KIMAKI_DATA_DIR="$TMP/kimaki-data"
-mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
+WORKSPACE_REPOSITORY="$TMP/workspace"
+mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR" "$WORKSPACE_REPOSITORY"
+git -C "$WORKSPACE_REPOSITORY" init -q
 
 export SCRIPT_DIR
 export SITE_PATH
@@ -18,7 +20,7 @@ export LOCAL_MODE=true
 export DRY_RUN=false
 export OPENCODE_MODEL=""
 export OPENCODE_SMALL_MODEL=""
-export DM_WORKSPACE_DIR="$TMP/workspace"
+export WORKSPACE_REPOSITORIES="$WORKSPACE_REPOSITORY"
 export DM_AGENT_FILES="wp-content/uploads/datamachine-files/shared/SITE.md"
 export WITH_CLAUDE_CODE_AUTH=true
 export RUNTIME="opencode"
@@ -37,12 +39,12 @@ source "$SCRIPT_DIR/runtimes/opencode.sh"
 
 runtime_generate_config
 
-python3 - "$SITE_PATH/opencode.json" "$KIMAKI_DATA_DIR" <<'PY'
+python3 - "$SITE_PATH/opencode.json" "$KIMAKI_DATA_DIR" "$WORKSPACE_REPOSITORY" <<'PY'
 import json
 import os
 import sys
 
-opencode_json, kimaki_data_dir = sys.argv[1], sys.argv[2]
+opencode_json, kimaki_data_dir, workspace_repository = sys.argv[1:]
 with open(opencode_json, encoding="utf-8") as handle:
     data = json.load(handle)
 
@@ -57,8 +59,7 @@ if actual != expected:
     raise SystemExit(f"unexpected local plugin paths: {actual}")
 
 external = data.get("permission", {}).get("external_directory", {})
-expected_workspace = f"{opencode_json.rsplit('/', 1)[0]}/../workspace"
-expected_workspace = os.path.normpath(expected_workspace) + "/**"
+expected_workspace = os.path.normpath(workspace_repository) + "/**"
 if external != {expected_workspace: "allow"}:
     raise SystemExit(f"unexpected workspace grant: {external}")
 
