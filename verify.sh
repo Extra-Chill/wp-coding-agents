@@ -108,7 +108,8 @@ WP_ROOT_FLAG=""
 [ "$(id -u)" -eq 0 ] && WP_ROOT_FLAG="--allow-root"
 
 wp_opt() {
-  wp_cli option get "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || true
+  wp_cli option get "$1" $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null \
+    | sed -e '/^PHP Deprecated:/d' -e '/^Deprecated:/d' || true
 }
 
 file_mode() {

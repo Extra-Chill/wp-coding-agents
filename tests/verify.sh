@@ -44,6 +44,9 @@ cat > "$TMP/wp" <<'WP'
 #!/bin/bash
 # Stub: `wp option get <name>`
 for a in "$@"; do case "$a" in --path=*) ;; esac; done
+[ "${WP_STUB_NOISE:-}" != 1 ] || printf '%s\n\n%s\n' \
+  'PHP Deprecated: dependency diagnostic' \
+  'Deprecated: dependency diagnostic'
 case "$3" in
   wp_coding_agents_source_mode)   echo owned ;;
   wp_coding_agents_owned_sources) printf 'wp-content/plugins/acme-core\nwp-content/themes/acme\n' ;;
@@ -91,6 +94,10 @@ OUT="$(run_verify)"
 refute_contains "$OUT" "FAIL" "no complaints when every seam agrees"
 assert_contains "$OUT" "permission.edit allows exactly the declared set" "checks the permission seam"
 assert_contains "$OUT" "manifest agrees with the recorded set" "checks the manifest seam"
+
+OUT="$(WP_STUB_NOISE=1 run_verify)"
+assert_contains "$OUT" "source mode: owned" "ignores WP-CLI deprecation output"
+assert_contains "$OUT" "manifest agrees with the recorded set" "checks seams despite WP-CLI deprecation output"
 
 if PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" bash verify.sh --site-path "$SITE" --quiet; then
   echo "  ok   exits 0 when healthy"

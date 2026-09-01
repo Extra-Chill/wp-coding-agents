@@ -247,6 +247,7 @@ python3 "$REPAIR" \
   --chat-bridge none \
   --kimaki-plugins-dir /opt/kimaki-config/plugins \
   --workspace-dir /Users/example/Developer \
+  --workspace-dir /Users/example/Studio \
   --additive > "$TMP/workspace-permission.out"
 
 python3 - "$TMP/workspace-permission.json" <<'PY'
@@ -257,7 +258,10 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
 external = data.get("permission", {}).get("external_directory", {})
-expected = {"/Users/example/Developer/**": "allow"}
+expected = {
+    "/Users/example/Developer/**": "allow",
+    "/Users/example/Studio/**": "allow",
+}
 if external != expected:
     raise SystemExit(f"stale workspace grant was not replaced: {external}")
 PY

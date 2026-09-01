@@ -473,7 +473,7 @@ def _is_stale_managed_key(pattern: str) -> bool:
 
 def expected_external_directory(
     data: dict,
-    workspace_dir: str = "",
+    workspace_dirs: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
     """Return user external_directory rules followed by the managed grants.
@@ -483,10 +483,11 @@ def expected_external_directory(
     never landed at all. Both halves of the policy have to be reconciled or the
     upgrade path silently diverges from a fresh install.
     """
+    workspaces = list(workspace_dirs or [])
     logs = list(log_paths or [])
     managed: dict[str, str] = {}
-    if workspace_dir:
-        managed[f"{workspace_dir}/**"] = "allow"
+    for path in workspaces:
+        managed[f"{path}/**"] = "allow"
     for path in logs:
         # Directory or single file; see the log-path rules in edit permissions.
         managed[path] = "allow"
@@ -520,14 +521,14 @@ def _is_owned_external_key(pattern: str) -> bool:
 def check_external_directory(
     data: dict,
     runtime: str,
-    workspace_dir: str = "",
+    workspace_dirs: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
     if runtime != "opencode":
         return {"status": "ok"}
     permission = data.get("permission", {})
     current = permission.get("external_directory") if isinstance(permission, dict) else None
-    expected = expected_external_directory(data, workspace_dir, log_paths)
+    expected = expected_external_directory(data, workspace_dirs, log_paths)
     if not expected and current in (None, {}):
         return {"status": "ok"}
     return {
@@ -538,10 +539,10 @@ def check_external_directory(
 
 def apply_external_directory(
     data: dict,
-    workspace_dir: str = "",
+    workspace_dirs: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> None:
-    expected = expected_external_directory(data, workspace_dir, log_paths)
+    expected = expected_external_directory(data, workspace_dirs, log_paths)
     permission = data.get("permission", {})
     if not isinstance(permission, dict):
         permission = {}
@@ -624,8 +625,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--workspace-dir",
-        default="",
-        help="Declared workspace checkout root to grant via external_directory (workspace mode only).",
+        action="append",
+        default=[],
+        dest="workspace_dirs",
+        help="Declared workspace checkout root to grant via external_directory (workspace mode only). Repeatable.",
     )
     parser.add_argument(
         "--log-path",
@@ -704,7 +707,7 @@ def main() -> int:
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
     edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
-    external_directory_result = check_external_directory(data, args.runtime, args.workspace_dir, args.log_paths)
+    external_directory_result = check_external_directory(data, args.runtime, args.workspace_dirs, args.log_paths)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -841,7 +844,7 @@ def main() -> int:
         edit_permission_status = "synced"
     external_directory_status = "ok"
     if has_external_directory_drift:
-        apply_external_directory(data, args.workspace_dir, args.log_paths)
+        apply_external_directory(data, args.workspace_dirs, args.log_paths)
         external_directory_status = "synced"
 
     with open(args.file, "w", encoding="utf-8") as fh:
