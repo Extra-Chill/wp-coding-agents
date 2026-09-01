@@ -842,6 +842,14 @@ EnvironmentFile=-$(ai_gateway_env_file)"
 # Upgrade-time config sync (Phase 2)
 # ============================================================================
 
+bridge_managed_plugins_dir() {
+  if [ "$LOCAL_MODE" = true ]; then
+    printf '%s/kimaki-config/plugins' "$KIMAKI_DATA_DIR"
+  else
+    printf '/opt/kimaki-config/plugins'
+  fi
+}
+
 bridge_sync_config() {
   # Resolve paths per environment.
   #   VPS:   plugins live at /opt/kimaki-config/plugins (referenced by opencode.json,
@@ -856,14 +864,14 @@ bridge_sync_config() {
   local BACKUP_DIR
   if [ "$LOCAL_MODE" = true ]; then
     KIMAKI_CONFIG_DIR="${KIMAKI_DATA_DIR}/kimaki-config"
-    KIMAKI_PLUGINS_DIR="${KIMAKI_CONFIG_DIR}/plugins"
+    KIMAKI_PLUGINS_DIR="$(bridge_managed_plugins_dir)"
     BACKUP_DIR="${KIMAKI_DATA_DIR}/backups/kimaki-config.$TIMESTAMP"
     log "Phase 2: Syncing kimaki config (local mode)..."
     log "  Config dir:  $KIMAKI_CONFIG_DIR"
     log "  Plugins dir: $KIMAKI_PLUGINS_DIR (durable opencode target)"
   else
     KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-    KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
+    KIMAKI_PLUGINS_DIR="$(bridge_managed_plugins_dir)"
     if [ "$(id -u)" -eq 0 ]; then
       BACKUP_DIR="/opt/kimaki-config.backup.$TIMESTAMP"
     else
@@ -1594,7 +1602,8 @@ bridge_vps_start_preamble() {
 
 # Verify-block addendum printed by upgrade.sh after the standard status line.
 bridge_verify_extra() {
-  local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local PLUGINS_DIR
+  PLUGINS_DIR="$(bridge_managed_plugins_dir)"
   echo "test -f $PLUGINS_DIR/dm-context-filter.ts && test -f $PLUGINS_DIR/dm-agent-sync.ts   # managed OpenCode plugins installed"
   echo "command -v kimaki >/dev/null   # native Kimaki binary available"
 }

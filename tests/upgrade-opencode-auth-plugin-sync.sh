@@ -20,5 +20,6 @@ require_source "upgrade_install_opencode_claude_code_auth_plugin()" "upgrade-own
 require_source 'source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"' "copy from released OpenCode auth plugin source"
 require_source "upgrade_install_opencode_claude_code_auth_plugin" "opencode.json drift phase installs auth plugin"
 require_source 'CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"' "repair helper receives site-local auth plugin path"
+require_source 'PLUGINS_DIR="$(bridge_managed_plugins_dir)"' "repair resolves the persistent bridge plugin path in the parent process"
 
 echo "PASS: tests/upgrade-opencode-auth-plugin-sync.sh"
