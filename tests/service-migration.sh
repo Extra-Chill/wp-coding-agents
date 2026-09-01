@@ -427,7 +427,7 @@ echo ""
 echo "service-migration: AGENTS.md is composed as the service user"
 
 # The generated text encodes the composing process's euid: data-machine and
-# data-machine-code both append `--allow-root` to their WP-CLI examples when
+# generated Data Machine guidance appends `--allow-root` to WP-CLI examples when
 # posix_geteuid() === 0. upgrade.sh runs under sudo, so composing as the caller
 # writes an AGENTS.md telling a non-root agent to run `wp --allow-root` — a file
 # that misdescribes the agent's own environment (#322). `--allow-root` is a

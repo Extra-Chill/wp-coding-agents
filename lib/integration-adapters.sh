@@ -81,8 +81,12 @@ integration_adapters_verify() {
 
 _integration_adapter_cleanup_managed_release() {
   local file="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+  if ! grep -q 'datamachine_code_managed_release_channel' "$file"; then
+    if [ "${DRY_RUN:-false}" = true ]; then warn "Would preserve unknown managed-release MU-plugin at $file (installer provenance is not confirmed)"; else warn "Preserving unknown managed-release MU-plugin at $file (installer provenance is not confirmed)"; fi
+    return 1
+  fi
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE:-}[dry-run]${NC:-} rm -f $file"
+    echo -e "${BLUE:-}[dry-run]${NC:-} Would remove installer-owned retired managed-release MU-plugin at $file"
     return 0
   fi
   rm -f "$file"
@@ -90,7 +94,8 @@ _integration_adapter_cleanup_managed_release() {
 }
 
 _integration_adapter_verify_managed_release() {
-  [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ]
+  local file="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+  [ ! -e "$file" ] || ! grep -q 'datamachine_code_managed_release_channel' "$file"
 }
 
 _integration_adapter_cleanup_retired_homeboy_option() {
@@ -169,7 +174,7 @@ _integration_adapter_verify_homeboy() {
     return 0
   }
   config="$(homeboy_run config show)" || return 1
-  python3 -c 'import json,sys; result=json.load(sys.stdin); data=result.get("data", {}).get("config", result); providers=data.get("worktree_providers") or {}; raise SystemExit(not isinstance(providers, dict) or "dmc" in providers)' <<< "$config" || return 1
+  python3 -c 'import json,sys; result=json.load(sys.stdin); data=result.get("data", {}).get("config", result); providers=data.get("worktree_providers") or {}; lifecycle=(data.get("settings") or {}).get("worktree_provider_lifecycle") or {}; raise SystemExit(not isinstance(providers, dict) or not isinstance(lifecycle, dict) or "dmc" in providers or "dmc" in lifecycle)' <<< "$config" || return 1
   homeboy_required && ! homeboy_wordpress_extension_ready && return 1
   homeboy_wordpress_extension_ready || ! homeboy_required || return 1
   return 0

@@ -41,7 +41,7 @@
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
 # Safety: NEVER touches WordPress DB, nginx, SSL, ~/.kimaki/ auth state,
-#   the DM workspace cloned repos, agent memory files, or the running
+#   configured repository checkouts, agent memory files, or the running
 #   chat-bridge service.
 #
 #   opencode.json is touched by default in additive mode: managed plugin
@@ -171,6 +171,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
+    --workspace-repository) source_policy_add_workspace_repository "$2"; shift 2 ;;
     --not-owned)     owned_discovery_add_exclusion "$2"; shift 2 ;;
     --owned-source|--managed-source) OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"; OWNED_SOURCES_EXPLICIT=true; shift 2 ;;
     --owned-writable|--managed-writable) OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"; OWNED_WRITABLE_EXPLICIT=true; shift 2 ;;
@@ -215,7 +216,7 @@ USAGE:
                                 PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS and
                                 PLUGIN_UPDATE_TOTAL_TIMEOUT_SECONDS.
   ./upgrade.sh --reconcile-services
-                                Only reconcile carried providers, DMC/Homeboy,
+                                 Only reconcile carried providers, Homeboy,
                                 chat-bridge configuration, and service templates
   ./upgrade.sh --skills-only    Only sync the wp-coding-agents upgrade skill
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
@@ -236,8 +237,9 @@ USAGE:
                                  systems-capability profile.
   ./upgrade.sh --systems-capabilities managed-vps --systems-capabilities-only
                                  Repair only the managed VPS host capability
-                                 profile and its DMC provider configuration.
-  ./upgrade.sh --source-mode <name>
+                                  profile and its managed capability configuration.
+   ./upgrade.sh --source-mode <name>
+   ./upgrade.sh --workspace-repository <absolute-git-checkout>
                                Where code changes land: workspace | owned
                                (default: the mode recorded at setup time).
                                Two shapes, not two levels. --posture is
@@ -331,13 +333,13 @@ NEVER TOUCHED:
   - CLAUDE.md runtime config
   - WordPress database, nginx, SSL certs
   - ~/.kimaki/ auth state and OAuth tokens
-  - DM workspace cloned repos
+   - Configured repository checkouts
   - Agent memory files (SOUL.md, MEMORY.md, USER.md, etc.)
   - Running chat-bridge service (never restarted automatically)
 
 DEFAULT TOUCHES:
-  - data-machine and data-machine-code — updates setup-installed git
-    checkouts to their latest version tags. Non-git plugin directories are
+   - data-machine and wp-codebox — updates setup-installed sources. Non-git
+     plugin directories are
     skipped. Use --skip-plugins to skip this phase.
   - Carried provider plugins, Homeboy provider configuration, chat-bridge
     configuration, and service templates are reconciled during a full upgrade
@@ -455,9 +457,11 @@ detect_environment
 # upgrade converges a managed install instead of silently reverting it to
 # engineering; --posture overrides and re-records.
 source_policy_resolve_mode
+source_policy_validate_workspace_repositories
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
+source_policy_resolve_workspace_dir
 source_policy_assert_runtime_supports_mode
 if [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
@@ -555,7 +559,6 @@ PLUGIN_UPDATE_FAILURES=()
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
-  discover_dm_workspace_dir
   systems_capabilities_apply
   exit 0
 fi
@@ -636,16 +639,12 @@ update_data_machine_plugins() {
   local status=0
   upgrade_data_machine_plugins || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   plugin_update_execute wp-codebox update_wp_codebox_plugin_subtree || status=$PLUGIN_UPDATE_EXIT_PARTIAL
-  plugin_update_verify_installed_plugins data-machine data-machine-code wp-codebox || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+  plugin_update_verify_installed_plugins data-machine wp-codebox || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   return "$status"
 }
 
 _reconcile_data_machine_plugin() {
   plugin_update_execute data-machine update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
-}
-
-_reconcile_data_machine_code_plugin() {
-  plugin_update_execute data-machine-code update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
 }
 
 _reconcile_wp_codebox_plugin() {
@@ -675,7 +674,6 @@ reconcile_installed_plugins() {
     RECONCILER_INSTALLED_PLUGIN_SLUGS+=("$plugin_dir")
     case "$plugin_dir" in
       data-machine) reconciler_plan_add "plugins.data-machine" plugins.reconcile.data-machine _reconcile_data_machine_plugin ;;
-      data-machine-code) reconciler_plan_add "plugins.data-machine-code" plugins.reconcile.data-machine-code _reconcile_data_machine_code_plugin ;;
       wp-codebox) reconciler_plan_add "plugins.wp-codebox" plugins.reconcile.wp-codebox _reconcile_wp_codebox_plugin ;;
     esac
   done
@@ -1067,7 +1065,7 @@ regenerate_agents_md() {
   # the filename must be a registered MemoryFileRegistry entry.
   #
   # Composed AS THE SERVICE USER, not as the caller. The generated text encodes
-  # the composing process's euid — data-machine and data-machine-code both
+  # the composing process's euid — Data Machine's generated guidance follows
   # append `--allow-root` to their WP-CLI examples when posix_geteuid() === 0 —
   # and upgrade.sh runs under sudo. Composing here as root would write an
   # AGENTS.md instructing a non-root agent to run `wp --allow-root`, i.e. a file
@@ -1425,7 +1423,6 @@ _print_verify_block() {
   fi
 
   log "  $(wp_cli_transport_display) plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
-  log "  $(wp_cli_transport_display) plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
   log "  ls $(runtime_skills_dir)              # installed upgrade skill"
 }
@@ -1433,7 +1430,6 @@ _print_verify_block() {
 _print_plugins_only_verify_block() {
   log "Verify:"
   log "  $(wp_cli_transport_display) plugin get data-machine --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
-  log "  $(wp_cli_transport_display) plugin get data-machine-code --fields=name,status,version --format=json --skip-plugins --path=$SITE_PATH $WP_ROOT_FLAG"
 }
 
 # ============================================================================
@@ -1444,7 +1440,6 @@ PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
-  discover_dm_workspace_dir
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
   CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
   [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"

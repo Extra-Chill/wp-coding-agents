@@ -7,9 +7,13 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 source "$ROOT_DIR/lib/desired-state-reconciler.sh"
+source "$ROOT_DIR/lib/source-policy.sh"
 
 SITE_PATH="$TMP/site"
-mkdir -p "$SITE_PATH"
+WORKSPACE="$TMP/workspace repository"
+mkdir -p "$SITE_PATH" "$WORKSPACE/subdirectory" "$TMP/not-a-repository"
+git -C "$WORKSPACE" init -q
+WORKSPACE="$(cd "$WORKSPACE" && pwd -P)"
 LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=true
@@ -17,7 +21,7 @@ SOURCE_MODE=workspace
 RUNTIME=opencode
 CHAT_BRIDGE=kimaki
 HOMEBOY_MODE=enabled
-WORKSPACE_REPOSITORIES="/tmp/workspace-repository"
+WORKSPACE_REPOSITORIES="$WORKSPACE"
 INSTALL_CHAT=true
 DRY_RUN=false
 KIMAKI_BOT_TOKEN='must-not-be-persisted'
@@ -39,7 +43,15 @@ if grep -Eq 'TOKEN|TRANSPORT|secret|must-not-be-persisted' "$PROFILE"; then
   echo "FAIL: profile persisted credential or command transport material" >&2
   exit 1
 fi
-grep -Eq '^plugin_candidates=.*data-machine-code' "$PROFILE"
+grep -Eq '^plugin_candidates=data-machine wp-codebox$' "$PROFILE"
+if grep -q 'data-machine-code\|DATAMACHINE_WORKSPACE_PATH' "$ROOT_DIR/lib/data-machine.sh"; then
+  echo "FAIL: setup Data Machine phase still owns DMC installation state" >&2
+  exit 1
+fi
+if grep -q 'discover_dm_workspace_dir\|wp datamachine-code' "$ROOT_DIR/setup.sh"; then
+  echo "FAIL: setup still discovers a DMC workspace" >&2
+  exit 1
+fi
 
 SOURCE_MODE=""
 RUNTIME=""
@@ -53,7 +65,35 @@ test "$SOURCE_MODE" = workspace
 test "$RUNTIME" = opencode
 test "$CHAT_BRIDGE" = kimaki
 test "$HOMEBOY_MODE" = enabled
-test "$WORKSPACE_REPOSITORIES" = /tmp/workspace-repository
+test "$WORKSPACE_REPOSITORIES" = "$WORKSPACE"
+
+WORKSPACE_REPOSITORIES=""
+source_policy_add_workspace_repository "$WORKSPACE/subdirectory"
+test "$WORKSPACE_REPOSITORIES" = "$WORKSPACE"
+# The physical primary checkout root is canonical authority, so repeated flags
+# and subdirectories cannot create duplicate runtime grants.
+source_policy_add_workspace_repository "$WORKSPACE"
+test "$WORKSPACE_REPOSITORIES" = "$WORKSPACE"
+SOURCE_MODE=workspace
+source_policy_validate_workspace_repositories
+SOURCE_MODE=owned
+if source_policy_validate_workspace_repositories; then
+  echo "FAIL: owned mode accepted declared workspace repositories" >&2
+  exit 1
+fi
+SOURCE_MODE=workspace
+if source_policy_add_workspace_repository relative-repository; then
+  echo "FAIL: relative workspace repository was accepted" >&2
+  exit 1
+fi
+if source_policy_add_workspace_repository "$TMP/not-a-repository"; then
+  echo "FAIL: non-Git workspace repository was accepted" >&2
+  exit 1
+fi
+if source_policy_add_workspace_repository "$TMP/missing-repository"; then
+  echo "FAIL: missing workspace repository was accepted" >&2
+  exit 1
+fi
 test "$INSTALL_CHAT" = true
 
 # Explicit command-line intent remains authoritative over persisted defaults.

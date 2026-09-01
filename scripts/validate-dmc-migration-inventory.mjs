@@ -65,8 +65,9 @@ for (const path of classifications.keys()) {
 
 const extensions = new Set(['.js', '.json', '.md', '.mjs', '.php', '.py', '.sh', '.ts', '.yaml', '.yml']);
 const ignoredDirectories = new Set(['.git', 'node_modules']);
-const referencePattern = /DataMachineCode\\|datamachine_code_|datamachine-code\//;
-const exactContractPattern = /datamachine_code_[a-z0-9_]+|datamachine-code\/[a-z0-9_/-]+|DataMachineCode\\[A-Za-z0-9_\\]+/g;
+const referencePattern = /\bdata-machine-code\b|\bwp\s+datamachine-code\b|DataMachineCode\\|datamachine_code_|datamachine-code\//;
+const exactContractPattern = /\bdata-machine-code\b|\bwp\s+datamachine-code(?:\s+[a-z0-9_/-]+)?|datamachine_code_[a-z0-9_]+|datamachine-code\/[a-z0-9_/-]+|DataMachineCode\\[A-Za-z0-9_\\]+/g;
+const lexicalExclusions = new Set(inventory.lexical_reference_exclusions ?? []);
 const allContracts = inventory.rows.flatMap((row) => row.contracts);
 
 function contractCovered(contract) {
@@ -99,6 +100,7 @@ function walk(directory) {
     ) continue;
     const content = readFileSync(path, 'utf8');
     if (!referencePattern.test(content)) continue;
+    if (lexicalExclusions.has(repositoryPath)) continue;
     if (!classifications.has(repositoryPath)) {
       failures.push(`DMC reference file is not classified: ${repositoryPath}`);
     }
@@ -117,6 +119,12 @@ for (const path of classifications.keys()) {
     }
   } catch {
     failures.push(`classified reference file does not exist: ${path}`);
+  }
+}
+
+for (const path of lexicalExclusions) {
+  if (!referencePattern.test(readFileSync(join(root, path), 'utf8'))) {
+    failures.push(`lexical DMC exclusion no longer needs an explicit entry: ${path}`);
   }
 }
 

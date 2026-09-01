@@ -17,7 +17,7 @@ wp_cmd() {
 #
 # Almost nothing needs this. AGENTS.md composition does, because the generated
 # text encodes the euid of the process that generated it: both
-# data-machine's datamachine_agents_md_wp_cli_cmd() and data-machine-code's
+# data-machine's datamachine_agents_md_wp_cli_cmd() and generated guidance
 # resolve_wp_cli_cmd() append `--allow-root` when posix_geteuid() === 0. Since
 # upgrade.sh runs under sudo, composing there writes an AGENTS.md that tells the
 # agent to run `wp --allow-root` — describing an identity a non-root agent does

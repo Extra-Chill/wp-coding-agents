@@ -11,7 +11,7 @@ mkdir -p \
   "$TMP/workspace" \
   "$TMP/agents-api" \
   "$TMP/data-machine" \
-  "$TMP/data-machine-code" \
+  "$TMP/wp-coding-agents-integration" \
   "$TMP/homeboy-wordpress" \
   "$TMP/provider-openai"
 
@@ -112,7 +112,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 
 assert config["agents_api"].endswith("/agents-api")
 assert config["runtime_component_paths"]["agent_runtime"].endswith("/data-machine")
-assert config["runtime_component_paths"]["agent_runtime_tools"].endswith("/data-machine-code")
+assert config["runtime_component_paths"]["agent_runtime_tools"].endswith("/wp-coding-agents-integration")
 assert config["homeboy_extensions"].endswith("/homeboy-wordpress")
 assert config["provider"] == "openai"
 assert config["model"] == "gpt-4.1-mini"
@@ -147,7 +147,7 @@ OUTPUT="$TMP/output.log"
   --secret-env OPENAI_API_KEY \
   --agents-api "$TMP/agents-api" \
   --agent-runtime "$TMP/data-machine" \
-  --agent-runtime-tools "$TMP/data-machine-code" \
+  --agent-runtime-tools "$TMP/wp-coding-agents-integration" \
   --homeboy-extensions "$TMP/homeboy-wordpress" \
   --provider-plugin-path "$TMP/provider-openai" \
   --model gpt-4.1-mini \
@@ -173,7 +173,7 @@ if "$SCRIPT_DIR/scripts/verify-homeboy-codebox-canary.sh" \
   --secret-env 'OPENAI_API_KEY=secret' \
   --agents-api "$TMP/agents-api" \
   --agent-runtime "$TMP/data-machine" \
-  --agent-runtime-tools "$TMP/data-machine-code" \
+  --agent-runtime-tools "$TMP/wp-coding-agents-integration" \
   --homeboy-extensions "$TMP/homeboy-wordpress" \
   --provider-plugin-path "$TMP/provider-openai" \
   > "$TMP/invalid.log" 2>&1; then

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compose and execute DMC and Intelligence guidance with the host transport.
+# Compose and execute Data Machine and Intelligence guidance with the host transport.
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,7 +39,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "${1:-} ${2:-} ${3:-} ${4:-}" in
-  "datamachine-code workspace show fixture") exit 0 ;;
+  "datamachine memory paths fixture") exit 0 ;;
   "intelligence search fixture ") exit 0 ;;
 esac
 exit 11
@@ -82,11 +82,11 @@ class_alias( 'IntegrationSectionRegistry', 'DataMachine\\Engine\\AI\\SectionRegi
 // Must load before normal plugins, as WordPress loads mu-plugins.
 require $argv[1];
 
-// Reproduce normal alphabetical plugin load: Data Machine Code captures its
-// prefix while registering, while Intelligence resolves its prefix at render.
+    // Reproduce normal plugin load: Data Machine and Intelligence resolve the
+    // host-selected transport while registering their guidance.
 add_action( 'datamachine_sections', static function () {
     $wp = apply_filters( 'datamachine_wp_cli_cmd', 'wp --path=/path/to/site' );
-    IntegrationSectionRegistry::register( 'AGENTS.md', 'datamachine-code', 20, static fn() => "## Data Machine Code\n\n`{$wp} datamachine-code workspace show fixture`" );
+    IntegrationSectionRegistry::register( 'AGENTS.md', 'datamachine', 20, static fn() => "## Data Machine\n\n`{$wp} datamachine memory paths fixture`" );
 }, 10 );
 add_action( 'datamachine_sections', static function () {
     IntegrationSectionRegistry::register( 'AGENTS.md', 'intelligence', 30, static function () {
@@ -97,7 +97,7 @@ add_action( 'datamachine_sections', static function () {
 
 $content = IntegrationSectionRegistry::compose();
 file_put_contents( $argv[2], $content );
-foreach ( array( 'datamachine-code workspace show fixture', 'intelligence search fixture' ) as $index => $suffix ) {
+foreach ( array( 'datamachine memory paths fixture', 'intelligence search fixture' ) as $index => $suffix ) {
     if ( ! preg_match( '/`([^`]+ ' . preg_quote( $suffix, '/' ) . ')`/', $content, $matches ) ) {
         fwrite( STDERR, "Missing composed command: {$suffix}\n" );
         exit( 1 );
@@ -120,11 +120,11 @@ run_case() {
     return 1
   }
 
-  php "$TMP/compose.php" "$MU_FILE" "$TMP/$name-AGENTS.md" "$TMP/$name-dmc.cmd" "$TMP/$name-intelligence.cmd"
-  grep -F "\`$expected --path=/path/to/site datamachine-code workspace show fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
+  php "$TMP/compose.php" "$MU_FILE" "$TMP/$name-AGENTS.md" "$TMP/$name-dm.cmd" "$TMP/$name-intelligence.cmd"
+  grep -F "\`$expected --path=/path/to/site datamachine memory paths fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
   grep -F "\`$expected --path=/path/to/site intelligence search fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
 
-  env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-dmc.cmd")"
+  env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-dm.cmd")"
   env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-intelligence.cmd")"
 }
 
@@ -149,4 +149,4 @@ PY
 run_case studio-upgrade "studio wp" studio wp
 run_case generic wp wp
 
-echo "OK: composed DMC and Intelligence guidance uses one executable transport"
+echo "OK: composed Data Machine and Intelligence guidance uses one executable transport"

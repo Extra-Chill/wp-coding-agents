@@ -46,8 +46,8 @@ print_summary() {
   echo "  Discover:    $(wp_cli_transport_display) datamachine memory paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Source mode: ${SOURCE_MODE:-workspace}"
   if source_policy_workspace_enabled; then
-    echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
-    echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
+    echo "  Code tools:  declared repositories, GitHub, git"
+    echo "  Repositories: ${WORKSPACE_REPOSITORIES:-not declared}"
   else
     echo "  Code tools:  none — the agent edits live theme and plugin source in place"
     echo "  Capture:     changes are harvested into version control out-of-band"

@@ -29,9 +29,9 @@ slow="$ROOT_DIR/tests/fixtures/plugin-updates/slow.sh"
 hung="$ROOT_DIR/tests/fixtures/plugin-updates/hung.sh"
 
 # WordPress Studio may emit a PHP preamble on stdout before valid WP-CLI JSON.
-plugin_update_state_from_json $'\nDeprecated: fixture warning\n[{"name":"data-machine-code","status":"active","version":"1.2.3"}]' data-machine-code || fail "preamble-bearing plugin JSON was refused"
+plugin_update_state_from_json $'\nDeprecated: fixture warning\n[{"name":"data-machine","status":"active","version":"1.2.3"}]' data-machine || fail "preamble-bearing plugin JSON was refused"
 [ "$PLUGIN_STATE_TUPLE" = $'1.2.3\tactive' ] || fail "preamble-bearing plugin JSON returned the wrong state"
-if plugin_update_state_from_json $'Deprecated: no JSON follows' data-machine-code; then
+if plugin_update_state_from_json $'Deprecated: no JSON follows' data-machine; then
   fail "malformed plugin output was accepted"
 fi
 
@@ -59,9 +59,9 @@ if kill -0 "$child_pid" 2>/dev/null; then fail "timed-out fixture child $child_p
 
 # A timeout during plugin_update_execute reports partial failure and leaves a
 # copied DMC install byte/layout unchanged.
-PLUGIN="$SITE_PATH/wp-content/plugins/data-machine-code"
+PLUGIN="$SITE_PATH/wp-content/plugins/data-machine"
 mkdir -p "$PLUGIN/inc"
-printf '<?php\n/* Version: 1.0.0 */\n' > "$PLUGIN/data-machine-code.php"
+printf '<?php\n/* Version: 1.0.0 */\n' > "$PLUGIN/data-machine.php"
 printf 'homeboy-copied-bytes\n' > "$PLUGIN/inc/payload.txt"
 before="$(python3 - "$PLUGIN" <<'PY'
 import hashlib, os, sys
@@ -80,20 +80,20 @@ for dirpath, dirs, files in os.walk(root, followlinks=False):
 print(digest.hexdigest())
 PY
 )"
-wp_cmd() { printf '[{"name":"data-machine-code","status":"active","version":"1.0.0"}]\n'; }
-hung_update() { plugin_update_run_phase data-machine-code copied-skip "$hung"; }
+wp_cmd() { printf '[{"name":"data-machine","status":"active","version":"1.0.0"}]\n'; }
+hung_update() { plugin_update_run_phase data-machine copied-skip "$hung"; }
 
 LOG=""
 PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
 PLUGIN_UPDATE_FAILURES=()
 PENDING_ITEMS=()
-if plugin_update_execute data-machine-code hung_update; then
+if plugin_update_execute data-machine hung_update; then
   fail "hung apply completed"
 else
   status=$?
 fi
 [ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "partial apply did not return typed partial status"
-plugin_update_verify_installed_plugins data-machine-code || true
+plugin_update_verify_installed_plugins data-machine || true
 after="$(python3 - "$PLUGIN" <<'PY'
 import hashlib, os, sys
 root = sys.argv[1]
@@ -122,11 +122,11 @@ PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS=1
 PLUGIN_UPDATE_STARTED_AT="$(date +%s)"
 reconciler_fixture_mutating_timeout() {
   PLUGIN_UPDATE_MUTATED=true
-  plugin_update_run_phase data-machine-code reconciler-timeout "$hung"
+  plugin_update_run_phase data-machine reconciler-timeout "$hung"
 }
-reconciler_fixture_apply() { plugin_update_execute data-machine-code reconciler_fixture_mutating_timeout; }
+reconciler_fixture_apply() { plugin_update_execute data-machine reconciler_fixture_mutating_timeout; }
 reconciler_plan_reset
-reconciler_plan_add plugins.data-machine-code plugins.reconcile.data-machine-code reconciler_fixture_apply
+reconciler_plan_add plugins.data-machine plugins.reconcile.data-machine reconciler_fixture_apply
 if reconciler_apply_plan; then
   fail "generic reconciler completed a timed-out plan"
 else
@@ -134,10 +134,10 @@ else
 fi
 [ "$status" -eq "$PLUGIN_UPDATE_EXIT_PARTIAL" ] || fail "generic reconciler did not return partial status"
 reconciler_print_partial_evidence
-[ "${RECONCILER_CHANGED_RECORDS[*]}" = "plugins.data-machine-code" ] || fail "desired-state reconciler dropped or misreported the partial mutation"
+[ "${RECONCILER_CHANGED_RECORDS[*]}" = "plugins.data-machine" ] || fail "desired-state reconciler dropped or misreported the partial mutation"
 [ "${#RECONCILER_COMPLETED_RECORDS[@]}" -eq 0 ] || fail "desired-state reconciler misclassified a partial mutation as completed"
 case "$LOG" in
-  *'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=start'*'record=plugins.data-machine-code operation=plugins.reconcile.data-machine-code apply=partial changed=true'*'DESIRED_STATE_CHANGED_RECORDS=plugins.data-machine-code'*) : ;;
+  *'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=partial changed=true'*'DESIRED_STATE_CHANGED_RECORDS=plugins.data-machine'*) : ;;
   *) fail "desired-state reconciler omitted partial mutation evidence" ;;
 esac
 

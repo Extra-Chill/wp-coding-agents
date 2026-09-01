@@ -232,7 +232,6 @@ PY
 )"
       _ext_rules="${_ext_rules}${_ext_rules:+,}\n      ${workspace_pattern}: \"allow\""
     done < <(source_policy_workspace_repositories)
-    [ -n "$_ext_rules" ] || _ext_rules="\n      \"${DM_WORKSPACE_DIR}/**\": \"allow\""
   fi
   local _log_path
   while IFS= read -r _log_path; do
@@ -317,8 +316,10 @@ _runtime_repair_opencode_json_additive() {
     [ -n "$_owned_path" ] || continue
     _managed_source_args+=(--log-path "$_owned_path")
   done < <(source_policy_log_paths)
-  if source_policy_workspace_enabled; then
-    _managed_source_args+=(--workspace-dir "$DM_WORKSPACE_DIR")
+  local workspace_repository
+  workspace_repository="$(source_policy_workspace_repositories | awk 'NR == 1 { print; exit }')"
+  if [ -n "$workspace_repository" ]; then
+    _managed_source_args+=(--workspace-dir "$workspace_repository")
   fi
   if [ ! -f "$HELPER" ]; then
     log "opencode.json exists but repair helper not found ($HELPER) — leaving as-is"

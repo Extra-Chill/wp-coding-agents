@@ -50,7 +50,7 @@ Do not duplicate script internals in this guide. Compile commands from the setup
    If the compiler rejects the profile, fix the profile or the setup script. Do not hand-compile around the failure.
 
 4. **Summarize the compiled plan before execution.**
-   Include target, WordPress path or domain, runtime axis, bridge axis, optional overlays, and the exact dry-run command. Ask for explicit confirmation before running setup for real.
+    Include target, WordPress path or domain, runtime axis, bridge axis, source mode and declared repository roots, optional overlays, and the exact dry-run command. Ask for explicit confirmation before running setup for real.
 
 5. **Dry-run first.**
    Always run the compiled command with `--dry-run` before making changes. Read the output and stop if target paths, runtime, bridge, Homeboy behavior, or WP-CLI command selection look wrong.
@@ -69,6 +69,8 @@ Do not duplicate script internals in this guide. Compile commands from the setup
 - Keep Homeboy external to wp-coding-agents. The WordPress site root is a Homeboy project, not a component.
 - Use `WP_CLI_TRANSPORT_JSON='["studio","wp"]'` when the compiler explicitly selects the WordPress Studio transport.
 - Use `--with-homeboy` only when the operator wants the optional developer layer.
+- Workspace mode requires explicitly declared absolute Git checkout roots. Homeboy
+  can attach those roots but never discovers or creates repository authority.
 - Use `--no-chat` when the operator wants terminal/SSH-only operation.
 - Use `--no-skills` only when the operator explicitly wants to skip installing the upgrade skill on the target runtime.
 

@@ -53,7 +53,7 @@ The agent should know only what it can use.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
 
-For example, a Kimaki install should know Kimaki is the Discord surface. It should not learn generic Kimaki worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available. Data Machine Code owns the WordPress-side repository, workspace, GitHub, and data-machine capabilities; Homeboy owns its native Rust worktree lifecycle and Cook.
+For example, a Kimaki install should know Kimaki is the Discord surface. It should not learn generic Kimaki worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available. wp-coding-agents policy declares repository authority; the selected coding runtime uses its native file, Git, and GitHub tools; Homeboy owns its native Rust worktree lifecycle and Cook.
 
 ## What It Enables
 
@@ -92,10 +92,11 @@ SITE_DOMAIN=example.com ./setup.sh
 
 ### Repo-Aware Developer Workflows
 
-Use Data Machine Code for WordPress-side repository, workspace, GitHub, and data-machine capabilities, with optional Homeboy orchestration for native Rust worktree lifecycle and Cook. When both are installed, wp-coding-agents' WordPress adapter maps five DMC worktree abilities to Homeboy without making either project depend on the other.
+Declare each primary Git checkout with wp-coding-agents, then use the selected coding runtime's native file, Git, and GitHub tools there. Homeboy is optional orchestration for native Rust worktree lifecycle and Cook; it attaches declared checkouts and never infers repository authority.
 
 ```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --with-homeboy \
+  --workspace-repository ~/Developer/my-site
 ```
 
 When an optional orchestrator is available, its own presence-gated AGENTS section explains the supported workflow. When it is absent, the prompt does not mention its commands.
@@ -109,7 +110,7 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | OpenCode | Coding runtime | Selected or auto-detected |
 | Claude Code | Coding runtime | Selected or auto-detected |
 | Codex | Coding runtime | Selected or auto-detected |
-| Data Machine Code | WordPress-side repository, workspace, git, GitHub, and data-machine capabilities | Installed with the Data Machine stack |
+| wp-coding-agents | Source policy, declared repository authority, runtime permissions, setup, and upgrade | Always installed |
 | Kimaki | Discord bridge for OpenCode sessions | Optional chat bridge |
 | cc-connect | Multi-platform bridge, commonly used with Claude Code | Optional chat bridge |
 | opencode-telegram | Telegram bridge for OpenCode | Optional chat bridge |
@@ -267,6 +268,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | --- | --- |
 | `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
 | `--source-mode <name>` | `workspace` (default) or `owned`. See [Source Mode](#source-mode). `--posture` is a deprecated alias. |
+| `--workspace-repository <absolute-git-checkout>` | Primary Git checkout authority for workspace mode. Repeatable; each path must already be a Git checkout. |
 | `--owned-source <path>` | wp-content path the site owns and may edit under `--source-mode owned`. Repeatable. |
 | `--owned-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. |
 | `--log-path <path>` | Absolute path outside the site root the agent may read. Repeatable. |
@@ -309,8 +311,8 @@ read-only reference there. What it buys is git and review, not latitude.
 | `wp-content/mu-plugins/`, `wp-config.php` | read-only | read-only, opt-in |
 | `wp-content/plugins/`, `wp-content/themes/` | read-only | read-only **except declared owned paths** |
 | `wp-content/uploads/` | writable (agent memory) | writable (agent memory) |
-| Data Machine Code | installed | not installed |
-| Workspace, git, GitHub | the agent's workflow | not present |
+| Repository authority | explicit primary Git checkout roots | none |
+| Workspace, git, GitHub | wp-coding-agents policy plus the runtime's native tools | not present |
 | How changes reach version control | the agent commits and opens pull requests | captured out-of-band by the operator |
 | Runtimes | all | `opencode` only |
 | Service user | root by default | **non-root by default** (`opencode`) |
@@ -408,10 +410,11 @@ about WordPress here without skills or fine-tuning. Reading is never
 restricted. Everything below is about *writing*.
 
 **Workspace** is the developer setup: the installed tree is reference
-material, and every code change happens in the configured repository workspace
-so it is tracked in git and reviewed through GitHub. Data Machine Code provides
-the WordPress-side repository, workspace, GitHub, and data-machine capabilities;
-when installed, Homeboy owns its native Rust worktree lifecycle and Cook.
+material, and every code change happens in explicitly declared primary Git
+checkouts so it is tracked in Git and reviewed through GitHub. wp-coding-agents
+owns that declaration and runtime policy; the selected coding runtime uses its
+native tools. When enabled, Homeboy owns its native Rust worktree lifecycle and
+Cook without creating or inferring repository authority.
 
 **Owned** is for managed agentic hosting, where a non-technical owner should
 never have to deal with pull requests. The agent edits the site's own theme and
@@ -510,7 +513,7 @@ Codex reads `AGENTS.override.md` from the WordPress site root when present, befo
 
 Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that OpenCode also reads. On a site with both runtimes, OpenCode keeps using `AGENTS.md` plus `opencode.json` instructions, while Codex gets the same site guidance and memory through its generated override.
 
-Setup installs the managed upgrade skill into `.agents/skills`, registers Codex thread attribution for Data Machine Code when available, and leaves global Codex config and auth state alone.
+Setup installs the managed upgrade skill into `.agents/skills`, registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
 
 Codex does not currently have a managed chat bridge in this repo, so setup defaults to terminal/manual operation:
 
@@ -624,7 +627,6 @@ Run `./upgrade.sh --help` for upgrade flags.
 ## Related Projects
 
 - [Data Machine](https://github.com/Extra-Chill/data-machine) — WordPress-native agent memory, abilities, flows, and jobs.
-- [Data Machine Code](https://github.com/Extra-Chill/data-machine-code) — Repository, workspace, git, and GitHub integration for Data Machine.
 - [Homeboy](https://github.com/Extra-Chill/homeboy) — Optional orchestration/lab layer for repo-aware coding workflows.
 - [Kimaki](https://kimaki.xyz) — Discord bridge used by OpenCode installs.
 

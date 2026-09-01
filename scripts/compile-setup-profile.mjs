@@ -101,6 +101,37 @@ function normalizeBridge(profile, availableBridges) {
   return selection
 }
 
+function normalizeSource(profile) {
+  const source = profile.source
+  if (source === undefined) {
+    return { mode: "workspace", repositories: [], legacy: true }
+  }
+  if (!source || typeof source !== "object") {
+    throw new Error("source must be an object")
+  }
+
+  const mode = source.mode
+  if (!["workspace", "owned"].includes(mode)) {
+    throw new Error("source.mode must be workspace or owned")
+  }
+
+  const repositories = source.workspace_repositories
+  if (!Array.isArray(repositories) || repositories.some((repository) => typeof repository !== "string" || !repository || !path.isAbsolute(repository))) {
+    throw new Error("source.workspace_repositories must be an array of absolute paths")
+  }
+  if (new Set(repositories).size !== repositories.length) {
+    throw new Error("source.workspace_repositories must not contain duplicate paths")
+  }
+  if (mode === "workspace" && !repositories.length) {
+    throw new Error("workspace source mode requires one or more source.workspace_repositories")
+  }
+  if (mode === "owned" && repositories.length) {
+    throw new Error("owned source mode must not declare source.workspace_repositories")
+  }
+
+  return { mode, repositories, legacy: false }
+}
+
 function compile(profile) {
   const availableRuntimes = discoveredNames("runtimes")
   const availableBridges = discoveredNames("bridges", ".sh", new Set(["_dispatch"]))
@@ -114,6 +145,10 @@ function compile(profile) {
   const overlays = profile.overlays ?? {}
   const systemsCapabilities = profile.systems_capabilities ?? {}
   const agent = profile.agent ?? {}
+  const source = normalizeSource(profile)
+  if (source.legacy) {
+    warnings.push("Legacy profile has no source declaration: no new mutable repository authority is declared until source.workspace_repositories is added.")
+  }
 
   if (!installTarget) {
     throw new Error("Missing required profile field: install_target")
@@ -167,6 +202,13 @@ function compile(profile) {
   }
   if (runtime.flag) {
     addFlag(command, "--runtime", runtime.flag)
+  }
+
+  if (!source.legacy) {
+    addFlag(command, "--source-mode", source.mode)
+    for (const repository of source.repositories) {
+      addFlag(command, "--workspace-repository", repository)
+    }
   }
 
   const bridge = normalizeBridge(profile, availableBridges)
@@ -242,6 +284,8 @@ function compile(profile) {
         .filter(([, value]) => value === true)
         .map(([key]) => key),
       systems_capabilities: systemsCapabilities.profile || "none",
+      source_mode: source.mode,
+      workspace_repositories: source.repositories,
     },
     commands: {
       dry_run: formatCommand(env, command, true),
