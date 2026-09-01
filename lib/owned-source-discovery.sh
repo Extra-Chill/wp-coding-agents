@@ -80,7 +80,6 @@ OWNED_DISCOVERY_MAX_SIGNAL_AGE="${OWNED_DISCOVERY_MAX_SIGNAL_AGE:-172800}"
 owned_discovery_carried_plugins() {
   cat <<'EOF'
 data-machine
-data-machine-code
 wp-codebox
 wp-coding-agents-integration
 ai-provider-for-claude-code

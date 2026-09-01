@@ -228,8 +228,9 @@ detect_plugins_only_environment() {
   log "Plugin-only scope: installed Data Machine plugins only; runtime, bridge, workspace, and service synchronization disabled"
 }
 
-# Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / DM_WORKSPACE_DIR from
-# LOCAL_MODE and RUN_AS_ROOT.
+# Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR from LOCAL_MODE and
+# RUN_AS_ROOT. DM_WORKSPACE_DIR is a compatibility value derived from the
+# explicit source policy after it resolves.
 #
 # Split out of detect_environment so it can be re-derived. setup.sh resolves the
 # source mode AFTER detection — the mode is read from the site, which detection
@@ -246,17 +247,14 @@ detect_service_identity() {
     SERVICE_USER="$(whoami)"
     SERVICE_HOME="$HOME"
     _detect_default_kimaki_data_dir "$HOME/.kimaki"
-    DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-$HOME/.datamachine/workspace}"
   elif [ "$RUN_AS_ROOT" = true ]; then
     SERVICE_USER="root"
     SERVICE_HOME="/root"
     _detect_default_kimaki_data_dir "/root/.kimaki"
-    DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   else
     SERVICE_USER="opencode"
     SERVICE_HOME="/home/opencode"
     _detect_default_kimaki_data_dir "/home/opencode/.kimaki"
-    DM_WORKSPACE_DIR="${DATAMACHINE_WORKSPACE_PATH:-/var/lib/datamachine/workspace}"
   fi
 }
 

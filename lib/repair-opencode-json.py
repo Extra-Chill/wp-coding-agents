@@ -625,7 +625,7 @@ def main() -> int:
     parser.add_argument(
         "--workspace-dir",
         default="",
-        help="DMC workspace root to grant via external_directory (engineering only).",
+        help="Declared workspace checkout root to grant via external_directory (workspace mode only).",
     )
     parser.add_argument(
         "--log-path",

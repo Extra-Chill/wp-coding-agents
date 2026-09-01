@@ -16,8 +16,13 @@ runtime_signature_cleanup_retired_mu_plugin() {
   file="$(runtime_signature_mu_plugin_path)" || return 0
   [ -e "$file" ] || return 0
 
+  if ! grep -q 'datamachine_code_worktree_runtime_signatures' "$file"; then
+    if [ "${DRY_RUN:-false}" = true ]; then warn "Would preserve unknown runtime registry at $file (missing wp-coding-agents DMC marker)"; else warn "Preserving unknown runtime registry at $file (missing wp-coding-agents DMC marker)"; fi
+    return 1
+  fi
+
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE:-}[dry-run]${NC:-} rm -f $file"
+    echo -e "${BLUE:-}[dry-run]${NC:-} Would remove installer-owned retired runtime registry at $file"
     return 0
   fi
 

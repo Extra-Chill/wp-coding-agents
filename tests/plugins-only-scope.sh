@@ -32,8 +32,11 @@ require_source 'detect_plugins_only_environment' "narrow plugin-only environment
 require_source 'installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"' "credential-free plugins-only profile normalization"
 require_source 'reconcile_installed_plugins() {' "plugins-only desired-state reconciliation"
 require_source 'plugins.reconcile.data-machine' "explicit data-machine operation name"
-require_source 'plugins.reconcile.data-machine-code' "explicit data-machine-code operation name"
 require_source 'plugins.reconcile.wp-codebox' "explicit wp-codebox operation name"
+if grep -q 'data-machine-code\|datamachine-code' "$UPGRADE" || grep -q 'data-machine-code\|datamachine-code' "$ROOT_DIR/lib/data-machine.sh"; then
+  echo "FAIL: upgrade or plugins-only still updates a DMC plugin" >&2
+  exit 1
+fi
 require_file_source "$ROOT_DIR/lib/detect.sh" 'Plugin-only scope: installed Data Machine plugins only; runtime, bridge, workspace, and service synchronization disabled' "plugin-only scope evidence"
 require_source '--plugins-only cannot be combined with service, runtime, migration, or other --*-only operations' "plugin-only exclusivity guard"
 require_source 'if _run_filter_active systemd; then' "systems-capability mutation guard"
@@ -63,7 +66,6 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH/wp-content/plugins/data-machine" \
-  "$SITE_PATH/wp-content/plugins/data-machine-code" \
   "$SITE_PATH/wp-content/plugins/wp-codebox"
 PLUGIN_UPDATE_EXIT_PARTIAL=75
 SCRIPT_DIR="$ROOT_DIR"
@@ -73,7 +75,6 @@ source "$ROOT_DIR/lib/desired-state-reconciler.sh"
 eval "$(load_upgrade_function _run_filter_active)"
 eval "$(load_upgrade_function update_data_machine_plugins)"
 eval "$(load_upgrade_function _reconcile_data_machine_plugin)"
-eval "$(load_upgrade_function _reconcile_data_machine_code_plugin)"
 eval "$(load_upgrade_function _reconcile_wp_codebox_plugin)"
 eval "$(load_upgrade_function _reconcile_installed_plugins_verify)"
 eval "$(load_upgrade_function reconcile_installed_plugins)"
@@ -118,12 +119,12 @@ update_chat_bridge_launchd
 LOCAL_MODE=false
 update_chat_bridge_systemd
 
-test "$(cat "$TMP/plugins")" = $'data-machine\ndata-machine-code\ncodebox' || {
+test "$(cat "$TMP/plugins")" = $'data-machine\ncodebox' || {
   echo "FAIL: plugins-only did not run exactly the plugin updaters" >&2
   exit 1
 }
 case "$LOG" in
-  *'profile=operation=plugins-only'*'components=data-machine data-machine-code wp-codebox'*'record=plugins.data-machine operation=plugins.reconcile.data-machine planned'*'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=complete'*) : ;;
+  *'profile=operation=plugins-only'*'components=data-machine wp-codebox'*'record=plugins.data-machine operation=plugins.reconcile.data-machine planned'*'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=start'*'record=plugins.data-machine operation=plugins.reconcile.data-machine apply=complete'*) : ;;
   *) echo "FAIL: plugins-only did not emit planned-step evidence" >&2; exit 1 ;;
 esac
 

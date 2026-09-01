@@ -6,11 +6,15 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 export SITE_PATH="$TMP/site"
-export DM_WORKSPACE_DIR="$TMP/workspace"
 export AGENT_SLUG="builder"
 export DRY_RUN=false
 export IS_STUDIO=false
-mkdir -p "$SITE_PATH/.claude" "$DM_WORKSPACE_DIR"
+WORKSPACE_ONE="$TMP/workspace one"
+WORKSPACE_TWO="$TMP/workspace two"
+mkdir -p "$SITE_PATH/.claude" "$WORKSPACE_ONE" "$WORKSPACE_TWO"
+git -C "$WORKSPACE_ONE" init -q
+git -C "$WORKSPACE_TWO" init -q
+export WORKSPACE_REPOSITORIES="$WORKSPACE_ONE:$WORKSPACE_TWO"
 
 cat > "$SITE_PATH/.claude/settings.json" <<'JSON'
 {
@@ -59,9 +63,33 @@ if "Read(./private/**)" not in denies:
     raise SystemExit(f"existing deny was not preserved: {sorted(denies)}")
 PY
 
+python3 - "$SITE_PATH/.claude/settings.json" "$WORKSPACE_ONE" "$WORKSPACE_TWO" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+directories = data["permissions"].get("additionalDirectories", [])
+allows = set(data["permissions"].get("allow", []))
+for workspace in sys.argv[2:]:
+    assert workspace in directories
+    for tool in ("Read", "Edit", "Write"):
+        assert f"{tool}({workspace}/**)" in allows
+assert "Read(/**)" not in allows
+PY
+
 HASH_BEFORE=$(md5 -q "$SITE_PATH/.claude/settings.json" 2>/dev/null || md5sum "$SITE_PATH/.claude/settings.json" | cut -d' ' -f1)
 runtime_install_hooks
 HASH_AFTER=$(md5 -q "$SITE_PATH/.claude/settings.json" 2>/dev/null || md5sum "$SITE_PATH/.claude/settings.json" | cut -d' ' -f1)
 [ "$HASH_BEFORE" = "$HASH_AFTER" ]
+
+EMPTY_SITE="$TMP/empty-site"
+mkdir -p "$EMPTY_SITE/.claude"
+SITE_PATH="$EMPTY_SITE"
+WORKSPACE_REPOSITORIES=""
+runtime_install_hooks
+python3 - "$EMPTY_SITE/.claude/settings.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert not data["permissions"].get("additionalDirectories", [])
+assert not data["permissions"].get("allow", [])
+PY
 
 echo "PASS: Claude Code WordPress edit permissions"

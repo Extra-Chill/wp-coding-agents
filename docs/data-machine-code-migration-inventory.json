@@ -44,6 +44,13 @@
     "DataMachineCode\\*",
     "wp datamachine-code *"
   ],
+  "lexical_reference_exclusions": [
+    "docs/changelog.md",
+    "tests/agents-md-guidance.sh",
+    "tests/installation-profile.sh",
+    "tests/plugins-only-scope.sh",
+    "tests/workspace-installation.sh"
+  ],
   "rows": [
     {
       "id": "dmc-bootstrap",
@@ -365,7 +372,7 @@
       "id": "wca-setup-entrypoint",
       "subsystem": null,
       "surface": "Workspace source-mode setup orchestration",
-      "source": { "repository": "wp-coding-agents", "path": "setup.sh", "symbol_or_command": "--source-mode workspace; install_data_machine; discover_dm_workspace_dir; configure_homeboy_worktree_ownership" },
+      "source": { "repository": "wp-coding-agents", "path": "setup.sh", "symbol_or_command": "--source-mode workspace; source_policy_resolve_workspace_dir; configure_homeboy_worktree_ownership" },
       "evidence_kind": "entrypoint",
       "contracts": ["data-machine-code"],
       "current_owner": "wp-coding-agents",
@@ -380,7 +387,7 @@
       "id": "wca-upgrade-entrypoint",
       "subsystem": null,
       "surface": "Plugin and integration upgrade orchestration",
-      "source": { "repository": "wp-coding-agents", "path": "upgrade.sh", "symbol_or_command": "update_data_machine_plugins; reconcile_provider_and_service_state; plugin get data-machine-code" },
+      "source": { "repository": "wp-coding-agents", "path": "upgrade.sh", "symbol_or_command": "update_data_machine_plugins; reconcile_provider_and_service_state; plugin get data-machine" },
       "evidence_kind": "upgrade",
       "contracts": ["data-machine-code"],
       "current_owner": "wp-coding-agents",
@@ -394,13 +401,13 @@
     {
       "id": "wca-installer-library",
       "subsystem": null,
-      "surface": "DMC install, update, Homeboy availability, workspace discovery, and component sync",
-      "source": { "repository": "wp-coding-agents", "path": "lib/data-machine.sh", "symbol_or_command": "install_data_machine; upgrade_data_machine_plugins; sync_homeboy_availability; discover_dm_workspace_dir; sync_homeboy_project_components" },
+      "surface": "Data Machine install and update without DMC workspace discovery",
+      "source": { "repository": "wp-coding-agents", "path": "lib/data-machine.sh", "symbol_or_command": "install_data_machine; upgrade_data_machine_plugins" },
       "evidence_kind": "installer",
       "contracts": ["data-machine-code", "datamachine_code_homeboy_available", "wp datamachine-code *"],
       "current_owner": "wp-coding-agents",
       "current_consumers": ["setup.sh and upgrade.sh"],
-      "persistence": "Plugin checkout, DATAMACHINE_WORKSPACE_PATH, availability option, Homeboy component records",
+      "persistence": "Data Machine plugin checkout and composition constant",
       "target_owner": "wp-coding-agents",
       "disposition": "replace",
       "migration_issue": "#455, #526, #528",
@@ -455,7 +462,7 @@
       "id": "wca-source-reconcile",
       "subsystem": null,
       "surface": "Installer-owned plugin source discovery and generated reconciliation list",
-      "source": { "repository": "wp-coding-agents", "path": "lib/owned-source-discovery.sh", "symbol_or_command": "owned_discovery_carried_plugins: data-machine-code" },
+      "source": { "repository": "wp-coding-agents", "path": "lib/owned-source-discovery.sh", "symbol_or_command": "owned_discovery_carried_plugins excludes DMC" },
       "evidence_kind": "installer",
       "contracts": ["data-machine-code"],
       "current_owner": "wp-coding-agents",
@@ -470,7 +477,7 @@
       "id": "wca-source-reconcile-template",
       "subsystem": null,
       "surface": "Generated carried plugin slug list",
-      "source": { "repository": "wp-coding-agents", "path": "templates/wp-coding-agents-source-reconcile.php", "symbol_or_command": "wp_coding_agents_carried_slugs(): data-machine-code" },
+      "source": { "repository": "wp-coding-agents", "path": "templates/wp-coding-agents-source-reconcile.php", "symbol_or_command": "wp_coding_agents_carried_slugs(): data-machine, wp-codebox" },
       "evidence_kind": "runtime",
       "contracts": ["data-machine-code"],
       "current_owner": "wp-coding-agents",
@@ -485,7 +492,7 @@
       "id": "wca-source-policy",
       "subsystem": null,
       "surface": "Workspace mode definition and DMC installation predicate",
-      "source": { "repository": "wp-coding-agents", "path": "lib/source-policy.sh", "symbol_or_command": "source_policy_workspace_enabled" },
+      "source": { "repository": "wp-coding-agents", "path": "lib/source-policy.sh", "symbol_or_command": "source_policy_workspace_repositories; source_policy_resolve_workspace_dir" },
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_homeboy_available", "data-machine-code"],
       "current_owner": "wp-coding-agents",
@@ -1252,12 +1259,12 @@
   "reference_file_classification": {
     "runtime": [
       "lib/integration-adapters.sh",
-      "templates/wp-coding-agents-homeboy-worktrees.php",
+      "lib/runtime-signature.sh",
       "templates/wp-coding-agents-cli-transport.php"
     ],
     "tests": [
-      "tests/homeboy-worktree-adapter.sh",
       "tests/integration-adapters.sh",
+      "tests/runtime-signature.sh",
       "tests/smoke-cli-transport.php",
       "tests/worktree-context-projections.sh"
     ],

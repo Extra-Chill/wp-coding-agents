@@ -135,7 +135,6 @@ plugin_update_local_version() {
   local slug="$1" file
   case "$slug" in
     data-machine) file="$SITE_PATH/wp-content/plugins/$slug/data-machine.php" ;;
-    data-machine-code) file="$SITE_PATH/wp-content/plugins/$slug/data-machine-code.php" ;;
     wp-codebox) file="$SITE_PATH/wp-content/plugins/$slug/wp-codebox.php" ;;
     *) return 1 ;;
   esac

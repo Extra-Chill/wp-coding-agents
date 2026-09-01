@@ -203,11 +203,12 @@ _opencode_config_for() {
     trap 'rm -rf "$TMP"' EXIT
     SITE_PATH="$TMP/site"
     KIMAKI_DATA_DIR="$TMP/kimaki-data"
-    mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
+    mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR" "$TMP/workspace"
+    git -C "$TMP/workspace" init -q
     export SCRIPT_DIR SITE_PATH KIMAKI_DATA_DIR
     export CHAT_BRIDGE="kimaki" LOCAL_MODE=true DRY_RUN=false
     export OPENCODE_MODEL="" OPENCODE_SMALL_MODEL=""
-    export DM_WORKSPACE_DIR="$TMP/workspace"
+    export WORKSPACE_REPOSITORIES="$TMP/workspace"
     export DM_AGENT_FILES=""
     export WITH_CLAUDE_CODE_AUTH=false RUNTIME="opencode"
     UPDATED_ITEMS=()
@@ -264,6 +265,26 @@ assert_contains "$MGD_EXT" '"/var/log/site/**": "allow"' \
 assert_contains "$MGD_EXT" '"/var/log/site": "allow"' \
   "the literal log path is granted too, so a file path actually works"
 
+EMPTY_WORKSPACE_JSON="$(mktemp)"
+(
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  SITE_PATH="$TMP/site"
+  KIMAKI_DATA_DIR="$TMP/kimaki"
+  mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
+  CHAT_BRIDGE=kimaki LOCAL_MODE=true DRY_RUN=false \
+    OPENCODE_MODEL="" OPENCODE_SMALL_MODEL="" WITH_CLAUDE_CODE_AUTH=false \
+    SOURCE_MODE=workspace WORKSPACE_REPOSITORIES="" DM_AGENT_FILES=""
+  UPDATED_ITEMS=()
+  source "$SCRIPT_DIR/lib/source-policy.sh"
+  source "$SCRIPT_DIR/runtimes/opencode.sh"
+  runtime_generate_config
+  cp "$SITE_PATH/opencode.json" "$EMPTY_WORKSPACE_JSON"
+)
+assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["permission"].get("external_directory",{}))' "$EMPTY_WORKSPACE_JSON")" \
+  "{}" "workspace mode with no declared checkout grants no external mutable target"
+rm -f "$EMPTY_WORKSPACE_JSON"
+
 # ===========================================================================
 echo "==> claude-code denies every installed root (managed is refused upstream)"
 # ===========================================================================
@@ -274,9 +295,10 @@ _claude_settings_for() {
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
     export SITE_PATH="$TMP/site"
-    export DM_WORKSPACE_DIR="$TMP/workspace"
+    export WORKSPACE_REPOSITORIES="$TMP/workspace"
     export AGENT_SLUG="builder" DRY_RUN=false IS_STUDIO=false
-    mkdir -p "$SITE_PATH/.claude" "$DM_WORKSPACE_DIR"
+    mkdir -p "$SITE_PATH/.claude" "$TMP/workspace"
+    git -C "$TMP/workspace" init -q
     if [ -n "$seed" ]; then
       sed "s|SITE_PATH|$SITE_PATH|g" "$seed" > "$SITE_PATH/.claude/settings.json"
     fi
@@ -296,8 +318,8 @@ assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/themes/**)"' \
   "workspace mode denies theme edits"
 assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/plugins/**)"' \
   "workspace mode denies plugin edits"
-assert_contains "$(cat "$CC_ENG")" '"Bash(wp datamachine-code workspace:*)"' \
-  "workspace mode allows the DMC workspace bash surface"
+refute_contains "$(cat "$CC_ENG")" 'datamachine-code' \
+  "workspace mode does not grant a retired DMC command surface"
 rm -f "$CC_ENG"
 
 # ===========================================================================

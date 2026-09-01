@@ -8,9 +8,9 @@ compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Wo
 
 `upgrade.sh` already auto-detects the environment, picks the chat bridge, applies the managed sync, and emits the right verify + restart commands in its summary block. This skill exists for the **policy boundary** the script can't enforce on its own.
 
-By default it also updates the setup-installed Data Machine plugins (`data-machine`, `data-machine-code`) to their latest version tags when those plugins are git checkouts. Use `--skip-plugins` to preserve the previous no-plugin-update behavior.
+By default it updates the setup-installed Data Machine plugin (`data-machine`) and WP Codebox when their managed sources are present. Use `--skip-plugins` to preserve the previous no-plugin-update behavior.
 
-If the install was created with the optional Homeboy layer, upgrade should preserve that model: the WordPress site root is the Homeboy **project**, primary Data Machine Code workspace checkouts are attached **components**, and `repo@branch` worktrees remain skipped by default. Homeboy is external to wp-coding-agents; do not vendor it or treat the site root as a component during upgrade guidance.
+If the install was created with the optional Homeboy layer, upgrade should preserve that model: the WordPress site root is the Homeboy **project**, declared repository checkouts are attached **components**, and `repo@branch` worktrees remain skipped by default. Homeboy is external to wp-coding-agents; do not vendor it or treat the site root as a component during upgrade guidance.
 
 Setup uses the one-shot guide at `operator-entrypoints/wp-coding-agents-setup/setup.md`, plus `operator-entrypoints/wp-coding-agents-setup/interview.md` and `scripts/compile-setup-profile.mjs`, to map a new install profile into commands. Upgrade intentionally does **not** duplicate that compiler: `upgrade.sh` owns detection, bridge selection, apply-time sync, and summary commands for an already-installed environment.
 
@@ -52,9 +52,9 @@ The user says something like:
    ```bash
    homeboy --version
    homeboy extension list
-   homeboy extension show wordpress
-   homeboy config show /worktree_providers/dmc  # expected: not found
-   homeboy project show <project-id>
+    homeboy extension show wordpress
+    homeboy config show --format=json | jq -e '.data.config.worktree_providers.dmc == null and .data.config.settings.worktree_provider_lifecycle.dmc == null'
+    homeboy project show <project-id>
    homeboy project components list <project-id>
    wp config get DATAMACHINE_COMPOSE_AGENTS_MD --path=/path/to/site
    wp datamachine memory compose AGENTS.md --path=/path/to/site
@@ -63,9 +63,7 @@ The user says something like:
    ```bash
    studio wp datamachine memory compose AGENTS.md
    ```
-    Homeboy config must not contain a retired `dmc` command provider. Homeboy is the sole lifecycle owner.
-
-    Attribute failures to the owning layer. A present `/worktree_providers/dmc` entry is stale configuration and must be removed by rerunning reconciliation. Extension readiness and project/component lookup failures belong to Homeboy. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
+     Homeboy is the sole lifecycle owner. Attribute extension readiness and project/component lookup failures to Homeboy. Do not create `homeboy.json` in the site root to "fix" a missing project; that confuses a Homeboy project with a component.
 
    Setup and upgrade write `define( 'DATAMACHINE_COMPOSE_AGENTS_MD', true )` to wp-config.php (idempotent grep-guard; skipped on Studio and dry-run). This is the gate that turns on core-owned AGENTS.md composition — `wp config get DATAMACHINE_COMPOSE_AGENTS_MD` should return `true` after either run.
 

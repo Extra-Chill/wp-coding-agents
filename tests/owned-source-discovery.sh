@@ -75,7 +75,6 @@ make_site() {
 plugins akismet
 plugins data-machine
 plugins data-machine-business
-plugins data-machine-code
 plugins fluent-smtp
 plugins h44-core
 plugins h44-forms
@@ -121,7 +120,7 @@ refute_line "$DERIVED" "wp-content/themes/twentytwentyfive" "excludes a wp.org b
 
 # The agent's own runtime is replaced wholesale by the next upgrade, and
 # capturing it would commit this project's source into the site's repository.
-for p in data-machine data-machine-code wp-codebox wp-coding-agents-integration ai-provider-for-claude-code; do
+for p in data-machine wp-codebox wp-coding-agents-integration ai-provider-for-claude-code; do
   refute_line "$DERIVED" "wp-content/plugins/$p" "excludes carried plugin $p"
 done
 

@@ -158,7 +158,7 @@ This overlay proves Homeboy is installed and linked, its native worktree lifecyc
 homeboy --version
 homeboy extension list
 homeboy extension show wordpress
-homeboy config show /worktree_providers/dmc  # expected: not found
+homeboy config show --format=json | jq -e '.data.config.worktree_providers.dmc == null and .data.config.settings.worktree_provider_lifecycle.dmc == null'
 homeboy project show <project-id>
 homeboy project components list <project-id>
 wp datamachine memory compose AGENTS.md --path=/path/to/site
@@ -170,11 +170,11 @@ For WordPress Studio:
 studio wp datamachine memory compose AGENTS.md
 ```
 
-`homeboy config show /worktree_providers/dmc` should report that the path is absent.
+The JSON assertion verifies both retired provider and lifecycle settings are absent.
 
 Attribute failures before retrying:
 
-- A present `/worktree_providers/dmc` entry is stale configuration. Rerun wp-coding-agents reconciliation to remove it.
+- A present retired provider or lifecycle entry is stale configuration. Rerun wp-coding-agents reconciliation to remove it.
 - Extension readiness and project/component lookup failures are owned by Homeboy. Use the failed command's diagnostics and repair that Homeboy configuration.
 
 Expected model:

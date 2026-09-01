@@ -184,9 +184,8 @@ runtime_install_hooks() {
 
   # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json.
   # additionalDirectories alone is not enough: the Bash tool is gated by explicit
-  # allow rules, so workspace shell ops (ls/git/studio wp datamachine-code …) would
-  # still prompt. Expand permissions.allow with Read/Edit/Write globs on the
-  # workspace plus the datamachine-code Bash surface.
+  # allow rules, so workspace shell operations would still prompt. Expand
+  # permissions.allow with Read/Edit/Write globs on the workspace.
   local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
   local hook_entry
   hook_entry=$(jq -n --arg cmd "$hook_cmd" '{matcher: "", hooks: [{type: "command", command: $cmd}]}')
@@ -199,20 +198,12 @@ runtime_install_hooks() {
   # Workspace access only exists in modes that have a workspace. On a
   # managed install these rules would grant the agent an empty directory while
   # advertising a git workflow it has no part in.
-  local workspace_allow_rules='[]'
-  if source_policy_workspace_enabled; then
-    workspace_allow_rules=$(jq -n \
-      --arg ws "$DM_WORKSPACE_DIR" \
-      --arg wp "$wp_prefix" \
-      '[
-        "Read(\($ws)/**)",
-        "Edit(\($ws)/**)",
-        "Write(\($ws)/**)",
-        "Bash(\($wp) datamachine-code workspace:*)",
-        "Bash(\($wp) datamachine-code github:*)",
-        "Bash(\($wp) datamachine-code gitsync:*)"
-      ]')
-  fi
+  local workspace_allow_rules='[]' workspace_directories='[]' workspace_repository
+  while IFS= read -r workspace_repository; do
+    [ -n "$workspace_repository" ] || continue
+    workspace_directories=$(jq -n --argjson directories "$workspace_directories" --arg repository "$workspace_repository" '$directories + [$repository]')
+    workspace_allow_rules=$(jq -n --argjson rules "$workspace_allow_rules" --arg repository "$workspace_repository" '$rules + ["Read(\($repository)/**)", "Edit(\($repository)/**)", "Write(\($repository)/**)"]')
+  done < <(source_policy_workspace_repositories)
 
   # Every installed root is denied. Claude Code treats deny as absolute — an
   # allow never overrides it — so this runtime cannot express "deny the
@@ -243,19 +234,18 @@ runtime_install_hooks() {
   fi
 
   settings=$(echo "$settings" | jq \
-    --arg workspace "$DM_WORKSPACE_DIR" \
+    --argjson workspaces "$workspace_directories" \
     --argjson hook "$hook_entry" \
     --arg cmd "$hook_cmd" \
     --argjson allow_rules "$workspace_allow_rules" \
     --argjson deny_rules "$wordpress_deny_rules" \
     --argjson legacy_deny_rules "$legacy_wordpress_deny_rules" \
-    --argjson workspace_enabled "$(source_policy_workspace_enabled && echo true || echo false)" \
     '
     .autoMemoryEnabled = false
 
     | .permissions.additionalDirectories = (
         (.permissions.additionalDirectories // [])
-        | if $workspace_enabled and (any(. == $workspace) | not) then . + [$workspace] else . end
+        | . + $workspaces | unique
       )
 
     | .permissions.allow = (

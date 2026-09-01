@@ -726,14 +726,62 @@ source_policy_workspace_enabled() {
   esac
 }
 
+# A repository declaration is meaningful only in workspace mode. Rejecting the
+# contradiction before any install state is persisted keeps an owned profile
+# from carrying dormant mutable repository authority into a later upgrade.
+source_policy_validate_workspace_repositories() {
+  if source_policy_is_owned && [ -n "${WORKSPACE_REPOSITORIES:-}" ]; then
+    error "--workspace-repository cannot be used with --source-mode owned; owned mode has no repository workspace authority."
+    return 1
+  fi
+}
+
 # Explicit primary checkout roots for workspace mode, colon-separated so paths
-# remain literal when they contain spaces. These are the repository authority;
-# when unset, older installs retain their existing runtime workspace.
+# remain literal when they contain spaces. These are the repository authority.
 source_policy_workspace_repositories() {
   source_policy_workspace_enabled || return 0
   printf '%s\n' "${WORKSPACE_REPOSITORIES:-}" | tr ':' '\n' | while IFS= read -r path; do
-    [ -n "$path" ] && printf '%s\n' "${path%/}"
+    path="${path%/}"
+    case "$path" in
+      /*) ;;
+      *) continue ;;
+    esac
+    git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
+    printf '%s\n' "$path"
   done
+}
+
+source_policy_add_workspace_repository() {
+  local repository="${1%/}" root canonical existing
+  case "$repository" in
+    /*) ;;
+    *) error "--workspace-repository must be an absolute Git checkout: $1"; return 1 ;;
+  esac
+  if [ ! -d "$repository" ]; then
+    error "--workspace-repository must be an existing directory: $1"
+    return 1
+  fi
+  if [ "$(git -C "$repository" rev-parse --is-inside-work-tree 2>/dev/null || true)" != true ]; then
+    error "--workspace-repository must be a Git checkout: $1"
+    return 1
+  fi
+  root="$(git -C "$repository" rev-parse --show-toplevel 2>/dev/null)" || {
+    error "--workspace-repository must resolve to a Git checkout root: $1"
+    return 1
+  }
+  canonical="$(cd "$root" && pwd -P)" || return 1
+  while IFS= read -r existing; do
+    [ "$existing" = "$canonical" ] && return 0
+  done < <(printf '%s\n' "${WORKSPACE_REPOSITORIES:-}" | tr ':' '\n')
+  WORKSPACE_REPOSITORIES="${WORKSPACE_REPOSITORIES:+$WORKSPACE_REPOSITORIES:}$canonical"
+}
+
+# Compatibility for runtime helpers that still accept one workspace directory.
+# Repository authority remains the explicit profile list above.
+source_policy_resolve_workspace_dir() {
+  DM_WORKSPACE_DIR=""
+  source_policy_workspace_enabled || return 0
+  DM_WORKSPACE_DIR="$(source_policy_workspace_repositories | awk 'NR == 1 { print; exit }')"
 }
 
 # The ordered edit ruleset for the active source mode, as tab-separated

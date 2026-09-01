@@ -50,7 +50,18 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - `external-openai-compatible-endpoint` — optional WP AI Gateway path for external OpenCode/Kimaki clients.
    - `not-applicable`
 
-6. **Optional overlays**
+6. **Source mode and repository authority**
+   Ask where code changes land:
+   - `workspace` — collect one or more absolute paths to existing primary Git
+     checkouts accessible to the runtime. Preserve the operator's order; each
+     checkout is independent authority.
+   - `owned` — collect no repository paths. The runtime edits only the site's
+     declared owned source paths.
+
+   Homeboy may attach the same declared primary checkouts when enabled. It does
+   not create or infer repository authority.
+
+7. **Optional overlays**
    Collect booleans or values for:
    - Homeboy developer layer.
    - WordPress Studio WP-CLI wrapper.
@@ -60,10 +71,10 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - Dependency install skip.
    - Skills install skip.
 
-7. **Agent identity**
+8. **Agent identity**
     Ask for the agent slug and display name only when the user wants to override defaults. Defaults come from the site domain or blog name.
 
-8. **Systems capabilities**
+9. **Systems capabilities**
    For a dedicated VPS whose agent is expected to perform bounded host maintenance, ask whether to provision the `managed-vps` systems capability profile. Record `none` for local, external-runtime, and operator-managed hosts.
 
 ## Output Shape
@@ -94,6 +105,10 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "telegram_allowed_user_id_available": false
   },
   "codex_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
+  "source": {
+    "mode": "workspace | owned",
+    "workspace_repositories": ["/absolute/path/to/primary-checkout"]
+  },
   "overlays": {
     "homeboy": false,
     "wordpress_studio": false,
@@ -121,5 +136,7 @@ Use empty strings or `false` for unknown optional values. Do not invent defaults
 
 - The profile identifies the install target.
 - The profile separates runtime and bridge selections.
+- Workspace profiles name one or more absolute primary Git checkout paths;
+  owned profiles name none.
 - Optional overlays are independent booleans or explicit values.
 - No setup command has been built or run.

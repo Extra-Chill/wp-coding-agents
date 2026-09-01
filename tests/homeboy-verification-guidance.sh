@@ -40,7 +40,7 @@ assert_contract_command() {
 assert_contract_command "homeboy --version"
 assert_contract_command "homeboy extension list"
 assert_contract_command "homeboy extension show wordpress"
-assert_contract_command "homeboy config show /worktree_providers/dmc  # expected: not found"
+assert_contract_command "homeboy config show --format=json | jq -e '.data.config.worktree_providers.dmc == null and .data.config.settings.worktree_provider_lifecycle.dmc == null'"
 assert_contract_command "homeboy project show <project-id>"
 assert_contract_command "homeboy project components list <project-id>"
 assert_contract_command "wp datamachine memory compose AGENTS.md --path=/path/to/site"

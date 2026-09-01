@@ -56,7 +56,7 @@ BLUE=""; NC=""
 mkdir -p "$SITE_PATH/wp-content/plugins/data-machine-code"
 printf 'copied\n' > "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED"
 mkdir -p "$SITE_PATH/wp-content/mu-plugins"
-printf 'stale\n' > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+printf '%s\n' '<?php add_filter("datamachine_code_managed_release_channel", "__return_false");' > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
 
 INSTALLATION_PROFILE_OPERATION=setup
 integration_adapters_detect
@@ -113,13 +113,21 @@ chmod +x "$TMP/homeboy"
 PATH="$TMP:/usr/bin:/bin"
 homeboy_wordpress_extension_ready() { return 1; }
 homeboy_run() {
-  printf '%s\n' '{"schema":"homeboy/command-result/v3","data":{"config":{"worktree_providers":{"dmc":{}}}}}'
+  printf '%s\n' '{"schema":"homeboy/command-result/v3","data":{"config":{"worktree_providers":{"dmc":{}},"settings":{"worktree_provider_lifecycle":{}}}}}'
 }
 if _integration_adapter_verify_homeboy; then fail "nested DMC provider passed Homeboy verification"; fi
 homeboy_run() {
-  printf '%s\n' '{"schema":"homeboy/command-result/v3","data":{"config":{"worktree_providers":{}}}}'
+  printf '%s\n' '{"schema":"homeboy/command-result/v3","data":{"config":{"worktree_providers":{},"settings":{"worktree_provider_lifecycle":{"dmc":{}}}}}}'
+}
+if _integration_adapter_verify_homeboy; then fail "nested DMC lifecycle passed Homeboy verification"; fi
+homeboy_run() {
+  printf '%s\n' '{"schema":"homeboy/command-result/v3","data":{"config":{"worktree_providers":{},"settings":{"worktree_provider_lifecycle":{}}}}}'
 }
 _integration_adapter_verify_homeboy || fail "clean Homeboy envelope failed verification"
+
+printf 'operator-owned managed release\n' > "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
+if _integration_adapter_cleanup_managed_release; then fail "unknown managed release cleanup reported success"; fi
+[ -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "unknown managed release was removed"
 
 # Retired-option cleanup must fail closed when WordPress cannot confirm absence.
 wp_cmd() { return 1; }

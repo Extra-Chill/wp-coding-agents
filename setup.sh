@@ -14,7 +14,8 @@
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
 # files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md,
 # wp-coding-agents upgrade skill,
-# workspace primitive, MCP surface. It is not optional. Uninstall the plugin
+# MCP surface. Workspace policy and repository authority belong to
+# wp-coding-agents. It is not optional. Uninstall the plugin
 # later if you don't want it.
 #
 
@@ -265,6 +266,10 @@ while [[ $# -gt 0 ]]; do
       SOURCE_MODE_EXPLICIT=true
       shift 2
       ;;
+    --workspace-repository)
+      source_policy_add_workspace_repository "$2"
+      shift 2
+      ;;
     --not-owned)
       owned_discovery_add_exclusion "$2"
       shift 2
@@ -355,20 +360,23 @@ OPTIONS:
                      WordPress install (Studio, MAMP, manual, etc.)
   --runtime <name>   Coding agent runtime (auto-detected if omitted)
                      Available: ${AVAILABLE_RUNTIMES[*]}
-  --source-mode <name>
+   --source-mode <name>
                      Where the agent's code changes land. These are two shapes,
                      not two levels — neither is "more access" than the other.
-                     workspace (default): installed source is read-only
-                       reference and every change goes through a Data Machine
-                       Code workspace, git, and GitHub. Recorded by review.
+                      workspace (default): installed source is read-only
+                        reference and every change goes through declared
+                        repositories, git, and GitHub. Recorded by review.
                      owned: the agent edits the site's own declared components
                        in place; no workspace, no git, no GitHub, and
-                       data-machine-code is not installed. Recorded by the
+                        repository workspace is not used. Recorded by the
                        operator's out-of-band capture. For managed agentic
                        hosting.
                      Recorded on the install so upgrades converge without
                      repeating the flag. (--posture is accepted as a
-                     deprecated alias; engineering=workspace, managed=owned.)
+                      deprecated alias; engineering=workspace, managed=owned.)
+   --workspace-repository <absolute-git-checkout>
+                      Declares a repository authority for workspace mode.
+                      Repeatable; no repository path is inferred.
   --not-owned <slug> Plugin or theme slug that is NOT the site's despite
                      classifying as owned — a premium or vendor plugin,
                      typically. Repeatable. Recorded on the install.
@@ -581,9 +589,11 @@ external_wordpress_validate
 # The source mode must resolve BEFORE anything that enforces it: the plugin set, the
 # runtime permission surfaces, and the AGENTS.md guidance all derive from it.
 source_policy_resolve_mode
+source_policy_validate_workspace_repositories
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
+source_policy_resolve_workspace_dir
 source_policy_assert_runtime_supports_mode
 
 # Owned mode defaults to a non-root service user (#327). Must run after the mode
@@ -636,7 +646,6 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
   setup_ai_gateway
 fi
 
-discover_dm_workspace_dir
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
 CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
 CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"

@@ -51,9 +51,9 @@ Options:
   --model <id>                  Optional model override.
   --max-turns <n>               Low turn cap for the read-only canary. Default: 4.
   --secret-env <ENV_NAME>       Provider secret env var name to hydrate. Repeatable.
-  --agents-api <path>           Bundled Agents API path from Data Machine.
-  --agent-runtime <path>        Data Machine plugin path.
-  --agent-runtime-tools <path>  Data Machine Code plugin path.
+  --agents-api <path>           Bundled Agents API path.
+  --agent-runtime <path>        Agent runtime component path.
+  --agent-runtime-tools <path>  Runtime tools component path.
   --provider-plugin-path <path> Provider plugin path. Repeatable.
   --homeboy-extensions <path>   Homeboy WordPress extension path.
   --channel <id>                Optional Discord channel id for provider routing.

@@ -2,10 +2,10 @@
 # lib/agents-md-guidance.sh — AGENTS.md SectionRegistry guidance MECHANISM.
 #
 # wp-coding-agents owns integration-specific runtime guidance for the tools it
-# installs and wires together. Data Machine Code owns the generic AGENTS.md
+# installs and wires together. Data Machine owns the generic AGENTS.md
 # composition substrate; this helper publishes wp-coding-agents' integration
 # guidance into that substrate through Data Machine's SectionRegistry without
-# making DMC know about Homeboy, Kimaki, OpenCode, or WP Codebox conventions.
+# coupling Data Machine to Homeboy, Kimaki, OpenCode, or WP Codebox conventions.
 #
 # This file is the mechanism ONLY: scaffold the mu-plugin, render a
 # marker-delimited PHP block, rewrite it idempotently, remove it on request. It

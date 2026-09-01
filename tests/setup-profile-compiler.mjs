@@ -29,6 +29,9 @@ function compile(profile) {
   assert.match(plan.commands.apply, /WP_CONTROL_TRANSPORT_JSON='\["\/usr\/local\/bin\/control transport","--identity","value with spaces"\]'/)
   assert.match(plan.commands.apply, /--external-wordpress --wordpress-path '\/remote\/site root' --wordpress-user 'agent user'/)
   assert.match(plan.commands.apply, /--with-ai-gateway/)
+  assert.doesNotMatch(plan.commands.apply, /--source-mode/)
+  assert.doesNotMatch(plan.commands.apply, /--workspace-repository/)
+  assert.ok(plan.warnings.some((warning) => warning.includes("no new mutable repository authority")))
   assert.match(plan.commands.start, /WP_CONTROL_TRANSPORT_JSON=.*\/tmp\/runtime root\/\.wp-coding-agents\/bin\/kimaki/)
   assert.ok(plan.verification.overlays.includes("verify-external-wordpress-transport"))
 }
@@ -45,6 +48,7 @@ function compile(profile) {
   })
   assert.match(plan.commands.apply, /--systems-capabilities managed-vps/)
   assert.equal(plan.summary.systems_capabilities, "managed-vps")
+  assert.doesNotMatch(plan.commands.apply, /--source-mode|--workspace-repository/)
 }
 
 {
@@ -115,6 +119,7 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
 
   assert.equal(plan.commands.dry_run, "SITE_DOMAIN=example.com ./setup.sh --dry-run")
   assert.ok(plan.warnings.some((warning) => warning.includes("Multiple runtimes")))
+  assert.ok(plan.warnings.some((warning) => warning.includes("no new mutable repository authority")))
   assert.ok(plan.verification.overlays.includes("verify-runtime-multiple"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-claude-code"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))
@@ -148,6 +153,68 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
   assert.equal(plan.summary.bridge_axis, "none")
   assert.ok(plan.verification.overlays.includes("verify-runtime-codex"))
   assert.ok(plan.verification.overlays.includes("verify-bridge-none"))
+}
+
+{
+  const plan = compile({
+    install_target: "local",
+    target: { wordpress_path: "/tmp/site" },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "none" },
+    overlays: {},
+  })
+  assert.equal(plan.summary.source_mode, "workspace")
+  assert.deepEqual(plan.summary.workspace_repositories, [])
+  assert.doesNotMatch(plan.commands.apply, /--workspace-repository/)
+  assert.ok(plan.warnings.some((warning) => warning.includes("Legacy profile has no source declaration")))
+}
+
+{
+  const plan = compile({
+    install_target: "local",
+    target: { wordpress_path: "/tmp/site" },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "none" },
+    source: { mode: "workspace", workspace_repositories: ["/work/primary checkout", "/work/secondary"] },
+    overlays: {},
+  })
+  assert.match(plan.commands.apply, /--source-mode workspace --workspace-repository '[/]work[/]primary checkout' --workspace-repository [/]+work[/]secondary/)
+  assert.deepEqual(plan.summary.workspace_repositories, ["/work/primary checkout", "/work/secondary"])
+  assert.ok(!plan.warnings.some((warning) => warning.includes("Legacy profile has no source declaration")))
+}
+
+for (const source of [
+  null,
+  { mode: "workspace" },
+  { mode: "workspace", workspace_repositories: [] },
+  { mode: "workspace", workspace_repositories: ["relative"] },
+  { mode: "workspace", workspace_repositories: ["/work/repo", "/work/repo"] },
+  { mode: "owned", workspace_repositories: ["/work/repo"] },
+]) {
+  const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
+    input: JSON.stringify({
+      install_target: "local",
+      target: { wordpress_path: "/tmp/site" },
+      runtime: { selection: "opencode" },
+      chat_bridge: { selection: "none" },
+      source,
+      overlays: {},
+    }),
+    encoding: "utf8",
+  })
+  assert.notEqual(result.status, 0)
+}
+
+{
+  const plan = compile({
+    install_target: "local",
+    target: { wordpress_path: "/tmp/site" },
+    runtime: { selection: "opencode" },
+    chat_bridge: { selection: "none" },
+    source: { mode: "owned", workspace_repositories: [] },
+    overlays: {},
+  })
+  assert.doesNotMatch(plan.commands.apply, /--workspace-repository/)
 }
 
 {
