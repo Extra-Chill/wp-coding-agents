@@ -20,12 +20,9 @@ configure_homeboy_wordpress_extension() { printf 'homeboy\n' >> "$HOMEBOY_TRACE"
 homeboy_required() { return 1; }
 wp_cmd() {
   case "$1 $2" in
-    'option list')
-      if [ "${3:-}" = '--search=datamachine_code_homeboy_available' ]; then
-        [ -e "$RETIRED_HOMEBOY_OPTION_STATE" ] && printf '1\n' || printf '0\n'
-      else
-        printf '0\n'
-      fi
+    'eval $missing = new stdClass(); exit( $missing === get_option( "datamachine_code_homeboy_available", $missing ) ? 0 : 1 );')
+      printf 'Deprecated: diagnostic text on stdout\n'
+      [ ! -e "$RETIRED_HOMEBOY_OPTION_STATE" ]
       ;;
     'option delete') rm -f "$RETIRED_HOMEBOY_OPTION_STATE" ;;
     'plugin is-active') return 0 ;;
