@@ -751,6 +751,164 @@ source_policy_workspace_repositories() {
   done
 }
 
+source_policy_workspace_clone_specs_encode() {
+  printf '%s' "${WORKSPACE_REPOSITORY_CLONES:-}" | python3 -c 'import base64, sys; print(base64.urlsafe_b64encode(sys.stdin.buffer.read()).decode("ascii").rstrip("="))'
+}
+
+source_policy_workspace_clone_specs_decode() {
+  [ -n "${1:-}" ] || return 0
+  printf '%s' "$1" | python3 -c 'import base64, sys; data = sys.stdin.buffer.read(); sys.stdout.buffer.write(base64.urlsafe_b64decode(data + b"=" * (-len(data) % 4)))'
+}
+
+source_policy_validate_workspace_repository_clone() {
+  local remote="$1" repository="$2" authority userinfo
+  [ -n "$remote" ] || { error "--workspace-repository-clone requires a Git remote URL"; return 1; }
+  case "$remote" in
+    -*|*$'\n'*|*$'\t'*) error "Workspace repository clone remotes must not begin with a dash or contain tabs or newlines"; return 1 ;;
+  esac
+  case "$repository" in
+    *:*|*$'\n'*|*$'\t'*) error "Workspace repository clone destinations must not contain colons, tabs, or newlines"; return 1 ;;
+  esac
+  case "$repository" in
+    /*) ;;
+    *) error "--workspace-repository-clone destination must be absolute: $repository"; return 1 ;;
+  esac
+  case "$remote" in
+    /*|file:///*|git@*:* ) ;;
+    https://*)
+      authority="${remote#*://}"
+      authority="${authority%%/*}"
+      case "$authority" in
+        *@*) error "Workspace repository remotes must not contain embedded credentials"; return 1 ;;
+      esac
+      ;;
+    ssh://*)
+      authority="${remote#*://}"
+      authority="${authority%%/*}"
+      case "$authority" in
+        *@*)
+          userinfo="${authority%@*}"
+          case "$userinfo" in
+            *:*) error "Workspace repository remotes must not contain embedded credentials"; return 1 ;;
+          esac
+          ;;
+      esac
+      ;;
+    *) error "Workspace repository remotes must use an absolute local path, file, HTTPS, or SSH URL"; return 1 ;;
+  esac
+}
+
+source_policy_begin_workspace_repository_declarations() {
+  if [ "${WORKSPACE_REPOSITORIES_EXPLICIT:-false}" != true ]; then
+    WORKSPACE_REPOSITORIES=""
+    WORKSPACE_REPOSITORY_CLONES=""
+    WORKSPACE_REPOSITORIES_EXPLICIT=true
+    WORKSPACE_REPOSITORY_CLONES_EXPLICIT=true
+  fi
+}
+
+source_policy_assert_trusted_workspace_ancestors() {
+  local ancestor="$(dirname "$1")" container link_owner container_owner container_mode ancestor_owner ancestor_mode permissions group_digit other_digit
+  while [ "$ancestor" != / ]; do
+    if [ -L "$ancestor" ]; then
+      container="$(dirname "$ancestor")"
+      link_owner="$(stat -c '%u' "$ancestor" 2>/dev/null || stat -f '%u' "$ancestor" 2>/dev/null || true)"
+      container_owner="$(stat -c '%u' "$container" 2>/dev/null || stat -f '%u' "$container" 2>/dev/null || true)"
+      container_mode="$(stat -c '%a' "$container" 2>/dev/null || stat -f '%Lp' "$container" 2>/dev/null || true)"
+      permissions="${container_mode: -3}"
+      group_digit="${permissions:1:1}"
+      other_digit="${permissions:2:1}"
+      if [ "$link_owner" != 0 ] || [ "$container_owner" != 0 ] || [ -z "$group_digit" ] || [ -z "$other_digit" ] || \
+         (( (group_digit & 2) != 0 || (other_digit & 2) != 0 )); then
+        error "Refusing workspace repository path with an untrusted symlink ancestor: $ancestor"
+        return 1
+      fi
+    fi
+    if [ "${EUID:-$(id -u)}" = 0 ] && [ -e "$ancestor" ]; then
+      ancestor_owner="$(stat -c '%u' "$ancestor" 2>/dev/null || stat -f '%u' "$ancestor" 2>/dev/null || true)"
+      ancestor_mode="$(stat -c '%a' "$ancestor" 2>/dev/null || stat -f '%Lp' "$ancestor" 2>/dev/null || true)"
+      permissions="${ancestor_mode: -3}"
+      group_digit="${permissions:1:1}"
+      other_digit="${permissions:2:1}"
+      if [ "$ancestor_owner" != 0 ] || [ -z "$group_digit" ] || [ -z "$other_digit" ] || \
+         (( (group_digit & 2) != 0 || (other_digit & 2) != 0 )); then
+        error "Root workspace materialization requires root-owned, non-writable ancestors: $ancestor"
+        return 1
+      fi
+    fi
+    ancestor="$(dirname "$ancestor")"
+  done
+}
+
+source_policy_add_workspace_repository_clone() {
+  local remote="$1" repository="${2%/}"
+  source_policy_validate_workspace_repository_clone "$remote" "$repository"
+
+  local existing_remote existing_path
+  while IFS=$'\t' read -r existing_remote existing_path; do
+    [ -n "$existing_path" ] || continue
+    if [ "$existing_path" = "$repository" ]; then
+      [ "$existing_remote" = "$remote" ] || {
+        error "Workspace repository destination is already declared with a different remote: $repository"
+        return 1
+      }
+      return 0
+    fi
+  done <<< "${WORKSPACE_REPOSITORY_CLONES:-}"
+
+  WORKSPACE_REPOSITORY_CLONES="${WORKSPACE_REPOSITORY_CLONES}${WORKSPACE_REPOSITORY_CLONES:+$'\n'}${remote}"$'\t'"${repository}"
+  case ":${WORKSPACE_REPOSITORIES:-}:" in
+    *":$repository:"*) ;;
+    *) WORKSPACE_REPOSITORIES="${WORKSPACE_REPOSITORIES:+$WORKSPACE_REPOSITORIES:}$repository" ;;
+  esac
+  WORKSPACE_REPOSITORY_CLONES_EXPLICIT=true
+}
+
+source_policy_materialize_workspace_repositories() {
+  source_policy_workspace_enabled || return 0
+  local remote repository parent root actual_remote canonical_repository
+  while IFS=$'\t' read -r remote repository; do
+    [ -n "$repository" ] || continue
+    source_policy_validate_workspace_repository_clone "$remote" "$repository"
+    source_policy_assert_trusted_workspace_ancestors "$repository"
+    if [ -e "$repository" ] || [ -L "$repository" ]; then
+      [ ! -L "$repository" ] || { error "Refusing symlinked workspace repository destination: $repository"; return 1; }
+      [ "$(git -C "$repository" rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ] || {
+        error "Workspace repository destination exists but is not a Git checkout: $repository"
+        return 1
+      }
+      root="$(git -C "$repository" rev-parse --show-toplevel 2>/dev/null)" || return 1
+      canonical_repository="$(cd "$repository" && pwd -P)" || return 1
+      [ "$(cd "$root" && pwd -P)" = "$canonical_repository" ] || {
+        error "Workspace repository destination is not the primary checkout root: $repository"
+        return 1
+      }
+      actual_remote="$(git -C "$repository" config --get remote.origin.url 2>/dev/null || true)"
+      [ "$actual_remote" = "$remote" ] || {
+        error "Workspace repository origin does not match its declaration: $repository"
+        return 1
+      }
+      continue
+    fi
+
+    parent="$(dirname "$repository")"
+    if [ "${DRY_RUN:-false}" = true ]; then
+      log "[dry-run] Would materialize workspace repository $remote at $repository"
+      continue
+    fi
+    mkdir -p "$parent" || { error "Could not create workspace repository parent: $parent"; return 1; }
+    source_policy_assert_trusted_workspace_ancestors "$repository"
+    [ ! -L "$parent" ] || { error "Refusing symlinked workspace repository parent: $parent"; return 1; }
+    log "Materializing workspace repository $remote at $repository"
+    git_clone_with_retry "$remote" "$repository" || {
+      error "Could not materialize workspace repository: $repository"
+      return 1
+    }
+    source_policy_assert_trusted_workspace_ancestors "$repository"
+    [ ! -L "$repository" ] || { error "Workspace repository destination became a symlink during materialization: $repository"; return 1; }
+  done <<< "${WORKSPACE_REPOSITORY_CLONES:-}"
+}
+
 source_policy_add_workspace_repository() {
   local repository="${1%/}" root canonical existing
   case "$repository" in

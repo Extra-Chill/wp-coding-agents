@@ -38,6 +38,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/source-policy.sh"
 
 QUIET=false
 JSON=false
@@ -139,8 +140,13 @@ if [ "$SOURCE_MODE" != "workspace" ]; then
 else
   PROFILE="$SITE_PATH/.wp-coding-agents/installation-profile"
   DECLARED_WORKSPACE_REPOSITORIES=""
+  DECLARED_WORKSPACE_CLONES=""
   if [ -f "$PROFILE" ]; then
     DECLARED_WORKSPACE_REPOSITORIES="$(awk -F= '$1 == "workspace_repositories" { print substr($0, index($0, "=") + 1); exit }' "$PROFILE")"
+    ENCODED_WORKSPACE_CLONES="$(awk -F= '$1 == "workspace_repository_clones" { print substr($0, index($0, "=") + 1); exit }' "$PROFILE")"
+    if [ -n "$ENCODED_WORKSPACE_CLONES" ]; then
+      DECLARED_WORKSPACE_CLONES="$(source_policy_workspace_clone_specs_decode "$ENCODED_WORKSPACE_CLONES" 2>/dev/null)" || fail "workspace repository clone declarations are invalid"
+    fi
   fi
 
   if [ -z "$DECLARED_WORKSPACE_REPOSITORIES" ]; then
@@ -167,6 +173,14 @@ PY
       fi
     done < <(printf '%s\n' "$DECLARED_WORKSPACE_REPOSITORIES" | tr ':' '\n')
   fi
+  while IFS=$'\t' read -r remote repository; do
+    [ -n "$repository" ] || continue
+    if [ "$(git -C "$repository" config --get remote.origin.url 2>/dev/null || true)" = "$remote" ]; then
+      pass "materialized repository $repository matches its declared origin"
+    else
+      fail "materialized repository $repository does not match its declared origin"
+    fi
+  done <<< "$DECLARED_WORKSPACE_CLONES"
 fi
 
 # ---------------------------------------------------------------------------

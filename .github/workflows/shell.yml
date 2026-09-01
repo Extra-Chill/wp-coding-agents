@@ -286,6 +286,7 @@ jobs:
           - wordpress-service
           - worktree-context-projections
           - workspace-installation
+          - workspace-materialization
           - wp-cli-machine-output
           - wp-config-permissions
     steps:
