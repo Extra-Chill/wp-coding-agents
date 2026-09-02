@@ -31,6 +31,7 @@ installation_profile_value() {
     studio) printf '%s' "$INSTALLATION_PROFILE_STUDIO" ;;
     source_mode) printf '%s' "$INSTALLATION_PROFILE_SOURCE_MODE" ;;
     runtime) printf '%s' "$INSTALLATION_PROFILE_RUNTIME" ;;
+    agent_slug) printf '%s' "$INSTALLATION_PROFILE_AGENT_SLUG" ;;
     install_chat) printf '%s' "$INSTALLATION_PROFILE_INSTALL_CHAT" ;;
     chat_bridge) printf '%s' "$INSTALLATION_PROFILE_CHAT_BRIDGE" ;;
     homeboy_mode) printf '%s' "$INSTALLATION_PROFILE_HOMEBOY_MODE" ;;
@@ -56,6 +57,7 @@ installation_profile_normalize() {
   INSTALLATION_PROFILE_STUDIO="${IS_STUDIO:-false}"
   INSTALLATION_PROFILE_SOURCE_MODE="${SOURCE_MODE:-workspace}"
   INSTALLATION_PROFILE_RUNTIME="${RUNTIME:-}"
+  INSTALLATION_PROFILE_AGENT_SLUG="${AGENT_SLUG:-}"
   INSTALLATION_PROFILE_INSTALL_CHAT="${INSTALL_CHAT:-true}"
   if [ "$INSTALLATION_PROFILE_INSTALL_CHAT" = true ]; then
     INSTALLATION_PROFILE_CHAT_BRIDGE="${CHAT_BRIDGE:-}"
@@ -125,7 +127,7 @@ installation_profile_write() {
     local key
     umask 077
     : > "$tmp"
-    for key in operation site_path local_mode external_wordpress studio source_mode runtime install_chat chat_bridge homeboy_mode workspace_repositories workspace_repository_clones components plugin_candidates; do
+    for key in operation site_path local_mode external_wordpress studio source_mode runtime agent_slug install_chat chat_bridge homeboy_mode workspace_repositories workspace_repository_clones components plugin_candidates; do
       printf '%s=%s\n' "$key" "$(installation_profile_value "$key")" >> "$tmp"
     done
     mv "$tmp" "$file"
@@ -146,6 +148,7 @@ installation_profile_load() {
     case "$key" in
       source_mode) [ "${SOURCE_MODE_EXPLICIT:-false}" = true ] || SOURCE_MODE="$value" ;;
       runtime) [ -n "${RUNTIME:-}" ] || RUNTIME="$value" ;;
+      agent_slug) [ -n "${AGENT_SLUG:-}" ] || AGENT_SLUG="$value" ;;
       install_chat)
         case "$value" in
           true|false) INSTALL_CHAT="$value" ;;

@@ -131,6 +131,7 @@ MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 MODE="existing"
 RUNTIME=""
+AGENT_SLUG="${AGENT_SLUG:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
 CHAT_BRIDGE=""
@@ -1475,6 +1476,9 @@ if _run_filter_active reconciliation; then
 fi
 sync_skills
 regenerate_agents_md
+if _run_filter_active agents-md; then
+  runtime_guidance_sync_managed_codex_projection
+fi
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions

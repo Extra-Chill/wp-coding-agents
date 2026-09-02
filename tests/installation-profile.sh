@@ -19,6 +19,7 @@ EXTERNAL_WORDPRESS=false
 IS_STUDIO=true
 SOURCE_MODE=workspace
 RUNTIME=opencode
+AGENT_SLUG=builder
 CHAT_BRIDGE=kimaki
 HOMEBOY_MODE=enabled
 WORKSPACE_REPOSITORIES="$WORKSPACE"
@@ -55,6 +56,7 @@ fi
 
 SOURCE_MODE=""
 RUNTIME=""
+AGENT_SLUG=""
 CHAT_BRIDGE=""
 HOMEBOY_MODE=auto
 WORKSPACE_REPOSITORIES=""
@@ -63,6 +65,7 @@ SOURCE_MODE_EXPLICIT=false
 installation_profile_load
 test "$SOURCE_MODE" = workspace
 test "$RUNTIME" = opencode
+test "$AGENT_SLUG" = builder
 test "$CHAT_BRIDGE" = kimaki
 test "$HOMEBOY_MODE" = enabled
 test "$WORKSPACE_REPOSITORIES" = "$WORKSPACE"
@@ -98,8 +101,10 @@ test "$INSTALL_CHAT" = true
 
 # Explicit command-line intent remains authoritative over persisted defaults.
 RUNTIME=codex
+AGENT_SLUG=reviewer
 installation_profile_load
 test "$RUNTIME" = codex
+test "$AGENT_SLUG" = reviewer
 
 # Disabled optional components round-trip as intent rather than being inferred
 # from whatever bridge binaries happen to be present during upgrade.
