@@ -127,6 +127,26 @@ runtime_guidance_desired_state_apply_instructions() {
   runtime_guidance_desired_state_apply_function runtime_generate_instructions
 }
 
+# Keep an existing managed Codex projection aligned with canonical AGENTS.md
+# even when another runtime is primary. The managed marker is explicit
+# authority; user-owned AGENTS.override.md files remain untouched.
+runtime_guidance_sync_managed_codex_projection() {
+  local projection="$SITE_PATH/AGENTS.override.md"
+  [ -f "$projection" ] || return 0
+  grep -Fq '<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->' "$projection" || return 0
+
+  local selected_runtime_file="${RUNTIME_FILE:-}"
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/runtimes/codex.sh"
+  runtime_discover_dm_paths || return $?
+  _codex_sync_override || return $?
+
+  if [ "${RUNTIME:-}" != codex ] && [ -n "$selected_runtime_file" ] && [ -f "$selected_runtime_file" ]; then
+    # shellcheck disable=SC1090
+    source "$selected_runtime_file"
+  fi
+}
+
 # apply and verify — use the shared plan executor so partial-record evidence
 # and future per-record verification stay consistent with other adapters.
 runtime_guidance_desired_state_apply() {

@@ -276,7 +276,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
-| `--agent-slug <slug>` | Override the Data Machine agent slug. |
+| `--agent-slug <slug>` | Override the Data Machine agent slug used by runtime instruction projections. Persisted for subsequent upgrades. |
 | `--kimaki-unit <unit>` | Target a Kimaki systemd instance, such as `kimaki-example.service`. |
 | `--kimaki-data-dir <path>` | Override that Kimaki instance's state directory. |
 | `--kimaki-lock-port <port>` | Override that Kimaki instance's lock port. |
