@@ -197,6 +197,44 @@ opencode_project_subagents
 after="$(shasum "$SITE_PATH/.opencode/agents/writer.md" "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json")"
 [ "$before" = "$after" ] || FAILED=$((FAILED + 1))
 printf '  ok   repeated graph reconciliation is byte-stable\n'
+
+echo '==> upgrade from a manifest written before general_agent existed'
+# The exact on-disk state left by <= v1.20.2: the manifest has no general_agent
+# key and opencode.json has no agent.general, because neither existed yet. Every
+# install that had ever run was in this state, so this is the ONLY path that
+# matters for a new manifest key -- the fresh-install default cannot cover it.
+# v1.21.0 subscripted previous["general_agent"] directly and raised KeyError
+# here, which aborted upgrade.sh on real hosts.
+python3 - "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+manifest_path, config_path = sys.argv[1], sys.argv[2]
+manifest = json.load(open(manifest_path))
+manifest.pop('general_agent', None)
+# v1.20.2 also never granted task.general, and the manifest records what it
+# wrote. Leaving it here would make the config below look user-edited rather
+# than merely older, which is a different rejection than the one under test.
+manifest.get('task_permission', {}).pop('general', None)
+json.dump(manifest, open(manifest_path, 'w'))
+config = json.load(open(config_path))
+config.get('agent', {}).pop('general', None)
+if config.get('agent') == {}: config.pop('agent')
+config['permission']['task'].pop('general', None)
+json.dump(config, open(config_path, 'w'))
+PY
+if opencode_project_subagents; then
+  printf '  ok   a pre-general_agent manifest upgrades instead of raising KeyError\n'
+else
+  printf '  FAIL a pre-general_agent manifest must upgrade, not abort the projection\n'
+  FAILED=$((FAILED + 1))
+fi
+assert_python 'the upgrade adopts the native general subagent it previously lacked' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+config = json.load(open(sys.argv[2]))
+assert manifest['general_agent'] == {'model': 'openai/gpt-5'}, manifest.get('general_agent')
+assert config['agent']['general'] == {'model': 'openai/gpt-5'}, config.get('agent')
+assert config['permission']['task']['general'] == 'allow'
+PY
 python3 - "$TMP/graph.json" <<'PY'
 import json, sys
 p = sys.argv[1]
