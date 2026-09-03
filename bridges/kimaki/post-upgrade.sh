@@ -202,7 +202,27 @@ _kimaki_patch_system_prompt() {
     return 0
   fi
 
-  SYSTEM_MESSAGE_FILE="$system_message_file" node <<'NODE'
+  # `|| patch_exit=$?` is load-bearing, not style.
+  #
+  # This file runs with `set -e` (line 50), so an unguarded `node` that exits
+  # non-zero terminates the script right here — and as ExecStartPre with no `-`
+  # prefix on the unit directive, that means the service never starts. The
+  # failure branch below was written to warn and continue, but under `set -e` it
+  # was unreachable: the shell exited before `$?` could be read.
+  #
+  # That is not theoretical. A root `npm install -g kimaki` rewrites this file
+  # root-owned, the unit runs as a non-root SERVICE_USER, and the resulting
+  # EACCES took an install down for five days across ~29,900 restart attempts
+  # (2026-08-28 to 2026-09-02). The journal for those attempts shows node's
+  # stack trace followed immediately by systemd's failure line, with neither the
+  # warning below nor the closing summary — the proof that this branch never ran.
+  #
+  # Passes 1 and 3 already established the rule for this file: a mutation of the
+  # root-owned package directory is best-effort, and being unable to perform it
+  # is worth a warning, never a failed start. Pass 2 is the only one that did not
+  # follow it. This makes it follow it.
+  local patch_exit=0
+  SYSTEM_MESSAGE_FILE="$system_message_file" node <<'NODE' || patch_exit=$?
 const fs = require('node:fs')
 
 const file = process.env.SYSTEM_MESSAGE_FILE
@@ -238,10 +258,16 @@ if (!match) {
 
 fs.writeFileSync(file, source.replace(signature, managedReturn), 'utf8')
 NODE
-  local patch_exit=$?
   if [[ "$patch_exit" -eq 0 ]]; then
     echo "kimaki-config: managed Kimaki system prompt patch active at $system_message_file"
     prompt_patch_status="active"
+  elif [[ ! -w "$system_message_file" ]]; then
+    # The common shape, and the one that caused the outage: root installed the
+    # package, a non-root SERVICE_USER runs the service. Name the remedy rather
+    # than only the symptom — the patch is applied by whoever can write the file.
+    echo "kimaki-config: WARNING: cannot write $system_message_file as $(id -un); managed Kimaki system prompt patch NOT applied"
+    echo "kimaki-config:          run 'bash $0' as root after any 'npm install -g kimaki' to apply it"
+    prompt_patch_status="unwritable"
   else
     echo "kimaki-config: WARNING: managed Kimaki system prompt patch failed for $system_message_file"
     prompt_patch_status="failed"
