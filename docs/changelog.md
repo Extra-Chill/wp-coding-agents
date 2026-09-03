@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.21.1] - 2026-09-03
+
+### Fixed
+- upgrade manifests written before general_agent existed
+
 ## [1.21.0] - 2026-09-03
 
 ### Added
