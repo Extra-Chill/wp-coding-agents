@@ -1,5 +1,89 @@
 # Changelog
 
+## [1.21.0] - 2026-09-03
+
+### Added
+- materialize declared workspace repositories
+- add focused WordPress integration package
+- resolve DMC Cook destinations
+- route DMC worktrees through Homeboy
+- configure typed DMC retention
+- enable native general dispatch
+
+### Changed
+- keep convergence fixture generic
+- update convergence option probe
+- declare OpenCode workspace repository
+- retire DMC integration paths
+- retire removed Homeboy map fixture
+- retire DMC integration contracts
+- update workspace guidance assertion
+- add DMC-free workspace fixture
+- decouple capability consumers with hooks
+- provide disabled Homeboy fixture
+- Refactor setup and upgrade through shared convergence
+- persist credential-free installation profile
+- reconcile plugins-only desired state
+- Manage an optional local WordPress service
+- map Homeboy handoff freshness evidence
+- Route worktree guidance through Homeboy
+- Preserve DMC-owned worktree abilities
+- Route DMC planning through standalone provider
+- make WordPress CLI transport argv-native
+- distinguish verification guidance from compose calls
+
+### Fixed
+- stop a failed system prompt patch from blocking service start
+- converge managed runtime projections
+- reconcile workspace verification authority
+- resolve local Kimaki plugin paths directly
+- verify retired option without parsing output
+- preserve Homeboy test executable
+- report partial plugin mutations
+- retain Homeboy adapter CI coverage
+- retire unsupported DMC migrations
+- preserve DMC-free workspace invariants
+- require worktree owner references
+- stabilize composed WP-CLI transport
+- preserve native DMC worktree creation
+- configure native general model
+- preserve WP CLI transport in AGENTS guidance
+- Fix Homeboy worktree freshness contract
+- leave copied DMC installs to Homeboy
+- mark trackerless lifecycle plans explicitly
+- fail closed on unusable WP CLI transports
+- allow trackerless release planning
+- decouple DMC finalizer state
+- decouple DMC lifecycle finalizer config
+- finalize Homeboy DMC lifecycles
+- allow trackerless lifecycle resolution
+- isolate WP-CLI scalar captures from PHP diagnostics
+- Fix DMC planning supervision timeout
+- quote Kimaki systemd WordPress transport JSON
+- carry argv-native WordPress transport through Kimaki memory sync
+- resolve WordPress CLI transport by capability
+- restore DMC tracker adoption by path
+- flag disposable task worktree in Homeboy DMC provider config
+- report typed converge refusals faithfully
+- deduplicate overlapping skill roots
+- isolate subagent graph JSON
+- negotiate standalone DMC task lookup
+- verify plugin state after WP-CLI preambles
+- make Data Machine worker opt-in
+- isolate DMC workspace path output
+- isolate DMC provider discovery JSON
+- escape Data Machine worker launchd XML
+- isolate DMC JSON from diagnostics
+- bound plugin-only phases
+- wire DMC tracker attachment into Homeboy
+- resume managed Kimaki upgrades after restart
+- align Homeboy verification guidance
+- make DMC readiness recovery replayable
+- validate DMC resolve template
+- scope plugins-only upgrades
+- bound DMC task lookup supervision
+- bound DMC workspace discovery
+
 ## [1.20.2] - 2026-08-24
 
 ### Fixed
