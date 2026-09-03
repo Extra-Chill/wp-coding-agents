@@ -217,6 +217,16 @@ def manifest(path, root):
     if not isinstance(data.get("skill_permission", {}), dict): fail("managed manifest skill permission is invalid")
     permission({"skill": data.get("skill_permission", {})}, "managed manifest skill permission")
     if data.get("general_agent") is not None and not isinstance(data["general_agent"], dict): fail("managed manifest general agent is invalid")
+    # Both return paths must have the same shape, because main() subscripts this
+    # result directly. A manifest on disk was written by whatever version was
+    # installed at the time, so every key added here is absent from every
+    # manifest already written — the fresh-install default above is not the
+    # migration. general_agent shipped in v1.21.0 and made `previous["general_agent"]`
+    # raise KeyError on every install upgrading from <= v1.20.2, which is every
+    # install that had ever run. Defaulting on read is what makes a new key
+    # backward compatible; validate above, normalize here, subscript freely after.
+    for key, default in (("agents", []), ("artifacts", []), ("task_permission", None), ("skill_permission", {}), ("general_agent", None)):
+        data.setdefault(key, default)
     return data
 
 
