@@ -121,6 +121,15 @@ Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, re
 **Operator boundary**
 Run `homeboy release` or `homeboy deploy` only when the user explicitly asks.
 
+**Control-plane recovery**
+Homeboy remains the normal owner of tracked coding work. When Cook cannot admit or run a task:
+1. Validate the selected route with `homeboy agent-task cook --preview` using the task's repository, tracker URL, and verification gates.
+2. Check `homeboy agent-task providers`, `homeboy status`, and `homeboy runner status`. Use `homeboy agent-task cook --help-full` for the exact configured alternative-route syntax; do not guess provider or runner flags.
+3. Recover an unavailable runner or control-plane service through its documented Homeboy operation, then retry Cook within its configured attempt and provider-rotation budget.
+4. After that bounded recovery fails, stop and request explicit operator authorization before invoking a coding runtime directly.
+
+An authorized direct fallback is an exception, not a replacement for Homeboy. Work in an isolated Git worktree linked to the tracker; run and record deterministic verification; then follow the normal commit, push, review, pull-request, and AI-disclosure policy. Record that finalization occurred outside Homeboy and retain the direct runtime command plus session or run evidence with the tracker.
+
 **Discovery**
 Use `homeboy --help` and `homeboy <command> --help` for the live command contract. Inspect active configuration with `homeboy config show` and provider readiness with `homeboy agent-task providers`.
 
