@@ -49,6 +49,17 @@ assert_eq() {
   fi
 }
 
+assert_contains() {
+  local file="$1" text="$2" name="$3"
+  if grep -Fq -- "$text" "$file"; then
+    echo "  ok   $name"
+  else
+    echo "  FAIL $name"
+    echo "    missing: $text"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
 assert_php_lint() {
   local file="$1" name="$2"
   if php -l "$file" >/dev/null 2>&1; then
@@ -381,6 +392,40 @@ PHP
 RESULT=$(php "$MIXED_SHIM")
 EXPECTED='{"source_priority":1,"abilities_priority":2,"source_owner":"wp-coding-agents","abilities_owner":"wp-coding-agents","source_static":true,"abilities_static":true,"source_has_core":true,"source_has_code":true,"source_promotes_direct_reference":true,"source_keeps_installed_tree_read_only":true,"abilities_has_tools":true}'
 assert_eq "$RESULT" "$EXPECTED" "wp-coding-agents owns ordered guidance after mixed-version registration"
+
+echo "==> generate and remove Homeboy control-plane recovery guidance"
+mkdir -p "$TMP/homeboy-bin"
+cat > "$TMP/homeboy-bin/homeboy" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$TMP/homeboy-bin/homeboy"
+PATH="$TMP/homeboy-bin:$PATH"
+export PATH
+guidance_sync_unit homeboy
+assert_contains "$MU_FILE" 'Homeboy remains the normal owner of tracked coding work.' "Homeboy guidance preserves normal ownership"
+assert_contains "$MU_FILE" 'homeboy agent-task cook --preview' "Homeboy guidance validates the selected route"
+assert_contains "$MU_FILE" 'homeboy agent-task cook --help-full' "Homeboy guidance discovers exact alternative routes"
+assert_contains "$MU_FILE" 'configured attempt and provider-rotation budget' "Homeboy guidance bounds recovery"
+assert_contains "$MU_FILE" 'request explicit operator authorization before invoking a coding runtime directly' "Homeboy guidance requires direct-fallback authorization"
+assert_contains "$MU_FILE" 'isolated Git worktree linked to the tracker' "Homeboy guidance requires an isolated linked worktree"
+assert_contains "$MU_FILE" 'deterministic verification' "Homeboy guidance requires deterministic verification"
+assert_contains "$MU_FILE" 'AI-disclosure policy' "Homeboy guidance preserves AI disclosure"
+assert_contains "$MU_FILE" 'finalization occurred outside Homeboy' "Homeboy guidance records fallback finalization"
+HOMEBOY_HASH_BEFORE=$(file_hash "$MU_FILE")
+guidance_sync_unit homeboy
+HOMEBOY_HASH_AFTER=$(file_hash "$MU_FILE")
+assert_eq "$HOMEBOY_HASH_AFTER" "$HOMEBOY_HASH_BEFORE" "Homeboy guidance generation is idempotent"
+rm "$TMP/homeboy-bin/homeboy"
+PATH="$TMP/homeboy-bin:/usr/bin:/bin"
+export PATH
+guidance_sync_unit homeboy
+if grep -q 'BEGIN agents-md-guidance:homeboy-cli' "$MU_FILE"; then
+  echo "  FAIL Homeboy guidance remains after Homeboy becomes unavailable"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   Homeboy guidance is removed when Homeboy becomes unavailable"
+fi
 
 echo
 if [ "$FAILED" -gt 0 ]; then
