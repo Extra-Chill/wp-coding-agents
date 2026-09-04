@@ -416,6 +416,53 @@ HOMEBOY_HASH_BEFORE=$(file_hash "$MU_FILE")
 guidance_sync_unit homeboy
 HOMEBOY_HASH_AFTER=$(file_hash "$MU_FILE")
 assert_eq "$HOMEBOY_HASH_AFTER" "$HOMEBOY_HASH_BEFORE" "Homeboy guidance generation is idempotent"
+echo "==> Homeboy guidance survives a compose with a minimal PATH (#575)"
+# The composing process is not always an interactive shell. PHP-FPM, cron, a
+# plugin upgrade, or a WP-CLI call with a trimmed environment all recompose
+# AGENTS.md without an interactive PATH. Resolving the binary from
+# getenv('PATH') at compose time therefore deleted the section on hosts where
+# Homeboy was installed and executable.
+assert_contains "$MU_FILE" "$TMP/homeboy-bin/homeboy" "Homeboy guidance bakes the absolute binary path"
+if grep -Fq "getenv( 'PATH' )" "$MU_FILE"; then
+  echo "  FAIL Homeboy guidance still resolves the binary from the ambient PATH"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   Homeboy guidance does not read the ambient PATH"
+fi
+
+# Execute the generated block with a deliberately empty PATH. This is the
+# exact condition that silently dropped the section before the fix.
+MINIMAL_PATH_SHIM="$TMP/minimal-path-shim.php"
+cat > "$MINIMAL_PATH_SHIM" <<PHP
+<?php
+define( 'ABSPATH', '/' );
+\$GLOBALS['actions'] = [];
+\$GLOBALS['filters'] = [];
+\$GLOBALS['sections'] = [];
+class MinimalPathSectionRegistry {
+    public static function register( \$file, \$section, \$priority, \$callback, \$metadata = [] ): void {
+        \$GLOBALS['sections'][ \$section ] = \$callback;
+    }
+}
+class_alias( 'MinimalPathSectionRegistry', 'DataMachine\\\\Engine\\\\AI\\\\SectionRegistry' );
+function add_action( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['actions'][\$tag][\$priority][] = \$callback; }
+function add_filter( \$tag, \$callback, \$priority = 10 ) { \$GLOBALS['filters'][\$tag][\$priority][] = \$callback; }
+function apply_filters( \$tag, \$value ) { return \$value; }
+function datamachine_agents_md_enabled(): bool { return true; }
+// The composing process has no usable PATH — the #575 condition.
+putenv( 'PATH=' );
+require '$MU_FILE';
+ksort( \$GLOBALS['actions']['datamachine_sections'] );
+foreach ( \$GLOBALS['actions']['datamachine_sections'] as \$callbacks ) { foreach ( \$callbacks as \$callback ) { \$callback(); } }
+\$rendered = isset( \$GLOBALS['sections']['homeboy-cli'] ) ? (string) \$GLOBALS['sections']['homeboy-cli']() : '';
+echo json_encode([
+    'registered' => isset( \$GLOBALS['sections']['homeboy-cli'] ),
+    'renders'    => str_contains( \$rendered, '## Homeboy' ),
+]);
+PHP
+RESULT=$(php "$MINIMAL_PATH_SHIM")
+assert_eq "$RESULT" '{"registered":true,"renders":true}' "Homeboy guidance still composes with an empty PATH"
+
 rm "$TMP/homeboy-bin/homeboy"
 PATH="$TMP/homeboy-bin:/usr/bin:/bin"
 export PATH

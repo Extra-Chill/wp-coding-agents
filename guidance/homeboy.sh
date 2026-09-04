@@ -74,34 +74,64 @@ guidance_register() {
   fi
 }
 
+# _guidance_homeboy_php_quote <value>
+#
+# Escape a filesystem path for embedding in a PHP single-quoted string
+# literal. Only backslash and single-quote are special inside '...'.
+_guidance_homeboy_php_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\'/\\\'}"
+  printf '%s' "$value"
+}
+
+# Emit the live PHP block with the resolved homeboy path baked in.
+#
+# The binary is resolved ONCE here, at sync time, using the same `type -P`
+# lookup as guidance_applies(). The emitted PHP checks that one absolute
+# path instead of walking getenv('PATH') at compose time.
+#
+# This matters because AGENTS.md is recomposed by whatever process happens
+# to trigger it — PHP-FPM, cron, a plugin upgrade, a WP-CLI call with a
+# trimmed environment. Those do not inherit an interactive PATH, so a
+# PATH-based probe reported "homeboy absent" on a host where homeboy was
+# installed and executable, and the section silently deleted itself (#575).
+#
+# The #254 live gate is preserved: the emitted code still re-checks
+# is_executable() at every compose, so a host that loses the binary stops
+# emitting the section with no wp-coding-agents sync.
+#
 # Quoted heredoc ('PHP_BLOCK') so PHP $variables, backticks, and ${...} are
-# emitted verbatim — bash never touches them.
+# emitted verbatim — bash never touches them. The single baked value is
+# substituted afterward via a placeholder, preserving that property.
 _guidance_homeboy_live_block() {
-  cat <<'PHP_BLOCK'
+  local homeboy_path
+  homeboy_path="$(type -P homeboy 2>/dev/null || true)"
+  if [ -z "$homeboy_path" ]; then
+    return 1
+  fi
+
+  local quoted_path
+  quoted_path="$(_guidance_homeboy_php_quote "$homeboy_path")"
+
+  cat <<'PHP_BLOCK' | sed "s|__WP_CODING_AGENTS_HOMEBOY_BIN__|${quoted_path//|/\\|}|g"
     // BEGIN agents-md-guidance:homeboy-cli
-    if ( ! function_exists( 'wp_coding_agents_homeboy_binary' ) ) {
-        function wp_coding_agents_homeboy_binary() {
-            $homeboy = null;
-            $path_env = ( is_callable( 'getenv' ) ) ? getenv( 'PATH' ) : false;
-            if ( is_string( $path_env ) && $path_env !== '' ) {
-                foreach ( explode( PATH_SEPARATOR, $path_env ) as $dir ) {
-                    if ( $dir === '' ) {
-                        continue;
-                    }
-                    $candidate = rtrim( $dir, '/' ) . '/homeboy';
-                    if ( @is_executable( $candidate ) ) {
-                        $homeboy = $candidate;
-                        break;
-                    }
-                }
-            }
-            return $homeboy;
+    // Absolute path resolved by wp-coding-agents at sync time. Checked live
+    // at every compose so losing the binary drops the section (#254), but
+    // never re-derived from the composing process's PATH (#575).
+    if ( ! defined( 'WP_CODING_AGENTS_HOMEBOY_BIN' ) ) {
+        define( 'WP_CODING_AGENTS_HOMEBOY_BIN', '__WP_CODING_AGENTS_HOMEBOY_BIN__' );
+    }
+
+    if ( ! function_exists( 'wp_coding_agents_homeboy_available' ) ) {
+        function wp_coding_agents_homeboy_available() {
+            return @is_executable( WP_CODING_AGENTS_HOMEBOY_BIN );
         }
     }
 
     if ( ! function_exists( 'wp_coding_agents_render_homeboy_cli_section' ) ) {
         function wp_coding_agents_render_homeboy_cli_section() {
-            if ( wp_coding_agents_homeboy_binary() === null ) {
+            if ( ! wp_coding_agents_homeboy_available() ) {
                 return '';
             }
 
@@ -138,7 +168,7 @@ MD;
     }
 
     // Gate registration itself at composition time.
-    if ( wp_coding_agents_homeboy_binary() !== null ) {
+    if ( wp_coding_agents_homeboy_available() ) {
         \DataMachine\Engine\AI\SectionRegistry::register(
             'AGENTS.md',
             'homeboy-cli',
