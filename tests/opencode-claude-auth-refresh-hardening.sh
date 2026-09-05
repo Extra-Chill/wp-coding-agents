@@ -16,6 +16,7 @@ require_source() {
 }
 
 require_source "function refreshLockPath()" "shared refresh lock path"
+require_source 'const CLAUDE_CODE_VERSION = "2.1.259"' "Claude Code client version accepted by current Anthropic models"
 require_source "async function withRefreshLock" "cross-process refresh lock"
 require_source "await readAnthropicAuth()" "auth file re-read inside refresh path"
 require_source "if (usableAccessToken(latest)) return latest" "winner-token reuse after lock acquisition"

@@ -12,7 +12,7 @@ use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
  */
 class ClaudeCodeRequestAuthentication extends ApiKeyRequestAuthentication
 {
-    private const CLAUDE_CODE_VERSION = '2.1.75';
+    private const CLAUDE_CODE_VERSION = '2.1.259';
     private const ANTHROPIC_BETA = 'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14';
 
     /**

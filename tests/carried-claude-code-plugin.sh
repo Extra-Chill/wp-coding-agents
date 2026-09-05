@@ -21,6 +21,12 @@ for required_file in \
   fi
 done
 
+if ! grep -Fq "private const CLAUDE_CODE_VERSION = '2.1.259';" \
+  "$PROVIDER_DIR/src/Provider/ClaudeCodeRequestAuthentication.php"; then
+  printf 'Expected carried provider to identify as a Claude Code version accepted by current Anthropic models.\n' >&2
+  exit 1
+fi
+
 if [ -e "$PROVIDER_DIR/src/Runtime/ClaudeCodeProcess.php" ]; then
   printf 'Claude Code provider must use OAuth/API auth, not the local CLI process runtime.\n' >&2
   exit 1
