@@ -194,7 +194,7 @@ _kimaki_is_service_user() {
 _kimaki_run_npm_install_global() {
   local prefix="${1:-}"
   if [ -n "$prefix" ] && _kimaki_uses_service_owned_prefix && _kimaki_can_install_as_service_user; then
-    run_cmd sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" \
+    run_cmd sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" \
       npm_config_prefix="$prefix" npm install -g kimaki
   elif [ -n "$prefix" ] && _kimaki_uses_service_owned_prefix && _kimaki_is_service_user; then
     run_cmd env HOME="$SERVICE_HOME" PATH="$PATH" npm_config_prefix="$prefix" npm install -g kimaki
