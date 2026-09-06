@@ -161,12 +161,85 @@ _kimaki_instance_suffix() {
 # Install (setup-time)
 # ============================================================================
 
-bridge_install() {
-  if ! command -v kimaki &> /dev/null || [ "$DRY_RUN" = true ]; then
+# Managed non-root VPS services cannot write a root-global npm prefix, so
+# Kimaki self-upgrade fails with EACCES (#580). Derive a prefix from the
+# adopted SERVICE_HOME and install/run as SERVICE_USER. Root-service, local,
+# and external WordPress installs keep the existing global layout.
+_kimaki_uses_service_owned_prefix() {
+  [ "${LOCAL_MODE:-false}" != true ] \
+    && [ "${EXTERNAL_WORDPRESS:-false}" != true ] \
+    && [ -n "${SERVICE_USER:-}" ] \
+    && [ "$SERVICE_USER" != "root" ] \
+    && [ -n "${SERVICE_HOME:-}" ]
+}
+
+_kimaki_service_npm_prefix() {
+  printf '%s/.local' "$SERVICE_HOME"
+}
+
+_kimaki_npm_config_prefix_env() {
+  _kimaki_uses_service_owned_prefix || return 0
+  printf 'Environment=npm_config_prefix=%s\n' "$(_kimaki_service_npm_prefix)"
+}
+
+_kimaki_can_install_as_service_user() {
+  { [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; } \
+    && command -v sudo >/dev/null 2>&1
+}
+
+_kimaki_is_service_user() {
+  [ -n "${SERVICE_USER:-}" ] && [ "$(id -un 2>/dev/null || true)" = "$SERVICE_USER" ]
+}
+
+_kimaki_run_npm_install_global() {
+  local prefix="${1:-}"
+  if [ -n "$prefix" ] && _kimaki_uses_service_owned_prefix && _kimaki_can_install_as_service_user; then
+    run_cmd sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" \
+      npm_config_prefix="$prefix" npm install -g kimaki
+  elif [ -n "$prefix" ] && _kimaki_uses_service_owned_prefix && _kimaki_is_service_user; then
+    run_cmd env HOME="$SERVICE_HOME" PATH="$PATH" npm_config_prefix="$prefix" npm install -g kimaki
+  elif [ -z "$prefix" ]; then
     run_cmd npm install -g kimaki
+  else
+    error "Kimaki must be installed as service user '$SERVICE_USER' or by root with passwordless sudo access to that user."
+  fi
+}
+
+_kimaki_provision_service_owned_package() {
+  local prefix bin_dir prefix_bin group
+  prefix="$(_kimaki_service_npm_prefix)"
+  bin_dir="$prefix/bin"
+  prefix_bin="$bin_dir/kimaki"
+
+  if [ -x "$prefix_bin" ] && [ "${DRY_RUN:-false}" != true ]; then
+    log "Kimaki already installed: $prefix_bin"
+    return 0
+  fi
+
+  if ! _kimaki_can_install_as_service_user && ! _kimaki_is_service_user && [ "${DRY_RUN:-false}" != true ]; then
+    error "Cannot provision the service-owned Kimaki package as $(id -un): expected '$SERVICE_USER' or root with sudo."
+  fi
+
+  run_cmd mkdir -p "$bin_dir"
+  if [ "${DRY_RUN:-false}" != true ] && id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    group=$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")
+    run_cmd chown "$SERVICE_USER:$group" "$prefix" "$bin_dir"
+  fi
+  _kimaki_run_npm_install_global "$prefix"
+}
+
+_kimaki_provision_package() {
+  if _kimaki_uses_service_owned_prefix; then
+    _kimaki_provision_service_owned_package
+  elif ! command -v kimaki &> /dev/null || [ "${DRY_RUN:-false}" = true ]; then
+    _kimaki_run_npm_install_global
   else
     log "Kimaki already installed: $(command -v kimaki)"
   fi
+}
+
+bridge_install() {
+  _kimaki_provision_package
 
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     _kimaki_seed_external_credential
@@ -678,18 +751,20 @@ _kimaki_install_launchd() {
 # HOME=/home/opencode — an internally inconsistent unit whose ExecStart the
 # service user cannot read, crashing the bridge on the next restart.
 #
-# Resolution order (issue option order — prefer a stable, identity-consistent
-# path over the invoking user's private home):
-#   1. A system-prefix binary (/usr/bin, /usr/local/bin, /opt/homebrew/bin):
-#      reachable by any service user, the npm-global symlink target the
-#      installer already prefers (see _kimaki_register_cli_channel, ~line 80).
-#   2. When SERVICE_USER differs from the invoking user, resolve UNDER the
+# Resolution order (identity-consistent; never the invoking user's private
+# home — #232). Managed non-root services prefer the service-owned prefix so
+# ExecStart/PATH match the writable install (#580). Root-service and local
+# installs keep the system-prefix-first layout:
+#   1. Managed non-root: $SERVICE_HOME/.local/bin/kimaki, whether or not a
+#      root-global binary also exists.
+#   2. A system-prefix binary (/usr/bin, /usr/local/bin, /opt/homebrew/bin).
+#   3. When SERVICE_USER differs from the invoking user, resolve UNDER the
 #      service user: `sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME"
 #      bash -lc 'command -v kimaki'` (mirrors lib/homeboy.sh:40). Guarded for
 #      sudo availability / non-zero exit.
-#   3. $SERVICE_HOME/.kimaki/bin/kimaki if that file exists (the canonical
-#      per-user install layout, derived from the adopted home — never /root).
-#   4. /usr/bin/kimaki as a last-resort stable default.
+#   4. $SERVICE_HOME/.kimaki/bin/kimaki if that file exists (legacy per-user
+#      layout, derived from the adopted home — never /root).
+#   5. /usr/bin/kimaki as a last-resort stable default.
 #
 # Args: $1 = fallback system-prefix default (e.g. /usr/bin/kimaki on Linux,
 #            /opt/homebrew/bin/kimaki on macOS).
@@ -697,10 +772,15 @@ _kimaki_resolve_service_bin() {
   local default_bin="${1:-/usr/bin/kimaki}"
   local candidate
 
-  # 1. Stable system-prefix binary — reachable by any service user. The list
-  #    is overridable (space-separated) only so tests can point it at a temp
-  #    prefix and exercise the service-user / SERVICE_HOME fallback paths
-  #    deterministically; production always uses the real system prefixes.
+  if _kimaki_uses_service_owned_prefix; then
+    printf '%s\n' "$(_kimaki_service_npm_prefix)/bin/kimaki"
+    return 0
+  fi
+
+  # Stable system-prefix binary — reachable by any service user. The list
+  # is overridable (space-separated) only so tests can point it at a temp
+  # prefix and exercise the service-user / SERVICE_HOME fallback paths
+  # deterministically; production always uses the real system prefixes.
   local system_bins="${KIMAKI_SYSTEM_PREFIX_BINS:-/usr/bin/kimaki /usr/local/bin/kimaki /opt/homebrew/bin/kimaki}"
   for candidate in $system_bins; do
     if [ -x "$candidate" ]; then
@@ -709,8 +789,8 @@ _kimaki_resolve_service_bin() {
     fi
   done
 
-  # 2. Resolve under the adopted service user when it differs from the
-  #    invoking user (the root-upgrade-against-opencode-unit case).
+  # Resolve under the adopted service user when it differs from the
+  # invoking user (the root-upgrade-against-opencode-unit case).
   local invoking_user running_as_root=false
   invoking_user="$(id -un 2>/dev/null || echo "")"
   if [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; then
@@ -729,13 +809,13 @@ _kimaki_resolve_service_bin() {
     fi
   fi
 
-  # 3. Canonical per-user install layout under the ADOPTED home (not /root).
+  # Legacy per-user install layout under the ADOPTED home (not /root).
   if [ -n "${SERVICE_HOME:-}" ] && [ -f "$SERVICE_HOME/.kimaki/bin/kimaki" ]; then
     printf '%s\n' "$SERVICE_HOME/.kimaki/bin/kimaki"
     return 0
   fi
 
-  # 4. Last-resort stable default.
+  # Last-resort stable default.
   printf '%s\n' "$default_bin"
 }
 
@@ -791,11 +871,7 @@ _kimaki_install_systemd() {
   run_cmd cp -r "$SCRIPT_DIR/bridges/kimaki" "$KIMAKI_CONFIG_DIR"
   run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
 
-  if [ "$DRY_RUN" = true ]; then
-    KIMAKI_BIN="/usr/bin/kimaki"
-  else
-    KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
-  fi
+  KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
 
   local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
@@ -813,7 +889,8 @@ Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_kimaki_datamachine_wp_transport_systemd_env)
-Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
+Environment=KIMAKI_NO_DEFAULT_CHANNEL=1
+$(_kimaki_npm_config_prefix_env)"
   if [ -n "${AGENT_SLUG:-}" ]; then
     ENV_BLOCK="$ENV_BLOCK
 Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
@@ -1142,6 +1219,10 @@ bridge_update_systemd() {
   local UNIT_FILE="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}/$KIMAKI_UNIT"
   [ -f "$UNIT_FILE" ] || { warn "  $UNIT_FILE does not exist — skipping"; return 0; }
 
+  if _kimaki_uses_service_owned_prefix; then
+    _kimaki_provision_package
+  fi
+
   local CURRENT_ENV
   CURRENT_ENV=$(grep '^Environment=' "$UNIT_FILE" || true)
   CURRENT_ENV=$(_kimaki_remove_systemd_env_key "$CURRENT_ENV" DATAMACHINE_WP_CMD)
@@ -1174,7 +1255,8 @@ Environment=PATH=$PATH_VALUE
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_kimaki_datamachine_wp_transport_systemd_env)
-Environment=KIMAKI_NO_DEFAULT_CHANNEL=1"
+Environment=KIMAKI_NO_DEFAULT_CHANNEL=1
+$(_kimaki_npm_config_prefix_env)"
   if [ -n "${KIMAKI_LOCK_PORT:-}" ]; then
     TEMPLATE_ENV="$TEMPLATE_ENV
 Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
