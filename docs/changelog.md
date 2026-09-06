@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.21.2] - 2026-09-06
+
+### Changed
+- isolate multi-instance rendering
+
+### Fixed
+- isolate service-user install environment
+- make managed Kimaki install self-upgradable
+- update Claude Code client identity
+- report managed systemd unit health during reconcile
+- bake the resolved homeboy path into AGENTS.md guidance
+
 ## [1.21.1] - 2026-09-03
 
 ### Fixed
