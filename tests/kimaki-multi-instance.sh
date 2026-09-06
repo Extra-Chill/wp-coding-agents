@@ -129,6 +129,7 @@ UPDATED_ITEMS=()
 WP_CMD=wp
 IS_STUDIO=false
 systemctl() { :; }
+_kimaki_provision_package() { :; }
 
 other_before=$(cksum "$SYSTEMD_UNIT_DIR/kimaki.service")
 bridge_update_systemd
