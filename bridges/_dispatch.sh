@@ -352,11 +352,69 @@ _redact_secret_diff() {
   '
 }
 
+# _report_systemd_unit_health <unit> [<label>]
+#
+# Read and report the runtime state of one systemd unit. Reporting only —
+# this never starts, stops, or restarts anything, preserving the operator
+# boundary that _smart_update_systemd_unit documents.
+#
+# Reconciling the unit *file* while staying silent about the unit's runtime
+# state let a managed unit sit in `failed` for four weeks while every
+# upgrade reported success (#576). A desired-state reconciler that reports
+# only the half of the state it writes is not reporting state.
+#
+# Warnings are recorded in HEALTH_WARNINGS so the caller can resurface them
+# in the final summary, where they cannot scroll past.
+_report_systemd_unit_health() {
+  local unit="$1"
+  local label="${2:-$unit}"
+
+  command -v systemctl >/dev/null 2>&1 || return 0
+
+  local active enabled since
+  active="$(systemctl show "$unit" -p ActiveState --value 2>/dev/null || true)"
+  [ -n "$active" ] || return 0
+  enabled="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
+
+  case "$active" in
+    active)
+      log "  $label: active"
+      ;;
+    failed)
+      since="$(systemctl show "$unit" -p ActiveEnterTimestamp --value 2>/dev/null || true)"
+      warn "  $label: FAILED${since:+ since $since} — this upgrade did not start it"
+      warn "  $label: inspect with 'systemctl status $unit' and 'journalctl -u $unit -n 50'"
+      # NOTE: `[ -n "${arr+x}" ]` reads an EMPTY bash array as unset, which
+      # would drop the first warning every time. Test declaration instead.
+      if declare -p HEALTH_WARNINGS >/dev/null 2>&1; then
+        HEALTH_WARNINGS+=("$label is in state 'failed' — systemctl status $unit")
+      fi
+      ;;
+    *)
+      # An enabled unit that is not running is a real finding. A disabled
+      # one is a deliberate operator choice and stays quiet.
+      if [ "$enabled" = "enabled" ]; then
+        warn "  $label: $active while enabled — this upgrade did not start it"
+        warn "  $label: start with 'systemctl start $unit'"
+        if declare -p HEALTH_WARNINGS >/dev/null 2>&1; then
+          HEALTH_WARNINGS+=("$label is enabled but '$active' — systemctl start $unit")
+        fi
+      else
+        log "  $label: $active (not enabled)"
+      fi
+      ;;
+  esac
+}
+
 # _smart_update_systemd_unit <unit_file> <new_unit> [<label>]
 #
 # Diff + write + daemon-reload a single systemd unit. Records the change in
 # the caller's UPDATED_ITEMS array. NEVER restarts the unit — operator does
 # that explicitly per the documented restart hint in the summary.
+#
+# Unit health is reported on every pass, including the unchanged and
+# dry-run paths: a long-dead unit whose file is already correct is the
+# quietest failure of all (#576).
 _smart_update_systemd_unit() {
   local unit_file="$1"
   local new_unit="$2"
@@ -366,6 +424,8 @@ _smart_update_systemd_unit() {
     warn "  $unit_file does not exist — skipping"
     return 0
   fi
+
+  _report_systemd_unit_health "$(basename "$unit_file")" "$label"
 
   if echo "$new_unit" | cmp -s - "$unit_file"; then
     log "  $(basename "$unit_file"): unchanged"

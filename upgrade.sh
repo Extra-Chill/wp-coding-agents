@@ -563,6 +563,8 @@ fi
 UPDATED_ITEMS=()
 PENDING_ITEMS=()
 PLUGIN_UPDATE_FAILURES=()
+# Managed units found in a bad runtime state. Reported, never acted on.
+HEALTH_WARNINGS=()
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"
@@ -1323,6 +1325,17 @@ print_summary() {
     log "Updated:"
     for item in "${UPDATED_ITEMS[@]}"; do
       log "  - $item"
+    done
+  fi
+
+  # Runtime health is reported separately from file reconciliation. "Nothing
+  # changed" describes the unit files, not whether the services are running
+  # (#576).
+  if [ ${#HEALTH_WARNINGS[@]} -gt 0 ]; then
+    echo ""
+    warn "Service health:"
+    for item in "${HEALTH_WARNINGS[@]}"; do
+      warn "  - $item"
     done
   fi
 
