@@ -17,6 +17,7 @@ source "$ROOT_DIR/lib/agents-md-guidance.sh"
 log() { :; }
 
 MU_FILE="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+AGENT_WP="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agent-wp"
 
 cat > "$TMP/bin/studio" <<'SH'
 #!/bin/bash
@@ -40,7 +41,15 @@ while [ "$#" -gt 0 ]; do
 done
 case "${1:-} ${2:-} ${3:-} ${4:-}" in
   "datamachine memory paths fixture") exit 0 ;;
-  "intelligence search fixture ") exit 0 ;;
+  "intelligence search fixture ")
+    printf '%s\n' 'Warning: The --context argument is already registered by another command.' >&2
+    printf '%s\n' 'Warning: The --user argument is already registered by another command.' >&2
+    printf '%s\n' 'Warning: The --path argument is already registered by another command.' >&2
+    printf '%s\n' 'Warning: The --quiet argument is already registered by another command.' >&2
+    printf '%s\n' 'Warning: an unrelated command diagnostic.' >&2
+    printf '%s\n' 'search result'
+    exit 0
+    ;;
 esac
 exit 11
 SH
@@ -107,8 +116,8 @@ foreach ( array( 'datamachine memory paths fixture', 'intelligence search fixtur
 PHP
 
 run_case() {
-  local name="$1" expected="$2"
-  shift 2
+  local name="$1"
+  shift
   wp_cli_transport_set "$@"
   agents_md_guidance_sync_wp_cli_transport
 
@@ -121,14 +130,25 @@ run_case() {
   }
 
   php "$TMP/compose.php" "$MU_FILE" "$TMP/$name-AGENTS.md" "$TMP/$name-dm.cmd" "$TMP/$name-intelligence.cmd"
-  grep -F "\`$expected --path=/path/to/site datamachine memory paths fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
-  grep -F "\`$expected --path=/path/to/site intelligence search fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
+  grep -F "\`$AGENT_WP --path=/path/to/site datamachine memory paths fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
+  grep -F "\`$AGENT_WP --path=/path/to/site intelligence search fixture\`" "$TMP/$name-AGENTS.md" >/dev/null
+
+  diagnostics=$(env -i PATH="$TMP/bin:/usr/bin:/bin" "${WP_CLI_TRANSPORT[@]}" --path=/path/to/site intelligence search fixture 2>&1)
+  case "$diagnostics" in
+    *'Warning: The --context argument is already registered by another command.'*) ;;
+    *) echo "FAIL: $name direct transport no longer reports registration diagnostics" >&2; return 1 ;;
+  esac
 
   env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-dm.cmd")"
   env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-intelligence.cmd")"
+  result=$(env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$(<"$TMP/$name-intelligence.cmd")" 2>&1)
+  [ "$result" = $'search result\nWarning: an unrelated command diagnostic.' ] || {
+    echo "FAIL: $name agent transport did not isolate registration warnings: $result" >&2
+    return 1
+  }
 }
 
-run_case studio "studio wp" studio wp
+run_case studio studio wp
 
 # Upgrade an installation written by #521, where the filter lived inside the
 # late section-registration callback, and verify it is moved back to file scope.
@@ -146,7 +166,7 @@ content = content[:begin] + content[end:].lstrip("\n")
 content = content.replace("    // END agents-md-guidance-sections", block + "\n    // END agents-md-guidance-sections")
 path.write_text(content)
 PY
-run_case studio-upgrade "studio wp" studio wp
-run_case generic wp wp
+run_case studio-upgrade studio wp
+run_case generic wp
 
 echo "OK: composed Data Machine and Intelligence guidance uses one executable transport"
