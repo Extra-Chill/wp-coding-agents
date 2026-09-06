@@ -26,7 +26,7 @@ wp_cmd() {
       ;;
     'option delete') rm -f "$RETIRED_HOMEBOY_OPTION_STATE" ;;
     'plugin is-active') return 0 ;;
-    'eval exit(false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
+    'eval exit(false !== has_filter("wp_coding_agents_host_can_execute_processes", "WpCodingAgents\\Integration\\provide_process_execution_capability") && false !== has_filter("wp_coding_agents_host_has_writable_process_workspace", "WpCodingAgents\\Integration\\provide_writable_process_workspace_capability") && false !== has_filter("intelligence_host_has_shell", "WpCodingAgents\\Integration\\provide_intelligence_shell_capability") && false !== has_filter("intelligence_host_has_writable_content_directory", "WpCodingAgents\\Integration\\provide_intelligence_writable_content_capability") ? 0 : 1);') [ "${HOST_CAPABILITIES_AVAILABLE:-true}" = true ] ;;
     *) return 1 ;;
   esac
 }
