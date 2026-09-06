@@ -35,6 +35,7 @@ if [ "$VERBOSE" = false ]; then
 fi
 
 MU_FILE="$TMP/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+AGENT_WP="$TMP/wp-content/mu-plugins/wp-coding-agents-agent-wp"
 FAILED=0
 
 assert_eq() {
@@ -296,10 +297,10 @@ SH
 chmod +x "$TMP/bin/studio"
 wp_cli_transport_set studio wp
 guidance_sync_all
-if grep -q "return 'studio wp'" "$MU_FILE"; then
-  echo "  ok   Studio transport stored in generated guidance"
+if grep -q "return '$AGENT_WP'" "$MU_FILE"; then
+  echo "  ok   agent WP-CLI transport stored in generated guidance"
 else
-  echo "  FAIL Studio transport was not stored in generated guidance"
+  echo "  FAIL agent WP-CLI transport was not stored in generated guidance"
   FAILED=$((FAILED + 1))
 fi
 TRANSPORT_SHIM="$TMP/transport-shim.php"
@@ -325,17 +326,17 @@ foreach ( \$GLOBALS['actions']['datamachine_sections'] as \$callbacks ) { foreac
 echo apply_filters( 'datamachine_wp_cli_cmd', 'wp --path=/path/to/site' );
 PHP
 GENERATED_PREFIX=$(php "$TRANSPORT_SHIM")
-assert_eq "$GENERATED_PREFIX" "studio wp --path=/path/to/site" "Studio AGENTS command prefix preserves path"
+assert_eq "$GENERATED_PREFIX" "$AGENT_WP --path=/path/to/site" "agent WP-CLI command prefix preserves path"
 if env -i PATH="$TMP/bin:/usr/bin:/bin" bash -c "$GENERATED_PREFIX datamachine memory compose AGENTS.md"; then
-  echo "  ok   generated Studio command executes without bare wp"
+  echo "  ok   generated agent command executes through selected transport"
 else
-  echo "  FAIL generated Studio command does not execute without bare wp"
+  echo "  FAIL generated agent command does not execute through selected transport"
   FAILED=$((FAILED + 1))
 fi
 wp_cli_transport_set wp
 guidance_sync_all
 GENERATED_PREFIX=$(php "$TRANSPORT_SHIM")
-assert_eq "$GENERATED_PREFIX" "wp --path=/path/to/site" "generic AGENTS command prefix retains wp"
+assert_eq "$GENERATED_PREFIX" "$AGENT_WP --path=/path/to/site" "generic AGENTS command uses the agent transport"
 
 echo "==> WordPress guidance wins mixed-version registration"
 MIXED_SHIM="$TMP/mixed-section-shim.php"

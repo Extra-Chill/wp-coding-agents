@@ -19,6 +19,7 @@
 # Public surface:
 #   agents_md_guidance_mu_plugin_path
 #   agents_md_guidance_ensure_mu_plugin_file
+#   agents_md_guidance_agent_wp_cli_path
 #   agents_md_guidance_sync_wp_cli_transport
 #   agents_md_guidance_register <section_id> <priority> <label> <description> <content>
 #   agents_md_guidance_unregister <section_id>
@@ -30,6 +31,16 @@ agents_md_guidance_mu_plugin_path() {
     return 1
   fi
   printf '%s' "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+}
+
+# Keep agent commands on a wrapper separate from setup's WP-CLI transport.
+# Plugin command registration warnings are useful installation diagnostics, but
+# obscure the result agents need from every composed command invocation.
+agents_md_guidance_agent_wp_cli_path() {
+  if [ -z "${SITE_PATH:-}" ]; then
+    return 1
+  fi
+  printf '%s' "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agent-wp"
 }
 
 agents_md_guidance_ensure_mu_plugin_file() {
@@ -185,16 +196,20 @@ agents_md_guidance_register() {
 # environment that setup detected. The filter is written at mu-plugin file scope
 # so it exists before ordinary plugins register or render any sections.
 agents_md_guidance_sync_wp_cli_transport() {
-  local file transport new_block
+  local file transport agent_transport new_block
   file="$(agents_md_guidance_mu_plugin_path)" || return 1
   agents_md_guidance_ensure_mu_plugin_file || return 1
   transport="$(wp_cli_transport_display)"
-  new_block="$(_agents_md_guidance_render_wp_cli_transport_block "$transport")" || return 1
+  agent_transport="$(agents_md_guidance_agent_wp_cli_path)" || return 1
 
   if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would write agent WP-CLI transport at $agent_transport"
     echo -e "${BLUE}[dry-run]${NC} Would register AGENTS.md WP-CLI transport in $file"
     return 0
   fi
+
+  _agents_md_guidance_write_agent_wp_cli_transport "$agent_transport" "${WP_CLI_TRANSPORT[@]}" || return 1
+  new_block="$(_agents_md_guidance_render_wp_cli_transport_block "$agent_transport")" || return 1
 
   if _agents_md_guidance_block_matches "$file" "wp-cli-transport" "$new_block"; then
     return 0
@@ -205,7 +220,41 @@ agents_md_guidance_sync_wp_cli_transport() {
   _agents_md_guidance_rewrite "$file" "wp-cli-transport" "$new_block" > "$tmp"
   mv "$tmp" "$file"
   service_file_normalize_perms "$file"
-  log "  Registered AGENTS.md WP-CLI transport: $transport"
+  log "  Registered AGENTS.md agent WP-CLI transport: $transport"
+}
+
+_agents_md_guidance_write_agent_wp_cli_transport() {
+  local file="$1"
+  shift
+  local dir tmp argument
+  dir="${file%/*}"
+  mkdir -p "$dir"
+  tmp=$(mktemp "${file}.XXXXXX")
+  {
+    printf '%s\n' '#!/bin/bash'
+    printf '%s\n' 'set -o pipefail'
+    printf '%s\n' 'stderr_file=$(mktemp "${TMPDIR:-/tmp}/wp-coding-agents-agent-wp.XXXXXX") || exit 1'
+    printf '%s\n' "trap 'rm -f \"\$stderr_file\"' EXIT"
+    for argument in "$@"; do
+      printf '%q ' "$argument"
+    done
+    printf '%s\n' '"$@" 2>"$stderr_file"'
+    printf '%s\n' 'status=$?'
+    printf '%s\n' 'while IFS= read -r line || [ -n "$line" ]; do'
+    printf '%s\n' '  if [[ "$line" =~ [Ww]arning ]] && [[ "$line" =~ --(context|user|path|quiet) ]] && [[ "$line" =~ (already[[:space:]]+(registered|exists)|collision|conflict) ]]; then'
+    printf '%s\n' '    continue'
+    printf '%s\n' '  fi'
+    printf '%s\n' '  printf "%s\\n" "$line" >&2'
+    printf '%s\n' 'done < "$stderr_file"'
+    printf '%s\n' 'exit "$status"'
+  } > "$tmp"
+  chmod 0755 "$tmp"
+  if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  mv "$tmp" "$file"
+  log "  Wrote agent WP-CLI transport: $file"
 }
 
 agents_md_guidance_unregister() {
