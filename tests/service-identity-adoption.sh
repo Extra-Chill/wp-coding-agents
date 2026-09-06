@@ -218,6 +218,9 @@ KIMAKI_DATA_DIR="$ADOPTED_HOME/.kimaki"
 # Per-user install layout under the ADOPTED (non-root) home.
 printf '#!/bin/sh\n' > "$ADOPTED_HOME/.kimaki/bin/kimaki"
 chmod +x "$ADOPTED_HOME/.kimaki/bin/kimaki"
+mkdir -p "$ADOPTED_HOME/.local/bin"
+printf '#!/bin/sh\n' > "$ADOPTED_HOME/.local/bin/kimaki"
+chmod +x "$ADOPTED_HOME/.local/bin/kimaki"
 
 # No system-prefix binary exists in this sandbox (yet).
 export KIMAKI_SYSTEM_PREFIX_BINS="$BIN232/usr-bin-kimaki $BIN232/usr-local-kimaki"
@@ -238,17 +241,19 @@ PATH_SAVE="$PATH"
 export PATH="$CLEANBIN"
 
 RESOLVED_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
-assert "resolved bin is under adopted SERVICE_HOME" \
-  "$([ "$RESOLVED_BIN" = "$ADOPTED_HOME/.kimaki/bin/kimaki" ]; echo $?)"
+assert "resolved bin is under adopted SERVICE_HOME prefix" \
+  "$([ "$RESOLVED_BIN" = "$ADOPTED_HOME/.local/bin/kimaki" ]; echo $?)"
 assert "resolved bin is NOT under /root" \
   "$([[ "$RESOLVED_BIN" != /root/* ]]; echo $?)"
 
-# A real system-prefix binary wins over the per-user home (issue option 1).
+# A real system-prefix binary must not win over the service-owned prefix
+# for a managed non-root unit (#580). Self-upgrade has to write the prefix
+# the service user owns, not the root-global install.
 printf '#!/bin/sh\n' > "$BIN232/usr-bin-kimaki"
 chmod +x "$BIN232/usr-bin-kimaki"
 RESOLVED_SYS=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
-assert "system-prefix binary preferred over per-user home" \
-  "$([ "$RESOLVED_SYS" = "$BIN232/usr-bin-kimaki" ]; echo $?)"
+assert "service-owned prefix preferred over system-prefix for non-root" \
+  "$([ "$RESOLVED_SYS" = "$ADOPTED_HOME/.local/bin/kimaki" ]; echo $?)"
 
 export PATH="$PATH_SAVE"
 unset KIMAKI_SYSTEM_PREFIX_BINS WP_CODING_AGENTS_TEST_ASSUME_ROOT
