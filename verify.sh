@@ -149,8 +149,15 @@ pass "source checkout producer: $EXPECTED_PRODUCER"
 
 INSTALLED_PRODUCER="$(guidance_producers "$GUIDANCE_PLUGIN")"
 if [ -z "$INSTALLED_PRODUCER" ]; then
-  fail "installed guidance plugin has no producer provenance — source checkout is $EXPECTED_PRODUCER"
-  GUIDANCE_DRIFT=true
+  GATE_STATUS=0
+  agents_md_guidance_composition_gate wp_cli $WP_ROOT_FLAG --path="$SITE_PATH" || GATE_STATUS=$?
+  case "$GATE_STATUS" in
+    1|2) pass "Data Machine AGENTS.md composition is disabled or unavailable; installed guidance is gated" ;;
+    *)
+      fail "installed guidance plugin has no producer provenance — source checkout is $EXPECTED_PRODUCER"
+      GUIDANCE_DRIFT=true
+      ;;
+  esac
 elif [ "$INSTALLED_PRODUCER" = "$EXPECTED_PRODUCER" ]; then
   pass "installed guidance plugin matches the source checkout"
 else
@@ -159,13 +166,16 @@ else
 fi
 
 COMPOSED_PRODUCER="$(guidance_producers "$COMPOSED_GUIDANCE")"
-if [ -z "$COMPOSED_PRODUCER" ] && [ -z "$INSTALLED_PRODUCER" ]; then
-  # Data Machine may intentionally disable AGENTS.md composition, or the
-  # optional guidance integration may be unavailable. No active guidance means
-  # there is nothing stale to remediate with a recomposition command.
-  pass "wp-coding-agents AGENTS.md guidance is unavailable or disabled; freshness is gated"
-elif [ -z "$COMPOSED_PRODUCER" ]; then
-  pass "wp-coding-agents AGENTS.md guidance is disabled; freshness is gated"
+if [ -z "$COMPOSED_PRODUCER" ]; then
+  GATE_STATUS=0
+  agents_md_guidance_composition_gate wp_cli $WP_ROOT_FLAG --path="$SITE_PATH" || GATE_STATUS=$?
+  case "${GATE_STATUS:-0}" in
+    1|2) pass "Data Machine AGENTS.md composition is disabled or unavailable; freshness is gated" ;;
+    *)
+      fail "generated AGENTS.md has no producer provenance — installed guidance is ${INSTALLED_PRODUCER:-unknown}; Data Machine AGENTS.md composition is not explicitly disabled or unavailable"
+      GUIDANCE_DRIFT=true
+      ;;
+  esac
 elif [ "$COMPOSED_PRODUCER" = "$INSTALLED_PRODUCER" ]; then
   pass "generated AGENTS.md matches the installed guidance plugin"
 else

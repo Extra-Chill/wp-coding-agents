@@ -1092,18 +1092,29 @@ regenerate_agents_md() {
   # identity ran it, and without this every other writer is locked out until the
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
-    local expected_producer composed_producer provenance_status
+    local expected_producer composed_producer provenance_status gate_status
     expected_producer="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
     composed_producer="$(agents_md_guidance_composed_producer "$AGENTS_MD")"
     agents_md_guidance_verify_composed_provenance "$AGENTS_MD" || provenance_status=$?
     if [ "${provenance_status:-0}" = 1 ]; then
-      warn "  AGENTS.md remains stale after compose ($composed_producer; expected $expected_producer)"
-      agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
-      warn "  Restored AGENTS.md to its pre-compose state"
-      return 1
-    fi
-    if [ "${provenance_status:-0}" = 2 ]; then
-      log "  wp-coding-agents AGENTS.md guidance is unavailable or disabled; provenance verification is gated"
+      if [ -z "$composed_producer" ]; then
+        gate_status=0
+        agents_md_guidance_composition_gate wp_run_as_service_user || gate_status=$?
+        case "$gate_status" in
+          1|2) log "  Data Machine AGENTS.md composition is disabled or unavailable; provenance verification is gated" ;;
+          *)
+            warn "  AGENTS.md is missing wp-coding-agents provenance after compose (expected $expected_producer)"
+            agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
+            warn "  Restored AGENTS.md to its pre-compose state"
+            return 1
+            ;;
+        esac
+      else
+        warn "  AGENTS.md remains stale after compose ($composed_producer; expected $expected_producer)"
+        agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
+        warn "  Restored AGENTS.md to its pre-compose state"
+        return 1
+      fi
     fi
     service_file_normalize_perms "$AGENTS_MD"
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then

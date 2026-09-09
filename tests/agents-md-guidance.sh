@@ -199,7 +199,7 @@ if agents_md_guidance_verify_composed_provenance "$TMP/AGENTS.md"; then
   FAILED=$((FAILED + 1))
 else
   STATUS=$?
-  assert_eq "$STATUS" "2" "disabled guidance is a healthy gated state"
+  assert_eq "$STATUS" "1" "missing provenance requires an authoritative gate check"
 fi
 printf '%s\n' '## User guidance before failed compose' > "$TMP/precompose"
 cp "$TMP/precompose" "$TMP/precompose.backup"
@@ -315,6 +315,7 @@ fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
 
 echo "==> sync WordPress coding-agent boundaries"
+wp_cli_transport_set wp
 # Emulate an existing installation created before wp-coding-agents registered
 # its sections at a deterministic late priority.
 python3 - "$MU_FILE" <<'PY'

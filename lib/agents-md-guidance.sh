@@ -95,14 +95,28 @@ agents_md_guidance_composed_producer() {
   sed -n 's/.*wp-coding-agents-provenance: version=\([^ ]*\) source=\([^ ]*\).*/version=\1 source=\2/p' "$1" | sort -u
 }
 
-# Returns 0 for current active guidance, 2 when AGENTS.md guidance is gated,
-# and 1 when an active composed section was not produced by this source.
+# Returns 0 for current guidance and 1 for stale or missing provenance.
 agents_md_guidance_verify_composed_provenance() {
   local composed expected
   composed="$(agents_md_guidance_composed_producer "$1")"
-  [ -n "$composed" ] || return 2
+  [ -n "$composed" ] || return 1
   expected="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
   [ "$composed" = "$expected" ]
+}
+
+# Query Data Machine's actual runtime AGENTS.md gate. The supplied command is
+# the WP-CLI runner (for example, wp_cli or wp_run_as_service_user). Return 0
+# for enabled, 1 for explicitly disabled, 2 when the gate is unavailable, and
+# 3 when WordPress cannot authoritatively answer.
+agents_md_guidance_composition_gate() {
+  local state
+  state="$("$@" eval 'if ( ! function_exists( "datamachine_agents_md_enabled" ) ) { echo "unavailable"; } elseif ( datamachine_agents_md_enabled() ) { echo "enabled"; } else { echo "disabled"; }' 2>/dev/null)" || return 3
+  case "$state" in
+    enabled) return 0 ;;
+    disabled) return 1 ;;
+    unavailable) return 2 ;;
+    *) return 3 ;;
+  esac
 }
 
 # Restore the file state recorded before a compose attempt. A failed compose may

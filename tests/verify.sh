@@ -43,6 +43,11 @@ touch "$SITE/wp-content/mu-plugins/wp-coding-agents-source-reconcile.php" \
 cat > "$TMP/wp" <<'WP'
 #!/bin/bash
 # Stub: `wp option get <name>`
+for arg in "$@"; do
+  [ "$arg" = eval ] || continue
+  printf '%s\n' unavailable
+  exit 0
+done
 for a in "$@"; do case "$a" in --path=*) ;; esac; done
 [ "${WP_STUB_NOISE:-}" != 1 ] || printf '%s\n\n%s\n' \
   'PHP Deprecated: dependency diagnostic' \
@@ -135,7 +140,7 @@ echo "verify: disabled guidance is healthy but gated"
 rm -f "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
 printf '%s\n' '## User-owned AGENTS guidance' > "$SITE/AGENTS.md"
 OUT="$(run_verify)"
-assert_contains "$OUT" 'AGENTS.md guidance is unavailable or disabled; freshness is gated' "distinguishes disabled guidance from stale output"
+assert_contains "$OUT" 'Data Machine AGENTS.md composition is disabled or unavailable; freshness is gated' "distinguishes disabled guidance from stale output"
 refute_contains "$OUT" 'generated AGENTS.md has no producer provenance' "does not misclassify disabled guidance as stale"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/AGENTS.md"

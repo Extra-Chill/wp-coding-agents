@@ -3,6 +3,7 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$ROOT_DIR"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -168,5 +169,76 @@ path.write_text(content)
 PY
 run_case studio-upgrade studio wp
 run_case generic wp
+
+echo "==> upgrade restores AGENTS.md after failed or stale composition"
+UPGRADE_TMP="$TMP/upgrade"
+mkdir -p "$UPGRADE_TMP/bin"
+cat > "$UPGRADE_TMP/bin/wp" <<'SH'
+#!/bin/bash
+for arg in "$@"; do
+  case "$arg" in
+    eval)
+      printf '%s\n' "${COMPOSE_GATE:-enabled}"
+      exit 0
+      ;;
+  esac
+done
+if [ "${1:-}" = "datamachine" ] && [ "${2:-}" = "memory" ] && [ "${3:-}" = "compose" ]; then
+  case "${COMPOSE_CASE:-}" in
+    partial-fail)
+      # Runtime instruction setup composes first. Leave no file there so the
+      # phase under test is the first writer of AGENTS.md.
+      if [ ! -e "${COMPOSE_COUNT_FILE:-/dev/null}" ]; then touch "$COMPOSE_COUNT_FILE"; exit 0; fi
+      printf '%s\n' 'partial compose output' > AGENTS.md
+      exit 1
+      ;;
+    missing-success) printf '%s\n' 'successful compose without provenance'; exit 0 ;;
+    stale-success) printf '%s\n' '<!-- wp-coding-agents-provenance: version=old source=commit:stale -->' > AGENTS.md; exit 0 ;;
+  esac
+fi
+exit 0
+SH
+chmod +x "$UPGRADE_TMP/bin/wp"
+
+assert_upgrade_failure_restores() {
+  local name="$1" initial="$2" case_name="$3" site output
+  site="$UPGRADE_TMP/$name"
+  mkdir -p "$site/wp-content/mu-plugins"
+  : > "$site/wp-config.php"
+  if [ -n "$initial" ]; then
+    printf '%s' "$initial" > "$site/AGENTS.md"
+    cp "$site/AGENTS.md" "$site/original"
+    : > "$site/compose-count"
+  fi
+  if output=$(PATH="$UPGRADE_TMP/bin:$PATH" COMPOSE_CASE="$case_name" COMPOSE_COUNT_FILE="$site/compose-count" COMPOSE_GATE=enabled \
+    bash "$ROOT_DIR/upgrade.sh" --local --runtime opencode --wp-path "$site" --agents-md-only --skip-plugins 2>&1); then
+    echo "FAIL: $name upgrade unexpectedly succeeded" >&2
+    exit 1
+  fi
+  if [ -n "$initial" ]; then
+    cmp -s "$site/original" "$site/AGENTS.md" || { echo "FAIL: $name did not restore AGENTS.md byte-for-byte: $output" >&2; exit 1; }
+  elif [ -e "$site/AGENTS.md" ]; then
+    echo "FAIL: $name left a newly-created partial AGENTS.md: $output" >&2
+    exit 1
+  fi
+}
+
+assert_upgrade_failure_restores partial-compose $'## User guidance\nexact bytes\n' partial-fail
+assert_upgrade_failure_restores new-partial-compose '' partial-fail
+assert_upgrade_failure_restores missing-provenance-compose $'## User guidance\nexact bytes\n' missing-success
+assert_upgrade_failure_restores stale-compose $'## User guidance\nexact bytes\n' stale-success
+
+VERIFY_SITE="$UPGRADE_TMP/verify"
+mkdir -p "$VERIFY_SITE/wp-content/mu-plugins"
+: > "$VERIFY_SITE/wp-config.php"
+printf '%s\n' "$(agents_md_guidance_provenance_markdown)" > "$VERIFY_SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+if VERIFY_OUTPUT=$(PATH="$UPGRADE_TMP/bin:$PATH" COMPOSE_GATE=enabled bash "$ROOT_DIR/verify.sh" --site-path "$VERIFY_SITE" 2>&1); then
+  echo "FAIL: verify accepted installed guidance with missing composed provenance" >&2
+  exit 1
+fi
+case "$VERIFY_OUTPUT" in
+  *'installed guidance is version='*'not explicitly disabled or unavailable'*) ;;
+  *) echo "FAIL: verify did not identify installed-present/composed-missing provenance drift: $VERIFY_OUTPUT" >&2; exit 1 ;;
+esac
 
 echo "OK: composed Data Machine and Intelligence guidance uses one executable transport"
