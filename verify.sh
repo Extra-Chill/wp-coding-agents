@@ -39,6 +39,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/source-policy.sh"
+source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 
 QUIET=false
 JSON=false
@@ -127,6 +128,57 @@ esac
 _say "wp-coding-agents verify"
 _say "  site:        $SITE_PATH"
 _say "  source mode: ${SOURCE_MODE:-<unset>}"
+
+# ---------------------------------------------------------------------------
+# Guidance producer freshness
+# ---------------------------------------------------------------------------
+
+section "guidance producer freshness"
+
+EXPECTED_PRODUCER="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
+GUIDANCE_PLUGIN="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+COMPOSED_GUIDANCE="$SITE_PATH/AGENTS.md"
+GUIDANCE_DRIFT=false
+
+guidance_producers() {
+  [ -f "$1" ] || return 0
+  sed -n 's/.*wp-coding-agents-provenance: version=\([^ ]*\) source=\([^ ]*\).*/version=\1 source=\2/p' "$1" | sort -u
+}
+
+pass "source checkout producer: $EXPECTED_PRODUCER"
+
+INSTALLED_PRODUCER="$(guidance_producers "$GUIDANCE_PLUGIN")"
+if [ -z "$INSTALLED_PRODUCER" ]; then
+  fail "installed guidance plugin has no producer provenance — source checkout is $EXPECTED_PRODUCER"
+  GUIDANCE_DRIFT=true
+elif [ "$INSTALLED_PRODUCER" = "$EXPECTED_PRODUCER" ]; then
+  pass "installed guidance plugin matches the source checkout"
+else
+  fail "installed guidance plugin is $INSTALLED_PRODUCER; source checkout is $EXPECTED_PRODUCER"
+  GUIDANCE_DRIFT=true
+fi
+
+COMPOSED_PRODUCER="$(guidance_producers "$COMPOSED_GUIDANCE")"
+if [ -z "$COMPOSED_PRODUCER" ]; then
+  fail "generated AGENTS.md has no producer provenance — installed guidance is ${INSTALLED_PRODUCER:-unknown}"
+  GUIDANCE_DRIFT=true
+elif [ "$COMPOSED_PRODUCER" = "$INSTALLED_PRODUCER" ]; then
+  pass "generated AGENTS.md matches the installed guidance plugin"
+else
+  fail "generated AGENTS.md is $COMPOSED_PRODUCER; installed guidance plugin is $INSTALLED_PRODUCER"
+  GUIDANCE_DRIFT=true
+fi
+
+if [ "$COMPOSED_PRODUCER" = "$EXPECTED_PRODUCER" ]; then
+  pass "runtime/service guidance is current for new sessions"
+else
+  fail "runtime/service guidance is $COMPOSED_PRODUCER; source checkout is $EXPECTED_PRODUCER"
+  GUIDANCE_DRIFT=true
+fi
+
+if [ "$GUIDANCE_DRIFT" = true ]; then
+  _say "  remedy: ./upgrade.sh --agents-md-only"
+fi
 
 # ---------------------------------------------------------------------------
 # Seam 0: workspace declarations must point at native repositories and match

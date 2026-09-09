@@ -114,7 +114,15 @@ _guidance_homeboy_live_block() {
   local quoted_path
   quoted_path="$(_guidance_homeboy_php_quote "$homeboy_path")"
 
-  cat <<'PHP_BLOCK' | sed "s|__WP_CODING_AGENTS_HOMEBOY_BIN__|${quoted_path//|/\\|}|g"
+  local provenance producer_version producer_source
+  provenance="$(agents_md_guidance_provenance_markdown)"
+  producer_version="$(agents_md_guidance_producer_version)"
+  producer_source="$(agents_md_guidance_producer_source)"
+  cat <<'PHP_BLOCK' | sed \
+    -e "s|__WP_CODING_AGENTS_HOMEBOY_BIN__|${quoted_path//|/\\|}|g" \
+    -e "s|__WP_CODING_AGENTS_PROVENANCE__|${provenance//|/\\|}|g" \
+    -e "s|__WP_CODING_AGENTS_PRODUCER_VERSION__|${producer_version//|/\\|}|g" \
+    -e "s|__WP_CODING_AGENTS_PRODUCER_SOURCE__|${producer_source//|/\\|}|g"
     // BEGIN agents-md-guidance:homeboy-cli
     // Absolute path resolved by wp-coding-agents at sync time. Checked live
     // at every compose so losing the binary drops the section (#254), but
@@ -136,6 +144,7 @@ _guidance_homeboy_live_block() {
             }
 
             return <<<'MD'
+__WP_CODING_AGENTS_PROVENANCE__
 ## Homeboy
 
 Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook.
@@ -180,6 +189,8 @@ MD;
                 'label'       => 'Homeboy',
                 'description' => 'Host orchestration routing, safety, and discovery guidance.',
                 'owner'       => 'wp-coding-agents',
+                'producer_version' => '__WP_CODING_AGENTS_PRODUCER_VERSION__',
+                'producer_source'  => '__WP_CODING_AGENTS_PRODUCER_SOURCE__',
                 'freshness'   => 'live',
                 'conditions'  => 'Registered only while the homeboy binary is executable at AGENTS.md compose time.',
             )

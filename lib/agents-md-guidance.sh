@@ -26,6 +26,35 @@
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
+# Producer provenance is derived from content, never a build time or host path.
+# A checkout records its immutable commit; packaged installs use a digest of the
+# guidance producer surface instead.
+agents_md_guidance_producer_version() {
+  tr -d '[:space:]' < "$SCRIPT_DIR/VERSION" 2>/dev/null || printf 'unknown'
+}
+
+agents_md_guidance_producer_source() {
+  local commit digest
+  commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
+  if [ -n "$commit" ]; then
+    printf 'commit:%s' "$commit"
+    return 0
+  fi
+
+  digest=$(cd "$SCRIPT_DIR" && {
+    for file in VERSION lib/agents-md-guidance.sh guidance/*.sh; do
+      [ -f "$file" ] && shasum -a 256 "$file"
+    done
+  } | shasum -a 256 | awk '{print $1}')
+  printf 'sha256:%s' "${digest:-unknown}"
+}
+
+agents_md_guidance_provenance_markdown() {
+  printf '<!-- wp-coding-agents-provenance: version=%s source=%s -->' \
+    "$(agents_md_guidance_producer_version)" \
+    "$(agents_md_guidance_producer_source)"
+}
+
 agents_md_guidance_mu_plugin_path() {
   if [ -z "${SITE_PATH:-}" ]; then
     return 1
@@ -297,6 +326,8 @@ _agents_md_guidance_render_block() {
   AGENTS_MD_GUIDANCE_LABEL="$label" \
   AGENTS_MD_GUIDANCE_DESCRIPTION="$description" \
   AGENTS_MD_GUIDANCE_CONTENT="$content" \
+  AGENTS_MD_GUIDANCE_PRODUCER_VERSION="$(agents_md_guidance_producer_version)" \
+  AGENTS_MD_GUIDANCE_PRODUCER_SOURCE="$(agents_md_guidance_producer_source)" \
   AGENTS_MD_GUIDANCE_FRESHNESS="${AGENTS_MD_GUIDANCE_FRESHNESS:-conditional}" \
   AGENTS_MD_GUIDANCE_CONDITIONS="${AGENTS_MD_GUIDANCE_CONDITIONS:-Registered by wp-coding-agents when the integration is available; removed when unavailable.}" \
   python3 <<'PY'
@@ -309,6 +340,8 @@ priority = os.environ["AGENTS_MD_GUIDANCE_PRIORITY"]
 label = os.environ["AGENTS_MD_GUIDANCE_LABEL"]
 description = os.environ.get("AGENTS_MD_GUIDANCE_DESCRIPTION", "")
 content = os.environ["AGENTS_MD_GUIDANCE_CONTENT"].rstrip("\n")
+producer_version = os.environ["AGENTS_MD_GUIDANCE_PRODUCER_VERSION"]
+producer_source = os.environ["AGENTS_MD_GUIDANCE_PRODUCER_SOURCE"]
 freshness = os.environ.get("AGENTS_MD_GUIDANCE_FRESHNESS", "conditional")
 conditions = os.environ.get("AGENTS_MD_GUIDANCE_CONDITIONS", "")
 
@@ -331,6 +364,7 @@ print(f"        '{esc(section_id)}',")
 print(f"        {priority_int},")
 print("        static function () {")
 print("            return <<<'MD'")
+print(f"<!-- wp-coding-agents-provenance: version={producer_version} source={producer_source} -->")
 print(content)
 print("MD;")
 print("        },")
@@ -338,6 +372,8 @@ print("        array(")
 print(f"            'label'       => '{esc(label)}',")
 print(f"            'description' => '{esc(description)}',")
 print("            'owner'       => 'wp-coding-agents',")
+print(f"            'producer_version' => '{esc(producer_version)}',")
+print(f"            'producer_source'  => '{esc(producer_source)}',")
 print(f"            'freshness'   => '{esc(freshness)}',")
 print(f"            'conditions'  => '{esc(conditions)}',")
 print("        )")

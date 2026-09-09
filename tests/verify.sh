@@ -88,6 +88,9 @@ run_verify() {
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
 write_opencode wp-content/plugins/acme-core wp-content/themes/acme
 write_unit kimaki.service opencode /home/opencode
+CURRENT_PRODUCER="version=$(tr -d '[:space:]' < VERSION) source=commit:$(git rev-parse HEAD)"
+printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/AGENTS.md"
 
 echo "verify: a healthy install passes"
 OUT="$(run_verify)"
@@ -105,6 +108,26 @@ else
   echo "  FAIL healthy install exited non-zero"
   FAILED=$((FAILED + 1))
 fi
+
+echo ""
+echo "verify: guidance provenance exposes source/install/runtime drift"
+
+# The source checkout includes #573's bounded direct-runtime fallback, while
+# the installed mu-plugin and composed AGENTS.md were produced before it.
+if grep -Fq 'request explicit operator authorization before invoking a coding runtime directly' guidance/homeboy.sh; then
+  echo "  ok   source checkout contains the #573 recovery policy"
+else
+  echo "  FAIL source checkout is missing the #573 recovery policy"
+  FAILED=$((FAILED + 1))
+fi
+OLD_PRODUCER='version=1.21.1 source=commit:0000000000000000000000000000000000000000'
+printf '%s\n' "<!-- wp-coding-agents-provenance: $OLD_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+printf '%s\n%s\n' "<!-- wp-coding-agents-provenance: $OLD_PRODUCER -->" '## Homeboy' > "$SITE/AGENTS.md"
+OUT="$(run_verify)"
+assert_contains "$OUT" 'installed guidance plugin is version=1.21.1' "distinguishes installed plugin freshness"
+assert_contains "$OUT" 'generated AGENTS.md matches the installed guidance plugin' "distinguishes generated-file freshness"
+assert_contains "$OUT" 'runtime/service guidance is version=1.21.1' "distinguishes runtime/service freshness"
+assert_contains "$OUT" 'remedy: ./upgrade.sh --agents-md-only' "reports one safe generic recomposition command"
 
 echo ""
 echo "verify: it catches the defects that reached a live site"

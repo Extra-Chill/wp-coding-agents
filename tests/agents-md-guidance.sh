@@ -217,6 +217,8 @@ namespace {
         'priority' => \$call[2] ?? null,
         'label' => \$call[4]['label'] ?? null,
         'owner' => \$call[4]['owner'] ?? null,
+        'producer_version' => \$call[4]['producer_version'] ?? null,
+        'producer_source' => \$call[4]['producer_source'] ?? null,
         'freshness' => \$call[4]['freshness'] ?? null,
         'conditions' => \$call[4]['conditions'] ?? null,
         'content' => \$content,
@@ -225,7 +227,9 @@ namespace {
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"sample-guidance","priority":36,"label":"Sample guidance","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered by wp-coding-agents when the integration is available; removed when unavailable.","content":"## Sample guidance"}'
+PRODUCER_VERSION="$(agents_md_guidance_producer_version)"
+PRODUCER_SOURCE="$(agents_md_guidance_producer_source)"
+EXPECTED="{\"filename\":\"AGENTS.md\",\"slug\":\"sample-guidance\",\"priority\":36,\"label\":\"Sample guidance\",\"owner\":\"wp-coding-agents\",\"producer_version\":\"$PRODUCER_VERSION\",\"producer_source\":\"$PRODUCER_SOURCE\",\"freshness\":\"conditional\",\"conditions\":\"Registered by wp-coding-agents when the integration is available; removed when unavailable.\",\"content\":\"<!-- wp-coding-agents-provenance: version=$PRODUCER_VERSION source=$PRODUCER_SOURCE -->\\n## Sample guidance\"}"
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generic guidance section"
 
 echo "==> unregister generic guidance"
@@ -405,6 +409,8 @@ PATH="$TMP/homeboy-bin:$PATH"
 export PATH
 guidance_sync_unit homeboy
 assert_contains "$MU_FILE" 'Homeboy remains the normal owner of tracked coding work.' "Homeboy guidance preserves normal ownership"
+assert_contains "$MU_FILE" "wp-coding-agents-provenance: version=$PRODUCER_VERSION source=$PRODUCER_SOURCE" "Homeboy guidance records its producer provenance"
+assert_contains "$MU_FILE" "'producer_version' => '$PRODUCER_VERSION'" "Homeboy metadata records its producer version"
 assert_contains "$MU_FILE" 'homeboy agent-task cook --preview' "Homeboy guidance validates the selected route"
 assert_contains "$MU_FILE" 'homeboy agent-task cook --help-full' "Homeboy guidance discovers exact alternative routes"
 assert_contains "$MU_FILE" 'configured attempt and provider-rotation budget' "Homeboy guidance bounds recovery"
