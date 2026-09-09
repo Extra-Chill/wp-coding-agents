@@ -27,32 +27,94 @@
 # Honors DRY_RUN (logs intent, makes no changes).
 
 # Producer provenance is derived from content, never a build time or host path.
-# A checkout records its immutable commit; packaged installs use a digest of the
-# guidance producer surface instead.
+# Only a clean checkout can claim its commit identity. Dirty checkouts and
+# packages instead identify the guidance producer surface deterministically.
 agents_md_guidance_producer_version() {
-  tr -d '[:space:]' < "$SCRIPT_DIR/VERSION" 2>/dev/null || printf 'unknown'
+  local version
+  IFS= read -r version < "$SCRIPT_DIR/VERSION" || version="unknown"
+  printf '%s' "${version:-unknown}"
+}
+
+_agents_md_guidance_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum
+  else
+    return 127
+  fi
+}
+
+_agents_md_guidance_surface_digest() {
+  command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
+  (
+    cd "$SCRIPT_DIR" || exit 1
+    for file in VERSION lib/agents-md-guidance.sh guidance/*.sh; do
+      [ -f "$file" ] || continue
+      printf '%s\0' "$file"
+      _agents_md_guidance_sha256 < "$file" | awk '{print $1}'
+    done
+  ) | _agents_md_guidance_sha256 | awk '{print $1}'
 }
 
 agents_md_guidance_producer_source() {
-  local commit digest
-  commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
-  if [ -n "$commit" ]; then
-    printf 'commit:%s' "$commit"
-    return 0
+  local commit digest version state
+  version="$(agents_md_guidance_producer_version)"
+  if git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -z "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+      commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      if [ -n "$commit" ]; then
+        printf 'commit:%s' "$commit"
+        return 0
+      fi
+    fi
+    state="dirty"
+  else
+    state="package"
   fi
 
-  digest=$(cd "$SCRIPT_DIR" && {
-    for file in VERSION lib/agents-md-guidance.sh guidance/*.sh; do
-      [ -f "$file" ] && shasum -a 256 "$file"
-    done
-  } | shasum -a 256 | awk '{print $1}')
-  printf 'sha256:%s' "${digest:-unknown}"
+  digest="$(_agents_md_guidance_surface_digest || true)"
+  if [ -n "$digest" ]; then
+    printf '%s-sha256:%s' "$state" "$digest"
+  else
+    # Minimal packaged environments may not ship either hashing utility. The
+    # version fallback is explicit and remains deterministic for a release.
+    printf '%s-version:%s' "$state" "$version"
+  fi
 }
 
 agents_md_guidance_provenance_markdown() {
   printf '<!-- wp-coding-agents-provenance: version=%s source=%s -->' \
     "$(agents_md_guidance_producer_version)" \
     "$(agents_md_guidance_producer_source)"
+}
+
+agents_md_guidance_composed_producer() {
+  [ -f "$1" ] || return 0
+  sed -n 's/.*wp-coding-agents-provenance: version=\([^ ]*\) source=\([^ ]*\).*/version=\1 source=\2/p' "$1" | sort -u
+}
+
+# Returns 0 for current active guidance, 2 when AGENTS.md guidance is gated,
+# and 1 when an active composed section was not produced by this source.
+agents_md_guidance_verify_composed_provenance() {
+  local composed expected
+  composed="$(agents_md_guidance_composed_producer "$1")"
+  [ -n "$composed" ] || return 2
+  expected="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
+  [ "$composed" = "$expected" ]
+}
+
+# Restore the file state recorded before a compose attempt. A failed compose may
+# have created a partial file even where no AGENTS.md previously existed.
+agents_md_guidance_restore_precompose_state() {
+  local agents_md="$1" backup="$2" had_agents_md="$3"
+  if [ "$had_agents_md" = true ]; then
+    cp "$backup" "$agents_md"
+    service_file_normalize_perms "$agents_md"
+  else
+    rm -f "$agents_md"
+  fi
 }
 
 agents_md_guidance_mu_plugin_path() {

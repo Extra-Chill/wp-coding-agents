@@ -88,7 +88,8 @@ run_verify() {
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
 write_opencode wp-content/plugins/acme-core wp-content/themes/acme
 write_unit kimaki.service opencode /home/opencode
-CURRENT_PRODUCER="version=$(tr -d '[:space:]' < VERSION) source=commit:$(git rev-parse HEAD)"
+source lib/agents-md-guidance.sh
+CURRENT_PRODUCER="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/AGENTS.md"
 
@@ -128,6 +129,16 @@ assert_contains "$OUT" 'installed guidance plugin is version=1.21.1' "distinguis
 assert_contains "$OUT" 'generated AGENTS.md matches the installed guidance plugin' "distinguishes generated-file freshness"
 assert_contains "$OUT" 'runtime/service guidance is version=1.21.1' "distinguishes runtime/service freshness"
 assert_contains "$OUT" 'remedy: ./upgrade.sh --agents-md-only' "reports one safe generic recomposition command"
+
+echo ""
+echo "verify: disabled guidance is healthy but gated"
+rm -f "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+printf '%s\n' '## User-owned AGENTS guidance' > "$SITE/AGENTS.md"
+OUT="$(run_verify)"
+assert_contains "$OUT" 'AGENTS.md guidance is unavailable or disabled; freshness is gated' "distinguishes disabled guidance from stale output"
+refute_contains "$OUT" 'generated AGENTS.md has no producer provenance' "does not misclassify disabled guidance as stale"
+printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
+printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/AGENTS.md"
 
 echo ""
 echo "verify: it catches the defects that reached a live site"

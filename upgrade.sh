@@ -1067,8 +1067,11 @@ regenerate_agents_md() {
     return 0
   fi
 
-  # Backup existing (compose writes in-place to the registered location)
+  # Backup existing (compose writes in-place to the registered location).
+  # Every unsuccessful or stale recompose restores this exact user state.
+  local HAD_AGENTS_MD=false
   if [ -f "$AGENTS_MD" ]; then
+    HAD_AGENTS_MD=true
     cp "$AGENTS_MD" "$BACKUP"
     service_file_normalize_perms "$BACKUP"
     log "  Backup: $BACKUP"
@@ -1089,6 +1092,19 @@ regenerate_agents_md() {
   # identity ran it, and without this every other writer is locked out until the
   # next normalize.
   if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
+    local expected_producer composed_producer provenance_status
+    expected_producer="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
+    composed_producer="$(agents_md_guidance_composed_producer "$AGENTS_MD")"
+    agents_md_guidance_verify_composed_provenance "$AGENTS_MD" || provenance_status=$?
+    if [ "${provenance_status:-0}" = 1 ]; then
+      warn "  AGENTS.md remains stale after compose ($composed_producer; expected $expected_producer)"
+      agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
+      warn "  Restored AGENTS.md to its pre-compose state"
+      return 1
+    fi
+    if [ "${provenance_status:-0}" = 2 ]; then
+      log "  wp-coding-agents AGENTS.md guidance is unavailable or disabled; provenance verification is gated"
+    fi
     service_file_normalize_perms "$AGENTS_MD"
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
@@ -1103,13 +1119,11 @@ regenerate_agents_md() {
     fi
     agents_md_prune_backups "$SITE_PATH"
   else
-    warn "  datamachine memory compose failed — AGENTS.md unchanged"
-    # Restore from backup if compose wrote a partial file
-    if [ -f "$BACKUP" ] && [ -f "$AGENTS_MD" ] && ! cmp -s "$BACKUP" "$AGENTS_MD"; then
-      cp "$BACKUP" "$AGENTS_MD"
-      service_file_normalize_perms "$AGENTS_MD"
-      warn "  Restored AGENTS.md from backup"
-    fi
+    warn "  datamachine memory compose failed"
+    # Restore a partial write, or remove a newly-created partial file.
+    agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
+    warn "  Restored AGENTS.md to its pre-compose state"
+    return 1
   fi
 
   # Symlink CLAUDE.md → AGENTS.md so Claude-model OpenCode sessions get the same DM context.

@@ -159,9 +159,13 @@ else
 fi
 
 COMPOSED_PRODUCER="$(guidance_producers "$COMPOSED_GUIDANCE")"
-if [ -z "$COMPOSED_PRODUCER" ]; then
-  fail "generated AGENTS.md has no producer provenance — installed guidance is ${INSTALLED_PRODUCER:-unknown}"
-  GUIDANCE_DRIFT=true
+if [ -z "$COMPOSED_PRODUCER" ] && [ -z "$INSTALLED_PRODUCER" ]; then
+  # Data Machine may intentionally disable AGENTS.md composition, or the
+  # optional guidance integration may be unavailable. No active guidance means
+  # there is nothing stale to remediate with a recomposition command.
+  pass "wp-coding-agents AGENTS.md guidance is unavailable or disabled; freshness is gated"
+elif [ -z "$COMPOSED_PRODUCER" ]; then
+  pass "wp-coding-agents AGENTS.md guidance is disabled; freshness is gated"
 elif [ "$COMPOSED_PRODUCER" = "$INSTALLED_PRODUCER" ]; then
   pass "generated AGENTS.md matches the installed guidance plugin"
 else
@@ -169,7 +173,9 @@ else
   GUIDANCE_DRIFT=true
 fi
 
-if [ "$COMPOSED_PRODUCER" = "$EXPECTED_PRODUCER" ]; then
+if [ -z "$COMPOSED_PRODUCER" ]; then
+  : # The active guidance gate above is a healthy, intentionally unverifiable state.
+elif [ "$COMPOSED_PRODUCER" = "$EXPECTED_PRODUCER" ]; then
   pass "runtime/service guidance is current for new sessions"
 else
   fail "runtime/service guidance is $COMPOSED_PRODUCER; source checkout is $EXPECTED_PRODUCER"
