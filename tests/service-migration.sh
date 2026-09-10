@@ -27,6 +27,9 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/common.sh"
+
 FAILED=0
 
 assert_eq() {
@@ -195,6 +198,7 @@ echo "service-migration: installed-identity read"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/old-home"
 
 mkdir -p "$TMP/units"
 bridge_systemd_units() { echo "kimaki.service"; }
@@ -218,7 +222,7 @@ out=$(LOCAL_MODE=true bash -c '
   source lib/service-migration.sh
   log() { :; }; warn() { :; }
   error() { echo "ERROR: $1"; exit 1; }
-  service_migration_preflight opencode /root engineering
+  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
 ' 2>&1 || true)
 assert_contains "$out" "not applicable to a local install" "preflight refuses local mode"
 
@@ -242,7 +246,7 @@ out=$(bash -c '
   error() { echo "ERROR: $1"; exit 1; }
   service_migration_effective_uid() { echo 1000; }
   LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
+  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
 ' 2>&1 || true)
 assert_contains "$out" "must run as root" "preflight refuses an unprivileged run"
 
@@ -256,7 +260,7 @@ out=$(bash -c '
   service_migration_effective_uid() { echo 0; }
   service_migration_target_home() { echo "'"$TMP"'/home/opencode"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
+  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
 ' 2>&1 || true)
 assert_contains "$out" "already contains" "preflight refuses to merge runtime state"
 
@@ -298,7 +302,7 @@ out=$(bash -c '
   service_migration_current_unit() { echo "kimaki.service"; }
   bridge_systemd_units() { echo "kimaki.service"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
+  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
 ' 2>&1 || true)
 assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
 assert_contains "$out" "systemd-run" "names a detached way to re-run it"
@@ -314,7 +318,7 @@ out=$(bash -c '
   bridge_systemd_units() { echo "kimaki.service"; }
   service_migration_target_home() { echo "'"$TMP"'/fresh-home"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering && echo PREFLIGHT_OK
+  service_migration_preflight opencode "'"$TMP"'/old-home" engineering && echo PREFLIGHT_OK
 ' 2>&1 || true)
 assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
 
@@ -343,10 +347,10 @@ if [ "$(id -u)" -eq 0 ]; then
   ) >/dev/null 2>&1
 
   for p in ".local" ".local/share" ".local/share/opencode" ".kimaki"; do
-    owner=$(stat -c '%U' "$MOVE/new/$p" 2>/dev/null || echo MISSING)
+    owner=$(file_owner "$MOVE/new/$p" 2>/dev/null || echo MISSING)
     assert_eq "$owner" "$MOVE_USER" "$p is owned by the service user"
   done
-  assert_eq "$(stat -c '%U' "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
+  assert_eq "$(file_owner "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
     "$MOVE_USER" "moved file contents are owned by the service user"
   # The source must be gone — a copy would leave the old identity's session
   # database live alongside the new one.

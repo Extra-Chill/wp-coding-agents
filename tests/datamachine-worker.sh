@@ -3,6 +3,9 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 export SITE_PATH=/var/www/site SERVICE_USER=chubes SERVICE_HOME=/home/chubes
 export WP_CMD=wp LOCAL_MODE=false PLATFORM=linux DRY_RUN=false
+# The base snapshots cover an unresolved CLI command; host-installed wp-cli
+# must not change their rendered service contract.
+PATH=/usr/bin:/bin
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
 

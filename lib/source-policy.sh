@@ -812,9 +812,9 @@ source_policy_assert_trusted_workspace_ancestors() {
   while [ "$ancestor" != / ]; do
     if [ -L "$ancestor" ]; then
       container="$(dirname "$ancestor")"
-      link_owner="$(stat -c '%u' "$ancestor" 2>/dev/null || stat -f '%u' "$ancestor" 2>/dev/null || true)"
-      container_owner="$(stat -c '%u' "$container" 2>/dev/null || stat -f '%u' "$container" 2>/dev/null || true)"
-      container_mode="$(stat -c '%a' "$container" 2>/dev/null || stat -f '%Lp' "$container" 2>/dev/null || true)"
+      link_owner="$(file_owner_id "$ancestor" 2>/dev/null || true)"
+      container_owner="$(file_owner_id "$container" 2>/dev/null || true)"
+      container_mode="$(file_mode "$container" 2>/dev/null || true)"
       permissions="${container_mode: -3}"
       group_digit="${permissions:1:1}"
       other_digit="${permissions:2:1}"
@@ -825,8 +825,8 @@ source_policy_assert_trusted_workspace_ancestors() {
       fi
     fi
     if [ "${EUID:-$(id -u)}" = 0 ] && [ -e "$ancestor" ]; then
-      ancestor_owner="$(stat -c '%u' "$ancestor" 2>/dev/null || stat -f '%u' "$ancestor" 2>/dev/null || true)"
-      ancestor_mode="$(stat -c '%a' "$ancestor" 2>/dev/null || stat -f '%Lp' "$ancestor" 2>/dev/null || true)"
+      ancestor_owner="$(file_owner_id "$ancestor" 2>/dev/null || true)"
+      ancestor_mode="$(file_mode "$ancestor" 2>/dev/null || true)"
       permissions="${ancestor_mode: -3}"
       group_digit="${permissions:1:1}"
       other_digit="${permissions:2:1}"

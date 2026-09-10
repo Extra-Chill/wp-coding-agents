@@ -368,7 +368,7 @@ _kimaki_path_is_web_traversable() {
   [ -n "$dir" ] || dir="/"
   while :; do
     local perms
-    perms="$(stat -c '%a' "$dir" 2>/dev/null)" || perms="$(stat -f '%Lp' "$dir" 2>/dev/null)" || return 1
+    perms="$(file_mode "$dir" 2>/dev/null)" || return 1
     # Last octal digit is the "other" triad; its execute bit is value 1.
     local other="${perms: -1}"
     case "$other" in

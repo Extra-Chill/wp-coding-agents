@@ -63,6 +63,36 @@ source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/source-policy.sh"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/tests/fixtures/stat-dialects.sh"
+
+portable_stat_fixture_values() {
+  local dialect="$1"
+  (
+    unset WP_CODING_AGENTS_STAT_DIALECT
+    case "$dialect" in
+      gnu) stat() { stat_fixture_gnu "$@"; } ;;
+      bsd) stat() { stat_fixture_bsd "$@"; } ;;
+    esac
+    source "$SCRIPT_DIR/lib/common.sh"
+    printf '%s:%s:%s:%s' "$(file_mode fixture)" "$(file_owner fixture)" "$(file_owner_id fixture)" "$(file_group fixture)"
+  )
+}
+
+echo "==> portable stat metadata helpers"
+assert_eq "$(portable_stat_fixture_values gnu)" "640:fixture-owner:501:fixture-group" "GNU stat fixture returns mode, owner, owner ID, and group"
+assert_eq "$(portable_stat_fixture_values bsd)" "640:fixture-owner:501:fixture-group" "BSD stat fixture returns mode, owner, owner ID, and group"
+missing_stat_diagnostic="$(
+  (
+    unset WP_CODING_AGENTS_STAT_DIALECT
+    stat() { return 1; }
+    source "$SCRIPT_DIR/lib/common.sh"
+    file_mode fixture >/dev/null || test "$?" -eq 69
+    file_group fixture >/dev/null || test "$?" -eq 69
+  ) 2>&1
+)"
+assert_eq "$missing_stat_diagnostic" "wp-coding-agents: required capability unavailable: stat with GNU (-c) or BSD/macOS (-f) format support" "missing stat capability reports one explicit diagnostic"
+
 # ===========================================================================
 echo "==> source policy resolves the documented root matrix"
 # ===========================================================================
@@ -653,7 +683,7 @@ wp-content/plugins/acme-core" \
 
 # The reader is an unprivileged identity that is not us. A mode that keeps it
 # out defeats the only reason the file exists.
-assert_eq "$(stat -c '%a' "$MANI" 2>/dev/null || stat -f '%Lp' "$MANI" 2>/dev/null)" "644" "manifest is world-readable"
+assert_eq "$(file_mode "$MANI")" "644" "manifest is world-readable"
 
 # SITE_PATH is the nginx docroot on a real install (verified on
 # h44lacrosse.com: `root /var/www/h44lacrosse.com;`). A manifest written there

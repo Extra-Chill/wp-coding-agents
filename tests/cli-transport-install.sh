@@ -25,11 +25,7 @@ FAILED=0
 
 assert_mode_0664() {
   local got
-  if stat -c %a "$MU_FILE" >/dev/null 2>&1; then
-    got=$(stat -c %a "$MU_FILE")
-  else
-    got=$(stat -f %Lp "$MU_FILE")
-  fi
+  got=$(file_mode "$MU_FILE")
   if [ "$got" = "664" ]; then
     echo "  ok   transport mu-plugin mode 0664"
   else
@@ -40,8 +36,8 @@ assert_mode_0664() {
 
 assert_group() {
   local got want
-  got=$(stat -c %G "$MU_FILE" 2>/dev/null || stat -f %Sg "$MU_FILE")
-  want=$(stat -c %G "$(dirname "$MU_FILE")" 2>/dev/null || stat -f %Sg "$(dirname "$MU_FILE")")
+  got=$(file_group "$MU_FILE")
+  want=$(file_group "$(dirname "$MU_FILE")")
   if [ "$got" = "$want" ]; then
     echo "  ok   transport mu-plugin group matches parent dir ($want)"
   else
