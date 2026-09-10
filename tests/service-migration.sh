@@ -198,7 +198,6 @@ echo "service-migration: installed-identity read"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/old-home"
 
 mkdir -p "$TMP/units"
 bridge_systemd_units() { echo "kimaki.service"; }
@@ -222,7 +221,7 @@ out=$(LOCAL_MODE=true bash -c '
   source lib/service-migration.sh
   log() { :; }; warn() { :; }
   error() { echo "ERROR: $1"; exit 1; }
-  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
+  service_migration_preflight opencode /root engineering
 ' 2>&1 || true)
 assert_contains "$out" "not applicable to a local install" "preflight refuses local mode"
 
@@ -246,7 +245,7 @@ out=$(bash -c '
   error() { echo "ERROR: $1"; exit 1; }
   service_migration_effective_uid() { echo 1000; }
   LOCAL_MODE=false
-  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
+  service_migration_preflight opencode /root engineering
 ' 2>&1 || true)
 assert_contains "$out" "must run as root" "preflight refuses an unprivileged run"
 
@@ -260,7 +259,7 @@ out=$(bash -c '
   service_migration_effective_uid() { echo 0; }
   service_migration_target_home() { echo "'"$TMP"'/home/opencode"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
+  service_migration_preflight opencode /root engineering
 ' 2>&1 || true)
 assert_contains "$out" "already contains" "preflight refuses to merge runtime state"
 
@@ -302,7 +301,7 @@ out=$(bash -c '
   service_migration_current_unit() { echo "kimaki.service"; }
   bridge_systemd_units() { echo "kimaki.service"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode "'"$TMP"'/old-home" engineering
+  service_migration_preflight opencode /root engineering
 ' 2>&1 || true)
 assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
 assert_contains "$out" "systemd-run" "names a detached way to re-run it"
@@ -318,7 +317,7 @@ out=$(bash -c '
   bridge_systemd_units() { echo "kimaki.service"; }
   service_migration_target_home() { echo "'"$TMP"'/fresh-home"; }
   LOCAL_MODE=false
-  service_migration_preflight opencode "'"$TMP"'/old-home" engineering && echo PREFLIGHT_OK
+  service_migration_preflight opencode /root engineering && echo PREFLIGHT_OK
 ' 2>&1 || true)
 assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
 
