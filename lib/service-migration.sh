@@ -235,10 +235,24 @@ service_migration_estimate_bytes() {
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     [ -e "$home/$rel" ] || continue
-    sz=$(du -sb "$home/$rel" 2>/dev/null | cut -f1)
+    sz=$(service_migration_path_bytes "$home/$rel")
     [ -n "$sz" ] && total=$((total + sz))
   done <<<"$(service_migration_inventory "$mode")"
   echo "$total"
+}
+
+# Host filesystem probes are functions so preflight can be tested against a
+# complete fixture rather than the machine running the test.
+service_migration_path_bytes() {
+  du -sb "$1" 2>/dev/null | cut -f1
+}
+
+service_migration_filesystem() {
+  df -P "$1" 2>/dev/null | awk 'NR==2 {print $1}'
+}
+
+service_migration_available_bytes() {
+  df -PB1 "$1" 2>/dev/null | awk 'NR==2 {print $4}'
 }
 
 # ---------------------------------------------------------------------------
@@ -319,11 +333,11 @@ service_migration_preflight() {
   # Same-filesystem moves are renames and need no headroom; a cross-filesystem
   # move needs the full inventory size free at the destination.
   local old_fs new_fs need avail
-  old_fs=$(df -P "$old_home" 2>/dev/null | awk 'NR==2 {print $1}')
-  new_fs=$(df -P "$(dirname "$new_home")" 2>/dev/null | awk 'NR==2 {print $1}')
+  old_fs=$(service_migration_filesystem "$old_home")
+  new_fs=$(service_migration_filesystem "$(dirname "$new_home")")
   if [ -n "$old_fs" ] && [ "$old_fs" != "$new_fs" ]; then
     need=$(service_migration_estimate_bytes "$old_home" "$mode")
-    avail=$(df -PB1 "$(dirname "$new_home")" 2>/dev/null | awk 'NR==2 {print $4}')
+    avail=$(service_migration_available_bytes "$(dirname "$new_home")")
     if [ -n "$avail" ] && [ "$need" -gt 0 ] && [ "$avail" -lt "$need" ]; then
       error "Not enough space to migrate: need $((need / 1024 / 1024)) MiB at '$new_home', $((avail / 1024 / 1024)) MiB available."
     fi

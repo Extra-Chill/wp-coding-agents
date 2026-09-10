@@ -199,6 +199,34 @@ echo "service-migration: installed-identity read"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+PREFLIGHT_OLD_HOME="$TMP/old-home"
+PREFLIGHT_TARGET_HOME="$TMP/home/opencode"
+mkdir -p "$PREFLIGHT_OLD_HOME" "$PREFLIGHT_TARGET_HOME"
+
+# All preflight host dependencies are supplied by this fixture. Individual
+# assertions select the identity, cgroup/unit, homes, and filesystem answers
+# they need without consulting the machine running the shell test.
+run_fixture_preflight() (
+  source lib/service-migration.sh
+  log() { :; }; warn() { :; }
+  error() { echo "ERROR: $1"; exit 1; }
+  service_migration_effective_uid() { echo "${PREFLIGHT_UID:-0}"; }
+  service_migration_target_home() { echo "${PREFLIGHT_TARGET_HOME:?}"; }
+  service_migration_current_unit() { printf '%s\n' "${PREFLIGHT_CURRENT_UNIT:-}"; }
+  service_migration_units() { printf '%s\n' "${PREFLIGHT_UNITS:-}"; }
+  service_migration_filesystem() {
+    if [ "$1" = "$PREFLIGHT_OLD_HOME" ]; then
+      echo "${PREFLIGHT_SOURCE_FILESYSTEM:-fixture-fs}"
+    else
+      echo "${PREFLIGHT_TARGET_FILESYSTEM:-fixture-fs}"
+    fi
+  }
+  service_migration_available_bytes() { echo "${PREFLIGHT_AVAILABLE_BYTES:-999999999}"; }
+  service_migration_path_bytes() { echo "${PREFLIGHT_PATH_BYTES:-0}"; }
+  LOCAL_MODE="${PREFLIGHT_LOCAL_MODE:-false}"
+  service_migration_preflight "$@"
+)
+
 mkdir -p "$TMP/units"
 bridge_systemd_units() { echo "kimaki.service"; }
 
@@ -217,51 +245,36 @@ echo ""
 echo "service-migration: preflight fails closed"
 
 # Local installs have no systemd and no service user to migrate onto.
-out=$(LOCAL_MODE=true bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  service_migration_preflight opencode /root engineering
-' 2>&1 || true)
+out=$(PREFLIGHT_LOCAL_MODE=true run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "not applicable to a local install" "preflight refuses local mode"
 
 # Argument validation must come BEFORE the privilege gate, so these assertions
 # hold whether or not the suite is running as root. CI runs unprivileged; the
 # development box runs as root. An ordering that only passes on one of them is
 # the bug this arrangement pins.
-out=$(bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  LOCAL_MODE=false
-  service_migration_preflight root /root engineering
-' 2>&1 || true)
+out=$(run_fixture_preflight root "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "cannot be root" "preflight refuses root as target"
 
 # Privilege gate itself, forced on regardless of who is running the suite.
-out=$(bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  service_migration_effective_uid() { echo 1000; }
-  LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
-' 2>&1 || true)
+out=$(PREFLIGHT_UID=1000 run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "must run as root" "preflight refuses an unprivileged run"
 
 # A target home that already holds runtime state means a previous attempt got
 # partway. Merging two session databases corrupts both.
-mkdir -p "$TMP/home/opencode/.kimaki"
-out=$(bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  service_migration_effective_uid() { echo 0; }
-  service_migration_target_home() { echo "'"$TMP"'/home/opencode"; }
-  LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
-' 2>&1 || true)
+mkdir -p "$PREFLIGHT_TARGET_HOME/.kimaki"
+out=$(run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "already contains" "preflight refuses to merge runtime state"
+rm -rf "$PREFLIGHT_TARGET_HOME/.kimaki"
+
+# The capacity guard receives filesystem identity, free space, and inventory
+# size from the fixture, so it is testable without the host's mount table.
+mkdir -p "$PREFLIGHT_OLD_HOME/.kimaki"
+printf 'state\n' >"$PREFLIGHT_OLD_HOME/.kimaki/session"
+out=$(PREFLIGHT_SOURCE_FILESYSTEM=fixture-source PREFLIGHT_TARGET_FILESYSTEM=fixture-target \
+  PREFLIGHT_PATH_BYTES=2048 PREFLIGHT_AVAILABLE_BYTES=1 \
+  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+assert_contains "$out" "Not enough space to migrate" "preflight refuses an undersized cross-filesystem move"
+rm -rf "$PREFLIGHT_OLD_HOME/.kimaki"
 
 echo ""
 echo "service-migration: --non-root on a root install is refused"
@@ -293,33 +306,43 @@ echo "service-migration: refuses to migrate from inside the unit it stops"
 # mid-move: state partly relocated, no unit rendered, nothing left running to
 # finish or report. It must refuse, and it must be a refusal rather than a
 # warning, because the process that would read the warning is the one that dies.
-out=$(bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  service_migration_effective_uid() { echo 0; }
-  service_migration_current_unit() { echo "kimaki.service"; }
-  bridge_systemd_units() { echo "kimaki.service"; }
-  LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering
-' 2>&1 || true)
+out=$(PREFLIGHT_CURRENT_UNIT=kimaki.service PREFLIGHT_UNITS=kimaki.service \
+  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
 assert_contains "$out" "systemd-run" "names a detached way to re-run it"
 
 # ...and does NOT refuse when the caller is outside the service (an SSH shell,
 # or systemd-run under its own transient unit).
-out=$(bash -c '
-  source lib/service-migration.sh
-  log() { :; }; warn() { :; }
-  error() { echo "ERROR: $1"; exit 1; }
-  service_migration_effective_uid() { echo 0; }
-  service_migration_current_unit() { echo ""; }
-  bridge_systemd_units() { echo "kimaki.service"; }
-  service_migration_target_home() { echo "'"$TMP"'/fresh-home"; }
-  LOCAL_MODE=false
-  service_migration_preflight opencode /root engineering && echo PREFLIGHT_OK
-' 2>&1 || true)
+out=$(PREFLIGHT_UNITS=kimaki.service PREFLIGHT_TARGET_HOME="$TMP/fresh-home" \
+  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 && echo PREFLIGHT_OK || true)
 assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
+
+echo ""
+echo "service-migration: Linux/systemd cgroup integration"
+
+if [ "${SERVICE_MIGRATION_SYSTEMD_INTEGRATION:-false}" != true ]; then
+  echo "  SKIP integration code=not-requested reason=SERVICE_MIGRATION_SYSTEMD_INTEGRATION=true-required"
+elif [ "$(uname -s)" != Linux ]; then
+  echo "  SKIP integration code=unsupported-os reason=linux-required"
+elif [ ! -r /proc/self/cgroup ]; then
+  echo "  SKIP integration code=cgroup-unavailable reason=/proc/self/cgroup-unreadable"
+elif ! command -v systemd-run >/dev/null 2>&1; then
+  echo "  SKIP integration code=systemd-run-unavailable reason=systemd-run-not-installed"
+elif [ "$(id -u)" -ne 0 ]; then
+  echo "  SKIP integration code=root-required reason=systemd-run-system-scope-requires-root"
+elif ! systemctl show --property=Version --value >/dev/null 2>&1; then
+  echo "  SKIP integration code=systemd-unavailable reason=system-manager-not-reachable"
+elif [[ "$(systemd-run --help 2>&1)" != *"--pipe"* ]]; then
+  echo "  SKIP integration code=systemd-run-pipe-unavailable reason=systemd-run-lacks-pipe-support"
+else
+  integration_unit="wpca-migration-preflight-$$"
+  if ! out=$(systemd-run --quiet --pipe --wait --collect --unit="$integration_unit" \
+    /bin/bash -c "source '$SCRIPT_DIR/lib/service-migration.sh'; service_migration_current_unit" 2>&1); then
+    echo "  SKIP integration code=transient-unit-unavailable reason=systemd-run-failed"
+  else
+    assert_contains "$out" "$integration_unit.service" "real systemd cgroup identifies its transient unit"
+  fi
+fi
 
 echo ""
 echo "service-migration: state lands owned by the service user"
