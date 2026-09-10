@@ -23,6 +23,9 @@ source "$SCRIPT_DIR/guidance/_dispatch.sh"
 SOURCE_MODE="${SOURCE_MODE:-workspace}"
 UPDATED_ITEMS=()
 
+PRODUCER_VERSION="$(agents_md_guidance_producer_version)"
+PRODUCER_SOURCE="$(agents_md_guidance_producer_source)"
+
 VERBOSE=false
 for arg in "$@"; do
   case "$arg" in
@@ -136,6 +139,74 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+echo "==> provenance identities distinguish dirty and packaged producers"
+DIRTY="$TMP/dirty"
+mkdir -p "$DIRTY/lib" "$DIRTY/guidance"
+cp "$SCRIPT_DIR/VERSION" "$DIRTY/VERSION"
+cp "$SCRIPT_DIR/lib/agents-md-guidance.sh" "$DIRTY/lib/agents-md-guidance.sh"
+cp "$SCRIPT_DIR"/guidance/*.sh "$DIRTY/guidance/"
+git -C "$DIRTY" init -q
+git -C "$DIRTY" add .
+git -C "$DIRTY" -c user.email=tests@example.invalid -c user.name=tests commit -qm fixture
+printf '%s\n' '# dirty fixture' >> "$DIRTY/guidance/homeboy.sh"
+DIRTY_SOURCE=$(SCRIPT_DIR="$DIRTY"; source "$DIRTY/lib/agents-md-guidance.sh"; agents_md_guidance_producer_source)
+case "$DIRTY_SOURCE" in
+  dirty-sha256:*|dirty-version:*) echo "  ok   dirty checkout never claims a clean commit identity" ;;
+  *) echo "  FAIL dirty checkout claimed unexpected producer identity: $PRODUCER_SOURCE"; FAILED=$((FAILED + 1)) ;;
+esac
+
+PACKAGE="$TMP/package"
+mkdir -p "$PACKAGE/lib"
+cp "$SCRIPT_DIR/VERSION" "$PACKAGE/VERSION"
+cp "$SCRIPT_DIR/lib/agents-md-guidance.sh" "$PACKAGE/lib/agents-md-guidance.sh"
+mkdir -p "$PACKAGE/guidance"
+cp "$SCRIPT_DIR"/guidance/*.sh "$PACKAGE/guidance/"
+PACKAGE_SOURCE=$(SCRIPT_DIR="$PACKAGE"; source "$PACKAGE/lib/agents-md-guidance.sh"; agents_md_guidance_producer_source)
+case "$PACKAGE_SOURCE" in
+  package-sha256:*) echo "  ok   packaged producer uses portable content identity" ;;
+  *) echo "  FAIL packaged producer identity: $PACKAGE_SOURCE"; FAILED=$((FAILED + 1)) ;;
+esac
+PACKAGE_FALLBACK=$(PATH="/nonexistent"; SCRIPT_DIR="$PACKAGE"; source "$PACKAGE/lib/agents-md-guidance.sh"; agents_md_guidance_producer_source)
+assert_eq "$PACKAGE_FALLBACK" "package-version:$PRODUCER_VERSION" "packaged producer has an explicit no-hash fallback"
+
+echo "==> old producer recomposes to current guidance"
+OLD_PRODUCER='version=1.21.1 source=commit:0000000000000000000000000000000000000000'
+printf '%s\n' "<!-- wp-coding-agents-provenance: $OLD_PRODUCER -->" > "$TMP/AGENTS.md"
+if agents_md_guidance_verify_composed_provenance "$TMP/AGENTS.md"; then
+  echo "  FAIL old composed producer was accepted as current"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   old composed producer requires recompose"
+fi
+printf '%s\n' "$(agents_md_guidance_provenance_markdown)" 'request explicit operator authorization before invoking a coding runtime directly' > "$TMP/AGENTS.md"
+if agents_md_guidance_verify_composed_provenance "$TMP/AGENTS.md"; then
+  echo "  ok   recompose produces current provenance and recovery behavior"
+else
+  echo "  FAIL recomposed guidance was not current"
+  FAILED=$((FAILED + 1))
+fi
+printf '%s\n' '## Guidance intentionally disabled' > "$TMP/AGENTS.md"
+if agents_md_guidance_verify_composed_provenance "$TMP/AGENTS.md"; then
+  echo "  FAIL disabled guidance was incorrectly active"
+  FAILED=$((FAILED + 1))
+else
+  STATUS=$?
+  assert_eq "$STATUS" "1" "missing provenance requires an authoritative gate check"
+fi
+printf '%s\n' '## User guidance before failed compose' > "$TMP/precompose"
+cp "$TMP/precompose" "$TMP/precompose.backup"
+printf '%s\n' 'partial stale compose output' > "$TMP/precompose"
+agents_md_guidance_restore_precompose_state "$TMP/precompose" "$TMP/precompose.backup" true
+assert_eq "$(<"$TMP/precompose")" '## User guidance before failed compose' "failed or stale compose restores existing user guidance"
+printf '%s\n' 'partial output without predecessor' > "$TMP/new-precompose"
+agents_md_guidance_restore_precompose_state "$TMP/new-precompose" "$TMP/missing-backup" false
+if [ -e "$TMP/new-precompose" ]; then
+  echo "  FAIL failed compose left a new partial AGENTS.md"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   failed compose removes a new partial AGENTS.md"
+fi
+
 echo "==> re-register generic guidance (idempotent)"
 HASH_BEFORE=$(file_hash "$MU_FILE")
 agents_md_guidance_register "sample-guidance" 36 "Sample guidance" "Sample generated guidance." "## Sample guidance"
@@ -209,6 +280,8 @@ namespace {
         'priority' => \$call[2] ?? null,
         'label' => \$call[4]['label'] ?? null,
         'owner' => \$call[4]['owner'] ?? null,
+        'producer_version' => \$call[4]['producer_version'] ?? null,
+        'producer_source' => \$call[4]['producer_source'] ?? null,
         'freshness' => \$call[4]['freshness'] ?? null,
         'conditions' => \$call[4]['conditions'] ?? null,
         'content' => \$content,
@@ -217,7 +290,7 @@ namespace {
 PHP
 
 RESULT=$(php "$SHIM")
-EXPECTED='{"filename":"AGENTS.md","slug":"sample-guidance","priority":36,"label":"Sample guidance","owner":"wp-coding-agents","freshness":"conditional","conditions":"Registered by wp-coding-agents when the integration is available; removed when unavailable.","content":"## Sample guidance"}'
+EXPECTED="{\"filename\":\"AGENTS.md\",\"slug\":\"sample-guidance\",\"priority\":36,\"label\":\"Sample guidance\",\"owner\":\"wp-coding-agents\",\"producer_version\":\"$PRODUCER_VERSION\",\"producer_source\":\"$PRODUCER_SOURCE\",\"freshness\":\"conditional\",\"conditions\":\"Registered by wp-coding-agents when the integration is available; removed when unavailable.\",\"content\":\"<!-- wp-coding-agents-provenance: version=$PRODUCER_VERSION source=$PRODUCER_SOURCE -->\\n## Sample guidance\"}"
 assert_eq "$RESULT" "$EXPECTED" "SectionRegistry receives generic guidance section"
 
 echo "==> unregister generic guidance"
@@ -234,6 +307,7 @@ fi
 assert_php_lint "$MU_FILE" "post-unregister file parses with php -l"
 
 echo "==> sync WordPress coding-agent boundaries"
+wp_cli_transport_set wp
 # Emulate an existing installation created before wp-coding-agents registered
 # its sections at a deterministic late priority.
 python3 - "$MU_FILE" <<'PY'
@@ -397,6 +471,8 @@ PATH="$TMP/homeboy-bin:$PATH"
 export PATH
 guidance_sync_unit homeboy
 assert_contains "$MU_FILE" 'Homeboy remains the normal owner of tracked coding work.' "Homeboy guidance preserves normal ownership"
+assert_contains "$MU_FILE" "wp-coding-agents-provenance: version=$PRODUCER_VERSION source=$PRODUCER_SOURCE" "Homeboy guidance records its producer provenance"
+assert_contains "$MU_FILE" "'producer_version' => '$PRODUCER_VERSION'" "Homeboy metadata records its producer version"
 assert_contains "$MU_FILE" 'homeboy agent-task cook --preview' "Homeboy guidance validates the selected route"
 assert_contains "$MU_FILE" 'homeboy agent-task cook --help-full' "Homeboy guidance discovers exact alternative routes"
 assert_contains "$MU_FILE" 'configured attempt and provider-rotation budget' "Homeboy guidance bounds recovery"

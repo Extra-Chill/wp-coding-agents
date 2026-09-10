@@ -26,6 +26,111 @@
 #
 # Honors DRY_RUN (logs intent, makes no changes).
 
+# Producer provenance is derived from content, never a build time or host path.
+# Only a clean checkout can claim its commit identity. Dirty checkouts and
+# packages instead identify the guidance producer surface deterministically.
+agents_md_guidance_producer_version() {
+  local version
+  IFS= read -r version < "$SCRIPT_DIR/VERSION" || version="unknown"
+  printf '%s' "${version:-unknown}"
+}
+
+_agents_md_guidance_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum
+  else
+    return 127
+  fi
+}
+
+_agents_md_guidance_surface_digest() {
+  command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
+  (
+    cd "$SCRIPT_DIR" || exit 1
+    for file in VERSION lib/agents-md-guidance.sh guidance/*.sh; do
+      [ -f "$file" ] || continue
+      printf '%s\0' "$file"
+      _agents_md_guidance_sha256 < "$file" | awk '{print $1}'
+    done
+  ) | _agents_md_guidance_sha256 | awk '{print $1}'
+}
+
+agents_md_guidance_producer_source() {
+  local commit digest version state
+  version="$(agents_md_guidance_producer_version)"
+  if git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -z "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+      commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      if [ -n "$commit" ]; then
+        printf 'commit:%s' "$commit"
+        return 0
+      fi
+    fi
+    state="dirty"
+  else
+    state="package"
+  fi
+
+  digest="$(_agents_md_guidance_surface_digest || true)"
+  if [ -n "$digest" ]; then
+    printf '%s-sha256:%s' "$state" "$digest"
+  else
+    # Minimal packaged environments may not ship either hashing utility. The
+    # version fallback is explicit and remains deterministic for a release.
+    printf '%s-version:%s' "$state" "$version"
+  fi
+}
+
+agents_md_guidance_provenance_markdown() {
+  printf '<!-- wp-coding-agents-provenance: version=%s source=%s -->' \
+    "$(agents_md_guidance_producer_version)" \
+    "$(agents_md_guidance_producer_source)"
+}
+
+agents_md_guidance_composed_producer() {
+  [ -f "$1" ] || return 0
+  sed -n 's/.*wp-coding-agents-provenance: version=\([^ ]*\) source=\([^ ]*\).*/version=\1 source=\2/p' "$1" | sort -u
+}
+
+# Returns 0 for current guidance and 1 for stale or missing provenance.
+agents_md_guidance_verify_composed_provenance() {
+  local composed expected
+  composed="$(agents_md_guidance_composed_producer "$1")"
+  [ -n "$composed" ] || return 1
+  expected="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
+  [ "$composed" = "$expected" ]
+}
+
+# Query Data Machine's actual runtime AGENTS.md gate. The supplied command is
+# the WP-CLI runner (for example, wp_cli or wp_run_as_service_user). Return 0
+# for enabled, 1 for explicitly disabled, 2 when the gate is unavailable, and
+# 3 when WordPress cannot authoritatively answer.
+agents_md_guidance_composition_gate() {
+  local state
+  state="$("$@" eval 'if ( ! function_exists( "datamachine_agents_md_enabled" ) ) { echo "unavailable"; } elseif ( datamachine_agents_md_enabled() ) { echo "enabled"; } else { echo "disabled"; }' 2>/dev/null)" || return 3
+  case "$state" in
+    enabled) return 0 ;;
+    disabled) return 1 ;;
+    unavailable) return 2 ;;
+    *) return 3 ;;
+  esac
+}
+
+# Restore the file state recorded before a compose attempt. A failed compose may
+# have created a partial file even where no AGENTS.md previously existed.
+agents_md_guidance_restore_precompose_state() {
+  local agents_md="$1" backup="$2" had_agents_md="$3"
+  if [ "$had_agents_md" = true ]; then
+    cp "$backup" "$agents_md"
+    service_file_normalize_perms "$agents_md"
+  else
+    rm -f "$agents_md"
+  fi
+}
+
 agents_md_guidance_mu_plugin_path() {
   if [ -z "${SITE_PATH:-}" ]; then
     return 1
@@ -297,6 +402,8 @@ _agents_md_guidance_render_block() {
   AGENTS_MD_GUIDANCE_LABEL="$label" \
   AGENTS_MD_GUIDANCE_DESCRIPTION="$description" \
   AGENTS_MD_GUIDANCE_CONTENT="$content" \
+  AGENTS_MD_GUIDANCE_PRODUCER_VERSION="$(agents_md_guidance_producer_version)" \
+  AGENTS_MD_GUIDANCE_PRODUCER_SOURCE="$(agents_md_guidance_producer_source)" \
   AGENTS_MD_GUIDANCE_FRESHNESS="${AGENTS_MD_GUIDANCE_FRESHNESS:-conditional}" \
   AGENTS_MD_GUIDANCE_CONDITIONS="${AGENTS_MD_GUIDANCE_CONDITIONS:-Registered by wp-coding-agents when the integration is available; removed when unavailable.}" \
   python3 <<'PY'
@@ -309,6 +416,8 @@ priority = os.environ["AGENTS_MD_GUIDANCE_PRIORITY"]
 label = os.environ["AGENTS_MD_GUIDANCE_LABEL"]
 description = os.environ.get("AGENTS_MD_GUIDANCE_DESCRIPTION", "")
 content = os.environ["AGENTS_MD_GUIDANCE_CONTENT"].rstrip("\n")
+producer_version = os.environ["AGENTS_MD_GUIDANCE_PRODUCER_VERSION"]
+producer_source = os.environ["AGENTS_MD_GUIDANCE_PRODUCER_SOURCE"]
 freshness = os.environ.get("AGENTS_MD_GUIDANCE_FRESHNESS", "conditional")
 conditions = os.environ.get("AGENTS_MD_GUIDANCE_CONDITIONS", "")
 
@@ -331,6 +440,7 @@ print(f"        '{esc(section_id)}',")
 print(f"        {priority_int},")
 print("        static function () {")
 print("            return <<<'MD'")
+print(f"<!-- wp-coding-agents-provenance: version={producer_version} source={producer_source} -->")
 print(content)
 print("MD;")
 print("        },")
@@ -338,6 +448,8 @@ print("        array(")
 print(f"            'label'       => '{esc(label)}',")
 print(f"            'description' => '{esc(description)}',")
 print("            'owner'       => 'wp-coding-agents',")
+print(f"            'producer_version' => '{esc(producer_version)}',")
+print(f"            'producer_source'  => '{esc(producer_source)}',")
 print(f"            'freshness'   => '{esc(freshness)}',")
 print(f"            'conditions'  => '{esc(conditions)}',")
 print("        )")
