@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+source "$ROOT_DIR/lib/common.sh"
 source "$ROOT_DIR/lib/desired-state-reconciler.sh"
 source "$ROOT_DIR/lib/source-policy.sh"
 
@@ -35,11 +36,7 @@ installation_profile_write
 
 PROFILE="$(installation_profile_file)"
 test -f "$PROFILE"
-if stat -f '%Lp' "$PROFILE" >/dev/null 2>&1; then
-  test "$(stat -f '%Lp' "$PROFILE")" = 600
-else
-  test "$(stat -c '%a' "$PROFILE")" = 600
-fi
+test "$(file_mode "$PROFILE")" = 600
 if grep -Eq 'TOKEN|TRANSPORT|secret|must-not-be-persisted' "$PROFILE"; then
   echo "FAIL: profile persisted credential or command transport material" >&2
   exit 1

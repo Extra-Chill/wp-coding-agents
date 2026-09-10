@@ -80,14 +80,6 @@ file_hash() {
   fi
 }
 
-file_mode() {
-  if stat -c %a "$1" >/dev/null 2>&1; then
-    stat -c %a "$1"
-  else
-    stat -f %Lp "$1"
-  fi
-}
-
 assert_mode_0664() {
   local file="$1" name="$2" got
   got=$(file_mode "$file")
@@ -103,8 +95,8 @@ assert_mode_0664() {
 
 assert_group() {
   local file="$1" name="$2" got want
-  got=$(stat -c %G "$file" 2>/dev/null || stat -f %Sg "$file")
-  want=$(stat -c %G "$(dirname "$file")" 2>/dev/null || stat -f %Sg "$(dirname "$file")")
+  got=$(file_group "$file")
+  want=$(file_group "$(dirname "$file")")
   if [ "$got" = "$want" ]; then
     echo "  ok   $name"
   else

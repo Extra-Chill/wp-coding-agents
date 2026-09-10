@@ -20,6 +20,57 @@ run_cmd() {
   fi
 }
 
+# GNU and BSD/macOS stat use incompatible format flags. Detect the available
+# dialect once so callers do not need host-specific fallbacks of their own.
+file_metadata_stat_dialect() {
+  case "${WP_CODING_AGENTS_STAT_DIALECT:-}" in
+    gnu|bsd) return 0 ;;
+    unavailable) return 69 ;;
+  esac
+
+  if stat -c '%a' / >/dev/null 2>&1; then
+    WP_CODING_AGENTS_STAT_DIALECT=gnu
+  elif stat -f '%Lp' / >/dev/null 2>&1; then
+    WP_CODING_AGENTS_STAT_DIALECT=bsd
+  else
+    WP_CODING_AGENTS_STAT_DIALECT=unavailable
+    printf '%s\n' 'wp-coding-agents: required capability unavailable: stat with GNU (-c) or BSD/macOS (-f) format support' >&2
+    return 69
+  fi
+}
+
+file_mode() {
+  file_metadata_stat_dialect || return
+  case "$WP_CODING_AGENTS_STAT_DIALECT" in
+    gnu) stat -c '%a' "$1" ;;
+    bsd) stat -f '%Lp' "$1" ;;
+  esac
+}
+
+file_owner() {
+  file_metadata_stat_dialect || return
+  case "$WP_CODING_AGENTS_STAT_DIALECT" in
+    gnu) stat -c '%U' "$1" ;;
+    bsd) stat -f '%Su' "$1" ;;
+  esac
+}
+
+file_owner_id() {
+  file_metadata_stat_dialect || return
+  case "$WP_CODING_AGENTS_STAT_DIALECT" in
+    gnu) stat -c '%u' "$1" ;;
+    bsd) stat -f '%u' "$1" ;;
+  esac
+}
+
+file_group() {
+  file_metadata_stat_dialect || return
+  case "$WP_CODING_AGENTS_STAT_DIALECT" in
+    gnu) stat -c '%G' "$1" ;;
+    bsd) stat -f '%Sg' "$1" ;;
+  esac
+}
+
 WP_CLI_TRANSPORT=()
 WP_CLI_TRANSPORT_CANDIDATE_NAMES=()
 WP_CLI_TRANSPORT_CANDIDATE_JSON=()
@@ -202,8 +253,7 @@ service_file_normalize_perms() {
 
   local dir group
   dir="$(dirname -- "$file")"
-  # GNU stat first (Linux); BSD/macOS stat as fallback for local dev mode.
-  group="$(stat -c '%G' "$dir" 2>/dev/null || stat -f '%Sg' "$dir" 2>/dev/null || true)"
+  group="$(file_group "$dir" 2>/dev/null || true)"
 
   chmod 0664 "$file" 2>/dev/null || true
   if [ -n "$group" ]; then
@@ -223,7 +273,7 @@ service_dir_normalize_perms() {
 
   local parent group
   parent="$(dirname -- "$target")"
-  group="$(stat -c '%G' "$parent" 2>/dev/null || stat -f '%Sg' "$parent" 2>/dev/null || true)"
+  group="$(file_group "$parent" 2>/dev/null || true)"
 
   find "$target" -type d -exec chmod 0775 {} + 2>/dev/null || true
   find "$target" -type f -exec chmod 0664 {} + 2>/dev/null || true

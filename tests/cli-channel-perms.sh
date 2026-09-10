@@ -52,17 +52,13 @@ if [ "$VERBOSE" = false ]; then
 fi
 
 MU_FILE="$TMP/wp-content/mu-plugins/wp-coding-agents-channels.php"
-DIR_GROUP="$(stat -c %G "$TMP/wp-content/mu-plugins" 2>/dev/null || stat -f %Sg "$TMP/wp-content/mu-plugins")"
+DIR_GROUP="$(file_group "$TMP/wp-content/mu-plugins")"
 FAILED=0
 
 assert_mode_0664() {
   local file="$1" name="$2"
   local got
-  if stat -c %a "$file" >/dev/null 2>&1; then
-    got=$(stat -c %a "$file")
-  else
-    got=$(stat -f %Lp "$file")
-  fi
+  got=$(file_mode "$file")
   if [ "$got" = "664" ]; then
     echo "  ok   $name"
   else
@@ -76,7 +72,7 @@ assert_mode_0664() {
 assert_group() {
   local file="$1" name="$2"
   local got
-  got=$(stat -c %G "$file" 2>/dev/null || stat -f %Sg "$file")
+  got=$(file_group "$file")
   if [ "$got" = "$DIR_GROUP" ]; then
     echo "  ok   $name"
   else

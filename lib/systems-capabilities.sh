@@ -134,7 +134,7 @@ systems_capabilities_install_sudoers() {
 systems_capabilities_drift() {
   local file="$1" content="$2" mode="${3#0}" group="${4:-root}"
   [ -f "$file" ] && [ "$(cat "$file")" = "$content" ] && \
-    [ "$(stat -c '%U:%G:%a' "$file" 2>/dev/null || true)" = "root:$group:$mode" ]
+    [ "$(file_owner "$file" 2>/dev/null || true):$(file_group "$file" 2>/dev/null || true):$(file_mode "$file" 2>/dev/null || true)" = "root:$group:$mode" ]
 }
 
 systems_capabilities_report_root_repair() {

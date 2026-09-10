@@ -27,6 +27,9 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/common.sh"
+
 FAILED=0
 
 assert_eq() {
@@ -343,10 +346,10 @@ if [ "$(id -u)" -eq 0 ]; then
   ) >/dev/null 2>&1
 
   for p in ".local" ".local/share" ".local/share/opencode" ".kimaki"; do
-    owner=$(stat -c '%U' "$MOVE/new/$p" 2>/dev/null || echo MISSING)
+    owner=$(file_owner "$MOVE/new/$p" 2>/dev/null || echo MISSING)
     assert_eq "$owner" "$MOVE_USER" "$p is owned by the service user"
   done
-  assert_eq "$(stat -c '%U' "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
+  assert_eq "$(file_owner "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
     "$MOVE_USER" "moved file contents are owned by the service user"
   # The source must be gone — a copy would leave the old identity's session
   # database live alongside the new one.

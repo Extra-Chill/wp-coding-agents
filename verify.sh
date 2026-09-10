@@ -113,10 +113,6 @@ wp_opt() {
     | sed -e '/^PHP Deprecated:/d' -e '/^Deprecated:/d' || true
 }
 
-file_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || true
-}
-
 SOURCE_MODE="$(wp_opt wp_coding_agents_source_mode | tr -d '[:space:]')"
 [ -n "$SOURCE_MODE" ] || SOURCE_MODE="$(wp_opt wp_coding_agents_posture | tr -d '[:space:]')"
 case "$SOURCE_MODE" in

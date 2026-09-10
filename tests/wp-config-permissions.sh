@@ -29,6 +29,9 @@ cd "$SCRIPT_DIR"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# shellcheck disable=SC1091
+source lib/common.sh
+
 fail() {
   echo "FAIL: $1" >&2
   exit 1
@@ -56,7 +59,7 @@ run_cmd() {
 eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
 
 mode_of() {
-  stat -c '%a' "$1"
+  file_mode "$1"
 }
 
 # 1. The state provisioning actually leaves behind: world-readable and
@@ -94,7 +97,7 @@ harden_wp_config_permissions "$empty" \
 # 5. World read is the specific bit that matters for a credentials file.
 chmod 644 "$site/wp-config.php"
 harden_wp_config_permissions "$site"
-if [ -r "$site/wp-config.php" ] && [ "$(stat -c '%A' "$site/wp-config.php" | cut -c8-10)" != "---" ]; then
+if [ $(( $(file_mode "$site/wp-config.php") % 10 & 4 )) -ne 0 ]; then
   fail "world permissions must be cleared on the credentials file"
 fi
 

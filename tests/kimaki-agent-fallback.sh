@@ -42,6 +42,8 @@ touch "$KIMAKI_BIN"
 chmod +x "$KIMAKI_BIN"
 
 # shellcheck disable=SC1091
+source "$ROOT/lib/common.sh"
+# shellcheck disable=SC1091
 source "$ROOT/bridges/kimaki.sh"
 
 _kimaki_register_cli_channel
