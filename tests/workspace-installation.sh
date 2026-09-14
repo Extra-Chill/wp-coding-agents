@@ -82,6 +82,11 @@ test "$(git -C "$REPOSITORY" status --short)" = "" || fail "native Git commit le
 
 cat > "$BIN/wp" <<'SH'
 #!/bin/bash
+for arg in "$@"; do
+  [ "$arg" = eval ] || continue
+  printf '%s\n' unavailable
+  exit 0
+done
 case "$3" in wp_coding_agents_source_mode) echo workspace ;; esac
 SH
 chmod +x "$BIN/wp"
