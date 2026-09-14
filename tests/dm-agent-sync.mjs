@@ -2,7 +2,8 @@
 
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
@@ -79,29 +80,51 @@ await withEnv({
   const recorder = join(directory, "compose")
   const count = join(directory, "count")
   const worker = join(directory, "worker.mjs")
+  const stateDirectory = join(directory, "state")
   await writeFile(recorder, `#!/bin/sh
 printf x >> "$DM_COMPOSE_COUNT"
 sleep 0.15
 `)
   await chmod(recorder, 0o755)
+  await writeFile(count, "")
+  await mkdir(stateDirectory)
   await writeFile(worker, `
 const { default: dmAgentSync } = await import(process.env.DM_AGENT_SYNC_MODULE)
 const plugin = await dmAgentSync({})
 await plugin.config({ instructions: ["/tmp/datamachine-site/agents/intelligence-chubes4/SOUL.md"] })
+if (process.env.DM_READY_FILE) {
+  const { writeFile } = await import("node:fs/promises")
+  await writeFile(process.env.DM_READY_FILE, "ready")
+}
+if (process.env.DM_START_FILE) {
+  const { access } = await import("node:fs/promises")
+  while (true) {
+    try {
+      await access(process.env.DM_START_FILE)
+      break
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+  }
+}
 await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
 `)
 
-  const runWorker = (sessionID, executable = recorder, composeCount = count) => new Promise((resolve, reject) => {
+  const runWorker = (sessionID, executable = recorder, composeCount = count, timeout = "1000", stateDirectoryOverride = stateDirectory, startFile = "", readyFile = "", workingDirectory) => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [worker], {
+      cwd: workingDirectory,
       env: {
         ...process.env,
         DATAMACHINE_SITE_PATH: sitePath,
         DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify([executable]),
         DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
-        DATAMACHINE_COMPOSE_TIMEOUT_MS: "1000",
+        DATAMACHINE_COMPOSE_TIMEOUT_MS: timeout,
+        DATAMACHINE_COMPOSE_STATE_DIR: stateDirectoryOverride,
         DM_COMPOSE_COUNT: composeCount,
         DM_AGENT_SYNC_MODULE: new URL("../bridges/kimaki/plugins/dm-agent-sync.ts", import.meta.url).href,
         DM_SESSION_ID: sessionID,
+        DM_READY_FILE: readyFile,
+        DM_START_FILE: startFile,
         EXTERNAL_WORDPRESS: "",
       },
     })
@@ -111,7 +134,15 @@ await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
     child.on("close", (code) => code === 0 ? resolve(output) : reject(new Error(`worker exited ${code}: ${output}`)))
   })
 
-  const outputs = await Promise.all([runWorker("one"), runWorker("two"), runWorker("three")])
+  const worktreeOne = join(directory, "worktree-one")
+  const worktreeTwo = join(directory, "worktree-two")
+  await mkdir(worktreeOne)
+  await mkdir(worktreeTwo)
+  const outputs = await Promise.all([
+    runWorker("one", recorder, count, "1000", stateDirectory, "", "", worktreeOne),
+    runWorker("two", recorder, count, "1000", stateDirectory, "", "", worktreeTwo),
+    runWorker("three", recorder, count, "1000", stateDirectory, "", "", worktreeOne),
+  ])
   assert.equal((await readFile(count, "utf8")).length, 1)
   assert.equal(outputs.filter((output) => output.includes("refreshed Data Machine memory")).length, 1)
   assert.equal(outputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 2)
@@ -131,6 +162,112 @@ exit 1
   assert.equal((await readFile(failureCount, "utf8")).length, 1)
   assert.equal(failureOutputs.filter((output) => output.includes("memory compose failed")).length, 1)
   assert.equal(failureOutputs.filter((output) => output.includes("memory compose stale fallback")).length, 1)
+
+  const scopeFor = (executable) => createHash("sha256").update(JSON.stringify({
+    agentSlug: "intelligence-chubes4",
+    home: process.env.HOME || "",
+    path: process.env.PATH || "",
+    sitePath,
+    user: process.env.USER || process.env.LOGNAME || "",
+    wpCli: [executable],
+    wpCliCache: process.env.WP_CLI_CACHE_DIR || "",
+    wpCliConfig: process.env.WP_CLI_CONFIG_PATH || "",
+  })).digest("hex")
+  const writeLease = async (stateDirectory, executable, owner, receipt) => {
+    const scope = scopeFor(executable)
+    const leasePath = join(stateDirectory, scope)
+    await mkdir(leasePath, { recursive: true })
+    await writeFile(join(leasePath, "owner"), JSON.stringify(owner))
+    if (receipt) await writeFile(`${leasePath}.receipt.${receipt.operationId}`, JSON.stringify(receipt))
+    return leasePath
+  }
+  const waitForFiles = async (files) => {
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
+      if (await Promise.all(files.map((file) => access(file).then(() => true, () => false))).then((ready) => ready.every(Boolean))) return
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    throw new Error(`workers did not become ready: ${files.join(", ")}`)
+  }
+
+  // Three independent processes race to reclaim the same expired lease. The
+  // stale receipt must not be reused by the replacement operation.
+  const staleStateDirectory = join(directory, "stale-state")
+  await mkdir(staleStateDirectory)
+  const staleOperation = "expired-operation"
+  const staleLeasePath = await writeLease(staleStateDirectory, failingRecorder, {
+    deadlineAt: Date.now() - 1,
+    operationId: staleOperation,
+    token: "expired-token",
+  }, {
+    completedAt: Date.now(),
+    operationId: staleOperation,
+    result: "refreshed",
+  })
+  const abandonedRecoveryPath = `${staleLeasePath}.recovery.${staleOperation}`
+  await mkdir(abandonedRecoveryPath)
+  await writeFile(join(abandonedRecoveryPath, "owner"), JSON.stringify({
+    deadlineAt: Date.now() - 1,
+    operationId: "abandoned-recovery-operation",
+    token: "abandoned-recovery-token",
+  }))
+  const staleFailureCount = join(directory, "stale-failure-count")
+  const staleOutputs = await Promise.all([
+    runWorker("stale-one", failingRecorder, staleFailureCount, "1000", staleStateDirectory),
+    runWorker("stale-two", failingRecorder, staleFailureCount, "1000", staleStateDirectory),
+    runWorker("stale-three", failingRecorder, staleFailureCount, "1000", staleStateDirectory),
+  ])
+  assert.equal((await readFile(staleFailureCount, "utf8")).length, 1)
+  assert.equal(staleOutputs.filter((output) => output.includes("memory compose failed")).length, 1)
+  assert.equal(staleOutputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 0)
+  assert.equal(staleOutputs.filter((output) => output.includes("memory compose stale fallback")).length, 2)
+  await access(staleLeasePath)
+  await access(abandonedRecoveryPath)
+  assert.equal(JSON.parse(await readFile(`${staleLeasePath}.receipt.${staleOperation}`, "utf8")).result, "refreshed")
+
+  // Waiters use the owner's recorded deadline, not their shorter local timeout.
+  const activeStateDirectory = join(directory, "active-state")
+  await mkdir(activeStateDirectory)
+  const activeLeasePath = await writeLease(activeStateDirectory, recorder, {
+    deadlineAt: Date.now() + 1500,
+    operationId: "active-operation",
+    token: "active-token",
+  })
+  const activeStartedAt = Date.now()
+  const activeCount = join(directory, "active-count")
+  const activeStartFile = join(directory, "active-start")
+  const activeReadyFiles = [join(directory, "active-one-ready"), join(directory, "active-two-ready")]
+  const activeWorkers = [
+    runWorker("active-one", recorder, activeCount, "10", activeStateDirectory, activeStartFile, activeReadyFiles[0]),
+    runWorker("active-two", recorder, activeCount, "500", activeStateDirectory, activeStartFile, activeReadyFiles[1]),
+  ]
+  await waitForFiles(activeReadyFiles)
+  await writeFile(activeStartFile, "start")
+  const activeOutputs = await Promise.all(activeWorkers)
+  assert.ok(Date.now() - activeStartedAt >= 1200)
+  assert.equal(activeOutputs.filter((output) => output.includes("memory compose stale fallback")).length, 2)
+  const recoveryStartFile = join(directory, "recovery-start")
+  const recoveryReadyFiles = [join(directory, "recovery-one-ready"), join(directory, "recovery-two-ready")]
+  const recoveryWorkers = [
+    runWorker("recovery-one", recorder, activeCount, "500", activeStateDirectory, recoveryStartFile, recoveryReadyFiles[0]),
+    runWorker("recovery-two", recorder, activeCount, "500", activeStateDirectory, recoveryStartFile, recoveryReadyFiles[1]),
+  ]
+  await waitForFiles(recoveryReadyFiles)
+  await writeFile(recoveryStartFile, "start")
+  const recoveryOutputs = await Promise.all(recoveryWorkers)
+  assert.equal((await readFile(activeCount, "utf8")).length, 1)
+  assert.equal(recoveryOutputs.filter((output) => output.includes("refreshed Data Machine memory")).length, 1)
+  assert.equal(recoveryOutputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 1, recoveryOutputs.join("\n"))
+  await rm(activeLeasePath, { recursive: true, force: true })
+
+  // A malformed state path is bounded fallback, never recursive reacquisition.
+  const errorStateDirectory = join(directory, "error-state")
+  await mkdir(errorStateDirectory)
+  await writeFile(join(errorStateDirectory, scopeFor(recorder)), "not a lease directory")
+  const errorStartedAt = Date.now()
+  const errorOutput = await runWorker("error", recorder, join(directory, "unexpected-error-count"), "25", errorStateDirectory)
+  assert.ok(Date.now() - errorStartedAt < 2000)
+  assert.ok(errorOutput.includes("memory compose stale fallback"))
 }
 
 await withEnv({
