@@ -178,7 +178,7 @@ exit 1
     const leasePath = join(stateDirectory, scope)
     await mkdir(leasePath, { recursive: true })
     await writeFile(join(leasePath, "owner"), JSON.stringify(owner))
-    if (receipt) await writeFile(`${leasePath}.receipt`, JSON.stringify(receipt))
+    if (receipt) await writeFile(`${leasePath}.receipt.${receipt.operationId}`, JSON.stringify(receipt))
     return leasePath
   }
   const waitForFiles = async (files) => {
@@ -204,6 +204,13 @@ exit 1
     operationId: staleOperation,
     result: "refreshed",
   })
+  const abandonedRecoveryPath = `${staleLeasePath}.recovery.${staleOperation}`
+  await mkdir(abandonedRecoveryPath)
+  await writeFile(join(abandonedRecoveryPath, "owner"), JSON.stringify({
+    deadlineAt: Date.now() - 1,
+    operationId: "abandoned-recovery-operation",
+    token: "abandoned-recovery-token",
+  }))
   const staleFailureCount = join(directory, "stale-failure-count")
   const staleOutputs = await Promise.all([
     runWorker("stale-one", failingRecorder, staleFailureCount, "1000", staleStateDirectory),
@@ -215,6 +222,8 @@ exit 1
   assert.equal(staleOutputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 0)
   assert.equal(staleOutputs.filter((output) => output.includes("memory compose stale fallback")).length, 2)
   await access(staleLeasePath)
+  await access(abandonedRecoveryPath)
+  assert.equal(JSON.parse(await readFile(`${staleLeasePath}.receipt.${staleOperation}`, "utf8")).result, "refreshed")
 
   // Waiters use the owner's recorded deadline, not their shorter local timeout.
   const activeStateDirectory = join(directory, "active-state")

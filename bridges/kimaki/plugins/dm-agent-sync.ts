@@ -16,6 +16,7 @@ type WpCli = string[];
 
 const DEFAULT_COMPOSE_TIMEOUT_MS = 10_000;
 const OUTPUT_LIMIT = 16 * 1024;
+const MAX_RECOVERY_GENERATIONS = 3;
 
 type ComposeResult = { exitCode: number; output: string; timedOut: boolean };
 type ComposeReceipt = { completedAt: number; operationId: string; result: "refreshed" | "stale_fallback" };
@@ -119,8 +120,8 @@ function composeStatePath(scope: string): string {
   return join(composeStateDirectory(), scope);
 }
 
-function composeReceiptPath(scope: string): string {
-  return `${composeStatePath(scope)}.receipt`;
+function composeReceiptPath(scope: string, operationId: string): string {
+  return `${composeStatePath(scope)}.receipt.${operationId}`;
 }
 
 function composeStateDirectory(): string {
@@ -128,7 +129,7 @@ function composeStateDirectory(): string {
 }
 
 async function acquireComposeLease(scope: string, timeoutMs: number): Promise<ComposeLease> {
-  const path = composeStatePath(scope);
+  let path = composeStatePath(scope);
   const directory = composeStateDirectory();
   try {
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -136,29 +137,19 @@ async function acquireComposeLease(scope: string, timeoutMs: number): Promise<Co
     return unavailableLease();
   }
 
-  const created = await createComposeLease(path, timeoutMs);
-  if (created) {
-    return created;
-  }
+  for (let generation = 0; generation <= MAX_RECOVERY_GENERATIONS; generation += 1) {
+    const created = await createComposeLease(path, timeoutMs);
+    if (created) return created;
 
-  const owner = await waitForComposeOwner(path, timeoutMs);
-  if (!owner) {
-    // An unreadable or partially written lease is never deleted by a waiter.
-    // It falls back within one local timeout and a later clean invocation can
-    // acquire normally once the path disappears.
-    return unavailableLease(timeoutMs);
-  }
-  if (owner.deadlineAt > Date.now()) {
-    return waitingLease(path, owner);
-  }
+    const owner = await waitForComposeOwner(path, timeoutMs);
+    if (!owner) return unavailableLease(timeoutMs);
+    if (owner.deadlineAt > Date.now()) return waitingLease(path, owner);
 
-  // Expired owners are never removed or renamed. A separate recovery lease
-  // makes recovery safe even when the old process wakes after its deadline.
-  const recoveryPath = `${path}.recovery.${owner.operationId}`;
-  const recovery = await createComposeLease(recoveryPath, timeoutMs);
-  if (recovery) return recovery;
-  const recoveryOwner = await waitForComposeOwner(recoveryPath, timeoutMs);
-  return recoveryOwner ? waitingLease(recoveryPath, recoveryOwner) : unavailableLease(timeoutMs);
+    // Expired owners are immutable. Each bounded generation is a distinct
+    // lease, so a late owner cannot release or replace a newer operation.
+    path = `${path}.recovery.${owner.operationId}`;
+  }
+  return unavailableLease(timeoutMs);
 }
 
 async function createComposeLease(path: string, timeoutMs: number): Promise<ComposeLease | undefined> {
@@ -191,7 +182,7 @@ function waitingLease(path: string, owner: ComposeOwner): ComposeLease {
 
 async function waitForComposeReceipt(scope: string, operationId: string, deadlineAt: number): Promise<ComposeReceipt | undefined> {
   while (operationId && Date.now() < deadlineAt) {
-    const receipt = await readComposeReceipt(composeReceiptPath(scope));
+    const receipt = await readComposeReceipt(composeReceiptPath(scope, operationId));
     if (receipt?.operationId === operationId) {
       return receipt;
     }
@@ -209,7 +200,7 @@ async function finishComposeLease(scope: string, lease: ComposeLease, result: Co
     }
     // Keep the receipt beside the lock: releasing the lock must not erase the
     // successful result before the other processes that joined it can read it.
-    await writeFile(composeReceiptPath(scope), JSON.stringify({ completedAt: Date.now(), operationId: owner.operationId, result }), { mode: 0o600 });
+    await writeFile(composeReceiptPath(scope, owner.operationId), JSON.stringify({ completedAt: Date.now(), operationId: owner.operationId, result }), { mode: 0o600 });
     await rm(path, { recursive: true, force: true });
   } catch {
     // A best-effort lease failure must not prevent a chat message.
