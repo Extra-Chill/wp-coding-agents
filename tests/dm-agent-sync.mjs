@@ -1,6 +1,7 @@
 // tests/dm-agent-sync.mjs — lifecycle tests for the Kimaki DM memory sync plugin.
 
 import assert from "node:assert/strict"
+import { spawn } from "node:child_process"
 import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -67,11 +68,70 @@ await withEnv({
   assert.equal(run.warnings.length, 0)
 
   await run.chat()
-  assert.ok(run.warnings.some((line) => line.includes("recomposed Data Machine memory in")))
+  assert.ok(run.warnings.some((line) => line.includes("refreshed Data Machine memory in")))
   const warningCount = run.warnings.length
   await run.chat()
   assert.equal(run.warnings.length, warningCount)
 })
+
+{
+  const directory = await mkdtemp(join(tmpdir(), "dm-agent-sync-concurrent-"))
+  const recorder = join(directory, "compose")
+  const count = join(directory, "count")
+  const worker = join(directory, "worker.mjs")
+  await writeFile(recorder, `#!/bin/sh
+printf x >> "$DM_COMPOSE_COUNT"
+sleep 0.15
+`)
+  await chmod(recorder, 0o755)
+  await writeFile(worker, `
+const { default: dmAgentSync } = await import(process.env.DM_AGENT_SYNC_MODULE)
+const plugin = await dmAgentSync({})
+await plugin.config({ instructions: ["/tmp/datamachine-site/agents/intelligence-chubes4/SOUL.md"] })
+await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
+`)
+
+  const runWorker = (sessionID, executable = recorder, composeCount = count) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [worker], {
+      env: {
+        ...process.env,
+        DATAMACHINE_SITE_PATH: sitePath,
+        DATAMACHINE_WP_TRANSPORT_JSON: JSON.stringify([executable]),
+        DATAMACHINE_AGENT_SLUG: "intelligence-chubes4",
+        DATAMACHINE_COMPOSE_TIMEOUT_MS: "1000",
+        DM_COMPOSE_COUNT: composeCount,
+        DM_AGENT_SYNC_MODULE: new URL("../bridges/kimaki/plugins/dm-agent-sync.ts", import.meta.url).href,
+        DM_SESSION_ID: sessionID,
+        EXTERNAL_WORDPRESS: "",
+      },
+    })
+    let output = ""
+    child.stderr.on("data", (chunk) => { output += chunk })
+    child.on("error", reject)
+    child.on("close", (code) => code === 0 ? resolve(output) : reject(new Error(`worker exited ${code}: ${output}`)))
+  })
+
+  const outputs = await Promise.all([runWorker("one"), runWorker("two"), runWorker("three")])
+  assert.equal((await readFile(count, "utf8")).length, 1)
+  assert.equal(outputs.filter((output) => output.includes("refreshed Data Machine memory")).length, 1)
+  assert.equal(outputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 2)
+
+  const failingRecorder = join(directory, "compose-failure")
+  const failureCount = join(directory, "failure-count")
+  await writeFile(failingRecorder, `#!/bin/sh
+printf x >> "$DM_COMPOSE_COUNT"
+sleep 0.15
+exit 1
+`)
+  await chmod(failingRecorder, 0o755)
+  const failureOutputs = await Promise.all([
+    runWorker("failure-one", failingRecorder, failureCount),
+    runWorker("failure-two", failingRecorder, failureCount),
+  ])
+  assert.equal((await readFile(failureCount, "utf8")).length, 1)
+  assert.equal(failureOutputs.filter((output) => output.includes("memory compose failed")).length, 1)
+  assert.equal(failureOutputs.filter((output) => output.includes("memory compose stale fallback")).length, 1)
+}
 
 await withEnv({
   DATAMACHINE_SITE_PATH: sitePath,
@@ -112,7 +172,7 @@ await withEnv({
   const run = await loadPlugin()
   await run.config()
   await run.chat()
-  assert.ok(run.warnings.some((line) => line.includes("recomposed Data Machine memory in")))
+  assert.ok(run.warnings.some((line) => line.includes("refreshed Data Machine memory in")))
 })
 
 await withEnv({ DATAMACHINE_COMPOSE_TIMEOUT_MS: "10" }, async () => {
@@ -168,4 +228,4 @@ python3 -c 'import json,os,sys; open(os.environ["DM_ARGV_DUMP"],"w").write(json.
   ])
 })
 
-console.log("OK: dm-agent-sync runs bounded WordPress composition only for the first chat message per session")
+console.log("OK: dm-agent-sync coalesces concurrent process refreshes and runs bounded composition once per session")
