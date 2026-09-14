@@ -101,11 +101,10 @@ async function composeMemory(wpCli: WpCli, sitePath: string, agentSlug: string):
 }
 
 function composeScope(wpCli: WpCli, sitePath: string, agentSlug: string): string {
-  // The command name alone is not enough: relative executables and WP-CLI
-  // configuration resolve from the runtime's working directory and identity.
+  // An explicit site identifies the target across worktrees. Keep transport
+  // identity separate so different WP-CLI configurations never share a lease.
   return createHash("sha256").update(JSON.stringify({
     agentSlug,
-    cwd: process.cwd(),
     home: process.env.HOME || "",
     path: process.env.PATH || "",
     sitePath,

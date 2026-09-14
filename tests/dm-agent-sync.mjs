@@ -110,8 +110,9 @@ if (process.env.DM_START_FILE) {
 await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
 `)
 
-  const runWorker = (sessionID, executable = recorder, composeCount = count, timeout = "1000", stateDirectoryOverride = stateDirectory, startFile = "", readyFile = "") => new Promise((resolve, reject) => {
+  const runWorker = (sessionID, executable = recorder, composeCount = count, timeout = "1000", stateDirectoryOverride = stateDirectory, startFile = "", readyFile = "", workingDirectory) => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [worker], {
+      cwd: workingDirectory,
       env: {
         ...process.env,
         DATAMACHINE_SITE_PATH: sitePath,
@@ -133,7 +134,15 @@ await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
     child.on("close", (code) => code === 0 ? resolve(output) : reject(new Error(`worker exited ${code}: ${output}`)))
   })
 
-  const outputs = await Promise.all([runWorker("one"), runWorker("two"), runWorker("three")])
+  const worktreeOne = join(directory, "worktree-one")
+  const worktreeTwo = join(directory, "worktree-two")
+  await mkdir(worktreeOne)
+  await mkdir(worktreeTwo)
+  const outputs = await Promise.all([
+    runWorker("one", recorder, count, "1000", stateDirectory, "", "", worktreeOne),
+    runWorker("two", recorder, count, "1000", stateDirectory, "", "", worktreeTwo),
+    runWorker("three", recorder, count, "1000", stateDirectory, "", "", worktreeOne),
+  ])
   assert.equal((await readFile(count, "utf8")).length, 1)
   assert.equal(outputs.filter((output) => output.includes("refreshed Data Machine memory")).length, 1)
   assert.equal(outputs.filter((output) => output.includes("reused fresh Data Machine memory")).length, 2)
@@ -156,7 +165,6 @@ exit 1
 
   const scopeFor = (executable) => createHash("sha256").update(JSON.stringify({
     agentSlug: "intelligence-chubes4",
-    cwd: process.cwd(),
     home: process.env.HOME || "",
     path: process.env.PATH || "",
     sitePath,
