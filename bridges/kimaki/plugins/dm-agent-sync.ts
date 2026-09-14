@@ -7,7 +7,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
@@ -18,7 +18,9 @@ const DEFAULT_COMPOSE_TIMEOUT_MS = 10_000;
 const OUTPUT_LIMIT = 16 * 1024;
 
 type ComposeResult = { exitCode: number; output: string; timedOut: boolean };
-type ComposeReceipt = { completedAt: number; result: "refreshed" | "stale_fallback" };
+type ComposeReceipt = { completedAt: number; operationId: string; result: "refreshed" | "stale_fallback" };
+type ComposeOwner = { deadlineAt: number; operationId: string; token: string };
+type ComposeLease = { acquired: boolean; deadlineAt: number; operationId: string; path: string; token: string };
 
 const dmAgentSync: Plugin = async () => {
   let sessionConfig: { wpCli: WpCli; sitePath: string; agentSlug: string } | undefined;
@@ -64,7 +66,7 @@ async function composeMemory(wpCli: WpCli, sitePath: string, agentSlug: string):
   const lease = await acquireComposeLease(scope, timeoutMs);
 
   if (!lease.acquired) {
-    const receipt = await waitForComposeReceipt(scope, startedAt, timeoutMs);
+    const receipt = await waitForComposeReceipt(scope, lease.operationId, lease.deadlineAt);
     const durationMs = Date.now() - startedAt;
     if (receipt?.result === "refreshed") {
       // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
@@ -84,65 +86,114 @@ async function composeMemory(wpCli: WpCli, sitePath: string, agentSlug: string):
     // prevent OpenCode from accepting a chat message.
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn(`[dm-agent-sync] memory compose timed out after ${durationMs}ms; using existing memory files`);
-    await finishComposeLease(scope, lease.token, "stale_fallback");
+    await finishComposeLease(scope, lease, "stale_fallback");
     return;
   }
   if (result.exitCode !== 0) {
     // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
     console.warn(`[dm-agent-sync] memory compose failed (exit ${result.exitCode}) after ${durationMs}ms: ${result.output}`);
-    await finishComposeLease(scope, lease.token, "stale_fallback");
+    await finishComposeLease(scope, lease, "stale_fallback");
     return;
   }
   // eslint-disable-next-line no-console -- intentional operational log to the OpenCode session console
   console.warn(`[dm-agent-sync] refreshed Data Machine memory in ${durationMs}ms`);
-  await finishComposeLease(scope, lease.token, "refreshed");
+  await finishComposeLease(scope, lease, "refreshed");
 }
 
 function composeScope(wpCli: WpCli, sitePath: string, agentSlug: string): string {
-  return createHash("sha256").update(JSON.stringify({ wpCli, sitePath, agentSlug })).digest("hex");
+  // The command name alone is not enough: relative executables and WP-CLI
+  // configuration resolve from the runtime's working directory and identity.
+  return createHash("sha256").update(JSON.stringify({
+    agentSlug,
+    cwd: process.cwd(),
+    home: process.env.HOME || "",
+    path: process.env.PATH || "",
+    sitePath,
+    user: process.env.USER || process.env.LOGNAME || "",
+    wpCli,
+    wpCliCache: process.env.WP_CLI_CACHE_DIR || "",
+    wpCliConfig: process.env.WP_CLI_CONFIG_PATH || "",
+  })).digest("hex");
 }
 
 function composeStatePath(scope: string): string {
-  return join(tmpdir(), "wp-coding-agents", "dm-compose", scope);
+  return join(composeStateDirectory(), scope);
 }
 
 function composeReceiptPath(scope: string): string {
   return `${composeStatePath(scope)}.receipt`;
 }
 
-async function acquireComposeLease(scope: string, timeoutMs: number): Promise<{ acquired: boolean; token: string }> {
-  const path = composeStatePath(scope);
-  const token = randomUUID();
-  try {
-    await mkdir(join(tmpdir(), "wp-coding-agents", "dm-compose"), { recursive: true, mode: 0o700 });
-    await mkdir(path, { recursive: false, mode: 0o700 });
-    await writeFile(join(path, "owner"), token, { mode: 0o600 });
-    return { acquired: true, token };
-  } catch (error: unknown) {
-    if (!isAlreadyExists(error)) {
-      return { acquired: false, token: "" };
-    }
-  }
-
-  // A killed runtime can leave a lease behind. It cannot block the next chat
-  // longer than the same bounded compose interval.
-  try {
-    if (Date.now() - (await stat(path)).mtimeMs > timeoutMs) {
-      await rm(path, { recursive: true, force: true });
-      return acquireComposeLease(scope, timeoutMs);
-    }
-  } catch {
-    return acquireComposeLease(scope, timeoutMs);
-  }
-  return { acquired: false, token: "" };
+function composeStateDirectory(): string {
+  return process.env.DATAMACHINE_COMPOSE_STATE_DIR || join(tmpdir(), "wp-coding-agents", "dm-compose");
 }
 
-async function waitForComposeReceipt(scope: string, startedAt: number, timeoutMs: number): Promise<ComposeReceipt | undefined> {
+async function acquireComposeLease(scope: string, timeoutMs: number): Promise<ComposeLease> {
   const path = composeStatePath(scope);
-  const deadline = startedAt + timeoutMs;
-  while (Date.now() < deadline) {
+  const directory = composeStateDirectory();
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+  } catch {
+    return unavailableLease();
+  }
+
+  const created = await createComposeLease(path, timeoutMs);
+  if (created) {
+    return created;
+  }
+
+  const owner = await waitForComposeOwner(path, timeoutMs);
+  if (!owner) {
+    // An unreadable or partially written lease is never deleted by a waiter.
+    // It falls back within one local timeout and a later clean invocation can
+    // acquire normally once the path disappears.
+    return unavailableLease(timeoutMs);
+  }
+  if (owner.deadlineAt > Date.now()) {
+    return waitingLease(path, owner);
+  }
+
+  // Expired owners are never removed or renamed. A separate recovery lease
+  // makes recovery safe even when the old process wakes after its deadline.
+  const recoveryPath = `${path}.recovery.${owner.operationId}`;
+  const recovery = await createComposeLease(recoveryPath, timeoutMs);
+  if (recovery) return recovery;
+  const recoveryOwner = await waitForComposeOwner(recoveryPath, timeoutMs);
+  return recoveryOwner ? waitingLease(recoveryPath, recoveryOwner) : unavailableLease(timeoutMs);
+}
+
+async function createComposeLease(path: string, timeoutMs: number): Promise<ComposeLease | undefined> {
+  const owner: ComposeOwner = {
+    deadlineAt: Date.now() + timeoutMs,
+    operationId: randomUUID(),
+    token: randomUUID(),
+  };
+  let created = false;
+  try {
+    await mkdir(path, { recursive: false, mode: 0o700 });
+    created = true;
+    await writeFile(join(path, "owner"), JSON.stringify(owner), { mode: 0o600 });
+    return { acquired: true, path, ...owner };
+  } catch (error: unknown) {
+    if (created) {
+      await rm(path, { recursive: true, force: true });
+    }
+    return undefined;
+  }
+}
+
+function unavailableLease(timeoutMs = getComposeTimeoutMs()): ComposeLease {
+  return { acquired: false, deadlineAt: Date.now() + timeoutMs, operationId: "", path: "", token: "" };
+}
+
+function waitingLease(path: string, owner: ComposeOwner): ComposeLease {
+  return { acquired: false, path, deadlineAt: owner.deadlineAt, operationId: owner.operationId, token: "" };
+}
+
+async function waitForComposeReceipt(scope: string, operationId: string, deadlineAt: number): Promise<ComposeReceipt | undefined> {
+  while (operationId && Date.now() < deadlineAt) {
     const receipt = await readComposeReceipt(composeReceiptPath(scope));
-    if (receipt && receipt.completedAt >= startedAt) {
+    if (receipt?.operationId === operationId) {
       return receipt;
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -150,19 +201,47 @@ async function waitForComposeReceipt(scope: string, startedAt: number, timeoutMs
   return undefined;
 }
 
-async function finishComposeLease(scope: string, token: string, result: ComposeReceipt["result"]): Promise<void> {
-  const path = composeStatePath(scope);
+async function finishComposeLease(scope: string, lease: ComposeLease, result: ComposeReceipt["result"]): Promise<void> {
+  const path = lease.path;
   try {
-    if ((await readFile(join(path, "owner"), "utf8")) !== token) {
+    const owner = await readComposeOwner(path);
+    if (!owner || owner.token !== lease.token) {
       return;
     }
     // Keep the receipt beside the lock: releasing the lock must not erase the
     // successful result before the other processes that joined it can read it.
-    await writeFile(composeReceiptPath(scope), JSON.stringify({ completedAt: Date.now(), result }), { mode: 0o600 });
+    await writeFile(composeReceiptPath(scope), JSON.stringify({ completedAt: Date.now(), operationId: owner.operationId, result }), { mode: 0o600 });
     await rm(path, { recursive: true, force: true });
   } catch {
     // A best-effort lease failure must not prevent a chat message.
   }
+}
+
+async function readComposeOwner(path: string): Promise<ComposeOwner | undefined> {
+  try {
+    const owner: unknown = JSON.parse(await readFile(join(path, "owner"), "utf8"));
+    if (
+      typeof owner === "object" && owner !== null &&
+      typeof (owner as ComposeOwner).deadlineAt === "number" &&
+      typeof (owner as ComposeOwner).operationId === "string" &&
+      typeof (owner as ComposeOwner).token === "string"
+    ) {
+      return owner as ComposeOwner;
+    }
+  } catch {
+    // The owner may still be writing or the state directory may be unavailable.
+  }
+  return undefined;
+}
+
+async function waitForComposeOwner(path: string, timeoutMs: number): Promise<ComposeOwner | undefined> {
+  const deadline = Date.now() + Math.min(timeoutMs, 100);
+  while (Date.now() < deadline) {
+    const owner = await readComposeOwner(path);
+    if (owner) return owner;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return readComposeOwner(path);
 }
 
 async function readComposeReceipt(path: string): Promise<ComposeReceipt | undefined> {
@@ -273,7 +352,7 @@ function getComposeTimeoutMs(): number {
 }
 
 function getSitePath(): string {
-  return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || "";
+  return process.env.DATAMACHINE_SITE_PATH || process.env.SITE_PATH || process.env.PWD || process.cwd();
 }
 
 function getAgentSlug(input: { instructions?: string[] }): string {
