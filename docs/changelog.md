@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.22.0] - 2026-09-15
+
+### Added
+- add host process capability contract
+
+### Changed
+- hermetic service migration preflight
+
+### Fixed
+- account for install source and replaced files
+- recover nested abandoned compose leases
+- coalesce explicit site across worktrees
+- harden memory compose lease recovery
+- coalesce concurrent memory composition
+- make shell file metadata portable
+- gate guidance provenance remediation
+- harden guidance provenance remediation
+- expose guidance provenance
+- isolate agent WP-CLI registration warnings
+- fail closed process capability
+- require complete CLI process contract
+- declare installed host process support
+
 ## [1.21.2] - 2026-09-06
 
 ### Changed
