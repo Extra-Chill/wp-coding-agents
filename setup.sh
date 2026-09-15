@@ -24,7 +24,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect source-policy owned-source-discovery desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
+for lib in common detect install-source source-policy owned-source-discovery desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -595,6 +595,11 @@ fi
 # ============================================================================
 # Execute
 # ============================================================================
+
+# Every managed file below is copied out of $SCRIPT_DIR. Say so before the run
+# starts when that tree is not clean default-branch, so an install that seeds a
+# site with stale artifacts is visible rather than silent.
+install_source_report_integrity
 
 external_wordpress_prepare_transport
 detect_environment
