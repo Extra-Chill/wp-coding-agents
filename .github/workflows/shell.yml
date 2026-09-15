@@ -267,6 +267,8 @@ jobs:
           - kimaki-restart-continuation
           - kimaki-system-message-patch
           - installation-profile
+          - install-source-integrity-report
+          - install-source-managed-file-sync
           - opencode-claude-auth-refresh-hardening
           - opencode-subagents-optional
           - owned-source-discovery
