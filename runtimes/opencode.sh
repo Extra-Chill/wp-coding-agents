@@ -35,20 +35,14 @@ opencode_claude_code_auth_plugin_path() {
 opencode_install_claude_code_auth_plugin() {
   opencode_claude_code_auth_enabled || return 0
 
-  local plugins_dir plugin_path source_path
-  plugins_dir="$(opencode_claude_code_auth_plugins_dir)"
+  local plugin_path source_path
   plugin_path="$(opencode_claude_code_auth_plugin_path)"
   source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would install Claude Code auth OpenCode plugin at $plugin_path"
-    return 0
-  fi
-
-  mkdir -p "$plugins_dir"
-  cp "$source_path" "$plugin_path"
-  service_file_normalize_perms "$plugin_path"
-  UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
+  install_source_sync_managed_file \
+    "$source_path" \
+    "$plugin_path" \
+    "OpenCode Claude Code auth plugin"
 }
 
 # _opencode_register_runtime_signature

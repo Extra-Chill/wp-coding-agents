@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect install-source source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -384,6 +384,11 @@ if [ "$PLUGINS_ONLY" = true ] && { [ "$KIMAKI_ONLY" = true ] || [ "$SKILLS_ONLY"
    [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ] || [ "$MIGRATE_NON_ROOT" = true ]; }; then
   error "--plugins-only cannot be combined with service, runtime, migration, or other --*-only operations"
 fi
+
+# Every managed file below is copied out of $SCRIPT_DIR. Say so before the run
+# starts when that tree is not clean default-branch, so a "successful" upgrade
+# that reinstalls stale artifacts is visible rather than silent.
+install_source_report_integrity
 
 # ============================================================================
 # Phase 1: Detect environment
@@ -759,29 +764,14 @@ upgrade_opencode_claude_code_auth_plugin_path() {
 upgrade_install_opencode_claude_code_auth_plugin() {
   [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 0
 
-  local plugin_path plugins_dir source_path
+  local plugin_path source_path
   plugin_path="$(upgrade_opencode_claude_code_auth_plugin_path)"
-  plugins_dir="$(dirname "$plugin_path")"
   source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"
 
-  if [ ! -f "$source_path" ]; then
-    warn "Phase 3b: $source_path not found — skipping Claude Code auth OpenCode plugin sync"
-    return 0
-  fi
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would install Claude Code auth OpenCode plugin at $plugin_path"
-    return 0
-  fi
-
-  mkdir -p "$plugins_dir"
-  if [ -f "$plugin_path" ] && cmp -s "$source_path" "$plugin_path"; then
-    return 0
-  fi
-
-  cp "$source_path" "$plugin_path"
-  service_file_normalize_perms "$plugin_path"
-  UPDATED_ITEMS+=("OpenCode Claude Code auth plugin ($plugin_path)")
+  install_source_sync_managed_file \
+    "$source_path" \
+    "$plugin_path" \
+    "OpenCode Claude Code auth plugin"
 }
 
 check_opencode_json_drift() {
