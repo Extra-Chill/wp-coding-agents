@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.22.1] - 2026-09-16
+
+### Fixed
+- hand the installation profile to the service identity and degrade when unreadable
+
 ## [1.22.0] - 2026-09-15
 
 ### Added
