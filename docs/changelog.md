@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.22.2] - 2026-09-16
+
+### Fixed
+- agent state follows the service identity
+
 ## [1.22.1] - 2026-09-16
 
 ### Fixed
