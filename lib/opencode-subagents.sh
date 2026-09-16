@@ -79,6 +79,13 @@ opencode_project_subagents() {
   [ -n "${AGENT_SLUG:-}" ] || return 0
   [ -f "$SITE_PATH/wp-config.php" ] || [ "${EXTERNAL_WORDPRESS:-false}" = true ] || return 0
   [ -f "$SITE_PATH/opencode.json" ] || return 0
+  if declare -F agent_state_ownership_can_maintain >/dev/null && \
+     ! agent_state_ownership_can_maintain "$SITE_PATH/.opencode"; then
+    # Root-owned runtime config on a non-root upgrade (#598); the audit
+    # already reported the one-shot repair. Not a projector failure.
+    OPENCODE_SUBAGENT_PROJECTION_FAILURE=unmaintainable_state
+    return 1
+  fi
 
   if ! opencode_general_dispatch_supported; then
     OPENCODE_SUBAGENT_PROJECTION_FAILURE=unsupported_runtime
@@ -222,6 +229,14 @@ opencode_project_subagents_optional() {
     warn "OpenCode subagent projection is pending; register the configured Data Machine agent as an Agents API coordinator, then re-run setup or upgrade."
     if declare -p PENDING_ITEMS >/dev/null 2>&1; then
       PENDING_ITEMS+=("OpenCode subagent projection (configured coordinator is not registered)")
+    fi
+    return 0
+  fi
+
+  if [ "${OPENCODE_SUBAGENT_PROJECTION_FAILURE:-}" = unmaintainable_state ]; then
+    warn "OpenCode subagent projection skipped: $SITE_PATH/.opencode is not maintainable by $(id -un) (see agent-state root repair)."
+    if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+      PENDING_ITEMS+=("OpenCode subagent projection (root-owned $SITE_PATH/.opencode)")
     fi
     return 0
   fi

@@ -246,6 +246,7 @@ jobs:
       fail-fast: false
       matrix:
         test:
+          - agent-state-ownership
           - agents-md-backup-retention
           - carried-claude-code-plugin
           - ci-coverage
