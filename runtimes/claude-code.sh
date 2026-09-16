@@ -155,6 +155,15 @@ runtime_install_hooks() {
     return
   fi
 
+  if declare -F agent_state_ownership_can_maintain >/dev/null && \
+     ! agent_state_ownership_can_maintain "$SITE_PATH/.claude"; then
+    warn "Skipping: $SITE_PATH/.claude is not maintainable by $(id -un) (see agent-state root repair)"
+    if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+      PENDING_ITEMS+=("Claude Code hook sync (root-owned $SITE_PATH/.claude)")
+    fi
+    return
+  fi
+
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would copy dm-agent-sync.sh to $hooks_dir"
     echo -e "${BLUE}[dry-run]${NC} Would write dm-agent-sync.env (WordPress transport$(if [ -n "${AGENT_SLUG:-}" ]; then printf ', DM_AGENT_SLUG=%s' "$AGENT_SLUG"; fi))"

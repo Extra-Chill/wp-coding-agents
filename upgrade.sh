@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common detect install-source source-policy owned-source-discovery service-migration plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -146,6 +146,7 @@ SERVICE_USER_FORCED=false
 # Set by --migrate-non-root: move an already-installed root agent onto a
 # dedicated non-root service user, carrying its state across. See #93.
 MIGRATE_NON_ROOT=false
+RECONCILE_AGENT_STATE_OWNERSHIP_ONLY=false
 MIGRATE_TARGET_USER="$SERVICE_MIGRATION_DEFAULT_USER"
 initialize_kimaki_overrides
 
@@ -195,6 +196,7 @@ while [[ $# -gt 0 ]]; do
     --migrate-non-root) MIGRATE_NON_ROOT=true; RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
     --migrate-user)  MIGRATE_TARGET_USER="$2"; shift 2 ;;
     --migrate-extra) service_migration_add_extra_path "$2"; shift 2 ;;
+    --reconcile-agent-state-ownership) RECONCILE_AGENT_STATE_OWNERSHIP_ONLY=true; shift ;;
     --help|-h)       SHOW_HELP=true; shift ;;
     *)               shift ;;
   esac
@@ -243,6 +245,12 @@ USAGE:
   ./upgrade.sh --systems-capabilities managed-vps --systems-capabilities-only
                                  Repair only the managed VPS host capability
                                   profile and its managed capability configuration.
+  sudo ./upgrade.sh --reconcile-agent-state-ownership
+                                 One-shot: hand root-owned agent state
+                                 (persistent Kimaki config, site runtime
+                                 config, installation profile) to the service
+                                 user so later non-root upgrades can maintain
+                                 it. Exits without running other phases.
    ./upgrade.sh --source-mode <name>
    ./upgrade.sh --workspace-repository <absolute-git-checkout>
    ./upgrade.sh --workspace-repository-clone <git-remote> <absolute-destination>
@@ -601,6 +609,24 @@ elif [ "$LOCAL_MODE" = false ] && [ "$SOURCE_MODE" = "owned" ] && \
   warn "a non-root service user: the edit denies are a guardrail, not containment,"
   warn "and a root service can reach every denied path through bash or wp eval."
   warn "Migrate when convenient:  sudo ./upgrade.sh --migrate-non-root"
+fi
+
+# Agent state follows the service identity (#598). As root, hand any
+# root-owned agent-state root to the service user before phases write into it;
+# as the service user, audit once and report a single consolidated root-repair
+# record instead of per-file permission noise from every later phase.
+if [ "$RECONCILE_AGENT_STATE_OWNERSHIP_ONLY" = true ]; then
+  [ "$LOCAL_MODE" = true ] || [ "$EUID" -eq 0 ] || error "--reconcile-agent-state-ownership must run as root (sudo ./upgrade.sh --reconcile-agent-state-ownership)"
+  agent_state_ownership_reconcile
+  if [ "${AGENT_STATE_OWNERSHIP_CHANGED:-0}" -eq 0 ]; then
+    log "Agent state already owned by ${SERVICE_USER}; nothing to reconcile."
+  fi
+  exit 0
+fi
+if [ "$EUID" -eq 0 ]; then
+  agent_state_ownership_reconcile
+else
+  agent_state_ownership_audit
 fi
 
 # Set true when opencode.json is found to have plugin-array drift and the
@@ -1373,6 +1399,12 @@ print_summary() {
     echo ""
     warn "Kimaki dispatch helpers: root repair required."
     warn "  $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
+  fi
+
+  if [ "${AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED:-false}" = true ]; then
+    echo ""
+    warn "Agent state ownership: root repair required (${#AGENT_STATE_OWNERSHIP_UNWRITABLE[@]} root(s) not maintainable by $(id -un))."
+    warn "  $AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND"
   fi
 
   if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then

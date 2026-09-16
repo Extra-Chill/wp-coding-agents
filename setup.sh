@@ -24,7 +24,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common detect install-source source-policy owned-source-discovery desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
+for lib in common detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -469,8 +469,10 @@ OPTIONS:
   --runtime-only     Only run runtime setup on an existing agent install
                      (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
-  --root             Run agent as root (default)
-  --non-root         Run agent as dedicated service user (opencode)
+  --root             Run agent as root (default in workspace mode)
+  --non-root         Run agent as dedicated service user (opencode;
+                     default in owned mode). Agent state written by a
+                     root-run setup is handed to this user.
   --dry-run          Print commands without executing
   --help, -h         Show this help
 
@@ -683,5 +685,10 @@ if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then 
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
+
+# Everything above may have run as root on behalf of a non-root service user.
+# Agent state follows the service identity (#598): hand it over before the
+# summary so the first non-root upgrade can maintain all of it.
+agent_state_ownership_reconcile
 [ "$RUNTIME_ONLY" != true ] && installation_profile_write
 print_summary

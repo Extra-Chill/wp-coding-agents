@@ -544,6 +544,11 @@ service_migration_run() {
   log "  Reclaiming WordPress file ownership..."
   service_migration_reclaim_site "$target_user" "${SITE_PATH:-}"
 
+  # The site reclaim above hands the tree to www-data; the agent-maintained
+  # roots inside it (and the persistent bridge config outside it) belong to the
+  # service identity itself (#598).
+  SERVICE_USER="$target_user" agent_state_ownership_reconcile
+
   if [ "$mode" != "owned" ]; then
     log "  Reclaiming code workspace..."
     service_migration_reclaim_workspace "$target_user" "${DM_WORKSPACE_DIR:-}"

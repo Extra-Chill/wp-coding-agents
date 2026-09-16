@@ -957,6 +957,16 @@ bridge_sync_config() {
     log "Phase 2: Syncing /opt/kimaki-config..."
   fi
 
+  # Root-owned persistent config on a non-root upgrade (#598): the audit
+  # already reported it with the one-shot repair command. Skip the sync as a
+  # unit rather than failing file by file and silently keeping stale plugins.
+  if declare -F agent_state_ownership_can_maintain >/dev/null && \
+     ! agent_state_ownership_can_maintain "$KIMAKI_CONFIG_DIR"; then
+    warn "  Skipping: $KIMAKI_CONFIG_DIR is not maintainable by $(id -un) (see agent-state root repair)"
+    PENDING_ITEMS+=("kimaki-config sync (root-owned $KIMAKI_CONFIG_DIR)")
+    return 0
+  fi
+
   # Local opencode loads from the durable kimaki-config dir. Do not mirror these
   # plugins into the npm package; `npm update -g kimaki` wipes that directory and
   # the repair helper migrates older opencode.json files away from it.
