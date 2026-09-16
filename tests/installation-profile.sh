@@ -127,4 +127,22 @@ ln -s "$TMP/outside" "$SITE_PATH/.wp-coding-agents"
 installation_profile_write
 test "$(cat "$TMP/outside/installation-profile")" = sentinel
 
+# A profile the current identity cannot read (for example one written by a
+# root-run setup, #596) degrades to a warning with a repair hint instead of
+# aborting the whole upgrade; explicit intent and detection still apply.
+rm -f "$SITE_PATH/.wp-coding-agents"
+mkdir -p "$SITE_PATH/.wp-coding-agents"
+printf 'runtime=codex\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
+chmod 000 "$SITE_PATH/.wp-coding-agents/installation-profile"
+if [ "$(id -u)" -ne 0 ]; then
+  RUNTIME=""
+  unreadable_output="$(installation_profile_load 2>&1)"
+  test -z "$RUNTIME"
+  case "$unreadable_output" in
+    *"not readable by $(id -un)"*"chown $(id -un)"*) ;;
+    *) echo "FAIL: unreadable profile did not warn with a repair hint: $unreadable_output" >&2; exit 1 ;;
+  esac
+fi
+chmod 600 "$SITE_PATH/.wp-coding-agents/installation-profile"
+
 echo "PASS: credential-free installation profile persists declarative intent"

@@ -133,6 +133,22 @@ installation_profile_write() {
     mv "$tmp" "$file"
     chmod 600 "$file"
   )
+  installation_profile_assign_service_identity "$root" "$file"
+}
+
+# A root-run setup must not leave the profile readable only by root: every
+# later upgrade runs as the unprivileged service identity and would fail at
+# load time (#596). Hand the state directory and file to that identity while
+# keeping the file itself private (0600) to its owner.
+installation_profile_assign_service_identity() {
+  local root="$1" file="$2" owner group
+  [ "$(id -u)" -eq 0 ] || return 0
+  [ "${LOCAL_MODE:-false}" = false ] || return 0
+  owner="${SERVICE_USER:-}"
+  [ -n "$owner" ] && [ "$owner" != root ] || return 0
+  id -u "$owner" >/dev/null 2>&1 || return 0
+  group="$(file_group "$(dirname -- "$root")" 2>/dev/null || true)"
+  chown "$owner${group:+:$group}" "$root" "$file" 2>/dev/null || true
 }
 
 installation_profile_load() {
@@ -142,6 +158,16 @@ installation_profile_load() {
   [ -f "$file" ] || return 0
   if [ -L "$root" ] || [ -L "$file" ]; then
     warn "[desired-state] installation profile ignored: refusing symlinked state path $root"
+    return 0
+  fi
+  if [ ! -r "$file" ]; then
+    # Typically a profile written by a root-run setup (#596). The persisted
+    # defaults are a convenience, not a requirement: continue with explicit
+    # flags and detection, and tell the operator exactly how to repair it.
+    local owner
+    owner="$(file_owner "$file" 2>/dev/null || echo unknown)"
+    warn "[desired-state] installation profile ignored: $file is owned by $owner and not readable by $(id -un)"
+    warn "[desired-state] repair with: chown $(id -un) '$root' '$file'"
     return 0
   fi
   while IFS='=' read -r key value; do
