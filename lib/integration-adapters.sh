@@ -75,10 +75,6 @@ integration_adapters_apply() {
   reconciler_apply_plan
 }
 
-integration_adapters_verify() {
-  reconciler_verify_plan
-}
-
 _integration_adapter_cleanup_managed_release() {
   local file="$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php"
   if ! grep -q 'datamachine_code_managed_release_channel' "$file"; then

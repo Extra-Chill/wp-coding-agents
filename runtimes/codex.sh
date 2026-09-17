@@ -207,11 +207,6 @@ runtime_generate_instructions() {
   fi
 }
 
-runtime_sync_instructions() {
-  runtime_discover_dm_paths
-  _codex_sync_override
-}
-
 _codex_sync_override() {
   local agents_md="$SITE_PATH/AGENTS.md"
   local codex_agents_md="$SITE_PATH/AGENTS.override.md"

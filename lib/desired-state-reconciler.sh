@@ -337,11 +337,6 @@ reconciler_adapter_changed() {
   RECONCILER_STEP_CHANGED=true
 }
 
-reconciler_mark_changed() {
-  local record="$1"
-  RECONCILER_CHANGED_RECORDS+=("$record")
-  log "[desired-state] record=$record result=changed"
-}
 reconciler_verify_plan() {
   local status timeout="${DESIRED_STATE_STEP_TIMEOUT_SECONDS:-120}"
   [ -n "$RECONCILER_PLAN_VERIFY" ] || return 0

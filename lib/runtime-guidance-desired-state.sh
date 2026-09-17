@@ -146,13 +146,3 @@ runtime_guidance_sync_managed_codex_projection() {
     source "$selected_runtime_file"
   fi
 }
-
-# apply and verify — use the shared plan executor so partial-record evidence
-# and future per-record verification stay consistent with other adapters.
-runtime_guidance_desired_state_apply() {
-  reconciler_apply_plan
-}
-
-runtime_guidance_desired_state_verify() {
-  reconciler_verify_plan
-}

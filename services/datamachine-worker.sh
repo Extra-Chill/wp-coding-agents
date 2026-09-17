@@ -37,12 +37,6 @@ datamachine_worker_record_state() {
   run_cmd rm -f "$file"
 }
 
-_datamachine_worker_shell_quote() {
-  local value="$1"
-  value=${value//\'/\'\\\'\'}
-  printf "'%s'" "$value"
-}
-
 _datamachine_worker_xml_text() {
   local value="$1"
   value=${value//&/\&amp;}
