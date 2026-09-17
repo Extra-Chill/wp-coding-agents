@@ -604,14 +604,6 @@ _kimaki_dispatch_repair_command() {
   printf '%s\n' "$command"
 }
 
-_kimaki_json_escape() {
-  local value="$1"
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\n'/\\n}
-  printf '%s' "$value"
-}
-
 _kimaki_report_dispatch_root_repair_required() {
   KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED=true
   KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=$(_kimaki_dispatch_repair_command)
@@ -619,7 +611,7 @@ _kimaki_report_dispatch_root_repair_required() {
   warn "  Kimaki dispatch helpers could not be certified for www-data and $SERVICE_USER."
   warn "  Root repair required: $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
   printf '{"status":"root_repair_required","component":"kimaki_dispatch_helpers","repair_command":"%s"}\n' \
-    "$(_kimaki_json_escape "$KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND")"
+    "$(json_escape "$KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND")"
 }
 
 _kimaki_dispatch_sudoers_content() {
@@ -1411,7 +1403,7 @@ bridge_render_launchd() {
   local launchd_start
   launchd_start="${KIMAKI_DATA_DIR}/kimaki-config/launchd-start.sh"
   local datamachine_wp_transport_json
-  datamachine_wp_transport_json=$(_kimaki_xml_text "$(_kimaki_datamachine_wp_transport_json)")
+  datamachine_wp_transport_json=$(xml_escape "$(_kimaki_datamachine_wp_transport_json)")
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1478,14 +1470,6 @@ _kimaki_datamachine_wp_transport_systemd_env() {
   value=${value//\\/\\\\}
   value=${value//\"/\\\"}
   printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="%s"\n' "$value"
-}
-
-_kimaki_xml_text() {
-  local value="$1"
-  value=${value//&/\&amp;}
-  value=${value//</\&lt;}
-  value=${value//>/\&gt;}
-  printf '%s' "$value"
 }
 
 _kimaki_skill_filter_mode() {

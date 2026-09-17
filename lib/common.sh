@@ -39,6 +39,41 @@ file_metadata_stat_dialect() {
   fi
 }
 
+# Escaping helpers.
+#
+# These were each written three times — once per module that rendered JSON or a
+# launchd plist. Three copies is not three times the code, it is three chances
+# to disagree, and they already had: two JSON escapers handled backslash, quote
+# AND newline, while lib/agent-state-ownership.sh's handled only backslash and
+# quote. A value containing a newline produced a literal newline inside a JSON
+# string, which is invalid JSON — in the one copy whose output is machine-read.
+#
+# Escaping is exactly the kind of code that must exist once. It is short enough
+# to feel harmless to re-type and consequential enough that a divergence is a
+# correctness bug rather than a style difference.
+
+# json_escape <value> — escape for embedding in a JSON string literal.
+json_escape() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  printf '%s' "$value"
+}
+
+# xml_escape <value> — escape for an XML/plist text node.
+#
+# Text nodes need & < > only; quotes are significant in attribute values, which
+# nothing here renders. Keep it that way rather than over-escaping: `&quot;` in
+# a plist <string> is a literal six characters, not a quote.
+xml_escape() {
+  local value="$1"
+  value=${value//&/\&amp;}
+  value=${value//</\&lt;}
+  value=${value//>/\&gt;}
+  printf '%s' "$value"
+}
+
 file_mode() {
   file_metadata_stat_dialect || return
   case "$WP_CODING_AGENTS_STAT_DIALECT" in

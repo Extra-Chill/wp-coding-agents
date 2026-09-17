@@ -214,15 +214,10 @@ PY
   fi
 }
 
-setup_ai_gateway() {
-  ai_gateway_enabled_for_opencode || return 0
-  ai_gateway_validate_topology
-  ai_gateway_install_stack
-  ai_gateway_configure_wordpress
-  ai_gateway_write_env
-}
-
-upgrade_ai_gateway() {
+# Setup and upgrade converged on the same steps long ago; they were still two
+# identically-bodied functions, which reads as "these differ somehow" to anyone
+# who has not diffed them. One name, called from both.
+ai_gateway_apply() {
   ai_gateway_enabled_for_opencode || return 0
   ai_gateway_validate_topology
   ai_gateway_install_stack

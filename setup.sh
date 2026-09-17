@@ -665,7 +665,7 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
   source_policy_record_owned_sources
   source_policy_record_writable_paths
   source_policy_record_log_paths
-  setup_ai_gateway
+  ai_gateway_apply
 fi
 
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
