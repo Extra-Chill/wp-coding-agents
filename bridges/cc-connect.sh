@@ -240,32 +240,26 @@ EOF
 bridge_render_launchd() {
   local label="$1"
   [ "$label" = "com.wp.cc-connect" ] || { echo "cc-connect has no label '$label'" >&2; return 1; }
-  cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+  plist_document <<EOF
     <key>Label</key>
-    <string>$label</string>
+    <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$CC_BIN</string>
+        <string>$(xml_escape "$CC_BIN")</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
+    <string>$(xml_escape "$SITE_PATH")</string>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$CC_DATA_DIR/cc-connect.log</string>
+    <string>$(xml_escape "$CC_DATA_DIR/cc-connect.log")</string>
     <key>StandardErrorPath</key>
-    <string>$CC_DATA_DIR/cc-connect.error.log</string>
+    <string>$(xml_escape "$CC_DATA_DIR/cc-connect.error.log")</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
-</dict>
-</plist>
 EOF
 }
 

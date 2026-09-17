@@ -342,75 +342,63 @@ bridge_render_launchd() {
   local log_dir="$TELEGRAM_CONFIG_DIR"
   case "$label" in
     com.wp.opencode-serve)
-      cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+      plist_document <<EOF
     <key>Label</key>
-    <string>$label</string>
+    <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$OPENCODE_BIN</string>
+        <string>$(xml_escape "$OPENCODE_BIN")</string>
         <string>serve</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
+    <string>$(xml_escape "$SITE_PATH")</string>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$log_dir/opencode-serve.log</string>
+    <string>$(xml_escape "$log_dir/opencode-serve.log")</string>
     <key>StandardErrorPath</key>
-    <string>$log_dir/opencode-serve.error.log</string>
+    <string>$(xml_escape "$log_dir/opencode-serve.error.log")</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
-        <string>$SERVICE_HOME</string>$(if [ -n "${OPENCODE_MODEL:-}" ]; then echo "
+        <string>$(xml_escape "$SERVICE_HOME")</string>$(if [ -n "${OPENCODE_MODEL:-}" ]; then echo "
         <key>OPENCODE_MODEL</key>
-        <string>$OPENCODE_MODEL</string>"; fi)
+        <string>$(xml_escape "$OPENCODE_MODEL")</string>"; fi)
     </dict>
-</dict>
-</plist>
 EOF
       ;;
     com.wp.opencode-telegram)
-      cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+      plist_document <<EOF
     <key>Label</key>
-    <string>$label</string>
+    <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$TELEGRAM_BIN</string>
+        <string>$(xml_escape "$TELEGRAM_BIN")</string>
         <string>start</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
+    <string>$(xml_escape "$SITE_PATH")</string>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$log_dir/opencode-telegram.log</string>
+    <string>$(xml_escape "$log_dir/opencode-telegram.log")</string>
     <key>StandardErrorPath</key>
-    <string>$log_dir/opencode-telegram.error.log</string>
+    <string>$(xml_escape "$log_dir/opencode-telegram.error.log")</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
-        <string>$SERVICE_HOME</string>$(if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then echo "
+        <string>$(xml_escape "$SERVICE_HOME")</string>$(if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then echo "
         <key>TELEGRAM_BOT_TOKEN</key>
-        <string>$TELEGRAM_BOT_TOKEN</string>"; fi)$(if [ -n "${TELEGRAM_ALLOWED_USER_ID:-}" ]; then echo "
+        <string>$(xml_escape "$TELEGRAM_BOT_TOKEN")</string>"; fi)$(if [ -n "${TELEGRAM_ALLOWED_USER_ID:-}" ]; then echo "
         <key>TELEGRAM_ALLOWED_USER_ID</key>
-        <string>$TELEGRAM_ALLOWED_USER_ID</string>"; fi)
+        <string>$(xml_escape "$TELEGRAM_ALLOWED_USER_ID")</string>"; fi)
         <key>OPENCODE_API_URL</key>
         <string>http://localhost:4096</string>
     </dict>
-</dict>
-</plist>
 EOF
       ;;
     *)

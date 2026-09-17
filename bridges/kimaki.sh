@@ -1404,52 +1404,46 @@ bridge_render_launchd() {
   launchd_start="${KIMAKI_DATA_DIR}/kimaki-config/launchd-start.sh"
   local datamachine_wp_transport_json
   datamachine_wp_transport_json=$(xml_escape "$(_kimaki_datamachine_wp_transport_json)")
-  cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+  plist_document <<EOF
     <key>Label</key>
-    <string>$label</string>
+    <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$launchd_start</string>
-        <string>$KIMAKI_BIN</string>
+        <string>$(xml_escape "$launchd_start")</string>
+        <string>$(xml_escape "$KIMAKI_BIN")</string>
         <string>--data-dir</string>
-        <string>$KIMAKI_DATA_DIR</string>
+        <string>$(xml_escape "$KIMAKI_DATA_DIR")</string>
         <string>--auto-restart</string>
         <string>--no-critique</string>
 $skill_filter_plist_args
     </array>
     <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
+    <string>$(xml_escape "$SITE_PATH")</string>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$KIMAKI_DATA_DIR/kimaki.log</string>
+    <string>$(xml_escape "$KIMAKI_DATA_DIR/kimaki.log")</string>
     <key>StandardErrorPath</key>
-    <string>$KIMAKI_DATA_DIR/kimaki.error.log</string>
+    <string>$(xml_escape "$KIMAKI_DATA_DIR/kimaki.error.log")</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$path_value</string>
+        <string>$(xml_escape "$path_value")</string>
         <key>KIMAKI_DATA_DIR</key>
-        <string>$KIMAKI_DATA_DIR</string>
+        <string>$(xml_escape "$KIMAKI_DATA_DIR")</string>
         <key>KIMAKI_CONFIG_DIR</key>
-        <string>${KIMAKI_DATA_DIR}/kimaki-config</string>
+        <string>$(xml_escape "${KIMAKI_DATA_DIR}/kimaki-config")</string>
         <key>DATAMACHINE_SITE_PATH</key>
-        <string>$SITE_PATH</string>
+        <string>$(xml_escape "$SITE_PATH")</string>
         <key>DATAMACHINE_WP_TRANSPORT_JSON</key>
-        <string>$datamachine_wp_transport_json</string>
+        <string>$(xml_escape "$datamachine_wp_transport_json")</string>
         <key>KIMAKI_NO_DEFAULT_CHANNEL</key>
         <string>1</string>$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
         <key>DATAMACHINE_AGENT_SLUG</key>
-        <string>$AGENT_SLUG</string>"; fi)$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
+        <string>$(xml_escape "$AGENT_SLUG")</string>"; fi)$(if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then echo "
         <key>KIMAKI_BOT_TOKEN</key>
-        <string>$KIMAKI_BOT_TOKEN</string>"; fi)$(_kimaki_ai_gateway_launchd_env_xml)
+        <string>$(xml_escape "$KIMAKI_BOT_TOKEN")</string>"; fi)$(_kimaki_ai_gateway_launchd_env_xml)
     </dict>
-</dict>
-</plist>
 EOF
 }
 
@@ -1497,10 +1491,10 @@ _kimaki_ai_gateway_launchd_env_xml() {
 
   echo "
         <key>OPENAI_BASE_URL</key>
-        <string>$base_url</string>"
+        <string>$(xml_escape "$base_url")</string>"
   if [ -n "$api_key" ]; then
     echo "        <key>OPENAI_API_KEY</key>
-        <string>$api_key</string>"
+        <string>$(xml_escape "$api_key")</string>"
   fi
 }
 
@@ -1562,8 +1556,8 @@ _kimaki_skill_filter_args_plist() {
     flag="--disable-skill"
   fi
   while IFS= read -r skill; do
-    out="$out        <string>$flag</string>
-        <string>$skill</string>
+    out="$out        <string>$(xml_escape "$flag")</string>
+        <string>$(xml_escape "$skill")</string>
 "
   done < <(_kimaki_each_filtered_skill)
   printf '%s' "$out"

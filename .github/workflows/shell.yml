@@ -48,6 +48,14 @@ jobs:
       - name: Run tests/escaping-helpers.sh
         run: ./tests/escaping-helpers.sh
 
+  plist-rendering:
+    name: launchd plists are well-formed XML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/plist-rendering.sh
+        run: ./tests/plist-rendering.sh
+
   bridge-render:
     name: chat-bridge template byte-equivalence
     runs-on: ubuntu-latest
