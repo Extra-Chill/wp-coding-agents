@@ -67,11 +67,7 @@ wordpress_service_prepare_command() {
 
 wordpress_service_render_launchd() {
   local label="$1" log_dir="$SERVICE_HOME/.wp-coding-agents/logs"
-  cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+  plist_document <<EOF
     <key>Label</key>
     <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
@@ -93,8 +89,6 @@ wordpress_service_render_launchd() {
     <string>$(xml_escape "$log_dir/wordpress-service.log")</string>
     <key>StandardErrorPath</key>
     <string>$(xml_escape "$log_dir/wordpress-service.error.log")</string>
-</dict>
-</plist>
 EOF
 }
 

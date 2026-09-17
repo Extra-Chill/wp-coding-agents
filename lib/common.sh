@@ -61,6 +61,35 @@ json_escape() {
   printf '%s' "$value"
 }
 
+# plist_document — wrap a plist body in the launchd document frame.
+#
+# Every launchd plist this repo renders opens with the same five lines and
+# closes with the same two. That frame was copy-pasted into five renderers, and
+# the copies had already started to disagree about escaping: the two services
+# ran their values through xml_escape, the three bridges interpolated them raw.
+#
+# Only the frame is shared. The bodies genuinely differ — the worker schedules
+# with StartInterval where the bridges use KeepAlive, and the WordPress service
+# renders no EnvironmentVariables at all — so they stay as readable heredocs in
+# their own files. A single renderer taking seven parameters and three optional
+# blocks to absorb that variation would be harder to read than the duplication
+# it removed.
+#
+# Usage:
+#   plist_document <<EOF
+#       <key>Label</key>
+#       <string>$(xml_escape "$label")</string>
+#   EOF
+plist_document() {
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+  printf '%s\n' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+  printf '%s\n' '<plist version="1.0">'
+  printf '%s\n' '<dict>'
+  cat
+  printf '%s\n' '</dict>'
+  printf '%s\n' '</plist>'
+}
+
 # xml_escape <value> — escape for an XML/plist text node.
 #
 # Text nodes need & < > only; quotes are significant in attribute values, which

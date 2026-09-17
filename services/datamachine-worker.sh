@@ -98,11 +98,7 @@ datamachine_worker_render_launchd() {
   log_dir_xml="$(xml_escape "$log_dir")"
   service_home_xml="$(xml_escape "$SERVICE_HOME")"
   site_path_xml="$(xml_escape "$SITE_PATH")"
-  cat <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
+  plist_document <<EOF
     <key>Label</key>
     <string>$label_xml</string>
     <key>ProgramArguments</key>
@@ -126,8 +122,6 @@ datamachine_worker_render_launchd() {
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
-</dict>
-</plist>
 EOF
 }
 
