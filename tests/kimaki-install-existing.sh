@@ -68,6 +68,7 @@ run_cmd() { "$@"; }
 external_wordpress_kimaki_command() { printf 'kimaki'; }
 
 # shellcheck disable=SC1091
+source "$ROOT/lib/grants.sh"
 source "$ROOT/bridges/kimaki.sh"
 _kimaki_sync_bin_helpers() { :; }
 

@@ -7,6 +7,7 @@ cd "$SCRIPT_DIR"
 
 # shellcheck disable=SC1091
 source lib/common.sh
+source lib/grants.sh
 # shellcheck disable=SC1091
 source lib/ai-gateway.sh
 # shellcheck disable=SC1091

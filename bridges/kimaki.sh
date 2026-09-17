@@ -534,12 +534,11 @@ exec sudo -n -H -u $service_user_q $target_helper_q \"\$@\""
   chown root:root "$dispatch_wrapper"
   chmod 0755 "$dispatch_wrapper"
 
-  printf '%s\n' "$sudoers_content" > "$sudoers_file"
-  chown root:root "$sudoers_file"
-  chmod 0440 "$sudoers_file"
-  if command -v visudo >/dev/null 2>&1; then
-    visudo -cf "$sudoers_file" >/dev/null
-  fi
+  # Routed through the shared grant path: validated before it reaches a path
+  # sudo reads, so a rejected policy can never be left on the host.
+  GRANTS_SUDOERS_DIR="$(dirname "$sudoers_file")" \
+    grant_install "$(basename "$sudoers_file")" "$sudoers_content" || \
+    error "Kimaki dispatch grant was refused: $sudoers_file"
 
   if ! _kimaki_dispatch_helpers_match \
     "$target_helper" "$target_content" \

@@ -152,6 +152,7 @@ for helper_dir in "$TMP/local-bin" "$TMP/service-bin"; do
   UPDATED_ITEMS=()
   log() { :; }
   # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/lib/grants.sh"
   source "$SCRIPT_DIR/bridges/kimaki.sh"
   _kimaki_remove_obsolete_homeboy_notification_helper "$helper_dir"
   assert_missing "$helper_dir/wp-coding-agents-homeboy-notification"

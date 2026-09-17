@@ -52,6 +52,7 @@ export PLATFORM="linux"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/grants.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/detect.sh"
 # shellcheck disable=SC1091
