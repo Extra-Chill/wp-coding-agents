@@ -24,6 +24,14 @@ jobs:
           done < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
           exit "$fail"
 
+  dead-mechanism:
+    name: every mechanism has a live consumer (#601)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/dead-mechanism.sh
+        run: ./tests/dead-mechanism.sh
+
   bridge-render:
     name: chat-bridge template byte-equivalence
     runs-on: ubuntu-latest

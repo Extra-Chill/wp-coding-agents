@@ -1193,59 +1193,6 @@ _runtime_detected() {
 #   alongside opencode.
 # ============================================================================
 
-# Resolve AGENT_SLUG for the claude-code runtime sync. Leaves AGENT_SLUG empty
-# when no single agent can be confidently resolved — the hook then falls back
-# to discovering all active agents.
-_resolve_claude_code_agent_slug() {
-  # 1. Explicit override (env / --agent-slug) wins.
-  [ -n "${AGENT_SLUG:-}" ] && return 0
-
-  # 2. Existing sidecar from a prior setup/upgrade.
-  local env_file="$SITE_PATH/.claude/hooks/dm-agent-sync.env"
-  if [ -f "$env_file" ]; then
-    AGENT_SLUG=$(sed -n 's/^DM_AGENT_SLUG=//p' "$env_file" | head -1)
-    [ -n "$AGENT_SLUG" ] && return 0
-  fi
-
-  # 3. Derive candidates and validate each against the DM agent list. Only
-  #    adopt a slug when an agent with that name actually exists, so we never
-  #    scope the hook to a non-existent agent. Two candidates, in order:
-  #      a. domain-derived (correct for VPS installs with a real siteurl)
-  #      b. directory-basename-derived (correct for Studio, where siteurl is
-  #         http://localhost:PORT and the agent is named after the site folder)
-  #    In dry-run, surface the first non-empty candidate without hitting the DB.
-  local candidate
-  for candidate in \
-    "$(derive_agent_slug "$SITE_DOMAIN")" \
-    "$(derive_agent_slug "$(basename "$SITE_PATH")")"; do
-    [ -n "$candidate" ] || continue
-    if [ "$DRY_RUN" = true ]; then
-      AGENT_SLUG="$candidate"
-      return 0
-    fi
-    if _dm_agent_slug_exists "$candidate"; then
-      AGENT_SLUG="$candidate"
-      return 0
-    fi
-  done
-}
-
-# Return 0 if a Data Machine agent with the given slug exists.
-_dm_agent_slug_exists() {
-  local slug="$1" json
-  json=$(wp_cmd datamachine agents list --format=json 2>/dev/null) || return 1
-  echo "$json" | python3 -c "
-import sys, json, re
-raw = sys.stdin.read()
-m = re.search(r'\[.*\]', raw, re.DOTALL)
-if not m:
-    sys.exit(1)
-slug = sys.argv[1]
-data = json.loads(m.group())
-sys.exit(0 if any(a.get('agent_slug') == slug for a in data) else 1)
-" "$slug" >/dev/null 2>&1
-}
-
 sync_claude_code_runtime() {
   : # Runtime hooks and configuration are shared adapter records.
 }

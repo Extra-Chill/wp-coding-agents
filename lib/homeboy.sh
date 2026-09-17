@@ -55,20 +55,6 @@ homeboy_server_json() {
   printf '{"host":"localhost","user":"%s","port":%s}' "$user" "$port"
 }
 
-homeboy_json_array() {
-  local first=true value
-  printf '['
-  for value in "$@"; do
-    if [ "$first" = true ]; then
-      first=false
-    else
-      printf ','
-    fi
-    printf '"%s"' "$(homeboy_json_escape "$value")"
-  done
-  printf ']'
-}
-
 homeboy_project_id() {
   # 1. Explicit override.
   if [ -n "${HOMEBOY_PROJECT_ID:-}" ]; then

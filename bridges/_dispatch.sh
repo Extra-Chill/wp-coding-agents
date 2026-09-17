@@ -632,26 +632,3 @@ bridge_detect_vps() {
   done
   return 0
 }
-
-# install_chat_bridge — setup-time entrypoint, dispatched from setup.sh.
-# Honours --no-chat (INSTALL_CHAT=false) and unknown-bridge guarding.
-# Loads the active bridge into the parent shell so the install hook can
-# mutate state (KIMAKI_BIN, KIMAKI_PLIST, etc.) the rest of setup.sh reads.
-install_chat_bridge() {
-  if [ "$INSTALL_CHAT" != true ]; then
-    log "Phase 9: Skipping chat bridge (--no-chat)"
-    return
-  fi
-
-  log "Phase 9: Installing chat bridge ($CHAT_BRIDGE)..."
-
-  if ! bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1; then
-    warn "Unknown chat bridge: $CHAT_BRIDGE"
-    warn "Supported bridges: $(bridge_names | tr '\n' ' ')"
-    warn "Skipping chat bridge installation"
-    return
-  fi
-
-  bridge_load "$CHAT_BRIDGE"
-  bridge_install
-}
