@@ -131,7 +131,7 @@ agent_state_ownership_audit() {
   warn "[agent-state] one-time repair: $AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND"
   printf '{"status":"root_repair_required","component":"agent_state_ownership","paths":[%s],"repair_command":"%s"}\n' \
     "$(agent_state_ownership_json_list "${AGENT_STATE_OWNERSHIP_UNWRITABLE[@]}")" \
-    "$(agent_state_ownership_json_escape "$AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND")"
+    "$(json_escape "$AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND")"
   return 0
 }
 
@@ -163,15 +163,11 @@ agent_state_ownership_upgrade_invocation() {
   printf '%s --wp-path %s' "$script" "${SITE_PATH:-${EXISTING_WP:-}}"
 }
 
-agent_state_ownership_json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
-}
-
 agent_state_ownership_json_list() {
   local first=true item
   for item in "$@"; do
     [ "$first" = true ] || printf ','
     first=false
-    printf '"%s"' "$(agent_state_ownership_json_escape "$item")"
+    printf '"%s"' "$(json_escape "$item")"
   done
 }

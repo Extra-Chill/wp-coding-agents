@@ -32,6 +32,22 @@ jobs:
       - name: Run tests/dead-mechanism.sh
         run: ./tests/dead-mechanism.sh
 
+  duplicate-mechanism:
+    name: one mechanism, one implementation (#601)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/duplicate-mechanism.sh
+        run: ./tests/duplicate-mechanism.sh
+
+  escaping-helpers:
+    name: shared JSON and XML escaping
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/escaping-helpers.sh
+        run: ./tests/escaping-helpers.sh
+
   bridge-render:
     name: chat-bridge template byte-equivalence
     runs-on: ubuntu-latest

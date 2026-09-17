@@ -741,7 +741,7 @@ sync_cli_transport_runtime() {
 
 update_ai_gateway() {
   _run_filter_active reconciliation || return 0
-  upgrade_ai_gateway
+  ai_gateway_apply
 }
 
 # ============================================================================

@@ -65,14 +65,6 @@ wordpress_service_prepare_command() {
   WORDPRESS_SERVICE_PHP="$php_executable"
 }
 
-_wordpress_service_xml_text() {
-  local value="$1"
-  value=${value//&/\&amp;}
-  value=${value//</\&lt;}
-  value=${value//>/\&gt;}
-  printf '%s' "$value"
-}
-
 wordpress_service_render_launchd() {
   local label="$1" log_dir="$SERVICE_HOME/.wp-coding-agents/logs"
   cat <<EOF
@@ -81,26 +73,26 @@ wordpress_service_render_launchd() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$(_wordpress_service_xml_text "$label")</string>
+    <string>$(xml_escape "$label")</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$(_wordpress_service_xml_text "$WORDPRESS_SERVICE_PHP")</string>
-        <string>$(_wordpress_service_xml_text "$WORDPRESS_SERVICE_WP")</string>
+        <string>$(xml_escape "$WORDPRESS_SERVICE_PHP")</string>
+        <string>$(xml_escape "$WORDPRESS_SERVICE_WP")</string>
         <string>server</string>
-        <string>--path=$(_wordpress_service_xml_text "$SITE_PATH")</string>
-        <string>--host=$(_wordpress_service_xml_text "$WORDPRESS_SERVICE_HOST")</string>
+        <string>--path=$(xml_escape "$SITE_PATH")</string>
+        <string>--host=$(xml_escape "$WORDPRESS_SERVICE_HOST")</string>
         <string>--port=$WORDPRESS_SERVICE_PORT</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>$(_wordpress_service_xml_text "$SITE_PATH")</string>
+    <string>$(xml_escape "$SITE_PATH")</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>$(_wordpress_service_xml_text "$log_dir/wordpress-service.log")</string>
+    <string>$(xml_escape "$log_dir/wordpress-service.log")</string>
     <key>StandardErrorPath</key>
-    <string>$(_wordpress_service_xml_text "$log_dir/wordpress-service.error.log")</string>
+    <string>$(xml_escape "$log_dir/wordpress-service.error.log")</string>
 </dict>
 </plist>
 EOF

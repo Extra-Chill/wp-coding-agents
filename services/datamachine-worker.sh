@@ -37,14 +37,6 @@ datamachine_worker_record_state() {
   run_cmd rm -f "$file"
 }
 
-_datamachine_worker_xml_text() {
-  local value="$1"
-  value=${value//&/\&amp;}
-  value=${value//</\&lt;}
-  value=${value//>/\&gt;}
-  printf '%s' "$value"
-}
-
 datamachine_worker_prepare_command() {
   local executable
   wp_cli_transport_ensure
@@ -101,11 +93,11 @@ datamachine_worker_render_launchd() {
   local log_dir="$SERVICE_HOME/.datamachine"
   local command_xml label_xml log_dir_xml service_home_xml site_path_xml
   [ "$label" = "com.wp.datamachine-worker" ] || return 1
-  command_xml="$(_datamachine_worker_xml_text "$(_datamachine_worker_command)")"
-  label_xml="$(_datamachine_worker_xml_text "$label")"
-  log_dir_xml="$(_datamachine_worker_xml_text "$log_dir")"
-  service_home_xml="$(_datamachine_worker_xml_text "$SERVICE_HOME")"
-  site_path_xml="$(_datamachine_worker_xml_text "$SITE_PATH")"
+  command_xml="$(xml_escape "$(_datamachine_worker_command)")"
+  label_xml="$(xml_escape "$label")"
+  log_dir_xml="$(xml_escape "$log_dir")"
+  service_home_xml="$(xml_escape "$SERVICE_HOME")"
+  site_path_xml="$(xml_escape "$SITE_PATH")"
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

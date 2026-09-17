@@ -9,19 +9,11 @@ homeboy_slugify() {
     tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//'
 }
 
-homeboy_json_escape() {
-  local value="$1"
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\n'/\\n}
-  printf '%s' "$value"
-}
-
 homeboy_project_json() {
   local domain base_path server_id
-  domain="$(homeboy_json_escape "$1")"
-  base_path="$(homeboy_json_escape "$2")"
-  server_id="$(homeboy_json_escape "${3:-}")"
+  domain="$(json_escape "$1")"
+  base_path="$(json_escape "$2")"
+  server_id="$(json_escape "${3:-}")"
 
   printf '{"domain":"%s","base_path":"%s"' "$domain" "$base_path"
   if [ -n "$server_id" ]; then
@@ -50,7 +42,7 @@ homeboy_run() {
 
 homeboy_server_json() {
   local user port
-  user="$(homeboy_json_escape "$1")"
+  user="$(json_escape "$1")"
   port="$2"
   printf '{"host":"localhost","user":"%s","port":%s}' "$user" "$port"
 }
