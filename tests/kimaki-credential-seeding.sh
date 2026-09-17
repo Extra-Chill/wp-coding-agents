@@ -113,6 +113,7 @@ external_wordpress_kimaki_command() { printf '%s' "$TMP/runtime/.wp-coding-agent
 external_wordpress_kimaki_credential_command() { printf '%s' "$TMP/runtime/.wp-coding-agents/bin/kimaki-seed-credential"; }
 
 # shellcheck disable=SC1091
+source "$ROOT/lib/grants.sh"
 source "$ROOT/bridges/kimaki.sh"
 _kimaki_sync_bin_helpers() { :; }
 rm -f "$TEST_RESULT"

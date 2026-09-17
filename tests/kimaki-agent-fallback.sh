@@ -43,6 +43,7 @@ chmod +x "$KIMAKI_BIN"
 
 # shellcheck disable=SC1091
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/grants.sh"
 # shellcheck disable=SC1091
 source "$ROOT/bridges/kimaki.sh"
 

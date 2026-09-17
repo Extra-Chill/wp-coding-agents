@@ -20,6 +20,7 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/grants.sh"
 
 UPDATE=false
 VERBOSE=false

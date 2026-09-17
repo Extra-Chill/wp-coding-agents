@@ -435,6 +435,76 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Seam: a privilege grant is the most consequential file this harness writes and
+# was, until now, the least examined one. Nothing here repaired or even read
+# /etc/sudoers.d, so a grant that had been hand-placed, widened, or left
+# group-writable looked exactly like a grant that was installed correctly.
+#
+# Two of these are hard invariants. The third is a census: a grant this harness
+# did not install is not wrong, but nothing reinstalls it after a rebuild and
+# nothing notices when it changes — which is the state most grants on the first
+# host to get this were in.
+# ---------------------------------------------------------------------------
+
+section "privilege grant agreement"
+
+GRANT_DIR="${GRANTS_SUDOERS_DIR:-/etc/sudoers.d}"
+
+if [ ! -d "$GRANT_DIR" ]; then
+  skip "no $GRANT_DIR on this host"
+elif [ ! -r "$GRANT_DIR" ] || [ ! -x "$GRANT_DIR" ]; then
+  skip "$GRANT_DIR is not readable here — re-run as root to check privilege grants"
+else
+  GRANT_COUNT=0
+  GRANT_PERM_BAD=0
+  GRANT_INVALID=0
+  GRANT_UNOWNED=""
+
+  for grant_path in "$GRANT_DIR"/*; do
+    [ -f "$grant_path" ] || continue
+    grant_name="$(basename "$grant_path")"
+    # sudo ignores backup and dotted names, so neither should this.
+    case "$grant_name" in
+      README|*~|*.*) continue ;;
+    esac
+    GRANT_COUNT=$((GRANT_COUNT + 1))
+
+    grant_owner="$(file_owner "$grant_path" 2>/dev/null || true)"
+    grant_group="$(file_group "$grant_path" 2>/dev/null || true)"
+    grant_mode="$(file_mode "$grant_path" 2>/dev/null || true)"
+    if [ "$grant_owner:$grant_group:$grant_mode" != "root:root:440" ]; then
+      fail "grant $grant_name is $grant_owner:$grant_group $grant_mode; sudo requires root:root 440"
+      GRANT_PERM_BAD=$((GRANT_PERM_BAD + 1))
+    fi
+
+    if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$grant_path" >/dev/null 2>&1; then
+      fail "grant $grant_name is not valid sudoers policy — sudo may refuse to run for every user on this host"
+      GRANT_INVALID=$((GRANT_INVALID + 1))
+    fi
+
+    case "$grant_name" in
+      wp-coding-agents-*) ;;
+      *) GRANT_UNOWNED="${GRANT_UNOWNED}${grant_name} " ;;
+    esac
+  done
+
+  if [ "$GRANT_COUNT" -eq 0 ]; then
+    skip "no privilege grants installed on this host"
+  else
+    [ "$GRANT_PERM_BAD" -eq 0 ] && pass "all $GRANT_COUNT privilege grants are root:root 440"
+    if ! command -v visudo >/dev/null 2>&1; then
+      skip "visudo is unavailable; cannot validate grant policy syntax"
+    elif [ "$GRANT_INVALID" -eq 0 ]; then
+      pass "all $GRANT_COUNT privilege grants parse as valid sudoers policy"
+    fi
+    if [ -n "$GRANT_UNOWNED" ]; then
+      _say "  note  grants this harness does not install: ${GRANT_UNOWNED% }"
+      _say "        these do not survive a host rebuild and nothing detects changes to them"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 
 section "result"
 _say "  $PASSED passed, $FAILED failed, $SKIPPED skipped"

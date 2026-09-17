@@ -32,6 +32,14 @@ jobs:
       - name: Run tests/bridge-render.sh
         run: ./tests/bridge-render.sh
 
+  privilege-grants:
+    name: privilege grants validate before install (#601)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/privilege-grants.sh
+        run: ./tests/privilege-grants.sh
+
   opencode-claude-auth-retired:
     name: opencode-claude-auth stays retired (#117)
     runs-on: ubuntu-latest

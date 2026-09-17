@@ -31,6 +31,7 @@ warn() { printf '%s\n' "$*" >&2; }
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/grants.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/install-source.sh"
 # shellcheck disable=SC1091

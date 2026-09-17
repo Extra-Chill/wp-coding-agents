@@ -113,23 +113,9 @@ systems_capabilities_write_exact() {
   chmod "$mode" "$file"
 }
 
-systems_capabilities_install_sudoers() {
-  local file="$1" content="$2" tmp
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would validate and install managed sudoers policy: $file"
-    return 0
-  fi
-  mkdir -p "$(dirname "$file")"
-  tmp="$(mktemp "${file}.XXXXXX")"
-  printf '%s' "$content" > "$tmp"
-  if ! visudo -cf "$tmp" >/dev/null; then
-    rm -f "$tmp"
-    error "Generated systems capability sudoers policy is invalid: $file"
-  fi
-  chown root:root "$tmp"
-  chmod 0440 "$tmp"
-  mv "$tmp" "$file"
-}
+# Privilege grants are installed through lib/grants.sh — the validate-then-move
+# implementation that used to live here, extracted once a second component
+# needed it and wrote a weaker copy instead of finding this one.
 
 systems_capabilities_drift() {
   local file="$1" content="$2" mode="${3#0}" group="${4:-root}"

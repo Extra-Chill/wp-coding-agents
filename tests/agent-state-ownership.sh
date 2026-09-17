@@ -23,6 +23,7 @@ trap 'chmod -R u+rwX "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 
 # shellcheck disable=SC1091
 source lib/common.sh
+source lib/grants.sh
 # shellcheck disable=SC1091
 source lib/agent-state-ownership.sh
 
@@ -80,7 +81,7 @@ if [ "$(id -u)" -ne 0 ]; then
   unset AGENT_STATE_OWNERSHIP_UID
   ! agent_state_ownership_can_maintain "$TMP/kimaki-config/plugins/dm-agent-sync.ts" && ok "descendant of unmaintainable root is skipped" || fail "descendant still reported maintainable"
   [ "$(printf '%s\n' "$audit_out" | grep -c 'root_repair_required')" -eq 1 ] && ok "exactly one record for all roots" || fail "record emitted per root"
-  [ "$(stat -c '%a' "$TMP/kimaki-config/plugins")" = 555 ] && ok "audit did not mutate" || fail "audit mutated permissions"
+  [ "$(file_mode "$TMP/kimaki-config/plugins")" = 555 ] && ok "audit did not mutate" || fail "audit mutated permissions"
   chmod 755 "$TMP/kimaki-config/plugins"
 
   echo "4. reconcile is a no-op without root"

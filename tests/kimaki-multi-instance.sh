@@ -6,6 +6,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/grants.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 source "$SCRIPT_DIR/bridges/kimaki.sh"
 
