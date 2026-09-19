@@ -322,6 +322,28 @@ sync_homeboy_agents_md_guidance() {
   if declare -F guidance_sync_unit >/dev/null; then
     guidance_sync_unit homeboy
   fi
+
+  homeboy_retired_codebox_agents_md_guidance_remove
+}
+
+# The homeboy-codebox-agent-tasks section (#254-era) was retired by #246
+# ("keep Homeboy AGENTS guidance lean"): eefb2c0 deleted the sync function
+# that produced it (agents_md_guidance_sync_homeboy_codebox) so no install
+# would register it again, but never unregistered it from installs that had
+# already synced it. Nothing in this codebase renders that section anymore —
+# there is no live producer to edit — so any install that synced before #246
+# is stuck re-emitting four paragraphs of WP Codebox provider detail
+# (Codebox executor / WP Codebox agent mode / Codex provider / Claude Code
+# provider) that duplicate the codebox-owned `## WP Codebox` section, plus
+# the Agent tasks / Workspace shape / Operator verbs / Chat bridges paragraphs
+# that were removed for the same "keep it lean" reason (#609). This
+# unregister is unconditional and idempotent: it is a no-op on installs that
+# never had the section, and converges the ones that do without requiring a
+# fresh AGENTS.md bootstrap.
+homeboy_retired_codebox_agents_md_guidance_remove() {
+  if declare -F agents_md_guidance_unregister >/dev/null; then
+    agents_md_guidance_unregister "homeboy-codebox-agent-tasks"
+  fi
 }
 
 setup_homeboy_project() {
