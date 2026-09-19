@@ -288,6 +288,7 @@ jobs:
         test:
           - agent-state-ownership
           - agents-md-backup-retention
+          - agents-md-failure-does-not-abort-upgrade
           - carried-claude-code-plugin
           - ci-coverage
           - codex-runtime

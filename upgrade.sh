@@ -1302,6 +1302,10 @@ print_summary() {
     warn "Plugin upgrade partially completed."
   elif [ "${CONVERGENCE_EXIT_STATUS:-0}" -ne 0 ]; then
     warn "Desired-state convergence partially completed."
+  elif [ "${AGENTS_MD_EXIT_STATUS:-0}" -ne 0 ]; then
+    # Named here rather than left to the reader: every other phase converged,
+    # so without this line a non-zero exit has no visible cause in the summary.
+    warn "Upgrade completed except AGENTS.md — composition failed; see above."
   else
     log "Upgrade complete."
   fi
@@ -1457,6 +1461,7 @@ _print_plugins_only_verify_block() {
 
 PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
+AGENTS_MD_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
@@ -1482,7 +1487,14 @@ if _run_filter_active reconciliation; then
   ai_gateway_configure_opencode
 fi
 sync_skills
-regenerate_agents_md
+# Captured, not aborted. This is the only phase function here with a non-zero
+# return path, and under `set -e` a bare call made one stale memory file end the
+# run: eleven reconciliation phases and print_summary never happened, and the
+# log simply stopped mid-phase with nothing saying the rest had been skipped.
+# A failed compose is still worth a non-zero exit at the end — see the
+# AGENTS_MD_EXIT_STATUS check below — but not worth abandoning service
+# reconciliation halfway through.
+regenerate_agents_md || AGENTS_MD_EXIT_STATUS=$?
 if _run_filter_active agents-md; then
   runtime_guidance_sync_managed_codex_projection
 fi
@@ -1507,4 +1519,7 @@ fi
 if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
   reconciler_print_partial_evidence
   exit "$CONVERGENCE_EXIT_STATUS"
+fi
+if [ "$AGENTS_MD_EXIT_STATUS" -ne 0 ]; then
+  exit "$AGENTS_MD_EXIT_STATUS"
 fi
