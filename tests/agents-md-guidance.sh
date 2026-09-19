@@ -20,6 +20,8 @@ source "$SCRIPT_DIR/lib/source-policy.sh"
 source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/homeboy.sh"
 SOURCE_MODE="${SOURCE_MODE:-workspace}"
 UPDATED_ITEMS=()
 
@@ -542,6 +544,64 @@ if grep -q 'BEGIN agents-md-guidance:homeboy-cli' "$MU_FILE"; then
 else
   echo "  ok   Homeboy guidance is removed when Homeboy becomes unavailable"
 fi
+
+echo "==> retired homeboy-codebox-agent-tasks guidance is removed on sync (#609)"
+# Simulate an install that synced before #246 retired this section: it is
+# still registered in the mu-plugin, but nothing in the current codebase
+# renders it, so the only correct outcome is that a sync removes it.
+RETIRED_CONTENT='**Agent tasks:** legacy content.
+
+**Codebox executor:** legacy content duplicating the WP Codebox section.
+
+**Workspace shape:** legacy content.
+
+**WP Codebox agent mode:** legacy content.
+
+**Codex provider:** legacy content with AI_PROVIDER_OPENAI_CODEX_* secrets.
+
+**Claude Code provider:** legacy content with AI_PROVIDER_CLAUDE_CODE_REFRESH_TOKEN.
+
+**Operator verbs:** legacy content.
+
+**Chat bridges:** legacy content.'
+agents_md_guidance_register "homeboy-codebox-agent-tasks" 36 "Homeboy Codebox agent tasks" "Homeboy-owned async coding-agent fan-out through WP Codebox sandboxes." "$RETIRED_CONTENT"
+if grep -q "BEGIN agents-md-guidance:homeboy-codebox-agent-tasks" "$MU_FILE"; then
+  echo "  ok   retired guidance fixture registered"
+else
+  echo "  FAIL could not register retired guidance fixture"
+  FAILED=$((FAILED + 1))
+fi
+
+mkdir -p "$TMP/homeboy-bin"
+cat > "$TMP/homeboy-bin/homeboy" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$TMP/homeboy-bin/homeboy"
+PATH="$TMP/homeboy-bin:$PATH"
+export PATH
+
+sync_homeboy_agents_md_guidance
+
+if grep -q "BEGIN agents-md-guidance:homeboy-codebox-agent-tasks" "$MU_FILE"; then
+  echo "  FAIL retired homeboy-codebox-agent-tasks guidance was not removed by sync"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   retired homeboy-codebox-agent-tasks guidance removed by sync"
+fi
+if grep -q "BEGIN agents-md-guidance:homeboy-cli" "$MU_FILE"; then
+  echo "  ok   current homeboy-cli guidance is untouched by the retired-section cleanup"
+else
+  echo "  FAIL current homeboy-cli guidance was removed alongside the retired section"
+  FAILED=$((FAILED + 1))
+fi
+assert_php_lint "$MU_FILE" "mu-plugin parses with php -l after retired-section cleanup"
+
+RETIRED_HASH_BEFORE=$(file_hash "$MU_FILE")
+sync_homeboy_agents_md_guidance
+homeboy_retired_codebox_agents_md_guidance_remove
+RETIRED_HASH_AFTER=$(file_hash "$MU_FILE")
+assert_eq "$RETIRED_HASH_AFTER" "$RETIRED_HASH_BEFORE" "retired-section cleanup is idempotent on an install that never had the section"
 
 echo
 if [ "$FAILED" -gt 0 ]; then
