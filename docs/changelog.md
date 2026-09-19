@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.23.0] - 2026-09-19
+
+### Added
+- route every privilege grant through one validated path
+
+### Fixed
+- capture an AGENTS.md composition failure instead of aborting on it
+- share the launchd document frame and escape every value
+
 ## [1.22.2] - 2026-09-16
 
 ### Fixed
