@@ -287,7 +287,7 @@ jobs:
       matrix:
         test:
           - agent-state-ownership
-          - agents-md-backup-retention
+          - webroot-backup-hygiene
           - agents-md-failure-does-not-abort-upgrade
           - carried-claude-code-plugin
           - ci-coverage

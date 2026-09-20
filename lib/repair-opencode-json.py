@@ -670,6 +670,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--backup-dir",
+        default="",
+        help=(
+            "Directory to write the backup into. Default writes alongside the "
+            "target file, which on a WordPress install is the public document "
+            "root (#615); callers should pass a directory outside the served "
+            "tree."
+        ),
+    )
+    parser.add_argument(
         "--backup-suffix",
         default="",
         help="Suffix for backup file (default: current timestamp)",
@@ -816,7 +826,13 @@ def main() -> int:
     suffix = args.backup_suffix or __import__("datetime").datetime.now().strftime(
         "%Y%m%d-%H%M%S"
     )
-    backup_path = f"{args.file}.backup.{suffix}"
+    if args.backup_dir:
+        os.makedirs(args.backup_dir, exist_ok=True)
+        backup_path = os.path.join(
+            args.backup_dir, f"{os.path.basename(args.file)}.backup.{suffix}"
+        )
+    else:
+        backup_path = f"{args.file}.backup.{suffix}"
     shutil.copy2(args.file, backup_path)
 
     if has_plugin_drift and not plugin_skipped:
