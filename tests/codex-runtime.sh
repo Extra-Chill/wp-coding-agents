@@ -42,8 +42,9 @@ sync_homeboy_availability() { :; }
 wp_cmd() {
   case "$1 $2 $3" in
     "datamachine memory injectable-files")
-      cat <<'JSON'
+      cat <<JSON
 [
+  {"path":"$SITE_PATH/AGENTS.md"},
   {"path":"wp-content/uploads/datamachine-files/shared/SITE.md"},
   {"path":"wp-content/uploads/datamachine-files/shared/RULES.md"},
   {"path":"wp-content/uploads/datamachine-files/agents/builder/SOUL.md"},
@@ -99,6 +100,12 @@ if grep -q "site context sentinel" "$SITE_PATH/AGENTS.override.md" && grep -q "m
   pass "Codex override includes Data Machine memory file contents"
 else
   fail "Codex override includes Data Machine memory file contents"
+fi
+
+if [ "$(grep -c "# Existing shared instructions" "$SITE_PATH/AGENTS.override.md")" -eq 1 ]; then
+  pass "Codex override includes AGENTS.md exactly once"
+else
+  fail "Codex override includes AGENTS.md exactly once"
 fi
 
 rm -f "$SITE_PATH/AGENTS.md" "$SITE_PATH/AGENTS.override.md"

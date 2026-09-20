@@ -255,7 +255,17 @@ memory_start = os.environ["CODEX_DM_MEMORY_START"]
 memory_end = os.environ["CODEX_DM_MEMORY_END"]
 
 base = agents_path.read_text(encoding="utf-8").rstrip()
-paths = [line.strip() for line in list_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+paths = []
+for raw_path in list_path.read_text(encoding="utf-8").splitlines():
+    raw_path = raw_path.strip()
+    if not raw_path:
+        continue
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = site_path / path
+    if path.resolve() == agents_path.resolve():
+        continue
+    paths.append(raw_path)
 
 sections = [
     override_start,
