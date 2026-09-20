@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.23.1] - 2026-09-20
+
+### Fixed
+- remove retired homeboy-codebox-agent-tasks AGENTS.md guidance on sync
+
 ## [1.23.0] - 2026-09-19
 
 ### Added
