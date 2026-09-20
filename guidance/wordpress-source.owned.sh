@@ -53,7 +53,7 @@ guidance_render() {
   printf '\n'
 
   if [ -z "$owned" ] && [ -z "$writable" ]; then
-    printf '%s\n' 'Nothing on this install is declared as editable, so treat all of it as reference. If a task requires changing code, say that no editable source is configured rather than picking somewhere to edit.'
+    printf '%s\n' 'Nothing on this install is declared as editable, so treat the tree as reference. Tell the operator that editable source still needs configuring.'
     return 0
   fi
 
@@ -71,7 +71,7 @@ guidance_render() {
   fi
 
   if [ -n "$writable" ]; then
-    printf '%s\n' 'You may also change these, but **nothing captures them** — a rebuild or a migration will not carry the change, so make it only when asked and tell the operator you did:'
+    printf '%s\n' 'You may also change these. **Nothing captures them** — a rebuild or migration drops the change — so tell the operator after you save:'
     printf '\n'
     printf '%s\n' "$writable" | while IFS= read -r path; do
       [ -n "$path" ] || continue
@@ -80,7 +80,7 @@ guidance_render() {
     printf '\n'
   fi
 
-  printf '%s\n' 'Everything else is reference material. To change behavior that lives in code you do not own, use a hook, a filter, or a template override in the source above. If that is genuinely impossible, say so rather than editing outside the list.'
+  printf '%s\n' 'Everything else is reference. Change owned behavior through a hook, filter, or template override in the source listed above.'
   printf '\n'
   printf '%s\n' '**Your edits are live the moment you save them.** There is no staging environment and no review gate between you and the public site, so verify each change — load the affected page or run the relevant WP-CLI command — before you leave it in place.'
 }
