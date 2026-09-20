@@ -71,7 +71,7 @@ PY
 
 source "$ROOT/guidance/wordpress-source.workspace.sh"
 GUIDANCE="$(guidance_render)"
-case "$GUIDANCE" in *"read-only reference"*"$REPOSITORY"*) ;; *) fail "workspace guidance did not route to the declared repository" ;; esac
+case "$GUIDANCE" in *"configured repository checkout"*"$REPOSITORY"*) ;; *) fail "workspace guidance did not route to the declared repository" ;; esac
 
 printf 'changed\n' >> "$REPOSITORY/plugin.php"
 git -C "$REPOSITORY" status --short | grep -q ' M plugin.php' || fail "native Git status did not observe the edit"

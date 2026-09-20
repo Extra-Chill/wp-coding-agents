@@ -28,7 +28,7 @@ The WordPress running this site is on disk underneath you. Read it to verify cor
 
 Grep and read these freely. They are the ground truth for how this site actually behaves.
 
-These paths are **read-only reference**. Make code changes in the configured repository checkout, not in the installed source tree.
+These paths are **read-only reference** for reading APIs and verifying behavior. Make code changes in the configured repository checkout.
 MD
 
   local repository
