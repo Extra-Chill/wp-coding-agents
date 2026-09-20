@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.23.2] - 2026-09-20
+
+### Fixed
+- phrase AGENTS.md guidance as positive routing
+
 ## [1.23.1] - 2026-09-20
 
 ### Fixed
