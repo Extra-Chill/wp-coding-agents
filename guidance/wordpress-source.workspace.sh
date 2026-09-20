@@ -12,13 +12,13 @@
 guidance_id() { printf 'wordpress-source'; }
 guidance_priority() { printf '1'; }
 guidance_label() { printf 'WordPress Source'; }
-guidance_description() { printf 'Points the agent at the installed WordPress source as read-only reference.'; }
+guidance_description() { printf 'Points the agent at the installed WordPress source as reference material.'; }
 guidance_freshness() { printf 'static'; }
 guidance_conditions() { printf 'Registered by wp-coding-agents on workspace-mode installations.'; }
 
 guidance_render() {
   cat <<'MD'
-## WordPress Source (Direct Reference, Read-Only)
+## WordPress Source (Direct Reference)
 
 The WordPress running this site is on disk underneath you. Read it to verify core APIs, hooks, conventions, and runtime behavior instead of relying on assumptions:
 
@@ -28,7 +28,7 @@ The WordPress running this site is on disk underneath you. Read it to verify cor
 
 Grep and read these freely. They are the ground truth for how this site actually behaves.
 
-These paths are **read-only reference**. Make code changes in the configured repository checkout, not in the installed source tree.
+Use these paths as reference material. Make code changes in the configured repository checkout.
 MD
 
   local repository

@@ -393,7 +393,7 @@ SOURCE_MODE=workspace
 ENG_PROSE="$(guidance_call wordpress-source render)"
 assert_eq "$(guidance_call wordpress-source id)" "wordpress-source" \
   "section id is stable across postures"
-assert_contains "$ENG_PROSE" "read-only" "workspace mode prose says read-only"
+assert_contains "$ENG_PROSE" "reference material" "workspace mode prose treats installed source as reference"
 assert_contains "$ENG_PROSE" "configured repository checkout" "workspace mode prose routes changes to the configured repository"
 
 SOURCE_MODE=owned
