@@ -161,13 +161,13 @@ Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, re
 `homeboy release` and `homeboy deploy` run when the user asks.
 
 **Control-plane recovery**
-Homeboy owns tracked coding work. If Cook fails to admit a task:
+Homeboy remains the normal owner of tracked coding work. If Cook fails to admit a task:
 1. Validate the selected route with `homeboy agent-task cook --preview` using the task's repository, tracker URL, and verification gates.
 2. Check `homeboy agent-task providers`, `homeboy status`, and `homeboy runner status`. Use `homeboy agent-task cook --help-full` for the configured alternative-route syntax.
-3. Recover the runner or control-plane through its documented Homeboy operation, then retry Cook within its attempt and provider-rotation budget.
-4. After that budget is exhausted, ask the operator before invoking a coding runtime directly.
+3. Recover the runner or control-plane through its documented Homeboy operation, then retry Cook within its configured attempt and provider-rotation budget.
+4. After that budget is exhausted, request explicit operator authorization before invoking a coding runtime directly.
 
-Authorized direct fallback stays exceptional. Work in an isolated Git worktree linked to the tracker; run and record deterministic verification; then follow commit, push, review, pull-request, and AI-disclosure policy. Record that finalization happened outside Homeboy and keep the runtime command plus session evidence with the tracker.
+Authorized direct fallback stays exceptional. Work in an isolated Git worktree linked to the tracker; run and record deterministic verification; then follow commit, push, review, pull-request, and AI-disclosure policy. Record that finalization occurred outside Homeboy and keep the runtime command plus session evidence with the tracker.
 
 **Discovery**
 Use `homeboy --help` and `homeboy <command> --help` for the live command contract. Inspect active configuration with `homeboy config show` and provider readiness with `homeboy agent-task providers`.
