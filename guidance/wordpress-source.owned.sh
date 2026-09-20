@@ -71,7 +71,7 @@ guidance_render() {
   fi
 
   if [ -n "$writable" ]; then
-    printf '%s\n' 'You may also change these. **Nothing captures them** — a rebuild or migration drops the change — so tell the operator after you save:'
+    printf '%s\n' 'You may also change these. **nothing captures them** — a rebuild or migration drops the change — so tell the operator after you save:'
     printf '\n'
     printf '%s\n' "$writable" | while IFS= read -r path; do
       [ -n "$path" ] || continue
