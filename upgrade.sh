@@ -67,7 +67,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance agents-md-backups opencode-subagents systems-capabilities; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -362,11 +362,13 @@ DEFAULT TOUCHES:
     user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
     bridges) and migrates "agent.build.prompt" to top-level "instructions"
     (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
-    Preserves all other keys. Writes a .backup.<ts> alongside.
-  - AGENTS.md.backup.* — prunes old generated backups after successful
-    AGENTS.md regeneration. Defaults: keep latest 5 and remove older extras
-    after 30 days. Override with AGENTS_MD_BACKUP_KEEP and
-    AGENTS_MD_BACKUP_MAX_AGE_DAYS.
+    Preserves all other keys. Writes a .backup.<ts> under
+    .wp-coding-agents/backups/, outside the served tree.
+  - Legacy AGENTS.md.backup.* / opencode.json.backup.* in the site root —
+    removed. Those are internal config written into the public document
+    root by older versions (#615). AGENTS.md rollback now uses a temp file
+    discarded on success; opencode.json backups live under
+    .wp-coding-agents/backups/.
 
 OPT-IN TOUCHES:
   - opencode.json (--repair-opencode-json) — full reconcile. In addition
@@ -966,6 +968,7 @@ for item in data:
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     "$MODE_FLAG" \
+    --backup-dir "$SITE_PATH/.wp-coding-agents/backups" \
     --backup-suffix "$TIMESTAMP" 2>&1) && repair_rc=0 || repair_rc=$?
   [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
 
@@ -973,7 +976,7 @@ for item in data:
   # via plain Python open() — inherits the caller's umask/identity same as
   # every other service-file writer in this repo. Normalize both.
   service_file_normalize_perms "$OPENCODE_JSON_FILE"
-  service_file_normalize_perms "${OPENCODE_JSON_FILE}.backup.$TIMESTAMP"
+  service_file_normalize_perms "$SITE_PATH/.wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP"
 
   local repair_status prompt_migration instruction_sync
   repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
@@ -985,7 +988,7 @@ for item in data:
       log "  opencode.json already correct"
       ;;
     additive_repaired)
-      log "  opencode.json repaired additively (backup: ${OPENCODE_JSON_FILE}.backup.$TIMESTAMP)"
+      log "  opencode.json repaired additively (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
       log "  $repair_out"
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
@@ -999,7 +1002,7 @@ for item in data:
       ;;
     needs_full_repair)
       warn "  opencode.json additively repaired, but unexpected plugin entries remain"
-      warn "  Run './upgrade.sh --repair-opencode-json' to remove them (backup: ${OPENCODE_JSON_FILE}.backup.$TIMESTAMP)"
+      warn "  Run './upgrade.sh --repair-opencode-json' to remove them (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
       warn "  $repair_out"
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
@@ -1011,7 +1014,7 @@ for item in data:
       OPENCODE_JSON_DRIFT=true
       ;;
     repaired)
-      log "  opencode.json fully repaired (backup: ${OPENCODE_JSON_FILE}.backup.$TIMESTAMP)"
+      log "  opencode.json fully repaired (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
       log "  $repair_out"
       if [ "$prompt_migration" = "migrated" ]; then
         UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
@@ -1069,11 +1072,19 @@ regenerate_agents_md() {
   log "Phase 5: Regenerating AGENTS.md..."
 
   local AGENTS_MD="$SITE_PATH/AGENTS.md"
-  local BACKUP="$SITE_PATH/AGENTS.md.backup.$TIMESTAMP"
   local CLAUDE_MD="$SITE_PATH/CLAUDE.md"
+  # Pre-compose copy used to roll back a failed/stale compose and to diff the
+  # result. It is a transaction journal, not an archive: AGENTS.md is a
+  # generated file recomposed from live Data Machine state, so a historical
+  # copy has no value once the new one verifies. Keep it in TMPDIR — never in
+  # $SITE_PATH, which on a WordPress install is the public document root
+  # (#615) — and remove it on every exit path.
+  local BACKUP
+  BACKUP="$(mktemp "${TMPDIR:-/tmp}/wp-coding-agents-agents-md.XXXXXX")"
 
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
+    rm -f "$BACKUP"
+    echo -e "${BLUE}[dry-run]${NC} Would stage a temporary pre-compose copy of $AGENTS_MD for rollback"
     echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $(wp_cli_transport_display) datamachine memory compose AGENTS.md"
@@ -1089,8 +1100,8 @@ regenerate_agents_md() {
   if [ -f "$AGENTS_MD" ]; then
     HAD_AGENTS_MD=true
     cp "$AGENTS_MD" "$BACKUP"
-    service_file_normalize_perms "$BACKUP"
-    log "  Backup: $BACKUP"
+  else
+    rm -f "$BACKUP"
   fi
 
   # `datamachine memory compose AGENTS.md` writes in-place to the registered
@@ -1144,11 +1155,14 @@ regenerate_agents_md() {
       fi
       UPDATED_ITEMS+=("AGENTS.md")
     fi
-    agents_md_prune_backups "$SITE_PATH"
+    rm -f "$BACKUP"
+    webroot_backup_prune_legacy "$SITE_PATH"
+    webroot_backup_prune_managed "$SITE_PATH"
   else
     warn "  datamachine memory compose failed"
     # Restore a partial write, or remove a newly-created partial file.
     agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
+    rm -f "$BACKUP"
     warn "  Restored AGENTS.md to its pre-compose state"
     return 1
   fi

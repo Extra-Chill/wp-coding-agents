@@ -356,6 +356,7 @@ _runtime_repair_opencode_json_additive() {
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     --additive \
+    --backup-dir "$SITE_PATH/.wp-coding-agents/backups" \
     --backup-suffix "$SUFFIX" 2>&1) && repair_rc=0 || repair_rc=$?
   [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
 
@@ -367,7 +368,7 @@ _runtime_repair_opencode_json_additive() {
       log "  opencode.json already up to date"
       ;;
     additive_repaired)
-      log "  opencode.json repaired additively (backup: $SITE_PATH/opencode.json.backup.$SUFFIX)"
+      log "  opencode.json repaired additively (backup: .wp-coding-agents/backups/opencode.json.backup.$SUFFIX)"
       log "  $repair_out"
       [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("opencode.json additive repair")
       ;;
