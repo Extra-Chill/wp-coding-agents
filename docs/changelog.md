@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.3] - 2026-09-22
+
+### Fixed
+- resolve Claude Code client identity dynamically
+- stop writing generated backups into the public document root
+- avoid duplicating AGENTS memory source
+
 ## [1.23.2] - 2026-09-20
 
 ### Fixed
