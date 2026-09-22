@@ -77,6 +77,10 @@ spl_autoload_register(static function (string $class) use ($aiClientSrc): void {
 
 require_once $pluginDir . '/src/autoload.php';
 
+// This headless serialization test has no WordPress HTTP/storage runtime.
+// Dynamic discovery and fallback behavior are exercised in client-identity.php.
+define('AI_PROVIDER_CLAUDE_CODE_USER_AGENT', 'claude-cli/test');
+
 $failures = 0;
 $passes = 0;
 $check = static function (bool $condition, string $message) use (&$failures, &$passes): void {

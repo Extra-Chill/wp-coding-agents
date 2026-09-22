@@ -335,5 +335,9 @@ jobs:
           - wp-config-permissions
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening'
+        with:
+          node-version: 24
       - name: Run tests/${{ matrix.test }}.sh
         run: bash tests/${{ matrix.test }}.sh
