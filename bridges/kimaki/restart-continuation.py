@@ -23,6 +23,26 @@ UNIT_RE = re.compile(r"^kimaki(?:-[A-Za-z0-9_.@-]+)?\.service$")
 CHECKS = ("bridge_status", "managed_plugins", "startup_warnings")
 NEXT_ACTION = "resume_verification"
 
+# `kimaki send` exposes distinct flags for delivering into an existing
+# thread (--thread) versus starting a brand-new thread in a channel
+# (--channel). A route's `kind` says which shape it is; this maps that
+# kind to the correct flag rather than hardcoding --channel for every
+# route (#619 defect 3). Only "discord_thread" is ever written today —
+# validate_record() rejects any other kind before a record reaches
+# dispatch — but the mapping is kept as a lookup, not an if/else on one
+# literal, so a future route kind fails closed instead of silently
+# reusing whichever flag happened to be last.
+ROUTE_KIND_SEND_FLAGS = {
+    "discord_thread": "--thread",
+}
+
+
+def send_flag_for_route_kind(kind: object) -> str | None:
+    """Return the `kimaki send` flag for a route kind, or None if unknown."""
+    if not isinstance(kind, str):
+        return None
+    return ROUTE_KIND_SEND_FLAGS.get(kind)
+
 
 def emit(status: str, **fields: object) -> None:
     print(json.dumps({"status": status, **fields}, sort_keys=True, separators=(",", ":")))
@@ -180,7 +200,20 @@ def restart_worker(args: argparse.Namespace) -> int:
         if not UNIT_RE.fullmatch(args.target):
             write_json(status_file, {"status": "rejected", "reason": "invalid_systemd_unit", "recovery_command": recovery})
             return 2
-        command = ["systemctl", "restart", args.target]
+        # Managed VPS installs run this as the non-root service user (#619
+        # defect 1): a bare `systemctl restart` fails with "Interactive
+        # authentication required" and there is no TTY to prompt on. `sudo -n`
+        # fails fast instead of hanging, and only succeeds when the installer's
+        # sudoers grant covers this exact unit — the grant is written from the
+        # same $KIMAKI_UNIT value the installer uses everywhere else (systemd
+        # unit filename, `systemctl enable`, the printed restart command), so
+        # the unit name here and the grant's unit name cannot drift apart
+        # (#619 defect 2). Root installs skip sudo entirely: sudo is not
+        # required, and some minimal containers do not ship it.
+        if os.geteuid() == 0:
+            command = ["systemctl", "restart", args.target]
+        else:
+            command = ["sudo", "-n", "systemctl", "restart", args.target]
         failed_phase = "restart"
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     status = "ok" if result.returncode == 0 else "restart_failed"
@@ -230,8 +263,35 @@ def consume(args: argparse.Namespace) -> int:
         "plugins, and startup warnings, then continue the prior tracked workflow without rerunning "
         f"upgrade mutations. Continuation ID: {record['id']}"
     )
+    # #619 defect 3: the route is always recorded as kind "discord_thread" (see
+    # validate_record above), whose id is a thread ID, not a channel ID. `kimaki
+    # send --channel <id>` treats that id as a *channel* to post a fresh starter
+    # message into and then create a new thread from — which Discord's API also
+    # accepts for a thread id, since threads are channels there too. The starter
+    # message step therefore succeeds and lands in the thread, but the following
+    # "create a thread from this message" step fails because Discord does not
+    # allow nesting a thread inside a thread. kimaki's own catch-all handler
+    # exits EXIT_NO_RESTART (64) on that failure — after the message was already
+    # delivered. That is the exit-64-but-delivered behavior this issue reports;
+    # confirmed by reading kimaki's send.ts control flow (existingThreadMode is
+    # only entered for --thread/--session, so --channel takes the create-channel-
+    # message-then-thread path unconditionally), not by sending a live message.
+    # `--thread` takes the correct existingThreadMode path: it posts directly
+    # into the existing thread and never attempts to create one, so it cannot
+    # produce this false failure.
+    send_flag = send_flag_for_route_kind(route.get("kind"))
+    if send_flag is None:
+        # No other route kind is ever written today — fail closed rather than
+        # falling back to --channel, which is exactly the flag whose behavior
+        # this defect is about.
+        write_json(
+            status_file,
+            {"status": "dispatch_failed", "continuation_id": record["id"], "reason": "unsupported_route_kind"},
+        )
+        emit("dispatch_failed", continuation_id=record["id"], reason="unsupported_route_kind")
+        return 0
     result = subprocess.run(
-        [args.kimaki_bin, "send", "--channel", str(route["id"]), "--prompt", prompt],
+        [args.kimaki_bin, "send", send_flag, str(route["id"]), "--prompt", prompt],
         cwd=str(record["site"]["path"]),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
