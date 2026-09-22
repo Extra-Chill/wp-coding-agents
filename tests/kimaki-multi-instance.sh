@@ -132,6 +132,13 @@ IS_STUDIO=false
 systemctl() { :; }
 _kimaki_provision_package() { :; }
 
+# bridge_update_systemd now also reconciles the #619 restart sudoers grant.
+# Force the non-root "check only, warn on mismatch" path and confine any read
+# to a throwaway directory so this test never touches the real /etc/sudoers.d.
+KIMAKI_RESTART_SUDOERS_DIR="$TMP/restart-sudoers"
+mkdir -p "$KIMAKI_RESTART_SUDOERS_DIR"
+WP_CODING_AGENTS_TEST_EUID=1000
+
 other_before=$(cksum "$SYSTEMD_UNIT_DIR/kimaki.service")
 bridge_update_systemd
 other_after=$(cksum "$SYSTEMD_UNIT_DIR/kimaki.service")

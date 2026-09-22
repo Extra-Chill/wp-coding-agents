@@ -96,7 +96,7 @@ TEST_TMP="$TMP" "$HELPER" consume \
 [ "$(json_value "$TMP/success/consume.json" status)" = resumed ]
 [ "$(json_value "$(state_file "$TMP/success" resume-status.json)" status)" = resumed ]
 [ "$(wc -l < "$TMP/kimaki.log" | tr -d ' ')" = 1 ]
-grep -q '^send --channel 123456789012345678 --prompt Managed upgrade restart continuation\.' "$TMP/kimaki.log"
+grep -q '^send --thread 123456789012345678 --prompt Managed upgrade restart continuation\.' "$TMP/kimaki.log"
 
 echo "==> failed bootstrap retains typed recovery"
 mkdir -p "$TMP/bootstrap-fail"
@@ -140,6 +140,25 @@ TEST_TMP="$TMP" "$HELPER" consume --site-path "$TMP/site" --data-dir "$TMP/expir
 after="$(wc -l < "$TMP/kimaki.log" | tr -d ' ')"
 [ "$after" = "$before" ]
 [ ! -f "$(state_file "$TMP/expired" pending.json)" ]
+
+echo "==> route-kind to kimaki-send-flag mapping (#619 defect 3)"
+python3 - "$HELPER" <<'PY'
+import importlib.util
+import sys
+
+helper_path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("restart_continuation", helper_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+assert module.send_flag_for_route_kind("discord_thread") == "--thread", \
+    "discord_thread routes must dispatch with --thread, not --channel"
+assert module.send_flag_for_route_kind("channel") is None, \
+    "unrecognized kinds must fail closed rather than guess a flag"
+assert module.send_flag_for_route_kind(None) is None
+assert module.send_flag_for_route_kind(123) is None
+print("  ok   discord_thread -> --thread, unknown kinds -> None (fail closed)")
+PY
 
 echo "==> mismatched site identity fails closed"
 mkdir -p "$TMP/mismatch" "$TMP/other-site"

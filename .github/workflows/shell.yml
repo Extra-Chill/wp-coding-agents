@@ -316,6 +316,7 @@ jobs:
           - owned-source-discovery
           - source-reconcile
           - systems-capabilities
+          - upgrade-help
           - verify
           - path-helpers
           - post-upgrade-restore

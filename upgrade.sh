@@ -205,7 +205,15 @@ done
 systems_capabilities_validate_profile
 
 if [ "$SHOW_HELP" = true ]; then
-  cat << HELP
+  # Delimiter is quoted ('HELP') so the body below is emitted literally: no
+  # parameter expansion, no command substitution. This is deliberate — an
+  # unquoted heredoc here previously let a `wp server` backtick in the prose
+  # below execute as a live command substitution and block on a dev server
+  # (#620). The one legitimate runtime value (the migration default user)
+  # is injected afterward via a placeholder token substitution so the quoting
+  # stays total and the value still has a single source of truth
+  # (SERVICE_MIGRATION_DEFAULT_USER in lib/service-migration.sh).
+  HELP_TEXT=$(cat << 'HELP'
 wp-coding-agents upgrade script
 
 Safely upgrade a live install without touching user state.
@@ -323,7 +331,7 @@ SERVICE IDENTITY:
                                 in /root.
   ./upgrade.sh --migrate-user <name>
                                 Target user for --migrate-non-root
-                                (default: $SERVICE_MIGRATION_DEFAULT_USER).
+                                (default: __SERVICE_MIGRATION_DEFAULT_USER__).
   ./upgrade.sh --migrate-extra <path>
                                 Carry an additional service-home-relative path
                                 across. Repeatable. For install-specific state
@@ -341,7 +349,7 @@ SUPPORTED CHAT BRIDGES:
 
 KIMAKI PLUGIN INSTALL TARGETS:
   VPS:   /opt/kimaki-config/plugins
-  Local: \$KIMAKI_DATA_DIR/kimaki-config/plugins
+  Local: $KIMAKI_DATA_DIR/kimaki-config/plugins
 
 NEVER TOUCHED:
   - CLAUDE.md runtime config
@@ -383,6 +391,8 @@ OPT-IN TOUCHES:
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
     authenticate with Claude Pro/Max OAuth. Use --no-claude-code-auth to skip.
 HELP
+)
+  printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
   exit 0
 fi
 

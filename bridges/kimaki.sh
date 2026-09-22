@@ -597,7 +597,12 @@ _kimaki_validate_dispatch_callers() {
   done
 }
 
-_kimaki_dispatch_repair_command() {
+# The `--kimaki-only` re-run that repairs any root-owned Kimaki grant: the
+# dispatch wrapper/sudoers set and the restart sudoers grant are two different
+# files, but the repair action for a broken one is identical — re-run upgrade
+# as root, scoped to this bridge and this unit. One command, one place it can
+# drift from the flags upgrade.sh actually accepts.
+_kimaki_root_repair_command() {
   local command
   printf -v command 'sudo -- %q --kimaki-only --wp-path %q --kimaki-unit %q' \
     "$SCRIPT_DIR/upgrade.sh" "$SITE_PATH" "${KIMAKI_UNIT:-kimaki.service}"
@@ -606,7 +611,7 @@ _kimaki_dispatch_repair_command() {
 
 _kimaki_report_dispatch_root_repair_required() {
   KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED=true
-  KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=$(_kimaki_dispatch_repair_command)
+  KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=$(_kimaki_root_repair_command)
 
   warn "  Kimaki dispatch helpers could not be certified for www-data and $SERVICE_USER."
   warn "  Root repair required: $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
@@ -633,6 +638,65 @@ $caller
 $caller"
     printf '%s ALL=(%s) NOPASSWD: %s *\n' "$caller" "$service_user" "$target_helper"
   done
+}
+
+# _kimaki_restart_sudoers_content / _kimaki_install_restart_grant
+#
+# #619 defects 1 and 2: `bridges/kimaki/restart-continuation.py` shells out to
+# `sudo -n systemctl restart <unit>` when it is not running as root, because a
+# managed non-root VPS service user cannot restart a systemd unit without one
+# ("Interactive authentication required", no TTY to prompt on). That sudo call
+# only succeeds if a sudoers grant exists for exactly this argv. The grant and
+# every caller of the restart helper (this installer's own
+# `bridge_restart_cmd`, and any operator/agent following its printed command)
+# all read the unit name from `${KIMAKI_UNIT:-kimaki.service}` — the same
+# variable that names and enables the systemd unit file itself. That is the
+# single source defect 2 asks for: the grant is generated from the live
+# $KIMAKI_UNIT value at the moment it is written, not from a name typed once
+# by hand and left to drift the next time the unit is renamed.
+_kimaki_restart_sudoers_content() {
+  local service_user="$1"
+  local unit="$2"
+  local systemctl_bin
+  systemctl_bin="$(command -v systemctl 2>/dev/null || echo /usr/bin/systemctl)"
+  printf '%s ALL=(root) NOPASSWD: %s restart %s\n' "$service_user" "$systemctl_bin" "$unit"
+}
+
+_kimaki_install_restart_grant() {
+  # Root-run installs never invoke sudo here: restart-continuation.py only
+  # shells out through sudo when its own effective UID is non-root.
+  if [ "${LOCAL_MODE:-false}" = true ] || [ -z "${SERVICE_USER:-}" ] || [ "$SERVICE_USER" = "root" ]; then
+    return 0
+  fi
+
+  local suffix sudoers_file sudoers_content
+  suffix=$(_kimaki_instance_suffix)
+  sudoers_file="${KIMAKI_RESTART_SUDOERS_DIR:-/etc/sudoers.d}/wp-coding-agents-kimaki${suffix}-restart"
+  sudoers_content=$(_kimaki_restart_sudoers_content "$SERVICE_USER" "${KIMAKI_UNIT:-kimaki.service}")
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install $sudoers_file"
+    return 0
+  fi
+
+  if [ "$(_kimaki_effective_uid)" -ne 0 ]; then
+    if grant_matches "$sudoers_file" "$sudoers_content"; then
+      log "  Keeping functional Kimaki restart grant for $SERVICE_USER"
+      return 0
+    fi
+    warn "  Kimaki restart grant missing or stale for $SERVICE_USER."
+    warn "  Root repair required: $(_kimaki_root_repair_command)"
+    return 0
+  fi
+
+  # Routed through the shared grant path: validated before it reaches a path
+  # sudo reads, so a rejected policy can never be left on the host.
+  GRANTS_SUDOERS_DIR="$(dirname "$sudoers_file")" \
+    grant_install "$(basename "$sudoers_file")" "$sudoers_content" || \
+    error "Kimaki restart grant was refused: $sudoers_file"
+
+  log "  Installed Kimaki restart grant: $sudoers_file"
+  UPDATED_ITEMS+=("Kimaki restart grant")
 }
 
 _kimaki_shell_quote() {
@@ -904,6 +968,7 @@ EnvironmentFile=-$(ai_gateway_env_file)"
     "$(bridge_render_systemd "$KIMAKI_UNIT" "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable "$KIMAKI_UNIT"
+  _kimaki_install_restart_grant
 }
 
 # ============================================================================
@@ -1282,6 +1347,12 @@ $gateway_env_line"
   NEW_UNIT=$(bridge_render_systemd "$KIMAKI_UNIT" "$MERGED_ENV")
 
   _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "$KIMAKI_UNIT"
+
+  # Re-derived from the same $KIMAKI_UNIT this phase just used to update the
+  # unit file: if the unit was renamed (multi-instance, --kimaki-unit), the
+  # restart grant is rewritten to match on the same upgrade run rather than
+  # lagging behind until the next fresh install.
+  _kimaki_install_restart_grant
 }
 
 bridge_update_launchd() {
