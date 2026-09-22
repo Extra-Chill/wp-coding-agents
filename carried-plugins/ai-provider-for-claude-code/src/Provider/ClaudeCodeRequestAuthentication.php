@@ -12,7 +12,6 @@ use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
  */
 class ClaudeCodeRequestAuthentication extends ApiKeyRequestAuthentication
 {
-    private const CLAUDE_CODE_VERSION = '2.1.259';
     private const ANTHROPIC_BETA = 'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14';
 
     /**
@@ -43,7 +42,7 @@ class ClaudeCodeRequestAuthentication extends ApiKeyRequestAuthentication
             ->withHeader('Anthropic-Beta', self::ANTHROPIC_BETA)
             ->withHeader('Anthropic-Dangerous-Direct-Browser-Access', 'true')
             ->withHeader('Authorization', 'Bearer ' . $this->oauthClient->getAccessToken())
-            ->withHeader('User-Agent', $this->userAgent())
+            ->withHeader('User-Agent', ClaudeCodeClientIdentity::userAgent())
             ->withHeader('X-App', 'cli');
     }
 
@@ -53,15 +52,5 @@ class ClaudeCodeRequestAuthentication extends ApiKeyRequestAuthentication
     public static function getJsonSchema(): array
     {
         return parent::getJsonSchema();
-    }
-
-    private function userAgent(): string
-    {
-        $userAgent = getenv('AI_PROVIDER_CLAUDE_CODE_USER_AGENT') ?: '';
-        if (defined('AI_PROVIDER_CLAUDE_CODE_USER_AGENT')) {
-            $userAgent = (string) constant('AI_PROVIDER_CLAUDE_CODE_USER_AGENT');
-        }
-
-        return $userAgent !== '' ? $userAgent : 'claude-cli/' . self::CLAUDE_CODE_VERSION;
     }
 }

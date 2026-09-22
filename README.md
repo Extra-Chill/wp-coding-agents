@@ -508,6 +508,22 @@ Claude Code uses `CLAUDE.md` with generated `@` includes. A SessionStart hook re
 
 When Claude Code is selected or detected, `wp-coding-agents` installs the carried `ai-provider-for-claude-code` plugin so WordPress AI Client consumers can use the local Claude Code OAuth-backed provider when appropriate.
 
+Both the standalone OpenCode OAuth plugin and the carried PHP provider resolve their
+`claude-cli/<version>` client identity from the public npm registry's stable
+`@anthropic-ai/claude-code` release. The installed Claude CLI is optional. Successful
+lookups are cached for six hours and refreshed on subsequent requests, including
+in long-running sessions. Registry requests have a three-second timeout, send no
+OAuth credentials, and do not follow redirects. An unavailable or invalid registry
+response retains the last good version and retries after five minutes; a fresh
+offline install uses the bundled bootstrap version until discovery succeeds.
+
+OpenCode stores this public metadata in
+`${XDG_CACHE_HOME:-~/.cache}/opencode/claude-code-version.json`; WordPress stores it
+in the non-autoloaded `ai_provider_claude_code_client_version` option. Warm requests
+use the process cache. `OPENCODE_ANTHROPIC_USER_AGENT` and
+`AI_PROVIDER_CLAUDE_CODE_USER_AGENT` still override discovery entirely (the PHP
+constant takes precedence over the environment variable).
+
 ### Codex
 
 Codex reads `AGENTS.override.md` from the WordPress site root when present, before falling back to `AGENTS.md`. Because Codex does not load arbitrary instruction files from an `instructions` array or Claude-style `@` includes, setup and upgrade generate a Codex-owned `AGENTS.override.md` from the shared `AGENTS.md` plus the local Data Machine memory files.

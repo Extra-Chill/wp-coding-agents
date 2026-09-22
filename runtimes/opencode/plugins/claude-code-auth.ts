@@ -27,7 +27,8 @@ const SCOPES = "org:create_api_key user:profile user:inference user:sessions:cla
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const REFRESH_LOCK_TIMEOUT_MS = 15_000;
 const REFRESH_LOCK_STALE_MS = 2 * 60 * 1000;
-const CLAUDE_CODE_VERSION = "2.1.259";
+// Used only when neither the registry nor a previously resolved version is available.
+const CLAUDE_CODE_VERSION_FALLBACK = "2.1.280";
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OPENCODE_IDENTITY = "You are OpenCode, the best coding agent on the planet.";
 const SUBAGENT_MODEL_IDENTITY = "You are powered by the model named";
@@ -52,6 +53,60 @@ const TOOL_NAMES: Record<string, string> = {
   websearch: "WebSearch",
   write: "Write",
 };
+
+// Client identity is public metadata, kept separately from OAuth credentials.
+type ClientVersionCache = { version: string; nextCheck: number };
+const CLIENT_VERSION_URL = "https://registry.npmjs.org/@anthropic-ai/claude-code/latest";
+const CLIENT_VERSION_TTL_MS = 6 * 60 * 60 * 1000;
+const CLIENT_VERSION_RETRY_MS = 5 * 60 * 1000;
+let clientVersionCache: ClientVersionCache | undefined;
+let clientVersionPending: Promise<string> | undefined;
+
+function validClientVersion(value: unknown): value is string {
+  return typeof value === "string" && value.length < 40 && value === value.trim() && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value);
+}
+
+async function resolveClientVersion(): Promise<string> {
+  const now = Date.now();
+  const cachePath = path.join(process.env.XDG_CACHE_HOME || path.join(homedir(), ".cache"), "opencode", "claude-code-version.json");
+  if (!clientVersionCache) {
+    const stored = await readJson<Partial<ClientVersionCache> | null>(cachePath, {});
+    clientVersionCache = {
+      version: validClientVersion(stored?.version) ? stored.version : CLAUDE_CODE_VERSION_FALLBACK,
+      nextCheck: validClientVersion(stored?.version) && typeof stored?.nextCheck === "number" && stored.nextCheck <= now + CLIENT_VERSION_TTL_MS ? stored.nextCheck : 0,
+    };
+  }
+  if (clientVersionCache.nextCheck > now) return clientVersionCache.version;
+  let delay = CLIENT_VERSION_RETRY_MS;
+  try {
+    const response = await fetch(CLIENT_VERSION_URL, { signal: AbortSignal.timeout(3000), redirect: "error", headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("Client version registry unavailable");
+    const metadata = await response.json() as { version?: unknown };
+    if (!validClientVersion(metadata?.version)) throw new Error("Invalid client version metadata");
+    clientVersionCache.version = metadata.version;
+    delay = CLIENT_VERSION_TTL_MS;
+  } catch {
+    // Keep the last known good identity and back off even when the cache is read-only.
+  }
+  clientVersionCache.nextCheck = Date.now() + delay;
+  const temporaryPath = `${cachePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(temporaryPath, JSON.stringify(clientVersionCache), { mode: 0o600 });
+    await fs.rename(temporaryPath, cachePath);
+  } catch {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  return clientVersionCache.version;
+}
+
+async function claudeCodeUserAgent(): Promise<string> {
+  if (process.env.OPENCODE_ANTHROPIC_USER_AGENT) return process.env.OPENCODE_ANTHROPIC_USER_AGENT;
+  // Concurrent model calls share one lookup. Re-check TTL on every call so a
+  // long-running OpenCode session picks up releases without being restarted.
+  clientVersionPending ??= resolveClientVersion().finally(() => { clientVersionPending = undefined; });
+  return `claude-cli/${await clientVersionPending}`;
+}
 
 function authFilePath() {
   if (process.env.XDG_DATA_HOME) return path.join(process.env.XDG_DATA_HOME, "opencode", "auth.json");
@@ -706,7 +761,7 @@ const claudeCodeAuthPlugin: Plugin = async (input) => {
           headers.set("anthropic-beta", mergeBetas(headers.get("anthropic-beta"), getRequiredBetas(rewritten.modelId)));
           headers.set("anthropic-dangerous-direct-browser-access", "true");
           headers.set("authorization", `Bearer ${freshAuth.access}`);
-          headers.set("user-agent", process.env.OPENCODE_ANTHROPIC_USER_AGENT || `claude-cli/${CLAUDE_CODE_VERSION}`);
+          headers.set("user-agent", await claudeCodeUserAgent());
           headers.set("x-app", "cli");
           headers.delete("x-api-key");
           let response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
