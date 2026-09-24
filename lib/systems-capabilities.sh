@@ -48,11 +48,47 @@ systems_capabilities_resolve_profile() {
 }
 
 systems_capabilities_profile_content() {
-  local log="$SITE_PATH/wp-content/debug.log" roots_json logrotate timer_dropin
+  local log="$SITE_PATH/wp-content/debug.log" roots_json logrotate timer_dropin grants_json
   roots_json="$(systems_capabilities_workspace_roots | python3 -c 'import json,sys; print(json.dumps([line.rstrip("\n") for line in sys.stdin if line.strip()]))')"
   logrotate="$(systems_capabilities_logrotate_file)"
   timer_dropin="$(systems_capabilities_logrotate_timer_file)"
-  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"workspace_roots":json.loads(sys.argv[2]),"logrotate":{"config":sys.argv[3],"timer":"logrotate.timer","timer_dropin":sys.argv[4],"schedule":"*:0/5"}}, separators=(",",":")))' "$log" "$roots_json" "$logrotate" "$timer_dropin"
+  grants_json="$(systems_capabilities_declared_grants_json)"
+  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"workspace_roots":json.loads(sys.argv[2]),"logrotate":{"config":sys.argv[3],"timer":"logrotate.timer","timer_dropin":sys.argv[4],"schedule":"*:0/5"},"grants":json.loads(sys.argv[5])}, separators=(",",":")))' "$log" "$roots_json" "$logrotate" "$timer_dropin" "$grants_json"
+}
+
+# /etc/sudoers.d is not readable by the agent user (#624), but this profile
+# file is — it is written 0640 root:$SERVICE_USER. Mirroring the grants this
+# harness declared for the host into it, by name and full policy line, lets an
+# agent discover what it is allowed to run before trying it, without changing
+# what it is allowed to run. Read-only metadata: this grants nothing that
+# lib/grants.sh did not already install.
+systems_capabilities_declared_grants_json() {
+  local dir="${GRANTS_SUDOERS_DIR:-/etc/sudoers.d}" file name
+  if [ ! -d "$dir" ] || [ ! -r "$dir" ]; then
+    printf '[]'
+    return 0
+  fi
+  {
+    for file in "$dir"/*; do
+      [ -f "$file" ] && [ -r "$file" ] || continue
+      name="$(basename "$file")"
+      case "$name" in
+        wp-coding-agents-*) ;;
+        *) continue ;;
+      esac
+      printf '%s\t%s\n' "$name" "$(cat "$file")"
+    done
+  } | python3 -c '
+import json, sys
+grants = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    name, _, policy = line.partition("\t")
+    grants.append({"name": name, "policy": policy})
+print(json.dumps(grants, separators=(",", ":")))
+'
 }
 
 systems_capabilities_logrotate_content() {
@@ -113,6 +149,44 @@ systems_capabilities_write_exact() {
   chmod "$mode" "$file"
 }
 
+# WP Codebox's native MariaDB provider needs mariadbd, mariadb-install-db,
+# mariadb, prlimit, truncate, mkfs.ext4, fuse2fs, fusermount3. Everything but
+# fuse2fs already ships from mariadb-server or the base OS
+# (install_system_deps installs mariadb-server; Codebox finds mariadbd and
+# mkfs.ext4 in /sbin itself even though that is not on the agent's PATH).
+# fuse2fs is the one gap: Debian/Ubuntu split it into its own package rather
+# than bundling it with e2fsprogs' other tools.
+SYSTEMS_CAPABILITIES_NATIVE_PACKAGES="${SYSTEMS_CAPABILITIES_NATIVE_PACKAGES:-fuse2fs}"
+
+systems_capabilities_install_native_packages() {
+  systems_capabilities_enabled || return 0
+  [ "$LOCAL_MODE" = false ] || return 0
+  command -v dpkg >/dev/null 2>&1 || return 0
+
+  local missing=() pkg
+  for pkg in $SYSTEMS_CAPABILITIES_NATIVE_PACKAGES; do
+    dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+  done
+  [ "${#missing[@]}" -gt 0 ] || return 0
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would install Codebox native provider packages: ${missing[*]}"
+    return 0
+  fi
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    warn "Codebox native provider packages require root to install: ${missing[*]}"
+    return 0
+  fi
+
+  log "Installing Codebox native provider packages: ${missing[*]}"
+  if apt install -y "${missing[@]}"; then
+    UPDATED_ITEMS+=("Codebox native provider packages installed: ${missing[*]}")
+  else
+    warn "Could not install Codebox native provider packages: ${missing[*]}"
+  fi
+  return 0
+}
+
 # Privilege grants are installed through lib/grants.sh — the validate-then-move
 # implementation that used to live here, extracted once a second component
 # needed it and wrote a weaker copy instead of finding this one.
@@ -153,6 +227,9 @@ systems_capabilities_apply() {
   [ "$LOCAL_MODE" = false ] || return 0
   systems_capabilities_enabled || return 0
   systems_capabilities_cleanup_retired_process_probe
+  systems_capabilities_install_native_packages
+  codebox_database_apply
+  composer_provision_apply
   if [ "$DRY_RUN" = true ]; then
     log "Dry-run: provisioning managed VPS systems capabilities..."
     systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER"

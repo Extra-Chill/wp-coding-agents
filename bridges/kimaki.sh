@@ -962,6 +962,10 @@ Environment=KIMAKI_LOCK_PORT=$KIMAKI_LOCK_PORT"
     ENV_BLOCK="$ENV_BLOCK
 EnvironmentFile=-$(ai_gateway_env_file)"
   fi
+  if declare -F codebox_database_enabled >/dev/null && codebox_database_enabled; then
+    ENV_BLOCK="$ENV_BLOCK
+EnvironmentFile=-$CODEBOX_DATABASE_ENV_FILE"
+  fi
 
   local unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
   write_file "$unit_dir/$KIMAKI_UNIT" \
@@ -1335,11 +1339,26 @@ Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
   MERGED_ENV=$(_preserve_systemd_umask "$UNIT_FILE" "$MERGED_ENV")
+  # _smart_update_systemd_unit below fully overwrites the unit file with
+  # whatever MERGED_ENV renders into, every run — it is not an incremental
+  # patch. So the dedup check for each EnvironmentFile= line has to be against
+  # MERGED_ENV (what this render is about to produce), not against the OLD
+  # $UNIT_FILE on disk: _merge_systemd_env_lines only ever carries
+  # `Environment=` lines forward, never `EnvironmentFile=`, so a check against
+  # the old file was true on every run after the first and the line was
+  # silently dropped from the second render onward.
   if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
     local gateway_env_line="EnvironmentFile=-$(ai_gateway_env_file)"
-    if ! grep -qF "$gateway_env_line" "$UNIT_FILE" 2>/dev/null; then
+    if ! grep -qF "$gateway_env_line" <<< "$MERGED_ENV"; then
       MERGED_ENV="$MERGED_ENV
 $gateway_env_line"
+    fi
+  fi
+  if declare -F codebox_database_enabled >/dev/null && codebox_database_enabled; then
+    local codebox_db_env_line="EnvironmentFile=-$CODEBOX_DATABASE_ENV_FILE"
+    if ! grep -qF "$codebox_db_env_line" <<< "$MERGED_ENV"; then
+      MERGED_ENV="$MERGED_ENV
+$codebox_db_env_line"
     fi
   fi
 

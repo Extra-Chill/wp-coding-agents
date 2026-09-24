@@ -316,6 +316,9 @@ jobs:
           - owned-source-discovery
           - source-reconcile
           - systems-capabilities
+          - codebox-database
+          - codebox-database-env-wiring
+          - composer-provision
           - upgrade-help
           - verify
           - path-helpers
