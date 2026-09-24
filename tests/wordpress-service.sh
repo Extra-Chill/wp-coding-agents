@@ -40,7 +40,30 @@ if command -v plutil >/dev/null 2>&1; then
   [ "$(plutil -extract ProgramArguments.3 raw -o - "$plist")" = "--path=$SITE_PATH" ]
   [ "$(plutil -extract ProgramArguments.4 raw -o - "$plist")" = "--host=127.0.0.1" ]
   [ "$(plutil -extract ProgramArguments.5 raw -o - "$plist")" = "--port=8881" ]
+  [ "$(plutil -extract EnvironmentVariables.PHP_CLI_SERVER_WORKERS raw -o - "$plist")" = "4" ]
 fi
+grep -q 'workers=4' "$(wordpress_service_state_file)"
+
+# An explicit worker count is rendered and persisted.
+WORDPRESS_SERVICE_WORKERS=6
+wordpress_service_reconcile >/dev/null
+grep -q '<string>6</string>' "$plist"
+grep -q 'workers=6' "$(wordpress_service_state_file)"
+
+# A later reconcile without the flag (an upgrade) keeps the recorded count.
+unset WORDPRESS_SERVICE_WORKERS WORDPRESS_SERVICE_HOST WORDPRESS_SERVICE_PORT
+WORDPRESS_SERVICE_REQUEST=""
+wordpress_service_reconcile >/dev/null
+grep -q '<string>6</string>' "$plist"
+grep -q 'port=8881' "$(wordpress_service_state_file)"
+
+# Invalid worker counts are rejected.
+for bad in 0 65 two; do
+  if ( WORDPRESS_SERVICE_WORKERS="$bad" wordpress_service_resolve_settings ) >/dev/null 2>&1; then
+    echo "FAIL: workers=$bad accepted"; exit 1
+  fi
+done
+WORDPRESS_SERVICE_REQUEST=enabled
 
 first_label="$label"
 SITE_PATH="$root/site-two"

@@ -30,15 +30,22 @@ wordpress_service_resolve_settings() {
       case "$key" in
         host) WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-$value}" ;;
         port) WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-$value}" ;;
+        workers) WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-$value}" ;;
       esac
     done < "$state_file"
   fi
 
   WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-127.0.0.1}"
   WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-8080}"
+  # PHP's built-in server handles one request at a time by default, so one slow
+  # request (a loopback Action Scheduler runner doing remote work, for example)
+  # stalls every page. PHP_CLI_SERVER_WORKERS forks a small pool instead.
+  WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-4}"
   [[ "$WORDPRESS_SERVICE_PORT" =~ ^[0-9]+$ ]] || error "WordPress service port must be an integer"
   [ "$WORDPRESS_SERVICE_PORT" -ge 1 ] && [ "$WORDPRESS_SERVICE_PORT" -le 65535 ] || error "WordPress service port must be between 1 and 65535"
   [[ "$WORDPRESS_SERVICE_HOST" =~ ^[A-Za-z0-9.:_-]+$ ]] || error "WordPress service host contains unsupported characters"
+  [[ "$WORDPRESS_SERVICE_WORKERS" =~ ^[0-9]+$ ]] || error "WordPress service workers must be an integer"
+  [ "$WORDPRESS_SERVICE_WORKERS" -ge 1 ] && [ "$WORDPRESS_SERVICE_WORKERS" -le 64 ] || error "WordPress service workers must be between 1 and 64"
 }
 
 wordpress_service_record_state() {
@@ -47,7 +54,8 @@ wordpress_service_record_state() {
   if [ "$state" = enabled ]; then
     run_cmd mkdir -p "${file%/*}"
     write_file "$file" "host=$WORDPRESS_SERVICE_HOST
-port=$WORDPRESS_SERVICE_PORT"
+port=$WORDPRESS_SERVICE_PORT
+workers=$WORDPRESS_SERVICE_WORKERS"
   else
     run_cmd rm -f "$file"
   fi
@@ -81,6 +89,11 @@ wordpress_service_render_launchd() {
     </array>
     <key>WorkingDirectory</key>
     <string>$(xml_escape "$SITE_PATH")</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PHP_CLI_SERVER_WORKERS</key>
+        <string>$WORDPRESS_SERVICE_WORKERS</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -106,7 +119,7 @@ wordpress_service_update() {
     launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$plist"
   fi
-  log "Local WordPress service: $label ($WORDPRESS_SERVICE_HOST:$WORDPRESS_SERVICE_PORT)"
+  log "Local WordPress service: $label ($WORDPRESS_SERVICE_HOST:$WORDPRESS_SERVICE_PORT, $WORDPRESS_SERVICE_WORKERS workers)"
 }
 
 wordpress_service_remove() {
