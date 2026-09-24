@@ -55,6 +55,7 @@ for a in "$@"; do case "$a" in --path=*) ;; esac; done
 case "$3" in
   wp_coding_agents_source_mode)   echo owned ;;
   wp_coding_agents_owned_sources) printf 'wp-content/plugins/acme-core\nwp-content/themes/acme\n' ;;
+  DB_NAME)                        echo site_production ;;
   *) : ;;
 esac
 WP
@@ -225,6 +226,57 @@ fi
 # An invariant that could not be checked must not report as healthy.
 OUT="$(run_verify)"
 assert_contains "$OUT" "skip" "unverifiable invariants are skipped, not passed"
+
+echo ""
+echo "verify: codebox test database isolation (#624)"
+
+# The previous section deliberately left the manifest broken to prove verify
+# does not repair what it finds. Restore the healthy fixture before asserting
+# on a different seam, or its unrelated FAIL bleeds into these assertions.
+write_manifest wp-content/plugins/acme-core wp-content/themes/acme
+
+# A stub mysql client: succeeds on the create/drop probe, and answers the
+# isolation probe against the site database according to MYSQL_STUB_LEAK,
+# which the two scenarios below flip.
+cat > "$TMP/mysql" <<'MYSQL'
+#!/bin/bash
+targets_site_db=false
+for a in "$@"; do [ "$a" = site_production ] && targets_site_db=true; done
+if [ "$targets_site_db" = true ]; then
+  [ "${MYSQL_STUB_LEAK:-0}" = 1 ] && exit 0 || exit 1
+fi
+exit 0
+MYSQL
+chmod +x "$TMP/mysql"
+
+mkdir -p "$TMP/etc"
+CODEBOX_ENV="$TMP/etc/codebox-db.env"
+printf 'WP_CODEBOX_DB_HOST=127.0.0.1\nWP_CODEBOX_DB_PORT=3306\nWP_CODEBOX_DB_USER=wp_coding_agents_codebox\nWP_CODEBOX_DB_PASSWORD=test\n' > "$CODEBOX_ENV"
+chmod 600 "$CODEBOX_ENV"
+
+run_verify_codebox() {
+  PATH="$TMP:$PATH" \
+  SYSTEMD_UNIT_DIR="$TMP/units" \
+  SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  SYSTEMS_CAPABILITIES_PROFILE=managed-vps \
+  CODEBOX_DATABASE_ENV_FILE="$CODEBOX_ENV" \
+    bash verify.sh --site-path "$SITE" 2>&1 || true
+}
+
+OUT="$(MYSQL_STUB_LEAK=0 run_verify_codebox)"
+assert_contains "$OUT" "codebox database user can create and drop" "confirms the account can create/drop a codebox_ database"
+assert_contains "$OUT" "codebox database user cannot read the site database" "confirms isolation when the account is properly scoped"
+refute_contains "$OUT" "CAN read the site database" "does not misreport isolation as broken when it holds"
+
+OUT="$(MYSQL_STUB_LEAK=1 run_verify_codebox)"
+assert_contains "$OUT" "codebox database user CAN read the site database" "catches the account being able to read the site database"
+assert_contains "$OUT" "the isolation this account exists for is broken" "names the security invariant that broke"
+
+OUT="$(SYSTEMS_CAPABILITIES_PROFILE=managed-vps CODEBOX_DATABASE_ENV_FILE="$TMP/no-such-file.env" \
+  PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  bash verify.sh --site-path "$SITE" 2>&1 || true)"
+assert_contains "$OUT" "no codebox test database env file" "skips cleanly when the profile is enabled but nothing was provisioned yet"
+refute_contains "$OUT" "FAIL" "an unprovisioned codebox database is skipped, not failed"
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

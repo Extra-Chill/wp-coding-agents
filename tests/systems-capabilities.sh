@@ -13,6 +13,8 @@ fail() { echo "  FAIL $1"; failures=$((failures + 1)); }
 
 source lib/common.sh
 source lib/systems-capabilities.sh
+source lib/codebox-database.sh
+source lib/composer-provision.sh
 SITE_PATH="$TMP/site"
 DM_WORKSPACE_DIR="$TMP/workspace"
 SERVICE_USER=opencode

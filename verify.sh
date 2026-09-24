@@ -40,6 +40,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/source-policy.sh"
 source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
+source "$SCRIPT_DIR/lib/systems-capabilities.sh"
+source "$SCRIPT_DIR/lib/codebox-database.sh"
+source "$SCRIPT_DIR/lib/composer-provision.sh"
 
 QUIET=false
 JSON=false
@@ -501,6 +504,88 @@ else
       _say "  note  grants this harness does not install: ${GRANT_UNOWNED% }"
       _say "        these do not survive a host rebuild and nothing detects changes to them"
     fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Seam: a provisioned test database user is not enough — it has to actually
+# work, and it has to actually be unable to reach the site database. That
+# second half is the security invariant #624 exists for: pointing a test
+# harness at a scoped account instead of the site's own WordPress credentials
+# only holds if the scoped account really cannot read production data.
+# ---------------------------------------------------------------------------
+
+section "codebox test database"
+
+systems_capabilities_resolve_profile
+
+if ! systems_capabilities_enabled; then
+  skip "managed-vps profile is not enabled on this install — no codebox test database expected"
+elif [ ! -f "$CODEBOX_DATABASE_ENV_FILE" ]; then
+  skip "no codebox test database env file at $CODEBOX_DATABASE_ENV_FILE"
+elif ! command -v "$CODEBOX_DATABASE_MYSQL_BIN" >/dev/null 2>&1; then
+  skip "$CODEBOX_DATABASE_MYSQL_BIN is not on PATH — cannot verify the codebox test database user"
+elif [ "$(id -u)" -ne 0 ] && [ ! -r "$CODEBOX_DATABASE_ENV_FILE" ]; then
+  skip "$CODEBOX_DATABASE_ENV_FILE is root-owned and unreadable here — re-run as root to verify the codebox test database user"
+else
+  CODEBOX_DB_USER="$(codebox_database_env_value WP_CODEBOX_DB_USER "$CODEBOX_DATABASE_ENV_FILE")"
+  CODEBOX_DB_PASSWORD="$(codebox_database_env_value WP_CODEBOX_DB_PASSWORD "$CODEBOX_DATABASE_ENV_FILE")"
+  CODEBOX_DB_HOST="$(codebox_database_env_value WP_CODEBOX_DB_HOST "$CODEBOX_DATABASE_ENV_FILE")"
+  CODEBOX_DB_PORT="$(codebox_database_env_value WP_CODEBOX_DB_PORT "$CODEBOX_DATABASE_ENV_FILE")"
+
+  if [ -z "$CODEBOX_DB_USER" ] || [ -z "$CODEBOX_DB_PASSWORD" ]; then
+    fail "$CODEBOX_DATABASE_ENV_FILE exists but is missing WP_CODEBOX_DB_USER or WP_CODEBOX_DB_PASSWORD"
+  else
+    CODEBOX_VERIFY_DB="codebox_verify_$$"
+    if "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" -p"$CODEBOX_DB_PASSWORD" \
+        -e "CREATE DATABASE \`$CODEBOX_VERIFY_DB\`; DROP DATABASE \`$CODEBOX_VERIFY_DB\`;" >/dev/null 2>&1; then
+      pass "codebox database user can create and drop a $CODEBOX_DATABASE_PATTERN database"
+    else
+      fail "codebox database user cannot create a $CODEBOX_DATABASE_PATTERN database — the test harness account does not work"
+    fi
+
+    SITE_DB_NAME="$(wp_cli config get DB_NAME $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | wp_cli_strip_php_diagnostics | tr -d '[:space:]')"
+    if [ -z "$SITE_DB_NAME" ]; then
+      skip "could not resolve the site database name — cannot verify isolation from it"
+    elif "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" -p"$CODEBOX_DB_PASSWORD" \
+        "$SITE_DB_NAME" -e "SHOW TABLES;" >/dev/null 2>&1; then
+      fail "codebox database user CAN read the site database ($SITE_DB_NAME) — the isolation this account exists for is broken"
+    else
+      pass "codebox database user cannot read the site database ($SITE_DB_NAME)"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Seam: Homeboy's release preflight fails on any composer stderr output, and
+# the distro composer package emits a PHP 8.4 deprecation notice on every
+# call. A harness-owned Composer that is merely installed is not enough — it
+# has to actually run clean on this host's PHP, or every release still fails
+# the exact way #624 reports.
+# ---------------------------------------------------------------------------
+
+section "harness-owned Composer"
+
+if ! systems_capabilities_enabled; then
+  skip "managed-vps profile is not enabled on this install — no harness-owned Composer expected"
+elif [ ! -f "$(composer_provision_phar)" ]; then
+  skip "no harness-owned Composer at $(composer_provision_phar)"
+elif composer_provision_healthy; then
+  pass "$(composer_provision_phar) runs clean on this host's PHP (no deprecation/warning output)"
+else
+  fail "$(composer_provision_phar) exists but does not run clean — composer --version emitted output on stderr"
+fi
+
+if ! systems_capabilities_enabled; then
+  : # already reported above
+elif [ ! -f "$(composer_provision_wrapper)" ]; then
+  skip "no wrapper at $(composer_provision_wrapper) — the service PATH would fall back to the distro composer"
+else
+  WRAPPER_TARGET="$(command -v "$(basename "$(composer_provision_wrapper)")" 2>/dev/null || true)"
+  if [ "$WRAPPER_TARGET" = "$(composer_provision_wrapper)" ]; then
+    pass "the wrapper at $(composer_provision_wrapper) is first on PATH"
+  else
+    fail "PATH resolves 'composer' to ${WRAPPER_TARGET:-<not found>}, not $(composer_provision_wrapper) — releases may still hit the distro package"
   fi
 fi
 
