@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.24.0] - 2026-09-23
+
+### Added
+- run the local wp server with a worker pool
+
+### Fixed
+- restart-continuation sudo/unit-drift/dispatch-flag + upgrade.sh --help hang
+
 ## [1.23.3] - 2026-09-22
 
 ### Fixed
