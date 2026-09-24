@@ -61,25 +61,31 @@ mkdir -p "$SYSTEMD_UNIT_DIR" "$TMP/site"
 
 cat > "$SYSTEMD_UNIT_DIR/kimaki.service" <<EOF
 [Service]
-User=opencode
+User=root
 WorkingDirectory=$TMP/site
-Environment=HOME=/home/opencode
+Environment=HOME=/root
 Environment=PATH=/usr/bin:/bin
-Environment=KIMAKI_DATA_DIR=/home/opencode/.kimaki
+Environment=KIMAKI_DATA_DIR=/root/.kimaki
 Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
-ExecStart=/usr/bin/kimaki --data-dir /home/opencode/.kimaki --auto-restart
+ExecStart=/usr/bin/kimaki --data-dir /root/.kimaki --auto-restart
 EOF
 
+# SERVICE_USER=root (matching tests/kimaki-no-default-channel.sh) deliberately
+# avoids _kimaki_uses_service_owned_prefix — that path shells out to provision
+# a service-owned npm package and needs either root+sudo or literally running
+# as the service user, neither of which a CI runner satisfies. Irrelevant to
+# what this file asserts (the EnvironmentFile= line), so it is sidestepped
+# rather than mocked.
 unset KIMAKI_UNIT KIMAKI_DATA_DIR KIMAKI_LOCK_PORT AGENT_SLUG
 initialize_kimaki_overrides
 KIMAKI_UNIT=kimaki.service
 SITE_PATH="$TMP/site"
-SERVICE_USER=opencode
-SERVICE_HOME=/home/opencode
+SERVICE_USER=root
+SERVICE_HOME=/root
 SERVICE_USER_FORCED=true
 LOCAL_MODE=false
-KIMAKI_DATA_DIR=/home/opencode/.kimaki
+KIMAKI_DATA_DIR=/root/.kimaki
 KIMAKI_DATA_DIR_EXPLICIT=false
 KIMAKI_LOCK_PORT=""
 KIMAKI_LOCK_PORT_EXPLICIT=false
