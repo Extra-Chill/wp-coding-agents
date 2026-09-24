@@ -537,7 +537,7 @@ else
     fail "$CODEBOX_DATABASE_ENV_FILE exists but is missing WP_CODEBOX_DB_USER or WP_CODEBOX_DB_PASSWORD"
   else
     CODEBOX_VERIFY_DB="codebox_verify_$$"
-    if "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" -p"$CODEBOX_DB_PASSWORD" \
+    if MYSQL_PWD="$CODEBOX_DB_PASSWORD" "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" \
         -e "CREATE DATABASE \`$CODEBOX_VERIFY_DB\`; DROP DATABASE \`$CODEBOX_VERIFY_DB\`;" >/dev/null 2>&1; then
       pass "codebox database user can create and drop a $CODEBOX_DATABASE_PATTERN database"
     else
@@ -547,7 +547,7 @@ else
     SITE_DB_NAME="$(wp_cli config get DB_NAME $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null | wp_cli_strip_php_diagnostics | tr -d '[:space:]')"
     if [ -z "$SITE_DB_NAME" ]; then
       skip "could not resolve the site database name — cannot verify isolation from it"
-    elif "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" -p"$CODEBOX_DB_PASSWORD" \
+    elif MYSQL_PWD="$CODEBOX_DB_PASSWORD" "$CODEBOX_DATABASE_MYSQL_BIN" -h "$CODEBOX_DB_HOST" -P "$CODEBOX_DB_PORT" -u "$CODEBOX_DB_USER" \
         "$SITE_DB_NAME" -e "SHOW TABLES;" >/dev/null 2>&1; then
       fail "codebox database user CAN read the site database ($SITE_DB_NAME) — the isolation this account exists for is broken"
     else
