@@ -133,6 +133,7 @@ WPS="$( source services/wordpress-service.sh
         WORDPRESS_SERVICE_WP="/usr/local/bin/wp"
         WORDPRESS_SERVICE_HOST="127.0.0.1"
         WORDPRESS_SERVICE_PORT="8080"
+        WORDPRESS_SERVICE_WORKERS="4"
         wordpress_service_render_launchd com.wp.wordpress-service )"
 check_plist "wordpress-service" "$WPS"
 check_roundtrip "wordpress-service" "$WPS"

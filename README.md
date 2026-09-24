@@ -177,6 +177,11 @@ EXISTING_WP=/path/to/wordpress ./setup.sh --local \
 
 The service binds to `127.0.0.1` by default, is identified by the site's absolute
 path, and remains enabled across upgrades. It requires a direct `wp` transport.
+It runs 4 PHP workers by default (`PHP_CLI_SERVER_WORKERS`), so a slow request,
+such as a loopback Action Scheduler runner doing remote work, does not block
+page loads. Change it with `--wordpress-service-workers <n>`; the value persists
+across upgrades.
+
 Disable it with:
 
 ```bash

@@ -108,6 +108,7 @@ ROTATE_AI_GATEWAY_TOKEN=false
 WORDPRESS_SERVICE_REQUEST=""
 WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
+WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 SHOW_HELP=false
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
@@ -167,6 +168,7 @@ while [[ $# -gt 0 ]]; do
     --no-wordpress-service) WORDPRESS_SERVICE_REQUEST=disabled; shift ;;
     --wordpress-service-host) WORDPRESS_SERVICE_HOST="$2"; shift 2 ;;
     --wordpress-service-port) WORDPRESS_SERVICE_PORT="$2"; shift 2 ;;
+    --wordpress-service-workers) WORDPRESS_SERVICE_WORKERS="$2"; shift 2 ;;
     --with-claude-code-auth) WITH_CLAUDE_CODE_AUTH=true; shift ;;
     --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
@@ -304,6 +306,8 @@ USAGE:
                                  Disable and remove the managed local service.
   ./upgrade.sh --wordpress-service-host 127.0.0.1 --wordpress-service-port 8080
                                  Set the local WordPress bind address.
+  ./upgrade.sh --wordpress-service-workers 4
+                                 Set concurrent PHP workers (default: 4).
   ./upgrade.sh --with-ai-gateway --rotate-ai-gateway-token
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini

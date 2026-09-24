@@ -74,6 +74,7 @@ ROTATE_AI_GATEWAY_TOKEN=false
 WORDPRESS_SERVICE_REQUEST=""
 WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
+WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 RUNTIME=""
 CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
@@ -205,6 +206,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --wordpress-service-port)
       WORDPRESS_SERVICE_PORT="$2"
+      shift 2
+      ;;
+    --wordpress-service-workers)
+      WORDPRESS_SERVICE_WORKERS="$2"
       shift 2
       ;;
     --no-datamachine-worker)
@@ -437,6 +442,9 @@ OPTIONS:
                       Bind host for the local service (default: 127.0.0.1).
   --wordpress-service-port <port>
                       Bind port for the local service (default: 8080).
+  --wordpress-service-workers <n>
+                      Concurrent PHP workers for the local service (default: 4).
+                      One slow request no longer blocks every page.
   --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
                      Installs/activates the gateway/provider stack, configures
                      the gateway route, mints/reuses a gateway token, and adds
