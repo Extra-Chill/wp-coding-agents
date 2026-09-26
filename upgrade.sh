@@ -393,7 +393,9 @@ OPT-IN TOUCHES:
     --rotate-ai-gateway-token is also passed.
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
-    authenticate with Claude Pro/Max OAuth. Use --no-claude-code-auth to skip.
+    authenticate with Claude Pro/Max OAuth. The plugin defers to Kimaki's
+    own Anthropic auth plugin inside Kimaki sessions (KIMAKI set) and only
+    serves direct OpenCode runs. Use --no-claude-code-auth to skip.
 HELP
 )
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"

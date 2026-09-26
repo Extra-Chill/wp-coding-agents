@@ -9,8 +9,12 @@ const realFetch = globalThis.fetch;
 const realNow = Date.now;
 const oldCache = process.env.XDG_CACHE_HOME;
 const oldOverride = process.env.OPENCODE_ANTHROPIC_USER_AGENT;
+const oldKimaki = process.env.KIMAKI;
 process.env.XDG_CACHE_HOME = root;
 delete process.env.OPENCODE_ANTHROPIC_USER_AGENT;
+// The plugin must behave as it does for direct OpenCode runs; this test can
+// be executed from a Kimaki-spawned shell where KIMAKI is set.
+delete process.env.KIMAKI;
 let now = realNow();
 Date.now = () => now;
 let registryCalls = 0;
@@ -114,5 +118,6 @@ try {
   Date.now = realNow;
   if (oldCache === undefined) delete process.env.XDG_CACHE_HOME; else process.env.XDG_CACHE_HOME = oldCache;
   if (oldOverride === undefined) delete process.env.OPENCODE_ANTHROPIC_USER_AGENT; else process.env.OPENCODE_ANTHROPIC_USER_AGENT = oldOverride;
+  if (oldKimaki === undefined) delete process.env.KIMAKI; else process.env.KIMAKI = oldKimaki;
   await fs.rm(root, { recursive: true, force: true });
 }

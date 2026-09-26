@@ -1,7 +1,11 @@
 // claude-code-auth.ts - OpenCode Anthropic auth via Claude Code OAuth.
 //
 // Self-contained for direct OpenCode installs. It mirrors Kimaki's proven
-// Claude Code OAuth/request-shaping path without loading Kimaki bridge plugins.
+// Claude Code OAuth/request-shaping path without loading Kimaki bridge
+// plugins, and shares Kimaki's on-disk state contract (same lock directory,
+// identity-preserving account records) so the two can coexist on one host.
+// When KIMAKI is set — Kimaki's own OpenCode server — this plugin registers
+// nothing and leaves Anthropic auth to Kimaki's built-in plugin (#626).
 
 import type { Plugin } from "@opencode-ai/plugin";
 import { spawn } from "node:child_process";
@@ -13,7 +17,9 @@ import * as fs from "node:fs/promises";
 type OAuthStored = { type: "oauth"; refresh: string; access: string; expires: number };
 type OAuthSuccess = { type: "success"; refresh: string; access: string; expires: number };
 type CallbackResult = { code: string; state: string };
-type AccountRecord = OAuthStored & { addedAt: number; lastUsed: number };
+type AccountIdentity = { email?: string; accountId?: string };
+type AccountAuth = OAuthStored & AccountIdentity;
+type AccountRecord = AccountAuth & { addedAt: number; lastUsed: number };
 type AccountStore = { version: number; activeIndex: number; accounts: AccountRecord[] };
 type RefreshFailure = { auth: OAuthStored; error: unknown };
 type AuthSyncClient = { auth?: { set?: (input: { providerID: string; auth: OAuthStored }) => Promise<unknown> } };
@@ -25,8 +31,13 @@ const CALLBACK_PATH = "/callback";
 const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
-const REFRESH_LOCK_TIMEOUT_MS = 15_000;
-const REFRESH_LOCK_STALE_MS = 2 * 60 * 1000;
+// Kimaki's shared auth-state lock (oauth-rotation-shared.js) is a
+// `${auth.json}.lock` directory with a 30s stale window and a 30s wait budget.
+// Both plugins write the same credential files across processes, so they must
+// agree on the lock path and timing or cross-process refreshes interleave and
+// single-use refresh tokens invalidate each other.
+const AUTH_LOCK_TIMEOUT_MS = 30_000;
+const AUTH_LOCK_STALE_MS = 30_000;
 // Used only when neither the registry nor a previously resolved version is available.
 const CLAUDE_CODE_VERSION_FALLBACK = "2.1.280";
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -118,8 +129,10 @@ function accountsFilePath() {
   return path.join(homedir(), ".local", "share", "opencode", "anthropic-oauth-accounts.json");
 }
 
-function refreshLockPath() {
-  return `${authFilePath()}.anthropic-refresh.lock`;
+function authStateLockPath() {
+  // Same directory Kimaki's withAuthStateLock creates. Any other path would
+  // leave the two plugins locking the same files independently again.
+  return `${authFilePath()}.lock`;
 }
 
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
@@ -156,7 +169,7 @@ async function readAnthropicAuth() {
 function normalizeAccountStore(input: Partial<AccountStore> | null | undefined): AccountStore {
   const accounts = Array.isArray(input?.accounts)
     ? input.accounts.filter((account): account is AccountRecord => {
-      return !!account && account.type === "oauth" && typeof account.refresh === "string" && typeof account.access === "string" && typeof account.expires === "number" && typeof account.addedAt === "number" && typeof account.lastUsed === "number";
+      return !!account && account.type === "oauth" && typeof account.refresh === "string" && typeof account.access === "string" && typeof account.expires === "number" && (typeof account.email === "undefined" || typeof account.email === "string") && (typeof account.accountId === "undefined" || typeof account.accountId === "string") && typeof account.addedAt === "number" && typeof account.lastUsed === "number";
     })
     : [];
   const rawIndex = typeof input?.activeIndex === "number" ? Math.floor(input.activeIndex) : 0;
@@ -176,31 +189,30 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withRefreshLock<T>(action: () => Promise<T>): Promise<T> {
-  const lockPath = refreshLockPath();
-  const started = Date.now();
+async function withAuthStateLock<T>(action: () => Promise<T>): Promise<T> {
+  const lockDir = authStateLockPath();
+  const deadline = Date.now() + AUTH_LOCK_TIMEOUT_MS;
+  await fs.mkdir(path.dirname(authFilePath()), { recursive: true });
   while (true) {
     try {
-      await fs.mkdir(lockPath, { recursive: false });
-      await fs.writeFile(path.join(lockPath, "owner"), `${process.pid}\n${new Date().toISOString()}\n`, "utf8");
+      await fs.mkdir(lockDir);
       break;
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code !== "EEXIST") throw error;
-      const stat = await fs.stat(lockPath).catch(() => undefined);
-      if (stat && Date.now() - stat.mtimeMs > REFRESH_LOCK_STALE_MS) {
-        await fs.rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
+      const stat = await fs.stat(lockDir).catch(() => undefined);
+      if (stat && Date.now() - stat.mtimeMs > AUTH_LOCK_STALE_MS) {
+        await fs.rm(lockDir, { force: true, recursive: true }).catch(() => undefined);
         continue;
       }
-      if (Date.now() - started > REFRESH_LOCK_TIMEOUT_MS) throw new Error("Timed out waiting for Anthropic OAuth refresh lock");
+      if (Date.now() >= deadline) throw new Error(`Timed out waiting for auth lock: ${lockDir}`);
       await sleep(100);
     }
   }
-
   try {
     return await action();
   } finally {
-    await fs.rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
+    await fs.rm(lockDir, { force: true, recursive: true }).catch(() => undefined);
   }
 }
 
@@ -232,62 +244,141 @@ function dedupeOAuthCandidates(candidates: Array<OAuthStored | undefined>) {
   });
 }
 
-function upsertAccount(store: AccountStore, auth: OAuthStored, now = Date.now()) {
-  const index = store.accounts.findIndex((account) => account.refresh === auth.refresh || account.access === auth.access);
-  const nextAccount: AccountRecord = { ...auth, addedAt: now, lastUsed: now };
+// Mirrors Kimaki's identity normalization: lowercase email, trimmed
+// accountId, dropped entirely when both are empty.
+function normalizeIdentity(identity: AccountIdentity | undefined): AccountIdentity | undefined {
+  if (!identity) return undefined;
+  const email = identity.email?.trim().toLowerCase() || undefined;
+  const accountId = identity.accountId?.trim() || undefined;
+  if (!email && !accountId) return undefined;
+  return { email, accountId };
+}
+
+// Matches on tokens first, then on account identity, so re-logging in to the
+// same Claude account updates the existing pool entry instead of adding a
+// duplicate that rotation would land on right after the first copy is
+// exhausted. Existing email/accountId are never dropped.
+function upsertAccount(store: AccountStore, auth: AccountAuth, now = Date.now()) {
+  const identity = normalizeIdentity(auth);
+  const index = store.accounts.findIndex((account) => {
+    if (account.refresh === auth.refresh || account.access === auth.access) return true;
+    if (identity?.accountId && account.accountId === identity.accountId) return true;
+    if (identity?.email && account.email === identity.email) return true;
+    return false;
+  });
   if (index < 0) {
-    store.accounts.push(nextAccount);
+    store.accounts.push({ type: "oauth", refresh: auth.refresh, access: auth.access, expires: auth.expires, email: identity?.email, accountId: identity?.accountId, addedAt: now, lastUsed: now });
     store.activeIndex = store.accounts.length - 1;
     return;
   }
   const existing = store.accounts[index];
-  store.accounts[index] = { ...nextAccount, addedAt: existing?.addedAt ?? now };
+  store.accounts[index] = {
+    type: "oauth",
+    refresh: auth.refresh,
+    access: auth.access,
+    expires: auth.expires,
+    email: identity?.email || existing?.email,
+    accountId: identity?.accountId || existing?.accountId,
+    addedAt: existing?.addedAt ?? now,
+    lastUsed: now,
+  };
   store.activeIndex = index;
 }
 
-function replaceAccount(store: AccountStore, previous: OAuthStored, next: OAuthStored, now = Date.now()) {
+// Token rotation replaces stored credentials in place. Identity fields and
+// addedAt survive the swap; Kimaki's dedupe and labeling depend on them.
+function replaceAccount(store: AccountStore, previous: OAuthStored, next: AccountAuth, now = Date.now()) {
   const index = store.accounts.findIndex((account) => account.refresh === previous.refresh || account.access === previous.access || account.refresh === next.refresh || account.access === next.access);
   if (index < 0) {
     upsertAccount(store, next, now);
     return;
   }
   const existing = store.accounts[index];
-  store.accounts[index] = { ...next, addedAt: existing?.addedAt ?? now, lastUsed: now };
+  const identity = normalizeIdentity(next);
+  store.accounts[index] = {
+    type: "oauth",
+    refresh: next.refresh,
+    access: next.access,
+    expires: next.expires,
+    email: identity?.email || existing?.email,
+    accountId: identity?.accountId || existing?.accountId,
+    addedAt: existing?.addedAt ?? now,
+    lastUsed: now,
+  };
   store.activeIndex = index;
 }
 
-async function rememberAnthropicOAuth(auth: OAuthStored) {
-  const store = await loadAccountStore();
-  upsertAccount(store, auth);
-  await saveAccountStore(store);
+async function rememberAnthropicOAuth(auth: AccountAuth) {
+  // Login writes race rotation/refresh in the other OpenCode process.
+  await withAuthStateLock(async () => {
+    const store = await loadAccountStore();
+    upsertAccount(store, auth);
+    await saveAccountStore(store);
+  });
 }
 
-async function rotateAnthropicAccount(auth: OAuthStored, client?: AuthSyncClient) {
-  const store = await loadAccountStore();
-  if (store.accounts.length < 2) return undefined;
+// Switch to the next pooled account under the shared lock. A rotated account
+// with a still-valid access token is used as-is; only an expired one is
+// refreshed, and a failed refresh moves on to the following account instead
+// of abandoning rotation. The exhausted account stays in the pool — pruning
+// is Kimaki's behavior (removeAccountByAuth on invalid_grant), not ours.
+async function rotateAnthropicAccount(current: OAuthStored, client?: AuthSyncClient): Promise<OAuthStored | undefined> {
+  return withAuthStateLock(async () => {
+    const store = await loadAccountStore();
+    const poolSize = store.accounts.length;
+    if (poolSize < 2) return undefined;
 
-  const currentIndex = findCurrentAccountIndex(store, auth);
-  const nextIndex = (currentIndex + 1) % store.accounts.length;
-  const nextAccount = store.accounts[nextIndex];
-  if (!nextAccount) return undefined;
-
-  nextAccount.lastUsed = Date.now();
-  store.activeIndex = nextIndex;
-  await saveAccountStore(store);
-  const nextAuth: OAuthStored = {
-    type: "oauth",
-    refresh: nextAccount.refresh,
-    access: nextAccount.access,
-    expires: nextAccount.expires,
-  };
-  await setAnthropicAuth(nextAuth, client);
-  return nextAuth;
+    const currentIndex = findCurrentAccountIndex(store, current);
+    for (let offset = 1; offset < poolSize; offset++) {
+      const nextIndex = (currentIndex + offset) % poolSize;
+      const nextAccount = store.accounts[nextIndex];
+      if (!nextAccount) continue;
+      if (nextAccount.refresh === current.refresh || nextAccount.access === current.access) continue;
+      const candidate: OAuthStored = { type: "oauth", refresh: nextAccount.refresh, access: nextAccount.access, expires: nextAccount.expires };
+      if (!usableAccessToken(candidate)) {
+        try {
+          const refreshed = await refreshAnthropicToken(nextAccount.refresh);
+          nextAccount.refresh = refreshed.refresh;
+          nextAccount.access = refreshed.access;
+          nextAccount.expires = refreshed.expires;
+          candidate.refresh = refreshed.refresh;
+          candidate.access = refreshed.access;
+          candidate.expires = refreshed.expires;
+        } catch {
+          continue;
+        }
+      }
+      nextAccount.lastUsed = Date.now();
+      store.activeIndex = nextIndex;
+      await saveAccountStore(store);
+      await setAnthropicAuth(candidate, client);
+      return candidate;
+    }
+    return undefined;
+  });
 }
 
 function shouldRotateAuth(status: number, bodyText: string) {
   const haystack = bodyText.toLowerCase();
   if (status === 429 || status === 401 || status === 403) return true;
   return haystack.includes("rate_limit") || haystack.includes("rate limit") || haystack.includes("usage limit") || haystack.includes("usage_limit") || haystack.includes("usage_limit_reached") || haystack.includes("usage_not_included") || haystack.includes("invalid api key") || haystack.includes("authentication_error") || haystack.includes("permission_error");
+}
+
+// Rate-limit signals mean the current credential is valid but exhausted;
+// refreshing it would spend a single-use refresh token for nothing. Rotate
+// first.
+function isRateLimitFailure(status: number, bodyText: string) {
+  if (status === 429) return true;
+  const haystack = bodyText.toLowerCase();
+  return haystack.includes("rate_limit") || haystack.includes("rate limit") || haystack.includes("usage limit") || haystack.includes("usage_limit") || haystack.includes("usage_not_included");
+}
+
+// Authentication signals may mean a revoked access token whose refresh token
+// is still valid, so refreshing the current credential first is correct.
+function isAuthenticationFailure(status: number, bodyText: string) {
+  if (status === 401 || status === 403) return true;
+  const haystack = bodyText.toLowerCase();
+  return haystack.includes("authentication_error") || haystack.includes("invalid api key") || haystack.includes("permission_error");
 }
 
 function refreshFailureText(error: unknown) {
@@ -501,7 +592,10 @@ function buildAuthorizeHandler() {
   return async () => {
     const auth = await beginAuthorizationFlow();
     let pendingAuthResult: Promise<OAuthSuccess | { type: "failed" }> | undefined;
-    const isRemote = Boolean(process.env.KIMAKI || process.env.WP_CODING_AGENTS_REMOTE_AUTH);
+    // Inside Kimaki sessions this handler is unreachable — the plugin
+    // registers nothing when KIMAKI is set — so the pasted-code login flow
+    // keys off the explicit remote-auth flag only.
+    const isRemote = Boolean(process.env.WP_CODING_AGENTS_REMOTE_AUTH);
     const finalize = async (result: CallbackResult) => {
       const creds = await exchangeAuthorizationCode(result.code, result.state || auth.verifier, auth.verifier);
       const oauth: OAuthStored = { type: "oauth", refresh: creds.refresh, access: creds.access, expires: creds.expires };
@@ -670,7 +764,7 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
   const oauth = auth as OAuthStored;
   if (usableAccessToken(oauth)) return oauth;
 
-  return withRefreshLock(async () => {
+  return withAuthStateLock(async () => {
     const latest = await readAnthropicAuth();
     if (usableAccessToken(latest)) return latest;
 
@@ -701,7 +795,7 @@ async function getFreshOAuth(getAuth: () => Promise<OAuthStored | { type: string
 }
 
 async function refreshOAuthAfterAuthFailure(auth: OAuthStored, client?: AuthSyncClient) {
-  return withRefreshLock(async () => {
+  return withAuthStateLock(async () => {
     const latest = await readAnthropicAuth();
     if (latest && !sameOAuth(latest, auth) && usableAccessToken(latest)) return latest;
 
@@ -714,30 +808,24 @@ async function refreshOAuthAfterAuthFailure(auth: OAuthStored, client?: AuthSync
   });
 }
 
-async function rotateAndRefreshAnthropicAccount(auth: OAuthStored, client?: AuthSyncClient) {
-  const rotated = await rotateAnthropicAccount(auth, client);
-  if (!rotated || sameOAuth(rotated, auth)) return undefined;
-  try {
-    return await refreshOAuthAfterAuthFailure(rotated, client);
-  } catch {
-    return undefined;
-  }
-}
-
 async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type: string }>, client?: AuthSyncClient) {
   try {
     return await getFreshOAuth(getAuth, client);
   } catch (error) {
     const auth = await readAnthropicAuth();
-    if (auth) {
-      const rotated = await rotateAndRefreshAnthropicAccount(auth, client);
-      if (rotated && !sameOAuth(rotated, auth)) return rotated;
-    }
+    const rotated = auth ? await rotateAnthropicAccount(auth, client).catch(() => undefined) : undefined;
+    if (rotated) return rotated;
     throw error;
   }
 }
 
 const claudeCodeAuthPlugin: Plugin = async (input) => {
+  // Kimaki-managed OpenCode servers run with KIMAKI set and load their own
+  // Anthropic auth plugin. Registering both would deep-merge two loaders for
+  // auth.provider "anthropic" — the last fetch silently wins and Kimaki's
+  // account rotation goes inert — so defer entirely inside Kimaki. Direct
+  // `opencode` runs on the same host leave KIMAKI unset and keep this plugin.
+  if (process.env.KIMAKI) return {};
   const client = input.client as AuthSyncClient | undefined;
   return {
   auth: {
@@ -764,24 +852,40 @@ const claudeCodeAuthPlugin: Plugin = async (input) => {
           headers.set("user-agent", await claudeCodeUserAgent());
           headers.set("x-app", "cli");
           headers.delete("x-api-key");
-          let response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
+          const send = (auth: OAuthStored) => {
+            headers.set("authorization", `Bearer ${auth.access}`);
+            return fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
+          };
+          let response = await send(freshAuth);
           if (!response.ok) {
             const bodyText = await response.clone().text().catch(() => "");
             if (shouldRotateAuth(response.status, bodyText)) {
-              const refreshed = await refreshOAuthAfterAuthFailure(freshAuth, client).catch(() => undefined);
-              if (refreshed) {
-                headers.set("authorization", `Bearer ${refreshed.access}`);
-                response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
+              let currentAuth = freshAuth;
+              if (isAuthenticationFailure(response.status, bodyText)) {
+                const refreshed = await refreshOAuthAfterAuthFailure(currentAuth, client).catch(() => undefined);
+                if (refreshed) {
+                  currentAuth = refreshed;
+                  response = await send(refreshed);
+                }
               }
-            }
-          }
-          if (!response.ok) {
-            const bodyText = await response.clone().text().catch(() => "");
-            if (shouldRotateAuth(response.status, bodyText)) {
-              const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth, client);
-              if (rotated) {
-                headers.set("authorization", `Bearer ${rotated.access}`);
-                response = await fetch(input, { ...(init ?? {}), body: rewritten.body, headers });
+              if (!response.ok && shouldRotateAuth(response.status, await response.clone().text().catch(() => ""))) {
+                // Rate limits and dead credentials rotate across the pool. The
+                // exhausted account is never refreshed first: on a 429 that
+                // would burn a single-use refresh token for nothing. Each
+                // account gets at most one attempt per request; the rotation
+                // helper itself reuses still-valid access tokens and only
+                // refreshes expired ones.
+                const poolSize = (await loadAccountStore()).accounts.length;
+                const tried = new Set<string>([currentAuth.refresh]);
+                for (let hop = 0; hop < poolSize; hop++) {
+                  const rotated = await rotateAnthropicAccount(currentAuth, client).catch(() => undefined);
+                  if (!rotated || tried.has(rotated.refresh)) break;
+                  tried.add(rotated.refresh);
+                  currentAuth = rotated;
+                  response = await send(rotated);
+                  if (response.ok) break;
+                  if (!shouldRotateAuth(response.status, await response.clone().text().catch(() => ""))) break;
+                }
               }
             }
           }
@@ -797,4 +901,4 @@ const claudeCodeAuthPlugin: Plugin = async (input) => {
   };
 };
 
-export { claudeCodeAuthPlugin };
+export { claudeCodeAuthPlugin, authStateLockPath, normalizeAccountStore, normalizeIdentity, upsertAccount, replaceAccount, withAuthStateLock };

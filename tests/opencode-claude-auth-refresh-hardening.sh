@@ -15,9 +15,23 @@ require_source() {
   fi
 }
 
-require_source "function refreshLockPath()" "shared refresh lock path"
-node "$SCRIPT_DIR/tests/claude-client-identity.mjs"
-require_source "async function withRefreshLock" "cross-process refresh lock"
+refuse_source() {
+  local pattern="$1"
+  local description="$2"
+  if grep -Fq "$pattern" "$PLUGIN"; then
+    echo "FAIL: found forbidden $description" >&2
+    echo "pattern: $pattern" >&2
+    exit 1
+  fi
+}
+
+require_source "function authStateLockPath()" "shared Kimaki-compatible auth-state lock path"
+require_source 'authFilePath()}.lock' "lock directory shared with Kimaki's withAuthStateLock"
+require_source "AUTH_LOCK_STALE_MS = 30_000" "30s stale window matching Kimaki's lock contract"
+require_source "async function withAuthStateLock" "cross-process shared auth-state lock"
+refuse_source "anthropic-refresh.lock" "private lock file that races Kimaki's lock (#626)"
+require_source "if (process.env.KIMAKI) return {};" "Kimaki sessions register no auth hook (#626)"
+require_source "const isRemote = Boolean(process.env.WP_CODING_AGENTS_REMOTE_AUTH)" "remote pasted-code login flow"
 require_source "await readAnthropicAuth()" "auth file re-read inside refresh path"
 require_source "if (usableAccessToken(latest)) return latest" "winner-token reuse after lock acquisition"
 require_source "function isInvalidGrantFailure" "invalid_grant refresh failure classifier"
@@ -29,8 +43,16 @@ require_source "replaceAccount(store, candidate, refreshed)" "normal refresh rep
 require_source "async function setAnthropicAuth" "auth file and live OpenCode auth sync helper"
 require_source "client?.auth?.set?.({ providerID: \"anthropic\", auth })" "live OpenCode auth state sync after credential changes"
 require_source "async function refreshOAuthAfterAuthFailure" "auth failure refresh retry helper"
-require_source "async function rotateAndRefreshAnthropicAccount" "rotated account refresh helper"
-require_source "const refreshed = await refreshOAuthAfterAuthFailure(freshAuth, client).catch(() => undefined)" "401 retry refreshes current credential and syncs OpenCode auth state"
-require_source "const rotated = await rotateAndRefreshAnthropicAccount(await readAnthropicAuth() ?? freshAuth, client)" "401 retry refreshes rotated credential and syncs OpenCode auth state"
+require_source "function isRateLimitFailure" "rate-limit classifier keeps 429 from spending a refresh token"
+require_source "function isAuthenticationFailure" "authentication failure classifier allows refresh-first retry"
+require_source "account.accountId === identity.accountId" "identity-based account matching"
+require_source "identity?.email || existing?.email" "identity preservation on account upsert"
+require_source "async function rotateAnthropicAccount" "pool rotation helper"
+require_source "usableAccessToken(candidate)" "rotation reuses a still-valid access token"
+require_source "rotateAnthropicAccount(currentAuth, client)" "rate-limit retry rotates to the next pooled account"
+require_source "tried.has(rotated.refresh)" "rotation stops when every account has been tried"
+
+node "$SCRIPT_DIR/tests/claude-client-identity.mjs"
+node "$SCRIPT_DIR/tests/opencode-claude-auth-kimaki-coexistence.mjs"
 
 echo "PASS: tests/opencode-claude-auth-refresh-hardening.sh"
