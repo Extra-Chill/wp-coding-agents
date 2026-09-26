@@ -901,4 +901,12 @@ const claudeCodeAuthPlugin: Plugin = async (input) => {
   };
 };
 
-export { claudeCodeAuthPlugin, authStateLockPath, normalizeAccountStore, normalizeIdentity, upsertAccount, replaceAccount, withAuthStateLock };
+// OpenCode treats every exported function of a plugin module as a plugin
+// initializer and calls it with the plugin input. Export ONLY the plugin.
+// Test helpers hang off a non-enumerable property instead of named exports.
+Object.defineProperty(claudeCodeAuthPlugin, "internals", {
+  value: Object.freeze({ authStateLockPath, normalizeAccountStore, normalizeIdentity, upsertAccount, replaceAccount, withAuthStateLock }),
+  enumerable: false,
+});
+
+export { claudeCodeAuthPlugin };

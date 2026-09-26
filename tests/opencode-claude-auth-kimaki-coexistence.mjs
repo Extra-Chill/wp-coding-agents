@@ -74,7 +74,12 @@ process.stdout.write(JSON.stringify({ access_token: rule.access, refresh_token: 
 `;
 await fs.writeFile(path.join(binDir, 'node'), FAKE_NODE, { mode: 0o755 });
 
-const { claudeCodeAuthPlugin, normalizeAccountStore, upsertAccount, replaceAccount, authStateLockPath } = await import(PLUGIN_URL);
+const pluginModule = await import(PLUGIN_URL);
+// OpenCode calls every exported function as a plugin, so the module must
+// export only the plugin itself; helpers live on a non-enumerable property.
+assert.deepEqual(Object.keys(pluginModule), ['claudeCodeAuthPlugin'], 'plugin module must export only the plugin initializer');
+const { claudeCodeAuthPlugin } = pluginModule;
+const { normalizeAccountStore, upsertAccount, replaceAccount, authStateLockPath } = claudeCodeAuthPlugin.internals;
 
 const account = (id, extra = {}) => ({
   type: 'oauth',
