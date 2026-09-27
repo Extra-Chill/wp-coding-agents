@@ -21,7 +21,61 @@ homeboy_uses_service_owned_bin() {
 }
 
 homeboy_service_bin() {
-  printf '%s/.local/bin/homeboy' "$SERVICE_HOME"
+  printf '%s' "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
+}
+
+# Provisioning may mutate only the dedicated wp-coding-agents prefix. In
+# particular, a full-path override must never turn SERVICE_HOME/.local or an
+# arbitrary operator-owned directory into a root-chowned prefix.
+homeboy_path_has_no_symlink_components() {
+  local path="$1" current="" component
+  [[ "$path" = /* ]] || return 1
+  local -a components=()
+  IFS='/' read -r -a components <<< "${path#/}"
+  for component in "${components[@]}"; do
+    [ -n "$component" ] || continue
+    current="$current/$component"
+    [ ! -L "$current" ] || return 1
+  done
+}
+
+homeboy_managed_prefix_safe() {
+  local target="$1" service_home target_dir prefix parent owner mode mode_value
+  [[ "$target" = /* ]] || return 1
+  target="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$target")" || return 1
+  homeboy_path_has_no_symlink_components "$target" || return 1
+  [ "$(basename "$target")" = homeboy ] || return 1
+  target_dir="$(dirname "$target")"
+  [ "$(basename "$target_dir")" = bin ] || return 1
+  prefix="$(dirname "$target_dir")"
+  [ "$(basename "$prefix")" = wp-coding-agents ] || return 1
+  [ ! -L "$target" ] && [ ! -L "$target_dir" ] && [ ! -L "$prefix" ] || return 1
+
+  service_home="${SERVICE_HOME:-}"
+  if [ -n "$service_home" ]; then
+    service_home="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$service_home")" || return 1
+    case "$target" in "$service_home"/*) return 1 ;; esac
+  fi
+
+  parent="$(dirname "$prefix")"
+  [ -d "$parent" ] || return 1
+  owner="$(file_owner "$parent" 2>/dev/null)" || return 1
+  [ "$owner" = root ] || return 1
+  mode="$(file_mode "$parent" 2>/dev/null)" || return 1
+  mode_value="$(python3 -c 'import sys; print(int(sys.argv[1], 8))' "$mode" 2>/dev/null)" || return 1
+  if (( mode_value & 0022 )); then
+    # A root-owned sticky parent such as /tmp is safe for a root-created child;
+    # writable non-sticky parents are not trusted for managed prefix creation.
+    (( mode_value & 01000 )) || return 1
+  fi
+  if [ -e "$prefix" ]; then
+    [ -d "$prefix" ] || return 1
+    owner="$(file_owner "$prefix" 2>/dev/null)" || return 1
+    [ "$owner" = root ] || return 1
+    mode="$(file_mode "$prefix" 2>/dev/null)" || return 1
+    mode_value="$(python3 -c 'import sys; print(int(sys.argv[1], 8))' "$mode" 2>/dev/null)" || return 1
+    (( (mode_value & 0022) == 0 )) || return 1
+  fi
 }
 
 homeboy_system_bin() {
@@ -34,26 +88,84 @@ homeboy_system_bin() {
   command -v homeboy 2>/dev/null || true
 }
 
+homeboy_service_bin_ready() {
+  local target target_dir target_owner dir_owner dir_mode dir_mode_value
+  target="$(homeboy_service_bin)"
+  target_dir="$(dirname "$target")"
+  [ -f "$target" ] && [ ! -L "$target" ] && [ -x "$target" ] || return 1
+  target_owner="$(file_owner "$target" 2>/dev/null)" || return 1
+  [ "$target_owner" = "$SERVICE_USER" ] || return 1
+  dir_owner="$(file_owner "$target_dir" 2>/dev/null)" || return 1
+  [ "$dir_owner" = "$SERVICE_USER" ] || return 1
+  dir_mode="$(file_mode "$target_dir" 2>/dev/null)" || return 1
+  dir_mode_value="$(python3 -c 'import sys; print(int(sys.argv[1], 8))' "$dir_mode" 2>/dev/null)" || return 1
+  (( (dir_mode_value & 0300) == 0300 ))
+}
+
 homeboy_bin() {
-  if homeboy_uses_service_owned_bin && [ -x "$(homeboy_service_bin)" ]; then
+  if homeboy_uses_service_owned_bin && homeboy_service_bin_ready; then
     homeboy_service_bin
   else
     homeboy_system_bin
   fi
 }
 
+homeboy_service_install_managed_binary() {
+  local target_dir="$1" target="$2" seed="$3" target_mode="$4" target_owner="$5"
+  local service_script='set -eu
+directory=$1 target=$2 seed=$3 target_mode=$4
+service_user=$5 target_owner=$6
+chmod 0755 "$directory"
+if [ -f "$target" ] && [ ! -L "$target" ] && [ -x "$target" ] && [ "$target_mode" = 755 ] && [ "$target_owner" = "$service_user" ]; then
+  exit 0
+fi
+source=$seed
+if [ -f "$target" ] && [ ! -L "$target" ] && [ -x "$target" ] && [ "$target_owner" != "$service_user" ]; then
+  [ -r "$target" ] || { echo "Existing Homeboy is not readable by $service_user: $target" >&2; exit 1; }
+  source=$target
+elif [ -f "$target" ] && [ ! -L "$target" ] && [ -x "$target" ] && [ -r "$target" ] && [ "$target_mode" != 755 ]; then
+  source=$target
+fi
+[ -n "$source" ] && [ -r "$source" ] || exit 0
+temporary=$(mktemp "$directory/.homeboy.XXXXXX")
+trap '\''rm -f "$temporary"'\'' EXIT
+install -m 0755 "$source" "$temporary"
+mv -f "$temporary" "$target"
+'
+  local service_path="$target_dir:$PATH"
+
+  if [ "$(id -u)" -eq 0 ]; then
+    command -v sudo >/dev/null 2>&1 || error "Cannot converge Homeboy as '$SERVICE_USER': sudo is unavailable."
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$service_path" \
+      /bin/bash -c "$service_script" homeboy-service-install "$target_dir" "$target" "$seed" "$target_mode" "$SERVICE_USER" "$target_owner"
+  else
+    [ "$(id -un)" = "$SERVICE_USER" ] || error "Cannot converge Homeboy as $(id -un): expected '$SERVICE_USER'."
+    HOME="$SERVICE_HOME" PATH="$service_path" /bin/bash -c "$service_script" homeboy-service-install "$target_dir" "$target" "$seed" "$target_mode" "$SERVICE_USER" "$target_owner"
+  fi
+}
+
 homeboy_provision_service_bin() {
   homeboy_uses_service_owned_bin || return 0
 
-  local target source target_dir local_dir group
+  local target source target_dir managed_prefix owner group target_mode target_owner prefix_mode
   target="$(homeboy_service_bin)"
   target_dir="$(dirname "$target")"
-  local_dir="$(dirname "$target_dir")"
-  source="$(homeboy_system_bin)"
+  managed_prefix="$(dirname "$target_dir")"
+  homeboy_managed_prefix_safe "$target" || error "Refusing unsafe managed Homeboy path '$target'; expected a non-symlinked bin/homeboy under a root-owned wp-coding-agents prefix outside SERVICE_HOME."
+
+  if [ -e "$managed_prefix" ]; then
+    prefix_mode="$(file_mode "$managed_prefix" 2>/dev/null || true)"
+    [ "$prefix_mode" = 755 ] || error "Refusing existing managed Homeboy prefix '$managed_prefix' with mode ${prefix_mode:-unknown}; inspect its contents and have an administrator set this dedicated prefix to root:root 0755 before retrying."
+  fi
+
+  source=""
+  local legacy="$SERVICE_HOME/.local/bin/homeboy"
+  if [ -x "$legacy" ] && [ "$legacy" != "$target" ]; then source="$legacy"; else source="$(homeboy_system_bin)"; fi
+  [ -n "$source" ] || [ -x "$target" ] || return 0
   if [ "${DRY_RUN:-false}" = true ]; then
     [ -x "$target" ] || [ -n "$source" ] || return 0
-    [ -x "$target" ] || echo -e "${BLUE}[dry-run]${NC} install -D -m 0755 '$source' '$target' as service-owned Homeboy"
-    echo -e "${BLUE}[dry-run]${NC} chown '$SERVICE_USER' '$local_dir' '$target_dir' '$target'"
+    [ -x "$target" ] || echo -e "${BLUE}[dry-run]${NC} seed managed Homeboy from '$source' into '$target' as '$SERVICE_USER'"
+    echo -e "${BLUE}[dry-run]${NC} validate/create root-owned prefix '$managed_prefix'; create or hand off '$target_dir' to '$SERVICE_USER'"
     return 0
   fi
 
@@ -61,18 +173,42 @@ homeboy_provision_service_bin() {
     error "Cannot provision service-owned Homeboy as $(id -un): expected '$SERVICE_USER' or root."
   fi
 
-  if [ ! -x "$target" ]; then
-    [ -n "$source" ] || return 0
-    [ "$source" != "$target" ] || return 0
-    run_cmd mkdir -p "$target_dir"
-    run_cmd install -m 0755 "$source" "$target"
-  fi
-  if [ "$(id -u)" -eq 0 ] && id -u "$SERVICE_USER" >/dev/null 2>&1; then
+  if [ "$(id -u)" -eq 0 ]; then
+    if [ ! -e "$managed_prefix" ]; then
+      run_cmd mkdir -m 0700 "$managed_prefix" || error "Could not exclusively create fresh managed Homeboy prefix '$managed_prefix'; inspect the path and retry."
+      owner="$(file_owner "$managed_prefix" 2>/dev/null || true)"
+      [ "$owner" = root ] || error "New managed Homeboy prefix is not root-owned: $managed_prefix"
+      run_cmd chmod 0700 "$managed_prefix"
+      [ "$(file_mode "$managed_prefix" 2>/dev/null || true)" = 700 ] || error "Fresh managed Homeboy prefix did not retain restrictive creation mode before setup: $managed_prefix"
+      run_cmd chmod 0755 "$managed_prefix"
+    fi
+
+    if [ ! -e "$target_dir" ]; then
+      run_cmd mkdir -m 0700 "$target_dir"
+      owner="root"
+    else
+      [ -d "$target_dir" ] && [ ! -L "$target_dir" ] || error "Managed Homeboy bin is not a real directory: $target_dir"
+      owner="$(file_owner "$target_dir" 2>/dev/null || true)"
+    fi
     group="$(id -gn "$SERVICE_USER" 2>/dev/null || printf '%s' "$SERVICE_USER")"
-    # Converge only this managed path, never the wider SERVICE_HOME tree. Both
-    # parents need service ownership for subsequent atomic binary upgrades.
-    run_cmd chown "$SERVICE_USER:$group" "$local_dir" "$target_dir" "$target"
+    case "$owner" in
+      "$SERVICE_USER") ;;
+      root) run_cmd chown "$SERVICE_USER:$group" "$target_dir" ;;
+      *) error "Managed Homeboy bin has unexpected owner '$owner': $target_dir" ;;
+    esac
+  else
+    [ -d "$managed_prefix" ] && [ -d "$target_dir" ] || error "Managed Homeboy prefix/bin must be provisioned by root before service-user setup."
+    [ "$(file_mode "$managed_prefix" 2>/dev/null || true)" = 755 ] || error "Managed Homeboy prefix is not mode 755: $managed_prefix"
+    owner="$(file_owner "$target_dir" 2>/dev/null || true)"
+    [ "$owner" = "$SERVICE_USER" ] || error "Managed Homeboy bin is not service-owned: $target_dir"
   fi
+
+  [ -n "$source" ] || source="$target"
+  target_mode="$(file_mode "$target" 2>/dev/null || true)"
+  target_owner="$(file_owner "$target" 2>/dev/null || true)"
+  homeboy_service_install_managed_binary "$target_dir" "$target" "$source" "$target_mode" "$target_owner" || error "Could not install or repair managed Homeboy as '$SERVICE_USER': $target"
+  [ "$(file_owner "$target" 2>/dev/null || true)" = "$SERVICE_USER" ] || error "Managed Homeboy is not owned by '$SERVICE_USER' after provisioning: $target"
+  homeboy_service_bin_ready || error "Managed Homeboy is not executable or its service-owned bin is not replaceable by '$SERVICE_USER': $target"
   log "Provisioned service-owned Homeboy: $target"
 }
 

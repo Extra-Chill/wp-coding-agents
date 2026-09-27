@@ -7,7 +7,7 @@ Type=simple
 User=chubes
 WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
-Environment=PATH=/usr/bin:/usr/local/bin:/bin
+Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/bin:/usr/local/bin:/bin
 Environment=KIMAKI_DATA_DIR=/home/chubes/.kimaki
 Environment=DATAMACHINE_SITE_PATH=/var/www/site
 Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"

@@ -226,6 +226,28 @@ _ensure_systemd_path_contains() {
   ' <<< "$current_env"
 }
 
+# _ensure_systemd_path_first <current_env> <preferred_dir>
+# Remove duplicate occurrences and make the managed directory the first PATH
+# entry. Unlike _ensure_systemd_path_contains, precedence matters for binaries
+# that also exist in legacy per-user bin directories.
+_ensure_systemd_path_first() {
+  local current_env="$1" preferred_dir="$2"
+  [ -n "$preferred_dir" ] || { printf '%s\n' "$current_env"; return 0; }
+  awk -v dir="$preferred_dir" '
+    /^Environment=PATH=/ {
+      value = substr($0, length("Environment=PATH=") + 1)
+      count = split(value, entries, ":")
+      path = dir
+      for (i = 1; i <= count; i++) {
+        if (entries[i] != "" && entries[i] != dir) path = path ":" entries[i]
+      }
+      print "Environment=PATH=" path
+      next
+    }
+    { print }
+  ' <<< "$current_env"
+}
+
 # _systemd_unit_user <unit_file>
 #
 # Print the User= value from an existing systemd unit. Empty output +

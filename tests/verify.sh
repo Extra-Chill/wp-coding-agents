@@ -29,6 +29,10 @@ refute_contains() {
 # A fake install. wp is stubbed so this needs no database.
 SITE="$TMP/site"
 mkdir -p "$SITE/wp-content/mu-plugins" "$TMP/units" "$TMP/manifest/site"
+HOMEBOY_FIXTURE_BIN="$TMP/managed homeboy path/homeboy"
+mkdir -p "$(dirname "$HOMEBOY_FIXTURE_BIN")"
+printf '#!/bin/sh\nexit 0\n' > "$HOMEBOY_FIXTURE_BIN"
+chmod 0755 "$HOMEBOY_FIXTURE_BIN"
 # When running as root the manifest-writability check is live, so the fixture
 # has to model a correctly-provisioned directory.
 if [ "$(id -u)" -eq 0 ] && id -u www-data >/dev/null 2>&1; then
@@ -87,13 +91,14 @@ run_verify() {
   PATH="$TMP:$PATH" \
   SYSTEMD_UNIT_DIR="$TMP/units" \
   SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$HOMEBOY_FIXTURE_BIN" \
     bash verify.sh --site-path "$SITE" 2>&1 || true
 }
 
 # Baseline: everything agrees.
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
 write_opencode wp-content/plugins/acme-core wp-content/themes/acme
-write_unit kimaki.service opencode /home/opencode
+write_unit kimaki.service opencode /home/opencode "Environment=PATH=$(dirname "$HOMEBOY_FIXTURE_BIN"):/usr/local/bin:/usr/bin:/bin"
 source lib/agents-md-guidance.sh
 CURRENT_PRODUCER="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
@@ -104,6 +109,8 @@ OUT="$(run_verify)"
 refute_contains "$OUT" "FAIL" "no complaints when every seam agrees"
 assert_contains "$OUT" "permission.edit allows exactly the declared set" "checks the permission seam"
 assert_contains "$OUT" "manifest agrees with the recorded set" "checks the manifest seam"
+assert_contains "$OUT" "managed Homeboy executable is mode 755 at $HOMEBOY_FIXTURE_BIN" "uses the full managed-binary override path"
+assert_contains "$OUT" "kimaki.service PATH includes managed Homeboy directory" "checks managed Homeboy service PATH agreement"
 
 OUT="$(WP_STUB_NOISE=1 run_verify)"
 assert_contains "$OUT" "source mode: owned" "ignores WP-CLI deprecation output"

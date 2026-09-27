@@ -39,7 +39,7 @@ guidance_freshness() { printf 'live'; }
 # Overridable so tests never touch the real path, and so a host whose
 # homeboy-upgrade helper installs somewhere else can still be recognized.
 _guidance_homeboy_managed_bin_path() {
-  printf '%s' "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/bin/homeboy}"
+  printf '%s' "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
 }
 
 _guidance_homeboy_service_bin_path() {
@@ -47,16 +47,15 @@ _guidance_homeboy_service_bin_path() {
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
   [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ] || return 0
   [ -n "${SERVICE_HOME:-}" ] || return 0
-  printf '%s/.local/bin/homeboy' "$SERVICE_HOME"
+  _guidance_homeboy_managed_bin_path
 }
 
 # _guidance_homeboy_bin_candidates — ordered, de-duplicated candidate paths.
 #
 #   1. WP_CODING_AGENTS_HOMEBOY_BIN — explicit sync-time override, for an
 #      operator with a nonstandard install.
-#   2. The managed system install location (see above): root-owned and
-#      world-executable by convention, stable across every identity on the
-#      box, unlike a per-user PATH entry.
+#   2. The managed shared install location (see above), reachable to the
+#      composing web identity and writable by the service identity.
 #   3. `type -P homeboy` — the syncing user's PATH (the original #575
 #      probe), kept as a last resort for hosts that run homeboy from
 #      somewhere else but still keep it web-reachable.
