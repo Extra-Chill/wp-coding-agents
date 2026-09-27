@@ -12,6 +12,15 @@ mkdir -p "$TMP/wp-content/mu-plugins"
 export SITE_PATH="$TMP"
 export DRY_RUN=false
 
+# Isolate the #633 managed-binary resolution from whatever the test host
+# actually has installed. Without this override, a dev box with a real
+# /usr/local/bin/homeboy (this repo's own dev/CI hosts do) would let the
+# guidance resolver's candidate #2 win over every PATH-based fixture below,
+# silently invalidating the #575 assertions that depend on the fixture path
+# being the one baked into the mu-plugin.
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/no-managed-homeboy-in-tests"
+unset WP_CODING_AGENTS_HOMEBOY_BIN WP_CODING_AGENTS_COMPOSE_USER WP_CODING_AGENTS_COMPOSE_GROUP 2>/dev/null || true
+
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
@@ -533,6 +542,76 @@ echo json_encode([
 PHP
 RESULT=$(php "$MINIMAL_PATH_SHIM")
 assert_eq "$RESULT" '{"registered":true,"renders":true}' "Homeboy guidance still composes with an empty PATH"
+
+echo "==> managed-binary resolution prefers a world-executable path over an unreachable per-user copy (#633)"
+# The per-user home is a stand-in for ~/.local/bin/homeboy on the syncing
+# user's PATH — #633's actual production shape: parent directory 0700, so
+# the binary is on PATH but unreachable by any other identity.
+mkdir -p "$TMP/per-user-home/bin"
+cat > "$TMP/per-user-home/bin/homeboy" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$TMP/per-user-home/bin/homeboy"
+chmod 0700 "$TMP/per-user-home"
+
+# The managed binary: world-executable, standing in for the real
+# /usr/local/bin/homeboy a host's homeboy-upgrade helper installs and
+# upgrades.
+mkdir -p "$TMP/managed"
+cat > "$TMP/managed/homeboy" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod 0755 "$TMP/managed/homeboy"
+chmod 0755 "$TMP/managed"
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/managed/homeboy"
+
+PATH="$TMP/per-user-home/bin:$TMP/homeboy-bin:/usr/bin:/bin"
+export PATH
+guidance_sync_unit homeboy
+assert_contains "$MU_FILE" "$TMP/managed/homeboy" "Managed binary path is baked when a PATH candidate is unreachable"
+if grep -qF "$TMP/per-user-home/bin/homeboy" "$MU_FILE"; then
+  echo "  FAIL unreachable per-user binary path leaked into the mu-plugin"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   unreachable per-user binary path is never baked"
+fi
+
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/no-managed-homeboy-in-tests"
+
+echo "==> no reachable candidate anywhere warns instead of silently dropping the section (#633)"
+# WP_CODING_AGENTS_COMPOSE_USER/GROUP simulate the web-server identity: names
+# that cannot possibly match any real file's owner/group in this sandbox, so
+# the reachability check falls through to a pure permission-bit walk exactly
+# like it would for an unrelated www-data compose identity in production.
+WARN_OUT="$TMP/warn-output.txt"
+export WP_CODING_AGENTS_COMPOSE_USER="ec-simulated-web-user"
+export WP_CODING_AGENTS_COMPOSE_GROUP="ec-simulated-web-group"
+PATH="$TMP/per-user-home/bin:/usr/bin:/bin"
+export PATH
+guidance_sync_unit homeboy >/dev/null 2>"$WARN_OUT" || true
+if grep -qF "$TMP/per-user-home/bin/homeboy" "$WARN_OUT"; then
+  echo "  ok   unreachable candidate is named in the sync warning"
+else
+  echo "  FAIL sync warning did not name the unreachable candidate"
+  echo "    warning output:"
+  sed 's/^/      /' "$WARN_OUT"
+  FAILED=$((FAILED + 1))
+fi
+if grep -q "compose identity" "$WARN_OUT"; then
+  echo "  ok   sync warning explains the compose-identity mismatch"
+else
+  echo "  FAIL sync warning did not explain the compose-identity mismatch"
+  FAILED=$((FAILED + 1))
+fi
+if grep -q 'BEGIN agents-md-guidance:homeboy-cli' "$MU_FILE"; then
+  echo "  FAIL homeboy-cli guidance remains registered with no reachable candidate"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   homeboy-cli guidance is unregistered with no reachable candidate (visible, not silent)"
+fi
+unset WP_CODING_AGENTS_COMPOSE_USER WP_CODING_AGENTS_COMPOSE_GROUP
 
 rm "$TMP/homeboy-bin/homeboy"
 PATH="$TMP/homeboy-bin:/usr/bin:/bin"
