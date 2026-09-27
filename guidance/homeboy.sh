@@ -42,6 +42,14 @@ _guidance_homeboy_managed_bin_path() {
   printf '%s' "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/bin/homeboy}"
 }
 
+_guidance_homeboy_service_bin_path() {
+  [ "${LOCAL_MODE:-false}" != true ] || return 0
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
+  [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ] || return 0
+  [ -n "${SERVICE_HOME:-}" ] || return 0
+  printf '%s/.local/bin/homeboy' "$SERVICE_HOME"
+}
+
 # _guidance_homeboy_bin_candidates — ordered, de-duplicated candidate paths.
 #
 #   1. WP_CODING_AGENTS_HOMEBOY_BIN — explicit sync-time override, for an
@@ -59,6 +67,7 @@ _guidance_homeboy_bin_candidates() {
   local candidate seen=""
   for candidate in \
     "${WP_CODING_AGENTS_HOMEBOY_BIN:-}" \
+    "$(_guidance_homeboy_service_bin_path)" \
     "$(_guidance_homeboy_managed_bin_path)" \
     "$(type -P homeboy 2>/dev/null || true)"
   do

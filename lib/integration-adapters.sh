@@ -167,10 +167,15 @@ _integration_adapter_verify_homeboy() {
       return 0
       ;;
   esac
-  command -v homeboy >/dev/null 2>&1 || {
+  if declare -F homeboy_bin >/dev/null 2>&1; then
+    [ -n "$(homeboy_bin)" ] || {
+      homeboy_required && return 1
+      return 0
+    }
+  elif ! command -v homeboy >/dev/null 2>&1; then
     homeboy_required && return 1
     return 0
-  }
+  fi
   config="$(homeboy_run config show)" || return 1
   python3 -c 'import json,sys; result=json.load(sys.stdin); data=result.get("data", {}).get("config", result); providers=data.get("worktree_providers") or {}; lifecycle=(data.get("settings") or {}).get("worktree_provider_lifecycle") or {}; raise SystemExit(not isinstance(providers, dict) or not isinstance(lifecycle, dict) or "dmc" in providers or "dmc" in lifecycle)' <<< "$config" || return 1
   homeboy_required && ! homeboy_wordpress_extension_ready && return 1

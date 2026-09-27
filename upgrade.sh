@@ -647,6 +647,10 @@ else
   agent_state_ownership_audit
 fi
 
+# A root upgrade may discover the system Homeboy binary, but managed non-root
+# services must execute the service-owned copy instead.
+homeboy_provision_service_bin
+
 # Set true when opencode.json is found to have plugin-array drift and the
 # --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
 OPENCODE_JSON_DRIFT=false

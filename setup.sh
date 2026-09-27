@@ -664,6 +664,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
     setup_nginx
     setup_ssl
     setup_service_permissions
+    homeboy_provision_service_bin
   fi
 fi
 
