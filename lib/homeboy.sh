@@ -792,10 +792,10 @@ recompose_agents_md_for_homeboy() {
     return 0
   fi
 
-  # As the service user — see wp_run_as_service_user(). A recompose that runs as
+  # As the site owner — see wp_run_as_site_owner(). A recompose that runs as
   # root re-bakes `wp --allow-root` into the examples and would silently undo the
   # correct file the main compose phase just wrote.
-  if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
+  if (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md >/dev/null); then
     log "AGENTS.md recomposed after Homeboy reconciliation."
     opencode_project_subagents_optional
   else

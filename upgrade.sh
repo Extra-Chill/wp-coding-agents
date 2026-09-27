@@ -1148,17 +1148,15 @@ regenerate_agents_md() {
   # composable file path. It does NOT accept an arbitrary output path —
   # the filename must be a registered MemoryFileRegistry entry.
   #
-  # Composed AS THE SERVICE USER, not as the caller. The generated text encodes
-  # the composing process's euid — Data Machine's generated guidance follows
-  # append `--allow-root` to their WP-CLI examples when posix_geteuid() === 0 —
-  # and upgrade.sh runs under sudo. Composing here as root would write an
-  # AGENTS.md instructing a non-root agent to run `wp --allow-root`, i.e. a file
-  # that misdescribes the agent's own environment (#93, #322).
+  # Compose as the webroot owner, not merely the service user. Generated
+  # guidance includes `--allow-root` when composed by root; upgrade.sh may run
+  # under sudo, so root composition would misdescribe a non-root agent's
+  # environment (#93, #322).
   #
   # Permissions are still normalized afterward: compose writes as whichever
   # identity ran it, and without this every other writer is locked out until the
   # next normalize.
-  if (cd "$SITE_PATH" && wp_run_as_service_user datamachine memory compose AGENTS.md >/dev/null 2>&1); then
+  if (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md >/dev/null); then
     local expected_producer composed_producer provenance_status gate_status
     expected_producer="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
     composed_producer="$(agents_md_guidance_composed_producer "$AGENTS_MD")"
@@ -1166,7 +1164,7 @@ regenerate_agents_md() {
     if [ "${provenance_status:-0}" = 1 ]; then
       if [ -z "$composed_producer" ]; then
         gate_status=0
-        agents_md_guidance_composition_gate wp_run_as_service_user || gate_status=$?
+        agents_md_guidance_composition_gate wp_run_as_site_owner || gate_status=$?
         case "$gate_status" in
           1|2) log "  Data Machine AGENTS.md composition is disabled or unavailable; provenance verification is gated" ;;
           *)
