@@ -300,6 +300,7 @@ jobs:
           - homeboy-codebox-canary
           - homeboy-components
           - homeboy-project-id
+          - homeboy-service-identity
           - homeboy-verification-guidance
           - kimaki-credential-seeding
           - kimaki-install-existing
