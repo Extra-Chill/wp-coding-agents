@@ -80,17 +80,22 @@ systems_capabilities_cleanup_retired_process_probe
 
 echo "non-root repair is explicit and dry-run does not write"
 DRY_RUN=false
+mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+target_mode_before="$(mode "$TMP/php/target.log")"
+other_mode_before="$(mode "$TMP/php/other.log")"
 systems_capabilities_apply > "$TMP/initial.out"
 config="$(systems_capabilities_logrotate_file)"
-mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
-[ "$(mode "$TMP/php/php8.4-fpm.log")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.1")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.2")" = 640 ] && [ "$(mode "$TMP/php/logs")" = 700 ] && [ "$(mode "$TMP/php")" = 750 ] && [ "$(mode "$SITE_PATH/wp-content/debug.log")" = 600 ] && [ "$(mode "$TMP/php/target.log")" = 644 ] && [ "$(mode "$TMP/php/other.log")" = 644 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.1" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.2" "$CHOWN_CALLS")" -eq 1 ] && ok "initial apply repairs scoped log permissions" || fail "initial log permission repair failed"
+[ "$(mode "$TMP/php/php8.4-fpm.log")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.1")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.2")" = 640 ] && [ "$(mode "$TMP/php/logs")" = 700 ] && [ "$(mode "$TMP/php")" = 750 ] && [ "$(mode "$SITE_PATH/wp-content/debug.log")" = 600 ] && [ "$(mode "$TMP/php/target.log")" = "$target_mode_before" ] && [ "$(mode "$TMP/php/other.log")" = "$other_mode_before" ] && [ -L "$TMP/php/php8.4-fpm-link.log" ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.1" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.2" "$CHOWN_CALLS")" -eq 1 ] && ok "initial apply repairs scoped log permissions" || fail "initial log permission repair failed"
 package_rule="$(< "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm")"
 case "$package_rule" in *"su root root"*) ;; *) fail "package PHP-FPM rule lacks su root root" ;; esac
 case "$package_rule" in *"create 0640 root $SERVICE_GROUP"*) ;; *) fail "package PHP-FPM rule lacks service-group create" ;; esac
 case "$package_rule" in *weekly*rotate\ 12*compress*reopenlogs*) ok "package PHP-FPM rule is repaired in place" ;; *) fail "package PHP-FPM rule lost existing directives" ;; esac
 first_hash="$(cksum "$config" | cut -d' ' -f1-2)"
+package_rule_mtime="$(stat -c '%Y' "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm" 2>/dev/null || stat -f '%m' "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm")"
+sleep 1
 systems_capabilities_apply > "$TMP/repeat.out"
 [ "$first_hash" = "$(cksum "$config" | cut -d' ' -f1-2)" ] && ok "repeat apply is idempotent" || fail "repeat apply changed the logrotate rule"
+[ "$package_rule_mtime" = "$(stat -c '%Y' "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm" 2>/dev/null || stat -f '%m' "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm")" ] && ok "repeat apply preserves package rule mtime" || fail "repeat apply rewrote the package rule"
 
 SYSTEMS_CAPABILITIES_EUID=1000
 before="$(cksum "$config" | cut -d' ' -f1-2)"

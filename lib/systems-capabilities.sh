@@ -206,8 +206,9 @@ for config in directory.glob("php*-fpm"):
             changed = True
         lines[index:end] = block
         index = index + len(block)
-    if changed:
-        config.write_text("".join(lines))
+    final = "".join(lines)
+    if changed and final != original:
+        config.write_text(final)
 PY
 }
 
