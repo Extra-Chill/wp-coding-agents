@@ -123,33 +123,50 @@ systems_capabilities_service_group() {
   fi
 }
 
+systems_capabilities_declared_php_fpm_log_paths() {
+  local declared config path
+  declare -F source_policy_log_paths >/dev/null 2>&1 || return 0
+  declared="$(source_policy_log_paths | awk '!seen[$0]++')"
+  for config in "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR"/php*-fpm; do
+    [ -f "$config" ] && [ ! -L "$config" ] || continue
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      printf '%s\n' "$declared" | grep -F -x -- "$path" >/dev/null || continue
+      [ -f "$path" ] && [ ! -L "$path" ] || continue
+      printf '%s\n' "$path"
+    done < <(awk '/^[[:space:]]*[^[:space:]]+[[:space:]]*\{[[:space:]]*$/ { print $1 }' "$config")
+  done | awk '!seen[$0]++'
+}
+
 systems_capabilities_repair_log_permissions() {
-  local path candidate
+  local path candidate group
+  group="$(systems_capabilities_service_group)"
+  declare -F source_policy_log_paths >/dev/null 2>&1 || return 0
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if [ -d "$path" ] && [ ! -L "$path" ]; then
-      chmod o+rx "$path"
-      continue
-    fi
     [ -f "$path" ] && [ ! -L "$path" ] || continue
     for candidate in "$path" "$path".*; do
       [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
-      chmod 0644 "$candidate"
+      chown "root:$group" "$candidate"
+      chmod 0640 "$candidate"
     done
-  done < <(systems_capabilities_declared_log_paths | awk '!seen[$0]++')
+  done < <(systems_capabilities_declared_php_fpm_log_paths)
 }
 
 systems_capabilities_repair_php_fpm_logrotate() {
-  local paths
-  paths="$(systems_capabilities_declared_log_paths | awk '!seen[$0]++' | while IFS= read -r path; do [ -f "$path" ] && [ ! -L "$path" ] && printf '%s\n' "$path" || true; done)"
+  local paths group
+  declare -F source_policy_log_paths >/dev/null 2>&1 || return 0
+  paths="$(source_policy_log_paths | awk '!seen[$0]++' | while IFS= read -r path; do [ -f "$path" ] && [ ! -L "$path" ] && printf '%s\n' "$path" || true; done)"
   [ -n "$paths" ] || return 0
-  python3 - "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR" "$paths" <<'PY'
+  group="$(systems_capabilities_service_group)"
+  python3 - "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR" "$paths" "$group" <<'PY'
 import pathlib
 import re
 import sys
 
 directory = pathlib.Path(sys.argv[1])
 paths = {line for line in sys.argv[2].splitlines() if line}
+group = sys.argv[3]
 if not directory.is_dir():
     raise SystemExit(0)
 
@@ -177,7 +194,7 @@ for config in directory.glob("php*-fpm"):
                 block[offset] = "    su root root\n"
                 saw_su = changed = True
             elif re.match(r"^\s*create\s+", line):
-                block[offset] = "    create 0644 root root\n"
+                block[offset] = f"    create 0640 root {group}\n"
                 saw_create = changed = True
         insert_at = next((i for i, line in enumerate(block) if re.match(r"^\s*(postrotate|endscript)\b", line)), len(block) - 1)
         if not saw_su:
@@ -185,7 +202,7 @@ for config in directory.glob("php*-fpm"):
             insert_at += 1
             changed = True
         if not saw_create:
-            block.insert(insert_at, "    create 0644 root root\n")
+            block.insert(insert_at, f"    create 0640 root {group}\n")
             changed = True
         lines[index:end] = block
         index = index + len(block)

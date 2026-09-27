@@ -31,12 +31,14 @@ SYSTEMS_CAPABILITIES_LOGROTATE_DIR="$TMP/logrotate"
 SYSTEMS_CAPABILITIES_SYSTEMD_DIR="$TMP/systemd"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="$TMP/sudoers"
 SYSTEMS_CAPABILITIES_EUID=0
-SOURCE_LOG_PATHS="$(printf '%s\n' "$TMP/php/php8.4-fpm.log" "$TMP/php/logs" "$TMP/php/php8.4-fpm-link.log")"
+SOURCE_LOG_PATHS="$(printf '%s\n' "$TMP/php/php8.4-fpm.log" "$TMP/php/logs" "$TMP/php/php8.4-fpm-link.log" "$TMP/php/other.log")"
 mkdir -p "$SITE_PATH/wp-content" "$DM_WORKSPACE_DIR/repo" "$TMP/php"
-touch "$TMP/php/php8.4-fpm.log" "$TMP/php/php8.4-fpm.log.1" "$TMP/php/php8.4-fpm.log.2" "$TMP/php/target.log"
+touch "$SITE_PATH/wp-content/debug.log" "$TMP/php/php8.4-fpm.log" "$TMP/php/php8.4-fpm.log.1" "$TMP/php/php8.4-fpm.log.2" "$TMP/php/target.log" "$TMP/php/other.log"
 mkdir "$TMP/php/logs"
 ln -s "$TMP/php/target.log" "$TMP/php/php8.4-fpm-link.log"
 chmod 750 "$TMP/php"
+chmod 700 "$TMP/php/logs"
+chmod 600 "$SITE_PATH/wp-content/debug.log"
 mkdir -p "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR"
 cat > "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm" <<EOF
 $TMP/php/php8.4-fpm.log {
@@ -50,7 +52,8 @@ EOF
 codebox_database_apply() { :; }
 composer_provision_apply() { :; }
 systemctl() { :; }
-chown() { :; }
+CHOWN_CALLS="$TMP/chown-calls"
+chown() { printf '%s %s\n' "$1" "$2" >> "$CHOWN_CALLS"; }
 systems_capabilities_status() { :; }
 
 echo "systems capability policy remains exact and bounded"
@@ -80,10 +83,10 @@ DRY_RUN=false
 systems_capabilities_apply > "$TMP/initial.out"
 config="$(systems_capabilities_logrotate_file)"
 mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
-[ "$(mode "$TMP/php/php8.4-fpm.log")" = 644 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.1")" = 644 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.2")" = 644 ] && [ "$(mode "$TMP/php/logs")" = 755 ] && [ "$(mode "$TMP/php")" != 755 ] && [ "$(mode "$TMP/php/php8.4-fpm-link.log")" != 644 ] && ok "initial apply repairs scoped log permissions" || fail "initial log permission repair failed"
+[ "$(mode "$TMP/php/php8.4-fpm.log")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.1")" = 640 ] && [ "$(mode "$TMP/php/php8.4-fpm.log.2")" = 640 ] && [ "$(mode "$TMP/php/logs")" = 700 ] && [ "$(mode "$TMP/php")" = 750 ] && [ "$(mode "$SITE_PATH/wp-content/debug.log")" = 600 ] && [ "$(mode "$TMP/php/target.log")" = 644 ] && [ "$(mode "$TMP/php/other.log")" = 644 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.1" "$CHOWN_CALLS")" -eq 1 ] && [ "$(grep -F -x -c "root:$SERVICE_GROUP $TMP/php/php8.4-fpm.log.2" "$CHOWN_CALLS")" -eq 1 ] && ok "initial apply repairs scoped log permissions" || fail "initial log permission repair failed"
 package_rule="$(< "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR/php8.4-fpm")"
 case "$package_rule" in *"su root root"*) ;; *) fail "package PHP-FPM rule lacks su root root" ;; esac
-case "$package_rule" in *"create 0644 root root"*) ;; *) fail "package PHP-FPM rule lacks readable create" ;; esac
+case "$package_rule" in *"create 0640 root $SERVICE_GROUP"*) ;; *) fail "package PHP-FPM rule lacks service-group create" ;; esac
 case "$package_rule" in *weekly*rotate\ 12*compress*reopenlogs*) ok "package PHP-FPM rule is repaired in place" ;; *) fail "package PHP-FPM rule lost existing directives" ;; esac
 first_hash="$(cksum "$config" | cut -d' ' -f1-2)"
 systems_capabilities_apply > "$TMP/repeat.out"
