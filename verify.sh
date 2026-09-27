@@ -388,6 +388,26 @@ done
 
 [ "$UNITS_CHECKED" -eq 0 ] && skip "no agent systemd units on this host"
 
+HOMEBOY_MANAGED_BIN="${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
+if [ -x "$HOMEBOY_MANAGED_BIN" ]; then
+  HOMEBOY_BIN_DIR="$(dirname "$HOMEBOY_MANAGED_BIN")"
+  HOMEBOY_MODE="$(file_mode "$HOMEBOY_MANAGED_BIN" 2>/dev/null || true)"
+  case "$HOMEBOY_MODE" in
+    755) pass "managed Homeboy executable is mode 755 at $HOMEBOY_MANAGED_BIN" ;;
+    *) fail "managed Homeboy executable is mode ${HOMEBOY_MODE:-unknown}, expected 755 at $HOMEBOY_MANAGED_BIN" ;;
+  esac
+  while IFS= read -r unit; do
+    [ -f "$unit" ] || continue
+    if grep '^Environment=PATH=' "$unit" | grep -Fq "$HOMEBOY_BIN_DIR"; then
+      pass "$(basename "$unit") PATH includes managed Homeboy directory"
+    else
+      fail "$(basename "$unit") PATH does not include $HOMEBOY_BIN_DIR — service and guidance may select different Homeboy binaries"
+    fi
+  done < <(printf '%s\n' "$UNIT_DIR"/kimaki*.service)
+else
+  skip "no executable managed Homeboy at $HOMEBOY_MANAGED_BIN"
+fi
+
 # ---------------------------------------------------------------------------
 # Seam 3: the pieces owned mode requires must actually be installed
 # ---------------------------------------------------------------------------

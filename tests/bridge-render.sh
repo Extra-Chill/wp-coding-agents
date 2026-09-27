@@ -98,10 +98,14 @@ if echo "$REDACTED_DIFF" | grep -q 'secret-token'; then
 fi
 
 kimaki_env_block() {
-  local kimaki_bin_dir node_bin_dir path_value
+  local kimaki_bin_dir node_bin_dir homeboy_bin_dir path_value
   kimaki_bin_dir=$(dirname "$KIMAKI_BIN")
   node_bin_dir=$(_resolve_node_bin_dir "$KIMAKI_BIN")
-  path_value=$(_compose_path_value "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
+  homeboy_bin_dir=""
+  if [ "$LOCAL_MODE" != true ] && [ "$SERVICE_USER" != root ]; then
+    homeboy_bin_dir=$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")
+  fi
+  path_value=$(_compose_path_value "$homeboy_bin_dir" "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
   local transport_json
   transport_json=$(wp_cli_transport_json)
   transport_json=${transport_json//\\/\\\\}
@@ -155,6 +159,11 @@ echo "==> rendering snapshots"
 
 # systemd ---------------------------------------------------------------
 render_with_bridge kimaki     render_systemd kimaki.service           "$(kimaki_env_block)"     > "$TMPDIR_NEW/kimaki-systemd"
+if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/bin:/usr/local/bin:/bin' "$TMPDIR_NEW/kimaki-systemd"; then
+  echo "FAIL: Kimaki systemd PATH does not include managed Homeboy directory"
+  exit 1
+fi
+
 render_with_bridge cc-connect render_systemd cc-connect.service       "$(cc_connect_env_block)" > "$TMPDIR_NEW/cc-connect-systemd"
 render_with_bridge telegram   render_systemd opencode-serve.service   "$(telegram_env_block)"   > "$TMPDIR_NEW/telegram-serve-systemd"
 render_with_bridge telegram   render_systemd opencode-telegram.service "$(telegram_env_block)" > "$TMPDIR_NEW/telegram-bot-systemd"
@@ -232,6 +241,39 @@ fi
 
 echo
 echo "OK: all snapshots match"
+
+# A real command lookup must pick managed Homeboy ahead of the legacy service
+# home bin that also contains a `homeboy` executable.
+mkdir -p "$TMPDIR_NEW/managed" "$TMPDIR_NEW/legacy"
+PLATFORM="linux"
+LOCAL_MODE=false
+SERVICE_USER="chubes"
+export PLATFORM LOCAL_MODE SERVICE_USER
+printf '#!/bin/sh\nexit 0\n' > "$TMPDIR_NEW/managed/homeboy"
+printf '#!/bin/sh\nexit 0\n' > "$TMPDIR_NEW/legacy/homeboy"
+chmod 0755 "$TMPDIR_NEW/managed/homeboy" "$TMPDIR_NEW/legacy/homeboy"
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMPDIR_NEW/managed/homeboy"
+KIMAKI_BIN="$TMPDIR_NEW/legacy/kimaki"
+KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
+KIMAKI_CONFIG_DIR="/opt/kimaki-config"
+KIMAKI_ENV="$(kimaki_env_block)"
+KIMAKI_RENDERED="$(render_with_bridge kimaki render_systemd kimaki.service "$KIMAKI_ENV")"
+RENDERED_PATH="$(printf '%s\n' "$KIMAKI_RENDERED" | sed -n 's/^Environment=PATH=//p' | sed -n '1p')"
+RESOLVED_HOMEBOY="$(env PATH="$RENDERED_PATH" /bin/sh -c 'command -v homeboy')"
+if [ "$RESOLVED_HOMEBOY" != "$TMPDIR_NEW/managed/homeboy" ]; then
+  echo "FAIL: Kimaki systemd PATH '$RENDERED_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
+  exit 1
+fi
+echo "  ok   Kimaki PATH resolves the managed binary ahead of the legacy home bin"
+UPGRADE_ENV="$(_ensure_systemd_path_first "Environment=PATH=$TMPDIR_NEW/legacy:$TMPDIR_NEW/managed:/usr/bin:$TMPDIR_NEW/legacy" "$TMPDIR_NEW/managed")"
+UPGRADE_PATH="$(printf '%s\n' "$UPGRADE_ENV" | sed -n 's/^Environment=PATH=//p' | sed -n '1p')"
+RESOLVED_HOMEBOY="$(env PATH="$UPGRADE_PATH" /bin/sh -c 'command -v homeboy')"
+if [ "$RESOLVED_HOMEBOY" != "$TMPDIR_NEW/managed/homeboy" ] || [ "${UPGRADE_PATH%%:*}" != "$TMPDIR_NEW/managed" ]; then
+  echo "FAIL: upgraded Kimaki PATH '$UPGRADE_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
+  exit 1
+fi
+echo "  ok   upgrade moves managed Homeboy ahead of legacy PATH entries"
+unset WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
 
 # ---------------------------------------------------------------------------
 echo "==> effective-prompt runner resolution"

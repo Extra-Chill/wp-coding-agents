@@ -928,10 +928,15 @@ _kimaki_install_systemd() {
 
   KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
 
-  local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
+  local KIMAKI_BIN_DIR NODE_BIN_DIR HOMEBOY_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
-  PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
+  HOMEBOY_BIN_DIR=""
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] \
+     && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
+    HOMEBOY_BIN_DIR="$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")"
+  fi
+  PATH_VALUE=$(_compose_path_value "$HOMEBOY_BIN_DIR" "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
   _kimaki_assert_bin_identity "$KIMAKI_BIN" "$PATH_VALUE"
 # Kimaki recreates a general-purpose #kimaki-<bot> channel, welcome message,
 # and tutorial thread on every start. On a wp-coding-agents install the real
@@ -1310,11 +1315,17 @@ bridge_update_systemd() {
   local KIMAKI_BIN
   KIMAKI_BIN=$(_kimaki_resolve_service_bin "/usr/bin/kimaki")
   local KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-  local KIMAKI_BIN_DIR NODE_BIN_DIR PATH_VALUE
+  local KIMAKI_BIN_DIR NODE_BIN_DIR HOMEBOY_BIN_DIR PATH_VALUE
   KIMAKI_BIN_DIR=$(dirname "$KIMAKI_BIN")
   NODE_BIN_DIR=$(_resolve_node_bin_dir "$KIMAKI_BIN")
-  PATH_VALUE=$(_compose_path_value "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
+  HOMEBOY_BIN_DIR=""
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] \
+     && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
+    HOMEBOY_BIN_DIR="$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")"
+  fi
+  PATH_VALUE=$(_compose_path_value "$HOMEBOY_BIN_DIR" "$KIMAKI_BIN_DIR" "$NODE_BIN_DIR" /usr/local/bin /usr/bin /bin)
   _kimaki_assert_bin_identity "$KIMAKI_BIN" "$PATH_VALUE"
+  CURRENT_ENV=$(_ensure_systemd_path_first "$CURRENT_ENV" "$HOMEBOY_BIN_DIR")
   CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$KIMAKI_BIN_DIR")
   if [ -n "$NODE_BIN_DIR" ]; then
     CURRENT_ENV=$(_ensure_systemd_path_contains "$CURRENT_ENV" "$NODE_BIN_DIR")
