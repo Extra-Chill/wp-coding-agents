@@ -9,6 +9,73 @@ homeboy_slugify() {
     tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//'
 }
 
+# Managed non-root installs must not depend on a root-owned Homeboy binary. The
+# system binary is only a seed; all managed operations and guidance use this
+# service-owned path after provisioning.
+homeboy_uses_service_owned_bin() {
+  [ "${LOCAL_MODE:-false}" != true ] \
+    && [ "${EXTERNAL_WORDPRESS:-false}" != true ] \
+    && [ -n "${SERVICE_USER:-}" ] \
+    && [ "$SERVICE_USER" != root ] \
+    && [ -n "${SERVICE_HOME:-}" ]
+}
+
+homeboy_service_bin() {
+  printf '%s/.local/bin/homeboy' "$SERVICE_HOME"
+}
+
+homeboy_system_bin() {
+  local candidate
+  candidate="${WP_CODING_AGENTS_HOMEBOY_SYSTEM_BIN:-}"
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  command -v homeboy 2>/dev/null || true
+}
+
+homeboy_bin() {
+  if homeboy_uses_service_owned_bin && [ -x "$(homeboy_service_bin)" ]; then
+    homeboy_service_bin
+  else
+    homeboy_system_bin
+  fi
+}
+
+homeboy_provision_service_bin() {
+  homeboy_uses_service_owned_bin || return 0
+
+  local target source target_dir local_dir group
+  target="$(homeboy_service_bin)"
+  target_dir="$(dirname "$target")"
+  local_dir="$(dirname "$target_dir")"
+  source="$(homeboy_system_bin)"
+  if [ "${DRY_RUN:-false}" = true ]; then
+    [ -x "$target" ] || [ -n "$source" ] || return 0
+    [ -x "$target" ] || echo -e "${BLUE}[dry-run]${NC} install -D -m 0755 '$source' '$target' as service-owned Homeboy"
+    echo -e "${BLUE}[dry-run]${NC} chown '$SERVICE_USER' '$local_dir' '$target_dir' '$target'"
+    return 0
+  fi
+
+  if [ "$(id -u)" -ne 0 ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    error "Cannot provision service-owned Homeboy as $(id -un): expected '$SERVICE_USER' or root."
+  fi
+
+  if [ ! -x "$target" ]; then
+    [ -n "$source" ] || return 0
+    [ "$source" != "$target" ] || return 0
+    run_cmd mkdir -p "$target_dir"
+    run_cmd install -m 0755 "$source" "$target"
+  fi
+  if [ "$(id -u)" -eq 0 ] && id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    group="$(id -gn "$SERVICE_USER" 2>/dev/null || printf '%s' "$SERVICE_USER")"
+    # Converge only this managed path, never the wider SERVICE_HOME tree. Both
+    # parents need service ownership for subsequent atomic binary upgrades.
+    run_cmd chown "$SERVICE_USER:$group" "$local_dir" "$target_dir" "$target"
+  fi
+  log "Provisioned service-owned Homeboy: $target"
+}
+
 homeboy_project_json() {
   local domain base_path server_id
   domain="$(json_escape "$1")"
@@ -23,6 +90,13 @@ homeboy_project_json() {
 }
 
 homeboy_run() {
+  local bin run_path
+  bin="$(homeboy_bin)"
+  [ -n "$bin" ] || return 127
+  run_path="$PATH"
+  if homeboy_uses_service_owned_bin; then
+    run_path="$(dirname "$(homeboy_service_bin)"):$run_path"
+  fi
   if [ "${LOCAL_MODE:-false}" != true ] && \
      [ -n "${SERVICE_USER:-}" ] && \
      [ "$SERVICE_USER" != "root" ] && \
@@ -30,14 +104,14 @@ homeboy_run() {
      { [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; } && \
      command -v sudo >/dev/null 2>&1; then
     if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
-      sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" HOMEBOY_DATA_DIR="$HOMEBOY_DATA_DIR" homeboy "$@"
+      sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$run_path" HOMEBOY_DATA_DIR="$HOMEBOY_DATA_DIR" "$bin" "$@"
       return $?
     fi
-    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" homeboy "$@"
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$run_path" "$bin" "$@"
     return $?
   fi
 
-  homeboy "$@"
+  PATH="$run_path" "$bin" "$@"
 }
 
 homeboy_server_json() {
@@ -81,7 +155,7 @@ PY
   # consistent with what the attach loop targets — even with no homeboy.json at
   # the site root. Critically, this returns the REAL registered id (e.g.
   # "extrachill-site"), not a domain-slug guess.
-  if [ -n "${SITE_DOMAIN:-}" ] && command -v homeboy >/dev/null 2>&1; then
+  if [ -n "${SITE_DOMAIN:-}" ] && [ -n "$(homeboy_bin)" ]; then
     local project_list resolved
     project_list="$(homeboy_run project list 2>/dev/null)"
     if [ -n "$project_list" ]; then
@@ -252,15 +326,15 @@ ensure_homeboy_local_server() {
     return 0
   fi
 
-  if homeboy server show local >/dev/null 2>&1; then
-    homeboy server set local --json "$(homeboy_server_json "$(whoami)" 22)" >/dev/null
+  if homeboy_run server show local >/dev/null 2>&1; then
+    homeboy_run server set local --json "$(homeboy_server_json "$(whoami)" 22)" >/dev/null
   else
-    homeboy server create local --host localhost --user "$(whoami)" --port 22 >/dev/null
+    homeboy_run server create local --host localhost --user "$(whoami)" --port 22 >/dev/null
   fi
 }
 
 homeboy_wordpress_extension_ready() {
-  command -v homeboy >/dev/null 2>&1 || return 1
+  [ -n "$(homeboy_bin)" ] || return 1
 
   local list_json
   list_json=$(homeboy_run extension list 2>/dev/null) || return 1
@@ -282,7 +356,7 @@ sys.exit(1)
 }
 
 homeboy_wordpress_extension_linked() {
-  command -v homeboy >/dev/null 2>&1 || return 1
+  [ -n "$(homeboy_bin)" ] || return 1
 
   local show_json
   show_json=$(homeboy_run extension show wordpress 2>/dev/null) || return 1
@@ -352,7 +426,7 @@ setup_homeboy_project() {
     return 0
   fi
 
-  if ! command -v homeboy >/dev/null 2>&1; then
+  if [ -z "$(homeboy_bin)" ]; then
     if homeboy_required; then
       error "Homeboy project setup requested, but the 'homeboy' command was not found"
     fi
@@ -383,14 +457,14 @@ setup_homeboy_project() {
     return 0
   fi
 
-  if homeboy project show "$project_id" >/dev/null 2>&1; then
-    homeboy project set "$project_id" --json "$spec" >/dev/null
+  if homeboy_run project show "$project_id" >/dev/null 2>&1; then
+    homeboy_run project set "$project_id" --json "$spec" >/dev/null
     log "Updated Homeboy project '$project_id'"
   else
     if [ -n "$server_id" ]; then
-      homeboy project create "$project_id" "$SITE_DOMAIN" --base-path "$SITE_PATH" --server-id "$server_id" >/dev/null
+      homeboy_run project create "$project_id" "$SITE_DOMAIN" --base-path "$SITE_PATH" --server-id "$server_id" >/dev/null
     else
-      homeboy project create "$project_id" "$SITE_DOMAIN" --base-path "$SITE_PATH" >/dev/null
+      homeboy_run project create "$project_id" "$SITE_DOMAIN" --base-path "$SITE_PATH" >/dev/null
     fi
     log "Created Homeboy project '$project_id'"
   fi
@@ -399,7 +473,7 @@ setup_homeboy_project() {
 # Attach only repositories explicitly declared by the source policy. This keeps
 # Homeboy component discovery independent of WordPress plugins and DMC state.
 sync_homeboy_project_components() {
-  command -v homeboy >/dev/null 2>&1 || return 0
+  [ -n "$(homeboy_bin)" ] || return 0
 
   local project_id
   project_id="$(homeboy_project_id)" || return 0
@@ -466,7 +540,7 @@ configure_homeboy_worktree_ownership() {
   # now owns its native lifecycle directly, so only bounded stale-file cleanup remains.
   homeboy_retired_worktree_adapter_remove || return $?
 
-  if ! command -v homeboy >/dev/null 2>&1; then
+  if [ -z "$(homeboy_bin)" ]; then
     [ "${HOMEBOY_MODE:-auto}" = "disabled" ] && return 0
     homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; worktree ownership cannot be reconciled."
     return 0
@@ -512,14 +586,14 @@ configure_homeboy_wordpress_extension() {
     return 0
   fi
 
-  if ! command -v homeboy >/dev/null 2>&1; then
+  if [ -z "$(homeboy_bin)" ]; then
     homeboy_handle_failure "Homeboy is not callable from this setup/runtime PATH; skipping Homeboy WordPress extension setup."
     sync_homeboy_agents_md_guidance
     recompose_agents_md_for_homeboy
     return 0
   fi
 
-  log "Detected Homeboy: $(command -v homeboy)"
+  log "Detected Homeboy: $(homeboy_bin)"
 
   if ! homeboy_required; then
     if homeboy_wordpress_extension_ready; then
@@ -545,20 +619,20 @@ configure_homeboy_wordpress_extension() {
     return 0
   fi
 
-  if homeboy extension show wordpress >/dev/null 2>&1; then
+  if homeboy_run extension show wordpress >/dev/null 2>&1; then
     if homeboy_wordpress_extension_linked; then
       log "Homeboy WordPress extension is linked locally — skipping git update."
     else
       log "Updating Homeboy WordPress extension..."
-      homeboy extension update wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension update failed."
+      homeboy_run extension update wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension update failed."
     fi
   else
     log "Installing Homeboy WordPress extension from $source..."
-    homeboy extension install "$source" --id wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension install failed from $source."
+    homeboy_run extension install "$source" --id wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension install failed from $source."
   fi
 
   log "Running Homeboy WordPress extension setup..."
-  homeboy extension setup wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension setup failed."
+  homeboy_run extension setup wordpress >/dev/null || homeboy_handle_failure "Homeboy WordPress extension setup failed."
 
   if homeboy_wordpress_extension_ready; then
     HOMEBOY_WORDPRESS_READY=true
