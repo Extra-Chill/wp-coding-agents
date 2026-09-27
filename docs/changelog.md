@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.2] - 2026-09-27
+
+### Fixed
+- cook wp-coding-agents
+
 ## [1.25.1] - 2026-09-26
 
 ### Fixed
