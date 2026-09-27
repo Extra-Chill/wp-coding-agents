@@ -291,7 +291,7 @@ def main():
         if not isinstance(agents_config, dict): fail("OpenCode config agent must be an object")
         general_agent = {"model": nodes[coordinator]["model"]} if nodes[coordinator]["model"] else {}
         current_general_agent = agents_config.get("general")
-        if current_general_agent not in (None, previous["general_agent"]): fail("refusing to overwrite user-owned OpenCode agent.general")
+        if current_general_agent not in (None, previous["general_agent"], general_agent): fail("refusing to overwrite user-owned OpenCode agent.general")
         current_skill = config["permission"].get("skill", {})
         if not isinstance(current_skill, dict): fail("refusing to overwrite non-map OpenCode permission.skill")
         previous_skill = previous["skill_permission"]

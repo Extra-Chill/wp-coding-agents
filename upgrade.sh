@@ -1492,6 +1492,7 @@ _print_plugins_only_verify_block() {
 PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
 AGENTS_MD_EXIT_STATUS=0
+OPENCODE_PROJECTION_EXIT_STATUS=0
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
@@ -1532,7 +1533,7 @@ sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
 if [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
-  opencode_project_subagents_optional
+  opencode_project_subagents_optional || OPENCODE_PROJECTION_EXIT_STATUS=$?
 fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
@@ -1552,4 +1553,7 @@ if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
 fi
 if [ "$AGENTS_MD_EXIT_STATUS" -ne 0 ]; then
   exit "$AGENTS_MD_EXIT_STATUS"
+fi
+if [ "$OPENCODE_PROJECTION_EXIT_STATUS" -ne 0 ]; then
+  exit "$OPENCODE_PROJECTION_EXIT_STATUS"
 fi
