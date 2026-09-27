@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.5] - 2026-09-27
+
+### Fixed
+- compose AGENTS.md as the site directory owner
+
 ## [1.25.4] - 2026-09-27
 
 ### Fixed
