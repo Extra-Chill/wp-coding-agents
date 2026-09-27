@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.25.3] - 2026-09-27
+
+### Fixed
+- keep managed Homeboy upgrades service-owned
+- bake a compose-reachable homeboy path into AGENTS.md guidance
+
 ## [1.25.2] - 2026-09-27
 
 ### Fixed
