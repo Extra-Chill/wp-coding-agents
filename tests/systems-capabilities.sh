@@ -15,9 +15,11 @@ source lib/common.sh
 source lib/systems-capabilities.sh
 source lib/codebox-database.sh
 source lib/composer-provision.sh
+source lib/source-policy.sh
 SITE_PATH="$TMP/site"
 DM_WORKSPACE_DIR="$TMP/workspace"
-SERVICE_USER=opencode
+SERVICE_USER="$(id -un)"
+SERVICE_GROUP="$(id -gn)"
 DRY_RUN=true
 LOCAL_MODE=false
 SYSTEMS_CAPABILITIES_PROFILE=managed-vps
@@ -28,14 +30,25 @@ SYSTEMS_CAPABILITIES_JOURNALD_FILE="$TMP/journald.conf"
 SYSTEMS_CAPABILITIES_LOGROTATE_DIR="$TMP/logrotate"
 SYSTEMS_CAPABILITIES_SYSTEMD_DIR="$TMP/systemd"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="$TMP/sudoers"
-mkdir -p "$SITE_PATH/wp-content" "$DM_WORKSPACE_DIR/repo"
+SYSTEMS_CAPABILITIES_EUID=0
+SOURCE_LOG_PATHS="$(printf '%s\n' "$TMP/php/php8.4-fpm.log" "$TMP/php/other-fpm.log")"
+mkdir -p "$SITE_PATH/wp-content" "$DM_WORKSPACE_DIR/repo" "$TMP/php"
+touch "$TMP/php/php8.4-fpm.log" "$TMP/php/php8.4-fpm.log.1" "$TMP/php/other-fpm.log"
+
+codebox_database_apply() { :; }
+composer_provision_apply() { :; }
+systemctl() { :; }
+chown() { :; }
+systems_capabilities_status() { :; }
 
 echo "systems capability policy remains exact and bounded"
 [ "$(systems_capabilities_journald_content)" = $'[Journal]\nSystemMaxUse=1G' ] && ok "journald cap is 1G" || fail "journald cap changed"
 policy="$(systems_capabilities_logrotate_content)"
-for directive in daily 'maxsize 100M' 'rotate 7' compress copytruncate 'su www-data www-data' 'create 0640 www-data www-data'; do
+for directive in daily 'maxsize 100M' 'rotate 7' compress copytruncate "su www-data $SERVICE_GROUP" "create 0640 www-data $SERVICE_GROUP"; do
   case "$policy" in *"$directive"*) ;; *) fail "logrotate policy misses $directive" ;; esac
 done
+[ "$(systems_capabilities_logrotate_content | grep -c "$TMP/php/php8.4-fpm.log")" -eq 1 ] && ok "declared PHP-FPM log is rotated" || fail "declared PHP-FPM log is missing"
+[ "$(systems_capabilities_logrotate_content | grep -c "$TMP/php/other-fpm.log")" -eq 1 ] && ok "other declared log remains discoverable" || fail "other declared log is missing"
 timer="$(systems_capabilities_logrotate_timer_content)"
 for directive in 'OnCalendar=' 'OnCalendar=*:0/5' 'AccuracySec=1min' 'RandomizedDelaySec=0' 'Persistent=true'; do
   case "$timer" in *"$directive"*) ;; *) fail "logrotate timer misses $directive" ;; esac
@@ -52,10 +65,24 @@ systems_capabilities_cleanup_retired_process_probe
 [ ! -e "$SYSTEMS_CAPABILITIES_LIB_DIR/dmc-process-inspect" ] && [ ! -e "$SYSTEMS_CAPABILITIES_LIB_DIR/process-inspect" ] && [ ! -e "$(systems_capabilities_retired_sudoers_file)" ] && ok "retired process probes are removed" || fail "retired process probe cleanup failed"
 
 echo "non-root repair is explicit and dry-run does not write"
+DRY_RUN=false
+systems_capabilities_apply > "$TMP/initial.out"
+config="$(systems_capabilities_logrotate_file)"
+[ -f "$config" ] && [ "$(stat -f '%Lp' "$TMP/php")" = 775 ] && [ "$(stat -f '%Lp' "$TMP/php/php8.4-fpm.log")" = 644 ] && [ "$(stat -f '%Lp' "$TMP/php/php8.4-fpm.log.1")" = 644 ] && [ "$(stat -f '%Lp' "$TMP")" != 775 ] && ok "initial apply repairs scoped log permissions" || fail "initial log permission repair failed"
+first_hash="$(sha256sum "$config" | cut -d' ' -f1)"
+systems_capabilities_apply > "$TMP/repeat.out"
+[ "$first_hash" = "$(sha256sum "$config" | cut -d' ' -f1)" ] && ok "repeat apply is idempotent" || fail "repeat apply changed the logrotate rule"
+
+SYSTEMS_CAPABILITIES_EUID=1000
+before="$(sha256sum "$config" | cut -d' ' -f1)"
+systems_capabilities_apply > "$TMP/no-root.out"
+[ "$before" = "$(sha256sum "$config" | cut -d' ' -f1)" ] && grep -q 'root_repair_required' "$TMP/no-root.out" && ok "non-root apply reports repair without writing" || fail "non-root apply wrote or omitted repair"
+
 DRY_RUN=true
 repair="$(systems_capabilities_report_root_repair)"
 case "$repair" in *root_repair_required*'--systems-capabilities managed-vps'*) ok "root repair is actionable" ;; *) fail "root repair contract missing" ;; esac
+dry_hash="$(sha256sum "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" | cut -d' ' -f1)"
 systems_capabilities_apply > "$TMP/dry-run.out"
-[ ! -e "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" ] && ok "dry-run leaves host policy untouched" || fail "dry-run wrote policy"
+[ "$dry_hash" = "$(sha256sum "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" | cut -d' ' -f1)" ] && ok "dry-run leaves host policy untouched" || fail "dry-run wrote policy"
 
 [ "$failures" -eq 0 ] && echo "systems-capabilities: all assertions passed" || exit 1
