@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.4] - 2026-09-27
+
+### Fixed
+- converge Homeboy on one compose-visible service binary
+
 ## [1.25.3] - 2026-09-27
 
 ### Fixed
