@@ -98,11 +98,8 @@ print(json.dumps(grants, separators=(",", ":")))
 }
 
 systems_capabilities_logrotate_content() {
-  local path
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    cat <<EOF
-$path {
+  cat <<EOF
+$SITE_PATH/wp-content/debug.log {
     daily
     maxsize 100M
     rotate 7
@@ -110,11 +107,10 @@ $path {
     missingok
     notifempty
     copytruncate
-    su www-data $(systems_capabilities_service_group)
-    create 0640 www-data $(systems_capabilities_service_group)
+    su www-data www-data
+    create 0640 www-data www-data
 }
 EOF
-  done < <(systems_capabilities_declared_log_paths | awk '!seen[$0]++')
 }
 
 systems_capabilities_service_group() {
@@ -128,20 +124,74 @@ systems_capabilities_service_group() {
 }
 
 systems_capabilities_repair_log_permissions() {
-  local group="$(systems_capabilities_service_group)" path candidate parent
+  local path candidate
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    parent="$(dirname -- "$path")"
-    # logrotate needs this immediate parent writable by its configured group;
-    # do not widen permissions on any ancestor or recursively scan the tree.
-    chgrp "$group" "$parent"
-    chmod g+rwX "$parent"
+    if [ -d "$path" ] && [ ! -L "$path" ]; then
+      chmod o+rx "$path"
+      continue
+    fi
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
     for candidate in "$path" "$path".*; do
       [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
-      chgrp "$group" "$candidate"
-      chmod g+r "$candidate"
+      chmod 0644 "$candidate"
     done
   done < <(systems_capabilities_declared_log_paths | awk '!seen[$0]++')
+}
+
+systems_capabilities_repair_php_fpm_logrotate() {
+  local paths
+  paths="$(systems_capabilities_declared_log_paths | awk '!seen[$0]++' | while IFS= read -r path; do [ -f "$path" ] && [ ! -L "$path" ] && printf '%s\n' "$path" || true; done)"
+  [ -n "$paths" ] || return 0
+  python3 - "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR" "$paths" <<'PY'
+import pathlib
+import re
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+paths = {line for line in sys.argv[2].splitlines() if line}
+if not directory.is_dir():
+    raise SystemExit(0)
+
+for config in directory.glob("php*-fpm"):
+    if not config.is_file() or config.is_symlink():
+        continue
+    original = config.read_text()
+    lines = original.splitlines(keepends=True)
+    changed = False
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^\s*(\S+)\s*\{\s*$", lines[index])
+        if not match or match.group(1) not in paths:
+            index += 1
+            continue
+        end = index + 1
+        depth = 1
+        while end < len(lines) and depth:
+            depth += lines[end].count("{") - lines[end].count("}")
+            end += 1
+        block = lines[index:end]
+        saw_su = saw_create = False
+        for offset, line in enumerate(block):
+            if re.match(r"^\s*su\s+", line):
+                block[offset] = "    su root root\n"
+                saw_su = changed = True
+            elif re.match(r"^\s*create\s+", line):
+                block[offset] = "    create 0644 root root\n"
+                saw_create = changed = True
+        insert_at = next((i for i, line in enumerate(block) if re.match(r"^\s*(postrotate|endscript)\b", line)), len(block) - 1)
+        if not saw_su:
+            block.insert(insert_at, "    su root root\n")
+            insert_at += 1
+            changed = True
+        if not saw_create:
+            block.insert(insert_at, "    create 0644 root root\n")
+            changed = True
+        lines[index:end] = block
+        index = index + len(block)
+    if changed:
+        config.write_text("".join(lines))
+PY
 }
 
 systems_capabilities_journald_content() {
@@ -288,6 +338,7 @@ systems_capabilities_apply() {
   systems_capabilities_drift "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644 || logrotate_timer_changed=true
   systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$(systems_capabilities_service_group)"
   systems_capabilities_repair_log_permissions
+  systems_capabilities_repair_php_fpm_logrotate
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
