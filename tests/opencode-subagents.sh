@@ -235,6 +235,29 @@ assert manifest['general_agent'] == {'model': 'openai/gpt-5'}, manifest.get('gen
 assert config['agent']['general'] == {'model': 'openai/gpt-5'}, config.get('agent')
 assert config['permission']['task']['general'] == 'allow'
 PY
+
+echo '==> already-equal desired general agent is accepted with legacy null manifest'
+python3 - "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+manifest_path, config_path = sys.argv[1:]
+manifest = json.load(open(manifest_path))
+manifest['general_agent'] = None
+json.dump(manifest, open(manifest_path, 'w'))
+config = json.load(open(config_path))
+config['agent']['general'] = {'model': 'openai/gpt-5'}
+config['agent']['user-agent'] = {'description': 'keep me'}
+json.dump(config, open(config_path, 'w'))
+PY
+opencode_project_subagents
+assert_python 'real fixture graph accepts equal desired agent and preserves unrelated agent config' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+config = json.load(open(sys.argv[2]))
+assert manifest['general_agent'] == {'model': 'openai/gpt-5'}
+assert config['agent']['general'] == {'model': 'openai/gpt-5'}
+assert config['agent']['user-agent'] == {'description': 'keep me'}
+PY
+
 python3 - "$TMP/graph.json" <<'PY'
 import json, sys
 p = sys.argv[1]
