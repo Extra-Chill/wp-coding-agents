@@ -41,7 +41,6 @@ source "$ROOT_DIR/lib/common.sh"
 source "$ROOT_DIR/lib/wordpress.sh"
 wp_cli_transport_ensure() { WP_CLI_TRANSPORT=(wp); }
 wp_cli() { printf '%s\n' "$*" > "$WP_CALL_LOG"; wp "$@"; }
-wp_run_as_service_user() { return 99; }
 file_owner() { printf '%s' "$MOCK_SITE_OWNER"; }
 id() {
   if [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ]; then

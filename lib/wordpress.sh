@@ -13,39 +13,6 @@ wp_cmd() {
   run_cmd "${WP_CLI_TRANSPORT[@]}" "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
 }
 
-# Run a WP-CLI command as the SERVICE user rather than the caller.
-#
-# Almost nothing needs this. AGENTS.md composition does, because the generated
-# text encodes the euid of the process that generated it: both
-# data-machine's datamachine_agents_md_wp_cli_cmd() and generated guidance
-# resolve_wp_cli_cmd() append `--allow-root` when posix_geteuid() === 0. Since
-# upgrade.sh runs under sudo, composing there writes an AGENTS.md that tells the
-# agent to run `wp --allow-root` — describing an identity a non-root agent does
-# not have. `--allow-root` is a harmless no-op for a non-root caller, so nothing
-# breaks; the file is simply wrong about the environment, which is the failure
-# #322 was about. Prose that misdescribes the runtime misinforms the agent.
-#
-# Composing as the identity that will READ the file makes the existing euid
-# detection correct by construction, rather than adding a second signal that can
-# disagree with the first.
-#
-# Mirrors homeboy_run() in lib/homeboy.sh, including its test seam.
-wp_run_as_service_user() {
-  if [ "${LOCAL_MODE:-false}" != true ] && \
-     [ -n "${SERVICE_USER:-}" ] && \
-     [ "$SERVICE_USER" != "root" ] && \
-     [ -n "${SERVICE_HOME:-}" ] && \
-     { [ "${WP_CODING_AGENTS_TEST_ASSUME_ROOT:-false}" = true ] || [ "$(id -u)" -eq 0 ]; } && \
-     command -v sudo >/dev/null 2>&1; then
-    # No WP_ROOT_FLAG: the whole point is that this invocation is not root.
-    wp_cli_transport_ensure
-    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@"
-    return $?
-  fi
-
-  wp_cli "$@" $WP_ROOT_FLAG
-}
-
 # Compose registered files as the actual owner of SITE_PATH. Data Machine
 # atomically replaces files in that directory, and its euid detection controls
 # whether generated WP-CLI guidance includes --allow-root.

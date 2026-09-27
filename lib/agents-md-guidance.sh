@@ -105,7 +105,7 @@ agents_md_guidance_verify_composed_provenance() {
 }
 
 # Query Data Machine's actual runtime AGENTS.md gate. The supplied command is
-# the WP-CLI runner (for example, wp_cli or wp_run_as_service_user). Return 0
+# the WP-CLI runner (for example, wp_cli or wp_run_as_site_owner). Return 0
 # for enabled, 1 for explicitly disabled, 2 when the gate is unavailable, and
 # 3 when WordPress cannot authoritatively answer.
 agents_md_guidance_composition_gate() {
