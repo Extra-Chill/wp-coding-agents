@@ -48,12 +48,18 @@ systems_capabilities_resolve_profile() {
 }
 
 systems_capabilities_profile_content() {
-  local log="$SITE_PATH/wp-content/debug.log" roots_json logrotate timer_dropin grants_json
+  local log="$SITE_PATH/wp-content/debug.log" roots_json logrotate timer_dropin grants_json logs_json
   roots_json="$(systems_capabilities_workspace_roots | python3 -c 'import json,sys; print(json.dumps([line.rstrip("\n") for line in sys.stdin if line.strip()]))')"
+  logs_json="$(systems_capabilities_declared_log_paths | python3 -c 'import json,sys; print(json.dumps([line.rstrip("\n") for line in sys.stdin if line.strip()]))')"
   logrotate="$(systems_capabilities_logrotate_file)"
   timer_dropin="$(systems_capabilities_logrotate_timer_file)"
   grants_json="$(systems_capabilities_declared_grants_json)"
-  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"workspace_roots":json.loads(sys.argv[2]),"logrotate":{"config":sys.argv[3],"timer":"logrotate.timer","timer_dropin":sys.argv[4],"schedule":"*:0/5"},"grants":json.loads(sys.argv[5])}, separators=(",",":")))' "$log" "$roots_json" "$logrotate" "$timer_dropin" "$grants_json"
+  python3 -c 'import json,sys; print(json.dumps({"profile":"managed-vps","debug_log":sys.argv[1],"log_paths":json.loads(sys.argv[2]),"workspace_roots":json.loads(sys.argv[3]),"logrotate":{"config":sys.argv[4],"timer":"logrotate.timer","timer_dropin":sys.argv[5],"schedule":"*:0/5"},"grants":json.loads(sys.argv[6])}, separators=(",",":")))' "$log" "$logs_json" "$roots_json" "$logrotate" "$timer_dropin" "$grants_json"
+}
+
+systems_capabilities_declared_log_paths() {
+  printf '%s\n' "$SITE_PATH/wp-content/debug.log"
+  declare -F source_policy_log_paths >/dev/null 2>&1 && source_policy_log_paths || true
 }
 
 # /etc/sudoers.d is not readable by the agent user (#624), but this profile
@@ -107,6 +113,87 @@ $SITE_PATH/wp-content/debug.log {
 EOF
 }
 
+systems_capabilities_service_group() {
+  if [ -n "${SERVICE_GROUP:-}" ]; then
+    printf '%s' "$SERVICE_GROUP"
+  elif id -gn "$SERVICE_USER" 2>/dev/null; then
+    :
+  else
+    printf '%s' "$SERVICE_USER"
+  fi
+}
+
+systems_capabilities_repair_log_permissions() {
+  local path candidate
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -d "$path" ] && [ ! -L "$path" ]; then
+      chmod o+rx "$path"
+      continue
+    fi
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    for candidate in "$path" "$path".*; do
+      [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+      chmod 0644 "$candidate"
+    done
+  done < <(systems_capabilities_declared_log_paths | awk '!seen[$0]++')
+}
+
+systems_capabilities_repair_php_fpm_logrotate() {
+  local paths
+  paths="$(systems_capabilities_declared_log_paths | awk '!seen[$0]++' | while IFS= read -r path; do [ -f "$path" ] && [ ! -L "$path" ] && printf '%s\n' "$path" || true; done)"
+  [ -n "$paths" ] || return 0
+  python3 - "$SYSTEMS_CAPABILITIES_LOGROTATE_DIR" "$paths" <<'PY'
+import pathlib
+import re
+import sys
+
+directory = pathlib.Path(sys.argv[1])
+paths = {line for line in sys.argv[2].splitlines() if line}
+if not directory.is_dir():
+    raise SystemExit(0)
+
+for config in directory.glob("php*-fpm"):
+    if not config.is_file() or config.is_symlink():
+        continue
+    original = config.read_text()
+    lines = original.splitlines(keepends=True)
+    changed = False
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^\s*(\S+)\s*\{\s*$", lines[index])
+        if not match or match.group(1) not in paths:
+            index += 1
+            continue
+        end = index + 1
+        depth = 1
+        while end < len(lines) and depth:
+            depth += lines[end].count("{") - lines[end].count("}")
+            end += 1
+        block = lines[index:end]
+        saw_su = saw_create = False
+        for offset, line in enumerate(block):
+            if re.match(r"^\s*su\s+", line):
+                block[offset] = "    su root root\n"
+                saw_su = changed = True
+            elif re.match(r"^\s*create\s+", line):
+                block[offset] = "    create 0644 root root\n"
+                saw_create = changed = True
+        insert_at = next((i for i, line in enumerate(block) if re.match(r"^\s*(postrotate|endscript)\b", line)), len(block) - 1)
+        if not saw_su:
+            block.insert(insert_at, "    su root root\n")
+            insert_at += 1
+            changed = True
+        if not saw_create:
+            block.insert(insert_at, "    create 0644 root root\n")
+            changed = True
+        lines[index:end] = block
+        index = index + len(block)
+    if changed:
+        config.write_text("".join(lines))
+PY
+}
+
 systems_capabilities_journald_content() {
   cat <<'EOF'
 [Journal]
@@ -144,7 +231,9 @@ systems_capabilities_write_exact() {
     return 0
   fi
   mkdir -p "$(dirname "$file")"
-  printf '%s' "$content" > "$file"
+  if [ ! -f "$file" ] || ! cmp -s <(printf '%s' "$content") "$file"; then
+    printf '%s' "$content" > "$file"
+  fi
   chown "root:$group" "$file"
   chmod "$mode" "$file"
 }
@@ -173,7 +262,7 @@ systems_capabilities_install_native_packages() {
     echo -e "${BLUE}[dry-run]${NC} Would install Codebox native provider packages: ${missing[*]}"
     return 0
   fi
-  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  if [ "${SYSTEMS_CAPABILITIES_EUID:-${EUID:-$(id -u)}}" -ne 0 ]; then
     warn "Codebox native provider packages require root to install: ${missing[*]}"
     return 0
   fi
@@ -208,7 +297,7 @@ systems_capabilities_status() {
   logrotate_timer="$(systems_capabilities_logrotate_timer_file)"
   journal="$SYSTEMS_CAPABILITIES_JOURNALD_FILE"
   local missing=()
-  systems_capabilities_drift "$profile" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER" || missing+=(profile)
+  systems_capabilities_drift "$profile" "$(systems_capabilities_profile_content)" 0640 "$(systems_capabilities_service_group)" || missing+=(profile)
   systems_capabilities_drift "$logrotate" "$(systems_capabilities_logrotate_content)" 0644 || missing+=(logrotate)
   systems_capabilities_drift "$logrotate_timer" "$(systems_capabilities_logrotate_timer_content)" 0644 || missing+=(logrotate_timer)
   systems_capabilities_drift "$journal" "$(systems_capabilities_journald_content)" 0644 || missing+=(journald)
@@ -232,14 +321,14 @@ systems_capabilities_apply() {
   composer_provision_apply
   if [ "$DRY_RUN" = true ]; then
     log "Dry-run: provisioning managed VPS systems capabilities..."
-    systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER"
+    systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$(systems_capabilities_service_group)"
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644
     systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
     systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_BIN_DIR/wp-coding-agents-systems-capabilities" "$(cat "$SCRIPT_DIR/scripts/systems-capabilities-status.py")" 0755
     return 0
   fi
-  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  if [ "${SYSTEMS_CAPABILITIES_EUID:-${EUID:-$(id -u)}}" -ne 0 ]; then
     systems_capabilities_report_root_repair
     return 0
   fi
@@ -247,7 +336,9 @@ systems_capabilities_apply() {
   local journald_changed=false logrotate_timer_changed=false
   systems_capabilities_drift "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644 || journald_changed=true
   systems_capabilities_drift "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644 || logrotate_timer_changed=true
-  systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$SERVICE_USER"
+  systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$(systems_capabilities_service_group)"
+  systems_capabilities_repair_log_permissions
+  systems_capabilities_repair_php_fpm_logrotate
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" "$(systems_capabilities_journald_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
