@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.25.1] - 2026-09-26
+
+### Fixed
+- accept matching OpenCode general agent model
+- reconcile legacy global Claude auth plugin on upgrade
+
 ## [1.25.0] - 2026-09-26
 
 ### Added
