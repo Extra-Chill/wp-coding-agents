@@ -816,6 +816,26 @@ upgrade_install_opencode_claude_code_auth_plugin() {
     "$source_path" \
     "$plugin_path" \
     "OpenCode Claude Code auth plugin"
+
+  # OpenCode loads both user-global and project-local plugins. Older releases
+  # were sometimes installed globally by hand/configuration; reconcile only
+  # the known wp-coding-agents legacy artifact, never arbitrary user plugins.
+  local global_plugin="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/claude-code-auth.ts"
+  # The header and exported initializer identify our old global artifact.
+  # Never follow a symlink or replace another implementation with this name.
+  # Sync even if the operator temporarily patched its version: matching an
+  # obsolete version literal alone misses exactly that recovery scenario.
+  if [ -f "$global_plugin" ] && [ ! -L "$global_plugin" ] && \
+    grep -Fq '// claude-code-auth.ts - OpenCode Anthropic auth via Claude Code OAuth.' "$global_plugin" && \
+    grep -Fq 'const claudeCodeAuthPlugin: Plugin = async (input) => {' "$global_plugin" && \
+    grep -Fq 'export { claudeCodeAuthPlugin };' "$global_plugin"; then
+    install_source_sync_managed_file \
+      "$source_path" \
+      "$global_plugin" \
+      "legacy global OpenCode Claude Code auth plugin"
+  elif [ -e "$global_plugin" ]; then
+    warn "Global OpenCode Claude auth plugin at $global_plugin is not a recognized wp-coding-agents artifact; inspect its Anthropic auth loader before restarting Kimaki"
+  fi
 }
 
 check_opencode_json_drift() {
