@@ -46,6 +46,58 @@ wp_run_as_service_user() {
   wp_cli "$@" $WP_ROOT_FLAG
 }
 
+# Compose registered files as the actual owner of SITE_PATH. Data Machine
+# atomically replaces files in that directory, and its euid detection controls
+# whether generated WP-CLI guidance includes --allow-root.
+wp_run_as_site_owner() {
+  local owner current_user service_home status
+  if [ "${LOCAL_MODE:-false}" = true ]; then
+    wp_cli "$@" $WP_ROOT_FLAG
+    return $?
+  fi
+
+  owner="$(file_owner "$SITE_PATH" 2>/dev/null)" || {
+    printf '%s\n' "AGENTS.md compose failed [site_owner_unavailable]: cannot determine SITE_PATH owner; check that SITE_PATH exists and is accessible." >&2
+    return 1
+  }
+  if [ -n "${WP_CODING_AGENTS_COMPOSE_USER:-}" ] && [ "$WP_CODING_AGENTS_COMPOSE_USER" != "$owner" ]; then
+    printf 'AGENTS.md compose failed [compose_identity_mismatch]: configured compose identity does not match SITE_PATH owner %s; align WP_CODING_AGENTS_COMPOSE_USER or directory ownership.\n' "$owner" >&2
+    return 1
+  fi
+
+  if [ "$owner" = root ] && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
+    printf '%s\n' 'AGENTS.md compose failed [root_owned_site_for_nonroot_service]: a non-root managed service cannot receive correct non-root guidance from a root-owned SITE_PATH. Assign SITE_PATH to the service/site owner, then re-run upgrade.' >&2
+    return 1
+  fi
+
+  current_user="$(id -un)"
+  if [ "$current_user" = "$owner" ]; then
+    wp_cli "$@" $WP_ROOT_FLAG
+    return $?
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1 || ! sudo -n -H -u "$owner" test -w "$SITE_PATH" >/dev/null 2>&1; then
+    printf 'AGENTS.md compose failed [cannot_switch_to_site_owner]: SITE_PATH owner %s is not writable through non-interactive sudo; run upgrade as root or repair ownership/permissions. AGENTS.md was not composed.\n' "$owner" >&2
+    return 1
+  fi
+
+  # sudo -H selects the target account's HOME; preserve the managed service's
+  # configured HOME when the site owner is that service identity.
+  service_home=""
+  [ "$owner" != "${SERVICE_USER:-}" ] || service_home="${SERVICE_HOME:-}"
+  wp_cli_transport_ensure
+  if [ -n "$service_home" ]; then
+    sudo -n -H -u "$owner" env HOME="$service_home" PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>&1
+  else
+    sudo -n -H -u "$owner" env PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>&1
+  fi
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'AGENTS.md compose failed [compose_command_failed]: WP-CLI composition as SITE_PATH owner %s returned status %s; inspect WordPress/Data Machine health and retry. CLI output was suppressed.\n' "$owner" "$status" >&2
+  fi
+  return "$status"
+}
+
 # Activate a plugin, handling multisite --url= branching.
 activate_plugin() {
   local slug="$1"
