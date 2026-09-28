@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.6] - 2026-09-27
+
+### Fixed
+- reject cross-user Kimaki restart records before write
+
 ## [1.25.5] - 2026-09-27
 
 ### Fixed
