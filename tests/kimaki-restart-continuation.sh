@@ -19,6 +19,19 @@ fi
 SH
 chmod +x "$TMP/bin/launchctl"
 
+cat > "$TMP/bin/systemctl" <<'SH'
+#!/bin/sh
+printf 'systemctl %s\n' "$*" >> "$TEST_TMP/systemctl.log"
+SH
+cat > "$TMP/bin/sudo" <<'SH'
+#!/bin/sh
+[ "$1 $2 $3 $4" = "-n systemctl restart kimaki.service" ] || exit 91
+printf 'sudo %s\n' "$*" >> "$TEST_TMP/systemctl.log"
+shift
+exec "$@"
+SH
+chmod +x "$TMP/bin/systemctl" "$TMP/bin/sudo"
+
 cat > "$TMP/bin/kimaki" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$TEST_TMP/kimaki.log"
@@ -168,5 +181,65 @@ TEST_TMP="$TMP" "$HELPER" consume --site-path "$TMP/other-site" --data-dir "$TMP
 [ "$(json_value "$(state_file "$TMP/mismatch" resume-status.json)" reason)" = site_mismatch ]
 after="$(wc -l < "$TMP/kimaki.log" | tr -d ' ')"
 [ "$after" = "$before" ]
+
+echo "==> root cannot mutate service-user continuation state"
+python3 - "$HELPER" "$TMP" <<'PY'
+import importlib.util
+import os
+import pwd
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("restart_continuation", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+data = Path(sys.argv[2]) / "root-guard-data"
+data.mkdir()
+args = module.parser().parse_args([
+    "restart", "--mode", "systemd", "--target", "kimaki.service",
+    "--site-path", str(Path(sys.argv[2]) / "site"), "--data-dir", str(data),
+    "--route-id", "123456789012345678",
+])
+owner = pwd.getpwuid(os.stat(data).st_uid)
+with patch.object(module.os, "geteuid", return_value=0), \
+     patch.object(module.subprocess, "Popen", side_effect=AssertionError("worker spawned")), \
+     patch("builtins.print") as output:
+    assert module.prepare(args) == 2
+    import json
+    diagnostic = json.loads(output.call_args.args[0])
+assert diagnostic["reason"] == "service_user_required"
+assert diagnostic["required_uid"] == os.stat(data).st_uid
+assert diagnostic["required_user"] == owner.pw_name
+assert diagnostic["invocation"][:6] == ["sudo", "-n", "-H", "-u", owner.pw_name, "--"]
+assert not (data / "kimaki-config").exists()
+
+link = Path(sys.argv[2]) / "root-guard-link"
+link.symlink_to(data, target_is_directory=True)
+args.data_dir = str(link)
+with patch.object(module.os, "geteuid", return_value=0), patch("builtins.print") as output:
+    assert module.prepare(args) == 2
+assert json.loads(output.call_args.args[0])["reason"] == "untrusted_data_dir"
+PY
+
+echo "==> non-root systemd worker retains scoped sudo restart"
+python3 - "$HELPER" "$TMP/success/data" <<'PY'
+import importlib.util
+import subprocess
+import sys
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("restart_continuation", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+args = module.parser().parse_args([
+    "restart-worker", "--mode", "systemd", "--target", "kimaki.service",
+    "--data-dir", sys.argv[2], "--delay", "0",
+])
+with patch.object(module.os, "geteuid", return_value=1000), \
+     patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+    assert module.restart_worker(args) == 0
+assert run.call_args.args[0] == ["sudo", "-n", "systemctl", "restart", "kimaki.service"]
+PY
 
 echo "PASS: tests/kimaki-restart-continuation.sh"
