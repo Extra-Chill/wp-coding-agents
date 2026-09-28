@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import subprocess
 import sys
@@ -123,7 +124,40 @@ def recovery_argv(args: argparse.Namespace) -> list[str]:
     ]
 
 
+def systemd_owner_guard(args: argparse.Namespace) -> int | None:
+    """Reject root handoffs into a service user's private data directory."""
+    if args.mode != "systemd" or os.geteuid() != 0:
+        return None
+    supplied = Path(args.data_dir).expanduser()
+    try:
+        if supplied.is_symlink():
+            emit("rejected", reason="untrusted_data_dir", detail="data_dir_is_symlink")
+            return 2
+        info = supplied.stat()
+        if not supplied.is_dir():
+            emit("rejected", reason="untrusted_data_dir", detail="data_dir_not_directory")
+            return 2
+        owner = pwd.getpwuid(info.st_uid)
+    except (OSError, KeyError):
+        emit("rejected", reason="untrusted_data_dir", detail="data_dir_unavailable")
+        return 2
+    if info.st_uid != 0:
+        helper = str(Path(__file__).resolve())
+        emit(
+            "rejected",
+            reason="service_user_required",
+            required_uid=info.st_uid,
+            required_user=owner.pw_name,
+            invocation=["sudo", "-n", "-H", "-u", owner.pw_name, "--", helper, *sys.argv[1:]],
+        )
+        return 2
+    return None
+
+
 def prepare(args: argparse.Namespace) -> int:
+    guarded = systemd_owner_guard(args)
+    if guarded is not None:
+        return guarded
     route_id = args.route_id or os.environ.get("KIMAKI_THREAD_ID", "")
     session_id = args.session_id or os.environ.get("KIMAKI_SESSION_ID")
     if not ROUTE_RE.fullmatch(route_id):
