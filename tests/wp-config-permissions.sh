@@ -46,7 +46,7 @@ CHOWN_LOG="$TMP/chown.log"
 
 DRY_RUN=false
 run_cmd() {
-  if [ "${1:-}" = "chown" ]; then
+  if [ "${1:-}" = "chown" ] || { [ "${1:-}" = "chmod" ] && [ "$DRY_RUN" = true ]; }; then
     printf '%s\n' "$*" >> "$CHOWN_LOG"
     return 0
   fi
@@ -57,6 +57,16 @@ run_cmd() {
 # Lives in lib/wordpress.sh: upgrade.sh does not source infrastructure.sh, and
 # the service-identity migration needs this during an upgrade.
 eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
+
+# The real setup and ordinary-upgrade entry points must converge using the
+# resolved writable policy. Keep this scoped to the config hardener; neither
+# path may substitute the broad site permissions repair.
+setup_call=$(grep -n 'harden_wp_config_permissions "\$SITE_PATH"' lib/infrastructure.sh)
+upgrade_resolve=$(grep -n '^source_policy_resolve_writable_paths$' upgrade.sh | cut -d: -f1)
+upgrade_call=$(grep -n 'harden_wp_config_permissions "\$SITE_PATH"' upgrade.sh | cut -d: -f1)
+[ -n "$setup_call" ] || fail "setup must call the config hardener"
+[ -n "$upgrade_call" ] && [ "$upgrade_call" -gt "$upgrade_resolve" ] \
+  || fail "ordinary upgrade must harden after resolving writable policy"
 
 mode_of() {
   file_mode "$1"
@@ -106,6 +116,47 @@ empty="$TMP/empty"
 mkdir -p "$empty"
 harden_wp_config_permissions "$empty" \
   || fail "a missing wp-config.php must not fail provisioning"
+
+# Dry-run routes chmod/chown through run_cmd and must not mutate the config.
+chmod 666 "$site/wp-config.php"
+before=$(mode_of "$site/wp-config.php")
+DRY_RUN=true
+OWNED_WRITABLE=""
+harden_wp_config_permissions "$site"
+DRY_RUN=false
+[ "$(mode_of "$site/wp-config.php")" = "$before" ] \
+  || fail "dry-run must not mutate wp-config.php"
+
+# Persist and re-read opt-in and opt-out; a stale legacy value must not
+# re-enable an explicit empty declaration.
+source lib/source-policy.sh
+SITE_PATH="$site"
+SOURCE_MODE=workspace
+options="$TMP/options"
+mkdir -p "$options"
+printf 'wp-config.php' > "$options/$SOURCE_POLICY_LEGACY_WRITABLE_OPTION"
+_source_policy_option_read() {
+  [ -f "$options/$1" ] && { printf '%s' "$(<"$options/$1")"; return 0; }
+  return 0
+}
+wp_cmd() {
+  [ "$1" = option ] && [ "$2" = update ] || return 1
+  local key="$3" value
+  value="$(cat)"
+  printf '%s' "$value" > "$options/$key"
+}
+OWNED_WRITABLE=wp-config.php
+OWNED_WRITABLE_EXPLICIT=true
+source_policy_record_writable_paths
+OWNED_WRITABLE_EXPLICIT=false
+OWNED_WRITABLE=""
+source_policy_resolve_writable_paths
+[ "$OWNED_WRITABLE" = wp-config.php ] || fail "re-read must retain explicit opt-in"
+OWNED_WRITABLE_EXPLICIT=true
+OWNED_WRITABLE=""
+source_policy_record_writable_paths
+source_policy_resolve_writable_paths
+[ -z "$OWNED_WRITABLE" ] || fail "re-read must retain explicit opt-out over legacy value"
 
 # 5. World read is the specific bit that matters for a credentials file.
 chmod 644 "$site/wp-config.php"

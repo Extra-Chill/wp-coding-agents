@@ -498,6 +498,13 @@ source_policy_materialize_workspace_repositories
 source_policy_validate_workspace_repositories
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
+# Converge only the credentials file on service-user VPS installs. Do not run
+# setup's site-wide ownership/permission repair during an ordinary upgrade.
+if [ "${LOCAL_MODE:-false}" != true ] && [ "$PLUGINS_ONLY" != true ] && \
+   [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
+   [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+  harden_wp_config_permissions "$SITE_PATH"
+fi
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_assert_runtime_supports_mode
