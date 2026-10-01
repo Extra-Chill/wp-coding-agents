@@ -12,6 +12,12 @@ ARTIFACTS="$TMP/artifacts"
 mkdir -p "$KIMAKI_DIST" "$ARTIFACTS"
 
 node "$ROOT/scripts/kimaki-managed-plugin-rig.mjs" --self-test-args
+node "$ROOT/tests/kimaki-dispatch-contract.mjs"
+if command -v opencode >/dev/null 2>&1; then
+  node "$ROOT/tests/kimaki-live-dispatch.mjs"
+else
+  echo "SKIP: native OpenCode final-dispatch proof; executable unavailable (live dispatch unverified)"
+fi
 
 cat > "$KIMAKI_DIST/package.json" <<'EOF'
 {"type":"module"}

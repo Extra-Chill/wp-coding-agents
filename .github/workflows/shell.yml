@@ -342,8 +342,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'kimaki-managed-plugin-rig'
         with:
           node-version: 24
+      - name: Install supported OpenCode dispatch fixture
+        if: matrix.test == 'kimaki-managed-plugin-rig'
+        run: npm install --global opencode-ai@1.18.20
       - name: Run tests/${{ matrix.test }}.sh
         run: bash tests/${{ matrix.test }}.sh
