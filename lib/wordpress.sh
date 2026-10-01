@@ -361,5 +361,9 @@ harden_wp_config_permissions() {
   fi
 
   run_cmd chown www-data:www-data "$config"
-  run_cmd chmod 640 "$config"
+  local mode=640
+  if printf '%s\n' "${OWNED_WRITABLE:-}" | tr ' ' '\n' | grep -qx 'wp-config.php'; then
+    mode=660
+  fi
+  run_cmd chmod "$mode" "$config"
 }

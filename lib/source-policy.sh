@@ -54,6 +54,9 @@ SOURCE_POLICY_OWNED_OPTION="wp_coding_agents_owned_sources"
 # does not hold for them — the #318 failure. They get their own category and
 # their own, honest, prose.
 SOURCE_POLICY_WRITABLE_OPTION="wp_coding_agents_owned_writable"
+# Empty writable declarations need a durable value so the legacy fallback
+# cannot resurrect a previously opted-in path.
+SOURCE_POLICY_WRITABLE_EMPTY="__wp_coding_agents_no_writable_paths__"
 
 # The option names these replace. Every existing install has its state under
 # these keys, so the rename is only safe if reading transparently falls back and
@@ -339,12 +342,9 @@ source_policy_owned_sources() {
 
 # Declared editable-but-not-captured paths. Empty unless managed.
 source_policy_writable_paths() {
-  if ! source_policy_is_owned; then
-    return 0
-  fi
-
   printf '%s\n' "${OWNED_WRITABLE:-}" | while IFS= read -r path; do
     [ -n "$path" ] || continue
+    if ! source_policy_is_owned && [ "$path" != wp-config.php ]; then continue; fi
     printf '%s\n' "$path"
   done
 }
@@ -469,11 +469,6 @@ source_policy_resolve_owned_sources() {
 }
 
 source_policy_resolve_writable_paths() {
-  if ! source_policy_is_owned; then
-    OWNED_WRITABLE=""
-    return 0
-  fi
-
   if [ "${OWNED_WRITABLE_EXPLICIT:-false}" = true ]; then
     OWNED_WRITABLE="$(_source_policy_normalize_writable "${OWNED_WRITABLE:-}")"
   else
@@ -489,15 +484,25 @@ source_policy_recorded_writable_paths() {
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
     return 0
   fi
-  _source_policy_option_get "$SOURCE_POLICY_WRITABLE_OPTION" "$SOURCE_POLICY_LEGACY_WRITABLE_OPTION"
+  local current=""
+  current="$(_source_policy_option_read "$SOURCE_POLICY_WRITABLE_OPTION" 2>/dev/null || true)"
+  if [ -n "$(printf '%s' "$current" | tr -d '[:space:]')" ]; then
+    [ "$current" = "$SOURCE_POLICY_WRITABLE_EMPTY" ] && return 0
+    printf '%s' "$current"
+    return 0
+  fi
+  _source_policy_option_read "$SOURCE_POLICY_LEGACY_WRITABLE_OPTION" 2>/dev/null || true
 }
 
 source_policy_record_writable_paths() {
-  source_policy_is_owned || return 0
   local paths="${OWNED_WRITABLE:-}"
+  if ! source_policy_is_owned && [ "${OWNED_WRITABLE_EXPLICIT:-false}" != true ] && \
+     ! printf '%s\n' "$paths" | tr ' ' '\n' | grep -qx 'wp-config.php'; then return 0; fi
+  local stored_paths="$paths"
+  [ -n "$stored_paths" ] || stored_paths="$SOURCE_POLICY_WRITABLE_EMPTY"
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_WRITABLE_OPTION '<${paths}>'"
+    echo -e "${BLUE}[dry-run]${NC} $(wp_cli_transport_display) option update $SOURCE_POLICY_WRITABLE_OPTION '<${stored_paths}>'"
     return 0
   fi
   if [ -z "${SITE_PATH:-}" ] || [ ! -f "$SITE_PATH/wp-config.php" ]; then
@@ -506,10 +511,10 @@ source_policy_record_writable_paths() {
   # New key only — see source_policy_record_owned_sources.
   local current=""
   current="$(_source_policy_option_read "$SOURCE_POLICY_WRITABLE_OPTION" 2>/dev/null || true)"
-  if [ "$current" = "$paths" ]; then
+  if [ "$current" = "$stored_paths" ]; then
     return 0
   fi
-  if printf '%s' "$paths" | wp_cmd option update "$SOURCE_POLICY_WRITABLE_OPTION" >/dev/null 2>&1; then
+  if printf '%s' "$stored_paths" | wp_cmd option update "$SOURCE_POLICY_WRITABLE_OPTION" >/dev/null 2>&1; then
     log "  Recorded managed writable paths: $(printf '%s' "$paths" | tr '\n' ' ')"
   else
     warn "Could not record managed writable paths"

@@ -131,6 +131,15 @@ source_policy_workspace_enabled \
   && echo "  ok   engineering has a workspace" \
   || { echo "  FAIL engineering has a workspace"; FAILED=$((FAILED + 1)); }
 
+# Explicit wp-config exception is available in workspace mode only when opted
+# in, and is emitted after the universal deny.
+OWNED_WRITABLE="wp-config.php"
+check_rule "wp-config.php=deny" "workspace opt-in retains the broad deny"
+check_rule "wp-config.php=allow" "workspace opt-in re-opens only wp-config.php"
+assert_eq "$(source_policy_writable_paths | tr '\n' ' ')" "wp-config.php " \
+  "workspace opt-in does not open other roots"
+OWNED_WRITABLE=""
+
 # Managed denies the same set and carves out only what was declared.
 SOURCE_MODE=owned
 OWNED_SOURCES="wp-content/themes/acme

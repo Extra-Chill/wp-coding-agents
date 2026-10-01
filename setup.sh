@@ -405,8 +405,12 @@ OPTIONS:
                      theme directory, e.g.
                      wp-content/themes/acme or wp-content/plugins/acme-core.
                      Everything not declared stays read-only, including
-                     third-party plugins. Declare exactly what the operator's
-                     harvest captures.
+                      third-party plugins. Declare exactly what the operator's
+                      harvest captures.
+   --owned-writable <path>
+                      Re-open a denied path without claiming it is captured.
+                      wp-config.php is supported in workspace or owned mode;
+                      explicit opt-in uses www-data:www-data mode 0660.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --kimaki-unit <u>  Kimaki systemd unit (default: kimaki.service)
