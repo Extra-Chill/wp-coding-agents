@@ -231,6 +231,94 @@ if permission.get("bash") != "allow":
 PY
 grep -q '"edit_permission": "synced"' "$TMP/edit-permissions.out"
 
+# Workspace mode permits exactly the explicitly opted-in wp-config.php file.
+# Exercise diagnostic, additive/repeat-upgrade, apply, opt-out, and owned mode
+# through the CLI; no site files are opened or modified by these fixtures.
+cat > "$TMP/workspace-config-permission.json" <<'JSON'
+{
+  "permission": {
+    "bash": "allow",
+    "edit": { "*": "allow", "docs/**": "ask" }
+  }
+}
+JSON
+
+run_repair() {
+  python3 "$REPAIR" \
+    --file "$TMP/workspace-config-permission.json" \
+    --runtime opencode \
+    --chat-bridge none \
+    --kimaki-plugins-dir /opt/kimaki-config/plugins \
+    --source-mode workspace "$@"
+}
+
+if run_repair --owned-writable wp-config.php > "$TMP/workspace-config-diagnostic.out"; then
+  echo "diagnostic should report permission drift" >&2
+  exit 1
+fi
+grep -q '"edit_permission": "needed"' "$TMP/workspace-config-diagnostic.out"
+run_repair --owned-writable wp-config.php --additive > "$TMP/workspace-config-additive.out"
+python3 - "$TMP/workspace-config-permission.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+edit = data["permission"]["edit"]
+if edit.get("wp-config.php") != "allow":
+    raise SystemExit(f"explicit workspace wp-config allow missing: {edit}")
+if edit.get("wp-admin/**") != "deny" or list(edit).index("wp-admin/**") > list(edit).index("wp-config.php"):
+    raise SystemExit(f"managed deny must precede exception allow: {edit}")
+if edit.get("wp-settings.php") != "deny" or edit.get("wp-includes/**") != "deny":
+    raise SystemExit(f"other installed files were opened: {edit}")
+if edit.get("*") != "allow" or edit.get("docs/**") != "ask" or data["permission"].get("bash") != "allow":
+    raise SystemExit(f"user rules changed: {data}")
+PY
+run_repair --owned-writable wp-config.php --additive > "$TMP/workspace-config-repeat.out"
+grep -q '"edit_permission": "ok"' "$TMP/workspace-config-repeat.out"
+run_repair --owned-writable wp-config.php --apply > "$TMP/workspace-config-apply.out"
+python3 - "$TMP/workspace-config-permission.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    edit = json.load(handle)["permission"]["edit"]
+if edit.get("wp-config.php") != "allow" or edit.get("wp-settings.php") != "deny":
+    raise SystemExit(f"apply produced incorrect workspace exception: {edit}")
+PY
+
+run_repair --additive > "$TMP/workspace-config-optout.out"
+python3 - "$TMP/workspace-config-permission.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    edit = json.load(handle)["permission"]["edit"]
+if edit.get("wp-config.php") != "deny" or edit.get("wp-settings.php") != "deny":
+    raise SystemExit(f"opt-out did not close exact exception: {edit}")
+PY
+
+run_repair --source-mode owned --owned-writable wp-config.php --additive > "$TMP/owned-config.out"
+python3 - "$TMP/workspace-config-permission.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    edit = json.load(handle)["permission"]["edit"]
+if edit.get("wp-config.php") != "allow":
+    raise SystemExit(f"owned writable regression: {edit}")
+PY
+
+cat > "$TMP/default-config-permission.json" <<'JSON'
+{"permission":{"edit":{"wp-settings.php":"allow"}}}
+JSON
+python3 "$REPAIR" --file "$TMP/default-config-permission.json" --runtime opencode --chat-bridge none --additive > "$TMP/default-config.out"
+python3 - "$TMP/default-config-permission.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    edit = json.load(handle)["permission"]["edit"]
+if edit.get("wp-config.php") != "deny":
+    raise SystemExit(f"default must remain denied: {edit}")
+PY
+
 cat > "$TMP/workspace-permission.json" <<'JSON'
 {
   "permission": {

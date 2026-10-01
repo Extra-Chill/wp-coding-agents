@@ -419,7 +419,13 @@ def expected_edit_permission(
     """
     is_owned = canonical_source_mode(source_mode) == "owned"
     sources = list(owned_sources or []) if is_owned else []
-    writable = list(owned_writable or []) if is_owned else []
+    # Match source_policy_writable_paths: owned mode accepts every declared
+    # exception, while workspace mode permits only the explicit wp-config.php
+    # exception. The default and opt-out (empty declaration) remain denied.
+    writable = [
+        path for path in (owned_writable or [])
+        if is_owned or path == "wp-config.php"
+    ]
     logs = list(log_paths or [])
 
     source_keys = [f"{path}/**" for path in sources]
