@@ -339,12 +339,9 @@ source_policy_owned_sources() {
 
 # Declared editable-but-not-captured paths. Empty unless managed.
 source_policy_writable_paths() {
-  if ! source_policy_is_owned; then
-    return 0
-  fi
-
   printf '%s\n' "${OWNED_WRITABLE:-}" | while IFS= read -r path; do
     [ -n "$path" ] || continue
+    if ! source_policy_is_owned && [ "$path" != wp-config.php ]; then continue; fi
     printf '%s\n' "$path"
   done
 }
@@ -469,11 +466,6 @@ source_policy_resolve_owned_sources() {
 }
 
 source_policy_resolve_writable_paths() {
-  if ! source_policy_is_owned; then
-    OWNED_WRITABLE=""
-    return 0
-  fi
-
   if [ "${OWNED_WRITABLE_EXPLICIT:-false}" = true ]; then
     OWNED_WRITABLE="$(_source_policy_normalize_writable "${OWNED_WRITABLE:-}")"
   else
@@ -493,7 +485,7 @@ source_policy_recorded_writable_paths() {
 }
 
 source_policy_record_writable_paths() {
-  source_policy_is_owned || return 0
+  if ! source_policy_is_owned && ! printf '%s\n' "${OWNED_WRITABLE:-}" | tr ' ' '\n' | grep -qx 'wp-config.php'; then return 0; fi
   local paths="${OWNED_WRITABLE:-}"
 
   if [ "${DRY_RUN:-false}" = true ]; then

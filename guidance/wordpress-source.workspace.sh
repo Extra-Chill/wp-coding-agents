@@ -29,6 +29,10 @@ The WordPress running this site is on disk underneath you. Read it to verify cor
 Grep and read these freely. They are the ground truth for how this site actually behaves.
 
 These paths are **read-only reference** for reading APIs and verifying behavior. Make code changes in the configured repository checkout.
+
+`wp-config.php` is also read-only by default. If the operator explicitly opted
+in with `--owned-writable wp-config.php`, it may be edited directly; those
+changes are not captured by the configured repositories.
 MD
 
   local repository

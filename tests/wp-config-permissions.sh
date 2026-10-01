@@ -88,6 +88,19 @@ harden_wp_config_permissions "$site"
 got=$(mode_of "$site/wp-config.php")
 [ "$got" = "640" ] || fail "expected 0640 to be preserved, got 0$got"
 
+# Explicit opt-in in workspace or owned mode uses group write only, with no
+# world bits. Repeating application converges on the same exact mode.
+OWNED_WRITABLE=wp-config.php
+chmod 666 "$site/wp-config.php"
+harden_wp_config_permissions "$site"
+got=$(mode_of "$site/wp-config.php")
+[ "$got" = "660" ] || fail "opt-in must set exactly 0660, got 0$got"
+harden_wp_config_permissions "$site"
+[ "$(mode_of "$site/wp-config.php")" = "660" ] || fail "repeat opt-in must remain 0660"
+OWNED_WRITABLE=""
+harden_wp_config_permissions "$site"
+[ "$(mode_of "$site/wp-config.php")" = "640" ] || fail "opt-out must restore 0640"
+
 # 4. A site path with no wp-config.php yet must not fail the phase.
 empty="$TMP/empty"
 mkdir -p "$empty"

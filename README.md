@@ -276,7 +276,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--workspace-repository <absolute-git-checkout>` | Existing primary Git checkout authority for workspace mode. Repeatable. |
 | `--workspace-repository-clone <git-remote> <absolute-destination>` | Materialize and declare a missing primary checkout. Existing destinations are validated and never overwritten; credential-free declarations persist for upgrade recovery. Repeatable. |
 | `--owned-source <path>` | wp-content path the site owns and may edit under `--source-mode owned`. Repeatable. |
-| `--owned-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. |
+| `--owned-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. `wp-config.php` may be opted in with either source mode; it is made group-writable for `www-data`. |
 | `--log-path <path>` | Absolute path outside the site root the agent may read. Repeatable. |
 | `--local` | Local machine mode. Skips server infrastructure. |
 | `--existing` | Add to an existing WordPress install. |
@@ -450,12 +450,16 @@ an agent able to edit them can rewrite its own instructions. They are denied by
 default and re-opened only on request:
 
 ```bash
---owned-writable wp-config.php
+./setup.sh --owned-writable wp-config.php
 ```
 
-These are **editable but not captured**, and the generated guidance says so
-explicitly. Conflating them with `--owned-source` would have AGENTS.md
-promise that the work is recorded when it is not.
+`wp-config.php` can be opted in with either source mode; the choice is recorded
+for upgrades and re-applied during setup/upgrade. It receives
+`www-data:www-data` ownership and mode `0660` only with this explicit opt-in;
+otherwise it remains `0640`. `wp-content/mu-plugins/` remains read-only. These
+exceptions are **editable but not captured**, and generated guidance says so
+explicitly. Conflating them with `--owned-source` would have AGENTS.md promise
+that the work is recorded when it is not.
 
 ### Log access
 
