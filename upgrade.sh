@@ -498,13 +498,6 @@ source_policy_materialize_workspace_repositories
 source_policy_validate_workspace_repositories
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
-# Converge only the credentials file on service-user VPS installs. Do not run
-# setup's site-wide ownership/permission repair during an ordinary upgrade.
-if [ "${LOCAL_MODE:-false}" != true ] && [ "$PLUGINS_ONLY" != true ] && \
-   [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
-   [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
-  harden_wp_config_permissions "$SITE_PATH"
-fi
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_assert_runtime_supports_mode
@@ -560,6 +553,19 @@ installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 # the root-homed-path dispatch trap (#198/#93) all over again. See #204.
 # --root / --non-root force an explicit identity and skip adoption.
 adopt_service_identity_from_units
+
+# Converge credentials permissions only for ordinary non-root VPS upgrades,
+# after both source-policy validation and service-identity adoption. Do not run
+# setup's site-wide ownership/permission repair during an ordinary upgrade.
+upgrade_harden_wp_config_permissions() {
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "$RUN_AS_ROOT" = false ] && \
+     [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && \
+     [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && \
+     [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+    harden_wp_config_permissions "$SITE_PATH"
+  fi
+}
+upgrade_harden_wp_config_permissions
 
 if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = true ] && [ "$EUID" -ne 0 ]; then
   error "Please run as root (sudo ./upgrade.sh), or use --non-root for installs whose service and WordPress files are writable by the current user."

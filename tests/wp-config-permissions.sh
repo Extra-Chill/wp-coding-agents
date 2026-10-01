@@ -63,10 +63,12 @@ eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
 # path may substitute the broad site permissions repair.
 setup_call=$(grep -n 'harden_wp_config_permissions "\$SITE_PATH"' lib/infrastructure.sh)
 upgrade_resolve=$(grep -n '^source_policy_resolve_writable_paths$' upgrade.sh | cut -d: -f1)
-upgrade_call=$(grep -n 'harden_wp_config_permissions "\$SITE_PATH"' upgrade.sh | cut -d: -f1)
+upgrade_assert=$(grep -n '^source_policy_assert_runtime_supports_mode$' upgrade.sh | cut -d: -f1)
+upgrade_adopt=$(grep -n '^adopt_service_identity_from_units$' upgrade.sh | cut -d: -f1)
+upgrade_call=$(grep -n '^upgrade_harden_wp_config_permissions$' upgrade.sh | cut -d: -f1)
 [ -n "$setup_call" ] || fail "setup must call the config hardener"
-[ -n "$upgrade_call" ] && [ "$upgrade_call" -gt "$upgrade_resolve" ] \
-  || fail "ordinary upgrade must harden after resolving writable policy"
+[ -n "$upgrade_call" ] && [ "$upgrade_call" -gt "$upgrade_assert" ] && [ "$upgrade_call" -gt "$upgrade_adopt" ] \
+  || fail "ordinary upgrade must harden after source validation and service identity adoption"
 
 mode_of() {
   file_mode "$1"
@@ -78,6 +80,27 @@ site="$TMP/site"
 mkdir -p "$site"
 printf '<?php // credentials\n' > "$site/wp-config.php"
 chmod 664 "$site/wp-config.php"
+
+# Exercise the ordinary-upgrade gate itself: root mode must not touch the
+# config, while non-root mode converges default and explicit-opt-in modes.
+eval "$(sed -n '/^upgrade_harden_wp_config_permissions() {/,/^}/p' upgrade.sh)"
+LOCAL_MODE=false PLUGINS_ONLY=false KIMAKI_ONLY=false SKILLS_ONLY=false
+AGENTS_MD_ONLY=false RECONCILE_SERVICES_ONLY=false SITE_PATH="$site"
+eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
+RUN_AS_ROOT=true
+chmod 600 "$site/wp-config.php"
+upgrade_harden_wp_config_permissions
+[ "$(mode_of "$site/wp-config.php")" = "600" ] || fail "root-mode ordinary upgrade must not change wp-config.php permissions"
+RUN_AS_ROOT=false
+OWNED_WRITABLE=""
+chmod 666 "$site/wp-config.php"
+upgrade_harden_wp_config_permissions
+[ "$(mode_of "$site/wp-config.php")" = "640" ] || fail "non-root ordinary upgrade must converge default to 0640"
+OWNED_WRITABLE=wp-config.php
+chmod 640 "$site/wp-config.php"
+upgrade_harden_wp_config_permissions
+[ "$(mode_of "$site/wp-config.php")" = "660" ] || fail "non-root ordinary upgrade must converge opt-in to 0660"
+OWNED_WRITABLE=""
 
 harden_wp_config_permissions "$site"
 
