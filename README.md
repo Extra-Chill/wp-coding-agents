@@ -504,6 +504,8 @@ an instance explicitly. The traditional single-instance defaults remain
 
 OpenCode uses `opencode.json` with Data Machine-composed instruction files. Kimaki is the default chat bridge for OpenCode when chat is enabled.
 
+OpenCode agents and subagents are owned by the operator and OpenCode itself. wp-coding-agents does not translate the Data Machine agent graph into `.opencode/agents`, skills, or task permissions. Existing files created by the retired projection are removed on upgrade only when its v2 ownership manifest is present; operator-modified configuration is preserved.
+
 Pass `--with-ai-gateway` to opt OpenCode into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, and writes an OpenAI-compatible `provider.wp-ai-gateway` entry so clients receive only the gateway token while upstream credentials stay in WordPress. Native OpenCode auth is untouched unless gateway mode is opted in.
 
 ```bash

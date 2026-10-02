@@ -33,7 +33,6 @@ PHASES_AFTER=(
   sync_claude_code_runtime
   sync_runtime_signature
   sync_runtime_instructions
-  opencode_project_subagents_optional
   update_chat_bridge_systemd
   update_chat_bridge_launchd
   reconcile_wordpress_service
@@ -50,6 +49,7 @@ PHASES_AFTER=(
     echo "${flag}=false"
   done
   echo 'SITE_PATH=/tmp/site'
+  echo 'opencode_subagents_retire() { echo "RAN opencode_subagents_retire"; }'
   echo 'SCRIPT_DIR=/tmp/wpca'
   echo 'INSTALLATION_OPERATION_UPGRADE=upgrade'
   echo '_run_filter_active() { return 0; }'

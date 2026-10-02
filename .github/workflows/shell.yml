@@ -80,26 +80,13 @@ jobs:
       - name: Run tests/opencode-claude-auth-retired.sh
         run: ./tests/opencode-claude-auth-retired.sh
 
-  opencode-subagents:
-    name: Data Machine graph OpenCode subagents (#355)
+  opencode-subagents-retire:
+    name: retire WordPress-managed OpenCode subagents (#649)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/opencode-subagents.sh
-        run: bash tests/opencode-subagents.sh
-
-  opencode-general-dispatch:
-    name: bounded OpenCode general dispatch (#453)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install supported OpenCode fixture
-        run: npm install --global opencode-ai@1.18.20
-      - name: Run tests/opencode-general-dispatch.sh
-        run: bash tests/opencode-general-dispatch.sh
+      - name: Run tests/opencode-subagents-retire.sh
+        run: bash tests/opencode-subagents-retire.sh
 
   managed-skill-targets:
     name: managed skill target deduplication (#306)
@@ -297,7 +284,6 @@ jobs:
           - detect-php-version
           - detect-site-domain
           - dmc-migration-inventory
-          - external-wordpress-runtime
           - homeboy-codebox-canary
           - homeboy-components
           - homeboy-project-id
@@ -314,7 +300,7 @@ jobs:
           - install-source-integrity-report
           - install-source-managed-file-sync
           - opencode-claude-auth-refresh-hardening
-          - opencode-subagents-optional
+          - opencode-subagents-retire
           - owned-source-discovery
           - source-reconcile
           - systems-capabilities
