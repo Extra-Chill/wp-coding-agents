@@ -109,7 +109,6 @@ grep -qF 'AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED' upgrade.sh && ok "summary 
 grep -qF 'agent_state_ownership_reconcile' setup.sh && ok "setup hands state over" || fail "setup does not reconcile"
 grep -qF 'agent_state_ownership_reconcile' lib/service-migration.sh && ok "migration hands state over" || fail "migration does not reconcile"
 grep -qF 'agent_state_ownership_can_maintain' bridges/kimaki.sh && ok "kimaki config sync skips cleanly" || fail "kimaki sync unguarded"
-grep -qF 'agent_state_ownership_can_maintain' lib/opencode-subagents.sh && ok "subagent projection skips cleanly" || fail "projection unguarded"
 grep -qF 'agent_state_ownership_can_maintain' runtimes/claude-code.sh && ok "claude hook install skips cleanly" || fail "hook install unguarded"
 
 [ "$FAILED" -eq 0 ] || { echo "FAIL: agent state ownership" >&2; exit 1; }

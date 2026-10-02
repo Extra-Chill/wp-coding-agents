@@ -24,7 +24,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance systems-capabilities codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -692,7 +692,6 @@ if convergence_run "$INSTALLATION_OPERATION_SETUP"; then :; else
   exit "$CONVERGENCE_EXIT_STATUS"
 fi
 [ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
-[ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
 [ "$RUNTIME_ONLY" != true ] && install_skills
 if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same
