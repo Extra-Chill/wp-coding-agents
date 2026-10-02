@@ -15,9 +15,17 @@
 # CREATE DATABASE. Pointing a test harness at that account is the wrong
 # direction to fail in — a broken test run should not be able to touch
 # production data, and that account cannot create the scratch databases a
-# test suite needs anyway. This provisions a separate, narrowly-scoped account
-# instead: CREATE/DROP/DML limited to a `codebox_%` database-name pattern,
-# nothing on the site database, no global privileges.
+# test suite needs anyway. This provisions a separate, narrowly-scoped
+# *provisioner* account instead. It is never projected into a test sandbox:
+# wp-codebox's external MySQL provider uses it only on the host to create a
+# per-run `wp_codebox_<random>` database plus a per-run user, hands the sandbox
+# that throwaway user, and drops both afterwards. The grants are exactly what
+# that contract needs and nothing on the site database:
+#   - ALL on `wp\_codebox\_%` WITH GRANT OPTION, so it can grant the per-run
+#     user its one database (grant option is limited to that pattern);
+#   - CREATE USER (a global privilege by MySQL design) for the per-run user;
+#   - SELECT (User, Host) on mysql.user, for wp-codebox's "is this random name
+#     unused" preflight. Column-scoped: password hashes stay unreadable.
 #
 # Credentials are generated once, stored root-owned (0600) outside the web
 # root, and reach the agent service exactly the way the WP AI Gateway token
@@ -33,7 +41,7 @@ CODEBOX_DATABASE_PORT="${CODEBOX_DATABASE_PORT:-3306}"
 # The db-name pattern a test harness may CREATE/DROP/use. Escaped so the
 # underscore matches only a literal underscore rather than MySQL's "any single
 # character" wildcard — tighter than what an unescaped pattern would grant.
-CODEBOX_DATABASE_PATTERN="${CODEBOX_DATABASE_PATTERN:-codebox\\_%}"
+CODEBOX_DATABASE_PATTERN="${CODEBOX_DATABASE_PATTERN:-wp\\_codebox\\_%}"
 CODEBOX_DATABASE_MYSQL_BIN="${CODEBOX_DATABASE_MYSQL_BIN:-mysql}"
 
 codebox_database_enabled() { systems_capabilities_enabled; }
@@ -82,15 +90,20 @@ codebox_database_env_content() {
 # new value is simply discarded, and codebox_database_password() above already
 # prefers the existing one for exactly that reason.
 #
-# The GRANT is scoped to the `codebox_%` pattern only: no ON *.*, no access to
-# the site database, no WITH GRANT OPTION. That is the whole security
-# invariant this module exists to hold, so it lives in one place rather than
-# being reconstructed at each call site.
+# The security invariant this module holds, in one place: no data privilege
+# outside the `wp_codebox_%` pattern, no access to the site database, grant
+# option only over that pattern, and the only global privilege is CREATE USER,
+# which wp-codebox's per-run user isolation requires. mysql.user is readable
+# only for its (User, Host) columns. The pattern matches the database names
+# wp-codebox generates (`wp_codebox_<hex>`); the earlier `codebox_%` pattern
+# never matched them, so every provision failed (homeboy#15333).
 codebox_database_provision_sql() {
   local password="$1"
   cat <<SQL
 CREATE USER IF NOT EXISTS '$CODEBOX_DATABASE_USER'@'$CODEBOX_DATABASE_HOST' IDENTIFIED BY '$password';
-GRANT ALL PRIVILEGES ON \`$CODEBOX_DATABASE_PATTERN\`.* TO '$CODEBOX_DATABASE_USER'@'$CODEBOX_DATABASE_HOST';
+GRANT ALL PRIVILEGES ON \`$CODEBOX_DATABASE_PATTERN\`.* TO '$CODEBOX_DATABASE_USER'@'$CODEBOX_DATABASE_HOST' WITH GRANT OPTION;
+GRANT CREATE USER ON *.* TO '$CODEBOX_DATABASE_USER'@'$CODEBOX_DATABASE_HOST';
+GRANT SELECT (User, Host) ON mysql.user TO '$CODEBOX_DATABASE_USER'@'$CODEBOX_DATABASE_HOST';
 FLUSH PRIVILEGES;
 SQL
 }
