@@ -14,8 +14,8 @@
 # Before this file, `./upgrade.sh --non-root` on a root install was a footgun. It
 # set SERVICE_USER_FORCED=true (skipping identity adoption), re-rendered every unit
 # with `User=opencode`, and did nothing else: it never created the user, and
-# because KIMAKI_DATA_DIR is derived from the service home, it silently repointed
-# the agent at an empty `/home/opencode/.kimaki` while the live session database,
+# because ROADIE_DATA_DIR is derived from the service home, it silently repointed
+# the agent at an empty `/home/opencode/.roadie` while the live session database,
 # runtime auth, and installed toolchains stayed behind in `/root`. The service came
 # back up amnesiac, or not at all.
 #
@@ -51,7 +51,7 @@
 # WHAT THIS MODULE DOES NOT DO
 #
 # It does not render systemd units. Once it has moved state and set SERVICE_USER /
-# SERVICE_HOME / KIMAKI_DATA_DIR, the existing upgrade phases re-render units from
+# SERVICE_HOME / ROADIE_DATA_DIR, the existing upgrade phases re-render units from
 # those variables the same way they always have. Duplicating unit rendering here
 # would create a second source of truth for the thing #204 already fixed.
 #
@@ -85,6 +85,7 @@ SERVICE_MIGRATION_DEFAULT_USER="opencode"
 # mode because they are what "the agent" IS.
 service_migration_runtime_paths() {
   cat <<'EOF'
+.roadie
 .kimaki
 .opencode
 .config/opencode
@@ -298,7 +299,7 @@ service_migration_preflight() {
   fi
 
   # An agent that drives this from inside its own chat bridge is sitting in the
-  # unit the migration stops. `systemctl stop kimaki.service` would kill the
+  # unit the migration stops. `systemctl stop roadie.service` would kill the
   # migration mid-move, with 8 GiB of state partly relocated, no unit rendered,
   # and nothing left running to finish or report. Recovery would be by hand, on
   # a box whose agent is now gone.
@@ -348,7 +349,7 @@ service_migration_preflight() {
 
 # The systemd unit this process is running inside, empty when it is not under
 # one. An agent driving its own upgrade is inside the very unit the migration
-# stops (`0::/system.slice/kimaki.service`), so this is how it finds out.
+# stops (`0::/system.slice/roadie.service`), so this is how it finds out.
 service_migration_current_unit() {
   local line
   [ -r /proc/self/cgroup ] || return 0
@@ -413,7 +414,7 @@ service_migration_target_home() {
 # ---------------------------------------------------------------------------
 
 # Stop every unit that runs under the old identity before touching its state.
-# Kimaki's session store is SQLite in WAL mode; moving it under a live writer
+# Roadie's (and the Kimaki rollback copy's) session store is SQLite in WAL mode; moving it under a live writer
 # corrupts it.
 service_migration_stop_units() {
   local unit
@@ -460,7 +461,7 @@ service_migration_move_path() {
   local walk="$new_home" component
   run_cmd chown "$user:$group" "$walk"
   while IFS= read -r component; do
-    # dirname of a top-level entry like `.kimaki` is `.` — nothing to walk.
+    # dirname of a top-level entry like `.roadie` is `.` — nothing to walk.
     [ -n "$component" ] && [ "$component" != "." ] || continue
     walk="$walk/$component"
     [ "$walk" = "$dest" ] && break
@@ -505,7 +506,7 @@ service_migration_reclaim_workspace() {
 #
 # Args: <target_user> <old_home> <mode>
 #
-# On success, sets SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR / RUN_AS_ROOT /
+# On success, sets SERVICE_USER / SERVICE_HOME / ROADIE_DATA_DIR / RUN_AS_ROOT /
 # SERVICE_USER_FORCED for the caller so the normal upgrade phases re-render every
 # unit against the new identity.
 service_migration_run() {
@@ -557,7 +558,7 @@ service_migration_run() {
   # Re-point the caller's identity variables. Everything downstream — unit
   # rendering, bridge config, data dir creation — derives from these.
   # Published so the systemd env merge can invalidate values built from the old
-  # identity. Without it the merge keeps HOME, KIMAKI_DATA_DIR and PATH from the
+  # identity. Without it the merge keeps HOME, ROADIE_DATA_DIR and PATH from the
   # installed unit — all pointing into a home the new user cannot read.
   SERVICE_MIGRATION_PREVIOUS_HOME="$old_home"
 
@@ -565,8 +566,8 @@ service_migration_run() {
   SERVICE_HOME="$new_home"
   RUN_AS_ROOT=false
   SERVICE_USER_FORCED=true
-  if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
-    KIMAKI_DATA_DIR="$new_home/.kimaki"
+  if [ "${ROADIE_DATA_DIR_EXPLICIT:-false}" != true ]; then
+    ROADIE_DATA_DIR="$new_home/.roadie"
   fi
 
   log "Service identity migration complete: User=$SERVICE_USER, HOME=$SERVICE_HOME"

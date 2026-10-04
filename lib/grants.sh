@@ -128,7 +128,7 @@ grant_install() {
   fi
 
   # Report and return rather than exiting. Whether a refused grant is fatal is
-  # the caller's decision — the kimaki bridge treats it as fatal, a census or a
+  # the caller's decision — the roadie bridge treats it as fatal, a census or a
   # dry run does not — and a library that exits takes that choice away.
   if ! grant_validate "$content"; then
     warn "Refusing to install an invalid privilege grant: $file"

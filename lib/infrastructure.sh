@@ -238,10 +238,10 @@ setup_service_permissions() {
     run_cmd chown -R www-data:www-data "$SITE_PATH"
     harden_wp_config_permissions "$SITE_PATH"
 
-    run_cmd mkdir -p "$KIMAKI_DATA_DIR"
-    run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$KIMAKI_DATA_DIR"
+    run_cmd mkdir -p "$ROADIE_DATA_DIR"
+    run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$ROADIE_DATA_DIR"
   else
     log "Phase 6: Running as root (--root)"
-    run_cmd mkdir -p "$KIMAKI_DATA_DIR"
+    run_cmd mkdir -p "$ROADIE_DATA_DIR"
   fi
 }

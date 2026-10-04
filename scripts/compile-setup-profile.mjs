@@ -294,8 +294,8 @@ function compile(profile) {
     verification.add("verify-bridge-none")
   } else if (effectiveBridge !== "auto") {
     verification.add(`verify-bridge-${effectiveBridge}`)
-    if (effectiveBridge === "kimaki" && (runtimeNames.includes("opencode") || runtime.selection === "auto")) {
-      verification.add("verify-bridge-kimaki-opencode-plugins")
+    if (effectiveBridge === "roadie" && (runtimeNames.includes("opencode") || runtime.selection === "auto")) {
+      verification.add("verify-bridge-roadie-opencode-plugins")
     }
   }
 
@@ -323,7 +323,7 @@ function compile(profile) {
         ? {
             start: formatCommand(
               { WP_CONTROL_TRANSPORT_JSON: env.WP_CONTROL_TRANSPORT_JSON },
-              [`${target.runtime_project_root}/.wp-coding-agents/bin/kimaki`]
+              [`${target.runtime_project_root}/.wp-coding-agents/bin/roadie`]
             ),
           }
         : {}),

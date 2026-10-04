@@ -2,8 +2,8 @@
 # lib/cli-channel.sh — Per-bridge CLI-channel config writer.
 #
 # Each chat bridge in bridges/<name>.sh exposes a CLI surface that can deliver
-# messages to a recipient on its platform (kimaki → Discord, cc-connect →
-# multi-platform, opencode-telegram → Telegram). wp-coding-agents' generic CLI
+# messages to a recipient on its platform (roadie → Discord). wp-coding-agents'
+# generic CLI
 # transport runtime shells those CLIs on behalf of the `agents/dispatch-message`
 # ability, but only if it can discover a channel definition mapping
 # `<channel-name>` → command + argv.
@@ -19,7 +19,7 @@
 #   * mu-plugins file (not a wp_option write). File-based so an operator can
 #     `cat` it and see exactly what the agent will spawn. Always loaded, no
 #     activation step. Survives plugin churn. Matches how the rest of
-#     wp-coding-agents drops config on disk (/opt/kimaki-config/, etc.) and
+#     wp-coding-agents drops config on disk (/opt/roadie-config/, etc.) and
 #     keeps install-time WP_CLI dependence out of the chat-bridge install
 #     flow — DB writes there race against multisite + Redis caching and have
 #     been a source of intermittent install failures historically.

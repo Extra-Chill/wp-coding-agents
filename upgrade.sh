@@ -4,49 +4,40 @@
 # Safely upgrade a live wp-coding-agents install without touching user state.
 #
 # Phases:
-#   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
-#      supports kimaki, cc-connect, telegram).
+#   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge).
+#      Roadie is the only chat bridge; a Kimaki install is migrated to Roadie
+#      in place (state copied, Kimaki unit disabled and kept as rollback).
 #   2. Update setup-installed Data Machine plugins and WP Codebox
 #      (subtree-packaged) to their latest tagged releases.
-#   3. Sync chat-bridge config (dispatches per bridge)
-#        kimaki:
-#          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + skill allowlist)
-#          Local: $KIMAKI_DATA_DIR/kimaki-config/ for plugins,
-#                 post-upgrade.sh + skill allowlist, and runs post-upgrade.sh inline (no launchd
-#                 ExecStartPre hook).
-#        cc-connect: no per-install artifacts; reports binary version and
-#          reminds user to `npm update -g cc-connect`.
-#        telegram: no per-install artifacts; reports binary versions and
-#          reminds user to `npm update -g @grinev/opencode-telegram-bot`.
+#   3. Sync Roadie: pinned release, secrets, managed OpenCode plugins and the
+#      Roadie prompt config.
+#        VPS:   /opt/roadie-config (plugins + prompt-config.yaml)
+#        Local: $ROADIE_DATA_DIR/roadie-config/
 #   4. Sync the wp-coding-agents upgrade skill
 #   5. Regenerate AGENTS.md via Data Machine compose
-#   6. Smart systemd update (VPS only; dispatches per bridge)
-#        kimaki     → kimaki.service
-#        cc-connect → cc-connect.service
-#        telegram   → opencode-serve.service + opencode-telegram.service
-#      Each unit's existing Environment= lines are preserved (host custom
-#      values, secrets) while structural lines are refreshed from the same
-#      template the install path uses (bridges/<name>.sh::bridge_render_*).
+#   6. Smart systemd update (VPS only): roadie.service. Existing Environment=
+#      lines are preserved (host custom values) while structural lines are
+#      refreshed from the same template the install path uses
+#      (bridges/roadie.sh::bridge_render_*).
 #   7. Remove the retired runtime registry
 #   8. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
 #   ./upgrade.sh                 # run all phases (auto-detects environment)
 #   ./upgrade.sh --dry-run       # preview without changes
-#   ./upgrade.sh --kimaki-only   # only sync kimaki config + plugins
+#   ./upgrade.sh --roadie-only   # only sync Roadie config + plugins
 #   ./upgrade.sh --plugins-only  # only update Data Machine plugins
 #   ./upgrade.sh --reconcile-services  # only sync provider, chat, and service state
 #   ./upgrade.sh --skills-only   # only sync the wp-coding-agents upgrade skill
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
-# Safety: NEVER touches WordPress DB, nginx, SSL, ~/.kimaki/ auth state,
+# Safety: NEVER touches WordPress DB, nginx, SSL, ~/.roadie/ auth state,
 #   configured repository checkouts, agent memory files, or the running
 #   chat-bridge service.
 #
 #   opencode.json is touched by default in additive mode: managed plugin
-#   entries the user is missing get added (dm-context-filter.ts and
-#   dm-agent-sync.ts on Kimaki bridges), and legacy
+#   entries the user is missing get added (the managed Roadie plugins), and legacy
 #   `agent.build.prompt`/`agent.plan.prompt` keys get migrated to a top-level
 #   `instructions` array (fixes Anthropic Claude Max OAuth, see
 #   wp-coding-agents#60). User-added plugin entries are left alone.
@@ -95,7 +86,7 @@ done
 # ============================================================================
 
 DRY_RUN=false
-KIMAKI_ONLY=false
+ROADIE_ONLY=false
 PLUGINS_ONLY=false
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
@@ -149,12 +140,14 @@ SERVICE_USER_FORCED=false
 MIGRATE_NON_ROOT=false
 RECONCILE_AGENT_STATE_OWNERSHIP_ONLY=false
 MIGRATE_TARGET_USER="$SERVICE_MIGRATION_DEFAULT_USER"
-initialize_kimaki_overrides
+initialize_roadie_overrides
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)       DRY_RUN=true; shift ;;
-    --kimaki-only)   KIMAKI_ONLY=true; shift ;;
+    --roadie-only)   ROADIE_ONLY=true; shift ;;
+    --kimaki-only|--kimaki-unit|--kimaki-data-dir|--kimaki-lock-port)
+      error "$1 was renamed to ${1/kimaki/roadie} (Kimaki was replaced by Roadie)." ;;
     --plugins-only)  PLUGINS_ONLY=true; shift ;;
     --skills-only)   SKILLS_ONLY=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
@@ -189,9 +182,9 @@ while [[ $# -gt 0 ]]; do
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
-    --kimaki-unit)   KIMAKI_UNIT="$2"; KIMAKI_UNIT_EXPLICIT=true; shift 2 ;;
-    --kimaki-data-dir) KIMAKI_DATA_DIR="$2"; KIMAKI_DATA_DIR_EXPLICIT=true; shift 2 ;;
-    --kimaki-lock-port) KIMAKI_LOCK_PORT="$2"; KIMAKI_LOCK_PORT_EXPLICIT=true; shift 2 ;;
+    --roadie-unit)   ROADIE_UNIT="$2"; ROADIE_UNIT_EXPLICIT=true; shift 2 ;;
+    --roadie-data-dir) ROADIE_DATA_DIR="$2"; ROADIE_DATA_DIR_EXPLICIT=true; shift 2 ;;
+    --roadie-lock-port) ROADIE_LOCK_PORT="$2"; ROADIE_LOCK_PORT_EXPLICIT=true; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
     --root)          RUN_AS_ROOT=true;  SERVICE_USER_FORCED=true; shift ;;
     --non-root)      RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
@@ -223,9 +216,7 @@ Safely upgrade a live install without touching user state.
 USAGE:
   ./upgrade.sh                  Run all phases (auto-detects local vs VPS)
   ./upgrade.sh --dry-run        Preview what would change
-  ./upgrade.sh --kimaki-only    Only sync chat-bridge config (kept name for
-                                backwards compat — also handles cc-connect
-                                and telegram when they are the detected bridge)
+  ./upgrade.sh --roadie-only    Only sync the Roadie chat-bridge config
   ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
                                 Uses 120s child / 480s total deadlines by default,
                                 emits per-plugin terminal evidence, and exits 75
@@ -257,7 +248,7 @@ USAGE:
                                   profile and its managed capability configuration.
   sudo ./upgrade.sh --reconcile-agent-state-ownership
                                  One-shot: hand root-owned agent state
-                                 (persistent Kimaki config, site runtime
+                                 (persistent Roadie config, site runtime
                                  config, installation profile) to the service
                                  user so later non-root upgrades can maintain
                                  it. Exits without running other phases.
@@ -278,11 +269,11 @@ USAGE:
                                recorded set when supplied.
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --agent-slug <s> Override Data Machine agent slug
-  ./upgrade.sh --kimaki-unit <u> Target Kimaki systemd unit
-  ./upgrade.sh --kimaki-data-dir <path>
-                                 Override the selected Kimaki state directory
-  ./upgrade.sh --kimaki-lock-port <port>
-                                 Override the selected Kimaki lock port
+  ./upgrade.sh --roadie-unit <u> Target Roadie systemd unit
+  ./upgrade.sh --roadie-data-dir <path>
+                                 Override the selected Roadie state directory
+  ./upgrade.sh --roadie-lock-port <port>
+                                 Override the selected Roadie lock port
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
                                 of the existing unit's User=)
@@ -348,17 +339,17 @@ SERVICE IDENTITY:
   never migrated — they stay behind in root-owned /root, out of the agent's
   reach. That is the point of the migration, not a side effect.
 
-SUPPORTED CHAT BRIDGES:
-  kimaki, cc-connect, telegram  (auto-detected per environment)
+CHAT BRIDGE:
+  roadie (Discord). Kimaki installs are migrated to Roadie on upgrade.
 
-KIMAKI PLUGIN INSTALL TARGETS:
-  VPS:   /opt/kimaki-config/plugins
-  Local: $KIMAKI_DATA_DIR/kimaki-config/plugins
+ROADIE CONFIG TARGETS:
+  VPS:   /opt/roadie-config/plugins
+  Local: $ROADIE_DATA_DIR/roadie-config/plugins
 
 NEVER TOUCHED:
   - CLAUDE.md runtime config
   - WordPress database, nginx, SSL certs
-  - ~/.kimaki/ auth state and OAuth tokens
+  - ~/.roadie/ auth state and OAuth tokens
    - Configured repository checkouts
   - Agent memory files (SOUL.md, MEMORY.md, USER.md, etc.)
   - Running chat-bridge service (never restarted automatically)
@@ -371,8 +362,7 @@ DEFAULT TOUCHES:
     configuration, and service templates are reconciled during a full upgrade
     or explicitly with --reconcile-services.
   - opencode.json — additive repair. Adds managed plugin entries the
-    user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
-    bridges) and migrates "agent.build.prompt" to top-level "instructions"
+    user is missing (the managed Roadie plugins) and migrates "agent.build.prompt" to top-level "instructions"
     (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
     Preserves all other keys. Writes a .backup.<ts> under
     .wp-coding-agents/backups/, outside the served tree.
@@ -393,9 +383,9 @@ OPT-IN TOUCHES:
     --rotate-ai-gateway-token is also passed.
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
-    authenticate with Claude Pro/Max OAuth. The plugin defers to Kimaki's
-    own Anthropic auth plugin inside Kimaki sessions (KIMAKI set) and only
-    serves direct OpenCode runs. Use --no-claude-code-auth to skip.
+    authenticate with Claude Pro/Max OAuth. Inside Roadie sessions account
+    rotation belongs to subrouter, so the plugin only serves direct OpenCode
+    runs. Use --no-claude-code-auth to skip.
 HELP
 )
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
@@ -405,7 +395,7 @@ fi
 if [ "$PLUGINS_ONLY" = true ] && [ "$SKIP_PLUGINS" = true ]; then
   error "Cannot combine --plugins-only and --skip-plugins"
 fi
-if [ "$PLUGINS_ONLY" = true ] && { [ "$KIMAKI_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || \
+if [ "$PLUGINS_ONLY" = true ] && { [ "$ROADIE_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || \
    [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ] || \
    [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ] || [ "$MIGRATE_NON_ROOT" = true ]; }; then
   error "--plugins-only cannot be combined with service, runtime, migration, or other --*-only operations"
@@ -501,7 +491,7 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_assert_runtime_supports_mode
-if [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
+if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode
   owned_discovery_record_exclusions
@@ -515,12 +505,11 @@ systems_capabilities_resolve_profile
 # bridges/_dispatch.sh registry walk. See bridge_detect_local /
 # bridge_detect_vps for the full probe order (launchd plists + command -v
 # on local; systemd unit files on VPS). Priority order is set by
-# BRIDGE_DETECTION_ORDER in _dispatch.sh: kimaki > cc-connect > telegram.
+# BRIDGE_DETECTION_ORDER in _dispatch.sh (Roadie, including Kimaki installs to
+# migrate).
 #
-# Codex has no managed bridge in wp-coding-agents today. An explicit
-# `--runtime codex` upgrade should sync Codex-owned files only, not pick up an
-# unrelated local Kimaki/cc-connect install and rewrite its config.
-if [ "$RUNTIME" = "codex" ] || [ "$INSTALL_CHAT" != true ]; then
+# Roadie runs the OpenCode runtime; other runtimes have no chat bridge.
+if [ "$RUNTIME" != "opencode" ] || [ "$INSTALL_CHAT" != true ]; then
   CHAT_BRIDGE=""
 elif [ -n "$CHAT_BRIDGE" ]; then
   log "Using chat bridge from installation profile: $CHAT_BRIDGE"
@@ -534,12 +523,19 @@ fi
 # shell so the rest of upgrade.sh can call bridge_sync_config /
 # bridge_update_systemd / bridge_render_systemd directly. No-op when
 # detection found nothing — phase functions guard on $CHAT_BRIDGE.
+# A profile recorded before the cutover names the retired bridges.
+case "$CHAT_BRIDGE" in
+  kimaki) CHAT_BRIDGE=roadie ;;
+  cc-connect|telegram)
+    warn "Chat bridge '$CHAT_BRIDGE' was removed; Roadie is the only bridge. Its service is left as is."
+    CHAT_BRIDGE="" ;;
+esac
 if [ -n "$CHAT_BRIDGE" ] && bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1; then
   bridge_load "$CHAT_BRIDGE"
 fi
 
-if [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
-  _kimaki_resolve_instance
+if [ "$CHAT_BRIDGE" = "roadie" ] && [ "$LOCAL_MODE" = false ]; then
+  _roadie_resolve_instance
 fi
 
 # Snapshot the fully resolved invocation only after runtime, environment, source
@@ -559,7 +555,7 @@ adopt_service_identity_from_units
 # setup's site-wide ownership/permission repair during an ordinary upgrade.
 upgrade_harden_wp_config_permissions() {
   if [ "${LOCAL_MODE:-false}" != true ] && [ "$RUN_AS_ROOT" = false ] && \
-     [ "$PLUGINS_ONLY" != true ] && [ "$KIMAKI_ONLY" != true ] && \
+     [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && \
      [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && \
      [ "$RECONCILE_SERVICES_ONLY" != true ]; then
     harden_wp_config_permissions "$SITE_PATH"
@@ -579,7 +575,7 @@ INSTALLED_SERVICE_USER="$(service_migration_installed_user)"
 
 # --non-root alone only forces the identity the units are RENDERED with. On an
 # install already running as root that is a footgun (#93): the service user may
-# not exist, and KIMAKI_DATA_DIR is derived from the service home, so the agent
+# not exist, and ROADIE_DATA_DIR is derived from the service home, so the agent
 # gets repointed at an empty home while its session database, runtime auth, and
 # toolchains stay behind in /root. Refuse early, before any mutation, and name
 # the flag that does it properly rather than render a broken unit.
@@ -592,10 +588,10 @@ log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
 log "Site path:   $SITE_PATH"
 log "Service:     $SERVICE_USER"
-if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-  log "Kimaki unit: $KIMAKI_UNIT"
-  log "Kimaki data: $KIMAKI_DATA_DIR"
-  [ -z "$KIMAKI_LOCK_PORT" ] || log "Kimaki lock: $KIMAKI_LOCK_PORT"
+if [ "$CHAT_BRIDGE" = "roadie" ]; then
+  log "Roadie unit: $ROADIE_UNIT"
+  log "Roadie data: $ROADIE_DATA_DIR"
+  [ -z "$ROADIE_LOCK_PORT" ] || log "Roadie lock: $ROADIE_LOCK_PORT"
 fi
 if [ "$DRY_RUN" = true ]; then
   log "Dry-run mode: no changes will be made"
@@ -668,10 +664,6 @@ homeboy_provision_service_bin
 # --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
 OPENCODE_JSON_DRIFT=false
 
-# Set by the Kimaki bridge when a non-root upgrade cannot prove or repair the
-# root-owned dispatch wrapper, target, and sudoers installation.
-KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED=false
-KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=""
 
 # ============================================================================
 # Helpers
@@ -679,13 +671,13 @@ KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND=""
 
 _run_filter_active() {
   # Returns 0 if the given phase should run given the *-only flags.
-  # Usage: _run_filter_active <flag_name>   (e.g. KIMAKI_ONLY)
+  # Usage: _run_filter_active <flag_name>   (e.g. ROADIE_ONLY)
   local phase="$1"
   # If any --*-only flag is set, only that one runs
-  if [ "$KIMAKI_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; then
+  if [ "$ROADIE_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; then
     case "$phase" in
-      kimaki)    [ "$KIMAKI_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
-      opencode-json) [ "$KIMAKI_ONLY" = true ]; return $? ;;
+      roadie)    [ "$ROADIE_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
+      opencode-json) [ "$ROADIE_ONLY" = true ]; return $? ;;
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
@@ -780,14 +772,7 @@ update_ai_gateway() {
 }
 
 # ============================================================================
-# Phase 3: Sync chat-bridge config
-#   kimaki    → plugins + post-upgrade.sh + skills-enable-list (see below).
-#   cc-connect → no per-install artifacts beyond the npm package; config.toml
-#                is user-owned. Report version and remind user to
-#                `npm update -g cc-connect` for upstream updates.
-#   telegram  → no per-install artifacts beyond the npm package; .env files
-#                contain user secrets and are not touched. Report versions
-#                and remind user to `npm update -g @grinev/opencode-telegram-bot`.
+# Phase 3: Sync chat-bridge config (Roadie: release, secrets, managed config)
 # ============================================================================
 
 sync_chat_bridge_config() {
@@ -810,7 +795,7 @@ sync_chat_bridge_config() {
 #      breaks Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated
 #      to a top-level `instructions` array. This check runs for ALL runtimes
 #      because opencode.json can exist even when the primary runtime is
-#      claude-code (e.g. kimaki spawns opencode sessions).
+#      claude-code.
 #   3. Data Machine instruction paths.
 #   4. OpenCode edit denies for installed WordPress source.
 #
@@ -851,7 +836,7 @@ upgrade_install_opencode_claude_code_auth_plugin() {
       "$global_plugin" \
       "legacy global OpenCode Claude Code auth plugin"
   elif [ -e "$global_plugin" ]; then
-    warn "Global OpenCode Claude auth plugin at $global_plugin is not a recognized wp-coding-agents artifact; inspect its Anthropic auth loader before restarting Kimaki"
+    warn "Global OpenCode Claude auth plugin at $global_plugin is not a recognized wp-coding-agents artifact; inspect its Anthropic auth loader before restarting Roadie"
   fi
 }
 
@@ -860,7 +845,7 @@ check_opencode_json_drift() {
 
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
-  # (dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges), and
+  # (the managed Roadie plugins), and
   # legacy agent.build.prompt / agent.plan.prompt get migrated to a
   # top-level `instructions` array (fixes Anthropic Claude Max OAuth,
   # wp-coding-agents#60).
@@ -870,11 +855,9 @@ check_opencode_json_drift() {
   # --repair-opencode-json for the full reconciliation, which removes
   # unexpected entries too.
   #
-  # Why additive is the default: dm-context-filter.ts is a security policy
-  # plugin (it strips cross-channel routing discovery from Kimaki system
-  # prompts). Installs that predate the filter, or were bootstrapped before
-  # kimaki was the chat bridge, must not be left without it just because
-  # the user never knew to pass an opt-in flag. See wp-coding-agents#67.
+  # Why additive is the default: the managed plugins carry policy (the Roadie
+  # command guard). Installs that predate a plugin must not be left without it
+  # just because the user never knew to pass an opt-in flag (#67).
 
   local OPENCODE_JSON_FILE="$SITE_PATH/opencode.json"
   if [ ! -f "$OPENCODE_JSON_FILE" ]; then
@@ -912,7 +895,7 @@ check_opencode_json_drift() {
 
   # Resolve independently because desired-state bridge sync runs in a child
   # process and cannot return shell variables to this parent process.
-  local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local PLUGINS_DIR="${RESOLVED_ROADIE_PLUGINS_DIR:-/opt/roadie-config/plugins}"
   if declare -F bridge_managed_plugins_dir >/dev/null 2>&1; then
     PLUGINS_DIR="$(bridge_managed_plugins_dir)"
   fi
@@ -986,7 +969,7 @@ for item in data:
     if [ -n "$CLAUDE_CODE_AUTH_PLUGIN" ]; then
       claude_auth_arg_display=" --claude-code-auth-plugin $CLAUDE_CODE_AUTH_PLUGIN"
     fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --kimaki-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$owned_arg_display $MODE_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --roadie-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$owned_arg_display $MODE_FLAG"
     local dry_out
     local managed_args=()
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
@@ -998,7 +981,7 @@ for item in data:
       --chat-bridge "$BRIDGE_ARG" \
       --source-mode "${SOURCE_MODE:-workspace}" \
       "${_owned_source_args[@]}" \
-      --kimaki-plugins-dir "$PLUGINS_DIR" \
+      --roadie-plugins-dir "$PLUGINS_DIR" \
       "${claude_code_auth_args[@]}" \
       "${managed_args[@]}" 2>&1 || true)
     echo "$dry_out" | sed 's/^/    /'
@@ -1017,7 +1000,7 @@ for item in data:
     --chat-bridge "$BRIDGE_ARG" \
     --source-mode "${SOURCE_MODE:-workspace}" \
     "${_owned_source_args[@]}" \
-    --kimaki-plugins-dir "$PLUGINS_DIR" \
+    --roadie-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     "$MODE_FLAG" \
@@ -1105,9 +1088,6 @@ sync_skills() {
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
     echo -e "${BLUE}[dry-run]${NC} Would install upgrade skill from $SCRIPT_DIR/skills → $SKILLS_DIR"
-    if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would copy upgrade skill to kimaki skills dir"
-    fi
     return 0
   fi
 
@@ -1248,7 +1228,7 @@ _runtime_detected() {
 # ============================================================================
 # Phase 5b: Sync Claude Code runtime (SessionStart hook + CLAUDE.md)
 #   Claude Code installs aren't covered by the chat-bridge phases: opencode.json
-#   drift, kimaki plugins, and systemd units don't apply to them. Their managed
+#   drift, Roadie plugins, and systemd units don't apply to them. Their managed
 #   surface is the SessionStart hook (.claude/hooks/dm-agent-sync.sh), its
 #   agent-scope sidecar, the settings.json hook registration, and the
 #   template-generated CLAUDE.md. Without this phase those silently rot: a stale
@@ -1330,7 +1310,7 @@ reconcile_wordpress_service() {
 refresh_opencode_runtime_signature_phase() {
   _run_filter_active patch || return 0
 
-  if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "kimaki" ]; then
+  if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "roadie" ]; then
     log "Phase 7: Skipping (runtime is $RUNTIME and chat bridge is ${CHAT_BRIDGE:-none})"
     return 0
   fi
@@ -1411,12 +1391,6 @@ print_summary() {
     warn "  to remove them (the backup from this run is preserved)."
   fi
 
-  if [ "${KIMAKI_DISPATCH_ROOT_REPAIR_REQUIRED:-false}" = true ]; then
-    echo ""
-    warn "Kimaki dispatch helpers: root repair required."
-    warn "  $KIMAKI_DISPATCH_ROOT_REPAIR_COMMAND"
-  fi
-
   if [ "${AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED:-false}" = true ]; then
     echo ""
     warn "Agent state ownership: root repair required (${#AGENT_STATE_OWNERSHIP_UNWRITABLE[@]} root(s) not maintainable by $(id -un))."
@@ -1472,8 +1446,8 @@ _print_bridge_restart_hint() {
   env=$(_resolve_bridge_env)
   display=$(bridge_display_name)
 
-  if [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$env" != "local-manual" ]; then
-    warn "Restart $display with durable continuation (requires the active Kimaki thread route):"
+  if [ "$CHAT_BRIDGE" = "roadie" ] && [ "$env" != "local-manual" ]; then
+    warn "Restart $display when ready (Roadie resumes runs the restart interrupts):"
   else
     warn "Restart $display when ready (active chat sessions will die):"
   fi
@@ -1496,7 +1470,7 @@ _print_verify_block() {
       log "  $cmd   # chat bridge status"
     done < <(bridge_verify_cmd "$env")
 
-    # Optional per-bridge addendum (e.g. kimaki's `ls plugins/` line). Falls
+    # Optional per-bridge addendum (Roadie's managed-config checks). Falls
     # back to `<binary> --version` for bridges that don't define the hook.
     if bridge_has_hook verify_extra; then
       while IFS= read -r cmd; do
@@ -1535,7 +1509,7 @@ if [ "$PLUGINS_ONLY" != true ]; then
   [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
   CONVERGENCE_SCOPE=all
   if [ "$RECONCILE_SERVICES_ONLY" = true ]; then CONVERGENCE_SCOPE=services; fi
-  if [ "$KIMAKI_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
+  if [ "$ROADIE_ONLY" = true ]; then CONVERGENCE_SCOPE=bridge; fi
   if [ "$AGENTS_MD_ONLY" = true ]; then CONVERGENCE_SCOPE=agents-md; fi
   if [ "$SKILLS_ONLY" != true ]; then
     convergence_run "$INSTALLATION_OPERATION_UPGRADE" || CONVERGENCE_EXIT_STATUS=$?
@@ -1567,7 +1541,7 @@ fi
 sync_claude_code_runtime
 sync_runtime_signature
 sync_runtime_instructions
-if [ "$KIMAKI_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+if [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   opencode_project_subagents_optional || OPENCODE_PROJECTION_EXIT_STATUS=$?
 fi
 update_chat_bridge_systemd

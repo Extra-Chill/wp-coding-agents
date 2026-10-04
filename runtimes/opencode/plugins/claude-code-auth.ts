@@ -4,8 +4,9 @@
 // Claude Code OAuth/request-shaping path without loading Kimaki bridge
 // plugins, and shares Kimaki's on-disk state contract (same lock directory,
 // identity-preserving account records) so the two can coexist on one host.
-// When KIMAKI is set — Kimaki's own OpenCode server — this plugin registers
-// nothing and leaves Anthropic auth to Kimaki's built-in plugin (#626).
+// Inside a chat bridge's own OpenCode server (ROADIE set, or KIMAKI on a kept
+// Kimaki rollback unit) this plugin registers nothing: Roadie routes Anthropic
+// auth through subrouter, Kimaki through its built-in plugin (#626).
 
 import type { Plugin } from "@opencode-ai/plugin";
 import { spawn } from "node:child_process";
@@ -592,8 +593,8 @@ function buildAuthorizeHandler() {
   return async () => {
     const auth = await beginAuthorizationFlow();
     let pendingAuthResult: Promise<OAuthSuccess | { type: "failed" }> | undefined;
-    // Inside Kimaki sessions this handler is unreachable — the plugin
-    // registers nothing when KIMAKI is set — so the pasted-code login flow
+    // Inside bridge sessions this handler is unreachable — the plugin
+    // registers nothing when ROADIE or KIMAKI is set — so the pasted-code login flow
     // keys off the explicit remote-auth flag only.
     const isRemote = Boolean(process.env.WP_CODING_AGENTS_REMOTE_AUTH);
     const finalize = async (result: CallbackResult) => {
@@ -820,12 +821,13 @@ async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type
 }
 
 const claudeCodeAuthPlugin: Plugin = async (input) => {
-  // Kimaki-managed OpenCode servers run with KIMAKI set and load their own
-  // Anthropic auth plugin. Registering both would deep-merge two loaders for
-  // auth.provider "anthropic" — the last fetch silently wins and Kimaki's
-  // account rotation goes inert — so defer entirely inside Kimaki. Direct
-  // `opencode` runs on the same host leave KIMAKI unset and keep this plugin.
-  if (process.env.KIMAKI) return {};
+  // Bridge-managed OpenCode servers load their own Anthropic auth (Roadie:
+  // subrouter, ROADIE set; a Kimaki rollback unit: its built-in plugin, KIMAKI
+  // set). Registering both would deep-merge two loaders for auth.provider
+  // "anthropic" — the last fetch silently wins and the bridge's account
+  // rotation goes inert — so defer entirely. Direct `opencode` runs on the
+  // same host leave both unset and keep this plugin.
+  if (process.env.ROADIE || process.env.KIMAKI) return {};
   const client = input.client as AuthSyncClient | undefined;
   return {
   auth: {

@@ -38,8 +38,8 @@ bridge_service_adapter_detect() {
 
       bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1 || return 0
       bridge_load "$CHAT_BRIDGE"
-      if [ "$CHAT_BRIDGE" = kimaki ] && [ "${LOCAL_MODE:-false}" = false ] && declare -F _kimaki_resolve_instance >/dev/null 2>&1; then
-        _kimaki_resolve_instance
+      if [ "$CHAT_BRIDGE" = roadie ] && [ "${LOCAL_MODE:-false}" = false ] && declare -F _roadie_resolve_instance >/dev/null 2>&1; then
+        _roadie_resolve_instance
       fi
       BRIDGE_SERVICE_ADAPTER_PRESENT=true
       ;;

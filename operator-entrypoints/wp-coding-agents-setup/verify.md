@@ -110,7 +110,7 @@ Use the service or launchd verification commands emitted by setup output. Do not
 For local Kimaki logs:
 
 ```bash
-grep 'kimaki-config: WARNING' "$HOME/.kimaki/kimaki.log" || true
+grep 'kimaki-config: WARNING' "$HOME/.roadie/kimaki.log" || true
 ```
 
 For VPS Kimaki logs, use the service name emitted by setup output. Typical command:
@@ -124,14 +124,14 @@ journalctl -u kimaki -n 100 --no-pager | grep 'kimaki-config: WARNING' || true
 Local Kimaki plugin paths:
 
 ```bash
-KIMAKI_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
-test -f "$KIMAKI_PLUGINS_DIR/dm-context-filter.ts" && test -f "$KIMAKI_PLUGINS_DIR/dm-agent-sync.ts"
+ROADIE_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
+test -f "$ROADIE_PLUGINS_DIR/dm-context-filter.ts" && test -f "$ROADIE_PLUGINS_DIR/dm-agent-sync.ts"
 ```
 
 VPS Kimaki plugin paths:
 
 ```bash
-test -f /opt/kimaki-config/plugins/dm-context-filter.ts && test -f /opt/kimaki-config/plugins/dm-agent-sync.ts
+test -f /opt/roadie-config/plugins/dm-context-filter.ts && test -f /opt/roadie-config/plugins/dm-agent-sync.ts
 ```
 
 If either plugin file is missing, rerun setup or upgrade before trusting a new OpenCode session. OpenCode silently skips missing plugin files.

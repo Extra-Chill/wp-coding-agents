@@ -57,66 +57,6 @@ install_skills_from_local_repo() {
   fi
 }
 
-# Mirror wp-coding-agents-owned upgrade skill into the persistent
-# kimaki-config/skills/ dir. This is the durable source of
-# truth that survives `npm update -g kimaki` wipes. Kimaki discovers this
-# managed source without a package-local duplicate.
-#
-# Path resolution matches the plugin-persistence pattern used elsewhere:
-#   Local: $KIMAKI_DATA_DIR/kimaki-config/skills/ (defaults to ~/.kimaki/kimaki-config/skills/)
-#   VPS:   /opt/kimaki-config/skills/
-install_skills_to_persistent_source() {
-  local persistent_dir
-  if [ "$LOCAL_MODE" = true ]; then
-    local data_dir="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
-    persistent_dir="$data_dir/kimaki-config/skills"
-  else
-    persistent_dir="/opt/kimaki-config/skills"
-  fi
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would mirror skills to persistent source: $persistent_dir/"
-    return
-  fi
-
-  if [ "$(id -u)" -ne 0 ] && [ -e "$persistent_dir" ] && [ ! -w "$persistent_dir" ]; then
-    local skill_dir skill_name
-    for skill_dir in "$SCRIPT_DIR/skills"/*/; do
-      [ -d "$skill_dir" ] || continue
-      skill_name=$(basename "$skill_dir")
-      if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
-        if [ ! -d "$persistent_dir/$skill_name" ] \
-          || ! diff -qr "$skill_dir" "$persistent_dir/$skill_name" >/dev/null 2>&1; then
-          error "Persistent Kimaki skill source requires root privileges to install or update"
-        fi
-      fi
-    done
-    log "Keeping current root-owned persistent Kimaki skill source"
-    return
-  fi
-
-  mkdir -p "$persistent_dir" 2>/dev/null || {
-    warn "Could not create persistent skill source dir $persistent_dir — skipping mirror"
-    return
-  }
-
-  local copied=0
-  for skill_dir in "$SCRIPT_DIR/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    local skill_name
-    skill_name=$(basename "$skill_dir")
-    if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
-      rm -rf "$persistent_dir/$skill_name"
-      cp -r "$skill_dir" "$persistent_dir/$skill_name"
-      copied=$((copied + 1))
-    fi
-  done
-  if [ "$copied" -gt 0 ]; then
-    log "Upgrade skill mirrored to persistent source: $persistent_dir/ ($copied)"
-    log "  post-upgrade.sh will restore it on every kimaki restart."
-  fi
-}
-
 # Resolve the skills dir for a given runtime without mutating the currently
 # sourced runtime functions permanently. We source the runtime file in a
 # subshell, call its runtime_skills_dir(), and echo the result.
@@ -249,19 +189,6 @@ install_skills() {
 
   SKILLS_DIR="${WP_CODING_AGENTS_SKILL_TARGETS[0]}"
 
-  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would sync Kimaki's persistent skill source"
-    fi
-
-    # Mirror the upgrade skill into the persistent kimaki-config/skills/ dir so
-    # post-upgrade.sh can restore them on every kimaki restart after
-    # `npm update -g kimaki` wipes $(npm root -g)/kimaki/skills/.
-    # Path mirrors the plugin-persistence pattern:
-    #   Local: $KIMAKI_DATA_DIR/kimaki-config/skills/ (defaults to ~/.kimaki/kimaki-config/skills/)
-    #   VPS:   /opt/kimaki-config/skills/
-    install_skills_to_persistent_source
-  fi
 }
 
 print_skills_summary() {

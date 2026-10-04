@@ -21,8 +21,8 @@
 #
 # Credentials are generated once, stored root-owned (0600) outside the web
 # root, and reach the agent service exactly the way the WP AI Gateway token
-# does (lib/ai-gateway.sh): an EnvironmentFile=- line on the kimaki systemd
-# unit (see bridges/kimaki.sh), read by the service manager (root) before it
+# does (lib/ai-gateway.sh): an EnvironmentFile=- line on the roadie systemd
+# unit (see bridges/roadie.sh), read by the service manager (root) before it
 # drops to the service user — so the file itself never needs to be readable by
 # anything but root.
 

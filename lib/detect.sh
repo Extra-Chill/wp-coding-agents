@@ -189,8 +189,8 @@ detect_environment() {
   WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@$SITE_DOMAIN}"
 
   detect_service_identity
-  if [ "${EXTERNAL_WORDPRESS:-false}" = true ] && [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
-    KIMAKI_DATA_DIR="$RUNTIME_PROJECT_ROOT/.kimaki"
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ] && [ "${ROADIE_DATA_DIR_EXPLICIT:-false}" != true ]; then
+    ROADIE_DATA_DIR="$RUNTIME_PROJECT_ROOT/.roadie"
   fi
 }
 
@@ -228,7 +228,7 @@ detect_plugins_only_environment() {
   log "Plugin-only scope: installed Data Machine plugins only; runtime, bridge, workspace, and service synchronization disabled"
 }
 
-# Derive SERVICE_USER / SERVICE_HOME / KIMAKI_DATA_DIR from LOCAL_MODE and
+# Derive SERVICE_USER / SERVICE_HOME / ROADIE_DATA_DIR from LOCAL_MODE and
 # RUN_AS_ROOT. DM_WORKSPACE_DIR is a compatibility value derived from the
 # explicit source policy after it resolves.
 #
@@ -239,43 +239,43 @@ detect_plugins_only_environment() {
 # leave SERVICE_USER, the service home, and the data dir all still pointing at
 # root: exactly the half-applied identity that #204 and #93 are both about.
 #
-# Idempotent. KIMAKI_DATA_DIR is recomputed unless the operator set it
-# explicitly (env var or --kimaki-data-dir), so a second call cannot pin the
+# Idempotent. ROADIE_DATA_DIR is recomputed unless the operator set it
+# explicitly (env var or --roadie-data-dir), so a second call cannot pin the
 # data dir to the home of the identity that was current on the first call.
 detect_service_identity() {
   if [ "$LOCAL_MODE" = true ]; then
     SERVICE_USER="$(whoami)"
     SERVICE_HOME="$HOME"
-    _detect_default_kimaki_data_dir "$HOME/.kimaki"
+    _detect_default_roadie_data_dir "$HOME/.roadie"
   elif [ "$RUN_AS_ROOT" = true ]; then
     SERVICE_USER="root"
     SERVICE_HOME="/root"
-    _detect_default_kimaki_data_dir "/root/.kimaki"
+    _detect_default_roadie_data_dir "/root/.roadie"
   else
     SERVICE_USER="opencode"
     SERVICE_HOME="/home/opencode"
-    _detect_default_kimaki_data_dir "/home/opencode/.kimaki"
+    _detect_default_roadie_data_dir "/home/opencode/.roadie"
   fi
 }
 
-_detect_default_kimaki_data_dir() {
+_detect_default_roadie_data_dir() {
   # An operator-set data dir is never relocated.
-  if [ "${KIMAKI_DATA_DIR_EXPLICIT:-}" = true ]; then
+  if [ "${ROADIE_DATA_DIR_EXPLICIT:-}" = true ]; then
     return 0
   fi
 
-  # This used to be `KIMAKI_DATA_DIR="${KIMAKI_DATA_DIR:-<default>}"`, which
+  # This used to be `ROADIE_DATA_DIR="${ROADIE_DATA_DIR:-<default>}"`, which
   # cannot be re-derived: the second call sees the value the first one wrote and
   # keeps the old identity's home. The EXPLICIT flag replaces it, and both real
-  # entry points set that flag (initialize_kimaki_overrides) before detecting.
+  # entry points set that flag (initialize_roadie_overrides) before detecting.
   # When the flag machinery has not run at all, fall back to the historical
   # behaviour rather than silently relocating a caller that only exported the
   # variable.
-  if [ -z "${KIMAKI_DATA_DIR_EXPLICIT+x}" ] && [ -n "${KIMAKI_DATA_DIR:-}" ]; then
+  if [ -z "${ROADIE_DATA_DIR_EXPLICIT+x}" ] && [ -n "${ROADIE_DATA_DIR:-}" ]; then
     return 0
   fi
 
-  KIMAKI_DATA_DIR="$1"
+  ROADIE_DATA_DIR="$1"
 }
 
 # Owned mode defaults to a non-root service user (#327).
