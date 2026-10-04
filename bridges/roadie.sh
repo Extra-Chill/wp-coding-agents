@@ -674,7 +674,15 @@ _roadie_path_value() {
      && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
     homeboy_bin_dir="$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")"
   fi
-  _compose_path_value "$homeboy_bin_dir" "$roadie_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin
+  # The service user's own tool dirs come before the system ones: the OpenCode
+  # installer puts its binary in ~/.opencode/bin, and a stale distro copy in
+  # /usr/bin would otherwise win (Roadie spawns `opencode` from PATH).
+  local home_dirs=()
+  if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
+    home_dirs=("$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.opencode/bin" "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
+  fi
+  # Ahead of the Roadie and node dirs too: either can be /usr/bin.
+  _compose_path_value "$homeboy_bin_dir" "${home_dirs[@]}" "$roadie_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin
 }
 
 # Environment every Roadie service carries. Secrets are file references.
@@ -790,6 +798,12 @@ bridge_update_systemd() {
   [ "${ROADIE_LOCK_PORT_EXPLICIT:-false}" != true ] || current_env=$(_roadie_remove_systemd_env_key "$current_env" ROADIE_LOCK_PORT)
   [ "${AGENT_SLUG_EXPLICIT:-false}" != true ] || current_env=$(_roadie_remove_systemd_env_key "$current_env" DATAMACHINE_AGENT_SLUG)
   current_env=$(_ensure_systemd_path_contains "$current_env" "$(dirname "$ROADIE_BIN")")
+  # Installed units keep their PATH across upgrades, so a unit written before
+  # the service user's OpenCode dir was on it would keep spawning a stale
+  # /usr/bin/opencode. Put that dir first when the user's OpenCode exists.
+  if [ -n "${SERVICE_HOME:-}" ] && [ -x "$SERVICE_HOME/.opencode/bin/opencode" ]; then
+    current_env=$(_ensure_systemd_path_first "$current_env" "$SERVICE_HOME/.opencode/bin")
+  fi
 
   merged_env=$(_merge_systemd_env_lines "$current_env" "$(_roadie_template_env "$path_value")")
   merged_env=$(_preserve_systemd_umask "$unit_file" "$merged_env")

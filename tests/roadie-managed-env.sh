@@ -158,6 +158,35 @@ else
   check 1 "systemd env quotes compact argv JSON so systemd keeps the quotes"
 fi
 
+echo "==> the service user's OpenCode wins over a distro copy"
+
+# Roadie spawns `opencode` from PATH. A stale /usr/bin/opencode must not
+# shadow the one the OpenCode installer puts in ~/.opencode/bin.
+FAKE_HOME="$TMP/home-opencode"
+mkdir -p "$FAKE_HOME/.opencode/bin"
+printf '#!/bin/sh\n' > "$FAKE_HOME/.opencode/bin/opencode"
+chmod +x "$FAKE_HOME/.opencode/bin/opencode"
+# First PATH dir that could supply `opencode`: the user's, or a system dir.
+first_opencode_dir() {
+  printf '%s\n' "$1" | tr ':' '\n' \
+    | grep -m1 -xE "$FAKE_HOME/\.opencode/bin|/usr/bin|/bin|/usr/local/bin" || true
+}
+FRESH_PATH="$(SERVICE_HOME="$FAKE_HOME" SERVICE_USER=opencode ROADIE_BIN=/usr/bin/roadie _roadie_path_value)"
+[ "$(first_opencode_dir "$FRESH_PATH")" = "$FAKE_HOME/.opencode/bin" ]
+check $? "fresh unit PATH puts ~/.opencode/bin before system dirs"
+
+# An installed unit written without it gets it first on upgrade.
+SAVED_HOME="$SERVICE_HOME"
+SERVICE_HOME="$FAKE_HOME"
+sed -i "s|^Environment=PATH=.*|Environment=PATH=/usr/local/bin:/usr/bin:/bin|" "$UNIT"
+bridge_update_systemd >/dev/null 2>&1
+UPGRADED_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT")"
+[ "${UPGRADED_PATH%%:*}" = "$FAKE_HOME/.opencode/bin" ]
+check $? "upgrade moves ~/.opencode/bin to the front of an installed unit's PATH"
+[ "$(grep -o "$FAKE_HOME/.opencode/bin" <<< "$UPGRADED_PATH" | wc -l)" -eq 1 ]
+check $? "and only once"
+SERVICE_HOME="$SAVED_HOME"
+
 echo "==> fresh install and upgrade share one env source"
 
 # The fresh unit and the upgrade merge both build from _roadie_template_env, so
