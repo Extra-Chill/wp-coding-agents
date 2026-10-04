@@ -413,6 +413,17 @@ _roadie_kimaki_unit() {
   [ -f "$unit_dir/$unit" ] && printf '%s\n' "$unit"
 }
 
+# A failed migration must not leave the host without a bridge: restart the
+# Kimaki service it stopped.
+_roadie_restore_kimaki() {
+  local unit="$1"
+  if [ -n "$unit" ]; then
+    systemctl start "$unit" 2>/dev/null || true
+  elif [ "${PLATFORM:-}" = mac ]; then
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" 2>/dev/null || true
+  fi
+}
+
 roadie_migrate_from_kimaki() {
   local unit_dir kimaki_unit unit_file kimaki_data
   unit_dir="$(_roadie_unit_dir)"
@@ -439,6 +450,8 @@ roadie_migrate_from_kimaki() {
     [ -n "${ROADIE_BOT_TOKEN:-}" ] || ROADIE_BOT_TOKEN="$(_roadie_unit_env_value "$unit_file" KIMAKI_BOT_TOKEN)"
     if [ -z "${ROADIE_LOCK_PORT:-}" ]; then
       value="$(_roadie_unit_env_value "$unit_file" KIMAKI_LOCK_PORT)"
+      # Pre-#334 Kimaki units passed the port as an ExecStart argument.
+      [ -n "$value" ] || value="$(sed -n 's/^ExecStart=.*--lock-port[= ]\([0-9][0-9]*\).*/\1/p' "$unit_file" | head -1)"
       [ -z "$value" ] || ROADIE_LOCK_PORT="$value"
     fi
     [ -n "${AGENT_SLUG:-}" ] || AGENT_SLUG="$(_roadie_unit_env_value "$unit_file" DATAMACHINE_AGENT_SLUG)"
@@ -465,11 +478,15 @@ roadie_migrate_from_kimaki() {
   fi
 
   mkdir -p "$ROADIE_DATA_DIR"
-  sqlite3 -readonly "$source_db" ".backup '$target_db'" \
-    || error "SQLite backup of $source_db failed; Kimaki state left untouched"
+  if ! sqlite3 -readonly "$source_db" ".backup '$target_db'"; then
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "SQLite backup of $source_db failed; Kimaki state left untouched and Kimaki restarted"
+  fi
   if [ "$(sqlite3 "$target_db" 'PRAGMA integrity_check;' 2>/dev/null | head -1)" != ok ]; then
     rm -f "$target_db"
-    error "Migrated database failed integrity_check; Kimaki state left untouched"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Migrated database failed integrity_check; Kimaki state left untouched and Kimaki restarted"
   fi
 
   local entry

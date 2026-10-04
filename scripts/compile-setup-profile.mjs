@@ -93,8 +93,13 @@ function normalizeRuntime(profile, availableRuntimes, warnings) {
   return { selection, requested: selection === "auto" ? requested : [selection], primary: selection, flag: selection === "auto" ? null : selection }
 }
 
+// Kimaki was replaced by Roadie; saved profiles that name it select Roadie,
+// matching upgrade.sh's bridge mapping.
+const BRIDGE_ALIASES = { kimaki: "roadie" }
+
 function normalizeBridge(profile, availableBridges) {
-  const selection = profile.chat_bridge?.selection || "auto"
+  const requested = profile.chat_bridge?.selection || "auto"
+  const selection = BRIDGE_ALIASES[requested] ?? requested
   if (selection !== "none") {
     ensureKnown(selection, availableBridges, "chat bridge")
   }
