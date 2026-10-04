@@ -17,6 +17,10 @@ source "$ROOT_DIR/services/datamachine-worker.sh"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/services/wordpress-service.sh"
 # shellcheck disable=SC1091
+source "$ROOT_DIR/lib/homeboy.sh"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/services/homeboy-daemon.sh"
+# shellcheck disable=SC1091
 source "$ROOT_DIR/lib/bridge-service-adapters.sh"
 
 log() { :; }
@@ -165,5 +169,31 @@ export FAKE_ACTIVE=failed FAKE_ENABLED=enabled
 _smart_update_systemd_unit "$UNCHANGED_UNIT" "$(cat "$UNCHANGED_UNIT")" roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 1 ] || error "unchanged unit file suppressed the health report"
 [ "${#UPDATED_ITEMS[@]}" -eq 0 ] || error "unchanged unit file was reported as updated"
+
+# A managed VPS install that owns a service-owned Homeboy plans the supervised
+# daemon unit; local and external-WordPress installs never do (#659).
+LOCAL_MODE=false
+EXTERNAL_WORDPRESS=false
+INSTALL_CHAT=false
+CHAT_BRIDGE=""
+unset WORDPRESS_SERVICE_REQUEST DATAMACHINE_WORKER_REQUEST
+SERVICE_USER=wpagent
+WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/prefix/wp-coding-agents/bin/homeboy"
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
+mkdir -p "$(dirname "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN")"
+printf '#!/bin/sh\n' > "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN"
+chmod +x "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN"
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${RECONCILER_PLAN_RECORDS[*]}" = services.homeboy-daemon ] || error "managed install did not plan the Homeboy daemon unit: ${RECONCILER_PLAN_RECORDS[*]}"
+LOCAL_MODE=true
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "local install planned the Homeboy daemon unit"
+LOCAL_MODE=false
+EXTERNAL_WORDPRESS=true
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "external WordPress planned the Homeboy daemon unit"
 
 echo "PASS: tests/bridge-service-adapters.sh"

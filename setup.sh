@@ -37,6 +37,7 @@ source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/guidance/_dispatch.sh"
 source "$SCRIPT_DIR/services/datamachine-worker.sh"
+source "$SCRIPT_DIR/services/homeboy-daemon.sh"
 source "$SCRIPT_DIR/services/wordpress-service.sh"
 
 # Discover available runtimes from runtimes/ directory
