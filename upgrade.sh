@@ -209,7 +209,10 @@ if [ "$SHOW_HELP" = true ]; then
   # is injected afterward via a placeholder token substitution so the quoting
   # stays total and the value still has a single source of truth
   # (SERVICE_MIGRATION_DEFAULT_USER in lib/service-migration.sh).
-  HELP_TEXT=$(cat << 'HELP'
+  # Bash 3.2 misparses this quoted heredoc inside $(...), including later
+  # case arms in its command-substitution parse. Read the literal body without
+  # command substitution; EOF is the expected nonzero result of read -d ''.
+  IFS= read -r -d '' HELP_TEXT << 'HELP' || true
 wp-coding-agents upgrade script
 
 Safely upgrade a live install without touching user state.
@@ -388,7 +391,6 @@ OPT-IN TOUCHES:
     rotation belongs to subrouter, so the plugin only serves direct OpenCode
     runs. Use --no-claude-code-auth to skip.
 HELP
-)
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
   exit 0
 fi

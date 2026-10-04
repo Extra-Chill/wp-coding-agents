@@ -25,6 +25,17 @@ trap 'rm -f "$OUT"' EXIT
 
 FAILED=0
 
+# The installed entrypoint uses /bin/bash, not whichever modern Bash happens
+# to be first on PATH. Exercise that actual macOS interpreter too.
+if [ "$(uname -s)" = Darwin ]; then
+  echo "==> macOS system Bash parses and runs the installed entrypoint"
+  /bin/bash -n "$SCRIPT_DIR/upgrade.sh"
+  timeout 10 /bin/bash "$SCRIPT_DIR/upgrade.sh" --help > "$OUT" 2>&1 || {
+    cat "$OUT"
+    exit 1
+  }
+fi
+
 echo "==> ./upgrade.sh --help terminates and exits 0"
 set +e
 timeout 10 bash "$SCRIPT_DIR/upgrade.sh" --help > "$OUT" 2>&1
