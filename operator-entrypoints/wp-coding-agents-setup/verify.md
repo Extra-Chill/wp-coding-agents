@@ -56,7 +56,7 @@ test ! -e /path/to/runtime/wp-content
 ```
 
 Every `instructions` entry in `opencode.json` must resolve below the runtime
-root. Start Kimaki from the same credential-bearing process environment;
+root. Start Roadie from the same credential-bearing process environment;
 external profiles intentionally do not persist the transport in launchd or
 systemd configuration.
 
@@ -103,46 +103,45 @@ Run the selected runtime checks for each runtime in the compiled profile. If the
 
 ## Bridge Overlays
 
-### `verify-bridge-kimaki`
+### `verify-bridge-roadie`
 
-Use the service or launchd verification commands emitted by setup output. Do not restart an existing live Kimaki bridge unless the user explicitly asks.
+Use the service or launchd verification commands emitted by setup output. Do not restart an existing live Roadie bridge unless the user explicitly asks.
 
-For local Kimaki logs:
-
-```bash
-grep 'kimaki-config: WARNING' "$HOME/.roadie/kimaki.log" || true
-```
-
-For VPS Kimaki logs, use the service name emitted by setup output. Typical command:
+The bot reports readiness on its loopback lock port (default 29988):
 
 ```bash
-journalctl -u kimaki -n 100 --no-pager | grep 'kimaki-config: WARNING' || true
+curl -fsS http://127.0.0.1:29988/health   # {"discordReady":true,...}
 ```
 
-### `verify-bridge-kimaki-opencode-plugins`
-
-Local Kimaki plugin paths:
+For VPS Roadie logs, use the service name emitted by setup output. Typical command:
 
 ```bash
-ROADIE_PLUGINS_DIR="$(npm root -g)/kimaki/plugins"
-test -f "$ROADIE_PLUGINS_DIR/dm-context-filter.ts" && test -f "$ROADIE_PLUGINS_DIR/dm-agent-sync.ts"
+journalctl -u roadie -n 100 --no-pager
 ```
 
-VPS Kimaki plugin paths:
+For local Roadie logs:
 
 ```bash
-test -f /opt/roadie-config/plugins/dm-context-filter.ts && test -f /opt/roadie-config/plugins/dm-agent-sync.ts
+tail -n 100 "$HOME/.roadie/roadie.stderr.log"
 ```
 
-If either plugin file is missing, rerun setup or upgrade before trusting a new OpenCode session. OpenCode silently skips missing plugin files.
+### `verify-bridge-roadie-opencode-plugins`
 
-### `verify-bridge-cc-connect`
+Local Roadie plugin paths:
 
-Use the cc-connect config and service/launchd commands emitted by setup output. Verify the bridge can start, but do not restart a live bridge without user approval.
+```bash
+ROADIE_PLUGINS_DIR="${ROADIE_DATA_DIR:-$HOME/.roadie}/roadie-config/plugins"
+for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test -f "$ROADIE_PLUGINS_DIR/$plugin" || echo "missing $plugin"; done
+```
 
-### `verify-bridge-telegram`
+VPS Roadie plugin paths:
 
-Confirm `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are configured, then use the service or launchd commands emitted by setup output. Verify by messaging the Telegram bot.
+```bash
+for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test -f "/opt/roadie-config/plugins/$plugin" || echo "missing $plugin"; done
+test -f /opt/roadie-config/prompt-config.yaml || echo "missing prompt-config.yaml"
+```
+
+If any file is missing, rerun setup or upgrade before trusting a new OpenCode session. OpenCode silently skips missing plugin files.
 
 ### `verify-bridge-none`
 
@@ -255,7 +254,7 @@ If provider login/status commands exist, run them. If they do not exist yet, rep
 
 ### `verify-wp-ai-gateway`
 
-Use this only when the operator selected the external OpenCode/Kimaki OpenAI-compatible endpoint path.
+Use this only when the operator selected the external OpenCode/Roadie OpenAI-compatible endpoint path.
 
 ```bash
 wp plugin is-active wp-ai-gateway
@@ -284,10 +283,10 @@ verification:
   verify-wordpress: passed
   verify-data-machine: passed
   verify-runtime-opencode: passed
-  verify-bridge-kimaki-opencode-plugins: failed
+  verify-bridge-roadie-opencode-plugins: failed
 failures:
-  - overlay: verify-bridge-kimaki-opencode-plugins
-    evidence: "dm-context-filter.ts missing from configured Kimaki plugin path"
+  - overlay: verify-bridge-roadie-opencode-plugins
+    evidence: "roadie-command-guard.ts missing from configured Roadie plugin path"
     next_step: "rerun setup or upgrade before starting a new OpenCode session"
 ```
 

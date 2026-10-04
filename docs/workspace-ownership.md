@@ -71,7 +71,7 @@ The migration inventory proves these retained in-process consumers:
 | --- | --- | --- |
 | Shell/process-runtime availability | Intelligence MCP context bridge manager | Neutral host-environment API in the focused WordPress integration package |
 | Writable-filesystem availability | Intelligence REST memory fallback | The same neutral host-environment API |
-| Canonical CLI channel registration and dispatch | Kimaki, cc-connect, Telegram, and generated CLI transport | Canonical `wp-coding-agents` channel registry in the focused package |
+| Canonical CLI channel registration and dispatch | Roadie and generated CLI transport | Canonical `wp-coding-agents` channel registry in the focused package |
 
 The constrained process-path probe remains conditional. Its host helper and exact-argv security boundary are `wp-coding-agents` concerns, but a WordPress facade belongs in the focused package only if migration design identifies a retained in-process consumer.
 

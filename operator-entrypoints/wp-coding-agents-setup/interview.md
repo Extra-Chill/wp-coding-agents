@@ -32,22 +32,20 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
 
 4. **Chat bridge axis**
    Ask how the user wants to communicate with the agent:
-   - `kimaki` — Discord bridge, common for OpenCode.
-   - `cc-connect` — multi-platform bridge, common for Claude Code.
-   - `telegram` — Telegram bot for OpenCode.
+   - `roadie` — Discord bridge for OpenCode (the only managed bridge).
    - `none` — terminal/SSH/manual only.
-   - `auto` — let setup choose the default bridge for the runtime.
+   - `auto` — Roadie for OpenCode; no bridge for other runtimes.
 
-   Codex currently has no managed chat bridge in wp-coding-agents; use `none` or `auto` for Codex unless the setup script grows a Codex bridge.
+   Claude Code and Codex have no managed chat bridge in wp-coding-agents; use `none` or `auto` for them. Telegram and cc-connect were removed until Roadie supports more platforms.
 
-   For Telegram, collect whether `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are available.
+   For Roadie, collect whether a Discord bot token is available (`ROADIE_BOT_TOKEN`).
 
 5. **Codebox / gateway path**
-   Ask this only when the user mentions Codebox minions, OpenCode/Kimaki external clients, or WP AI Gateway. Plain Codex runtime selection is handled by the runtime axis above and does not require a provider/gateway path.
+   Ask this only when the user mentions Codebox minions, OpenCode/Roadie external clients, or WP AI Gateway. Plain Codex runtime selection is handled by the runtime axis above and does not require a provider/gateway path.
 
    Record one of:
    - `codebox-minions` — provider auth is inherited inside Codebox; WP AI Gateway is not required.
-   - `external-openai-compatible-endpoint` — optional WP AI Gateway path for external OpenCode/Kimaki clients.
+   - `external-openai-compatible-endpoint` — optional WP AI Gateway path for external OpenCode/Roadie clients.
    - `not-applicable`
 
 6. **Source mode and repository authority**
@@ -100,9 +98,8 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "runtimes": []
   },
   "chat_bridge": {
-    "selection": "auto | kimaki | cc-connect | telegram | none",
-    "telegram_token_available": false,
-    "telegram_allowed_user_id_available": false
+    "selection": "auto | roadie | none",
+    "bot_token_available": false
   },
   "codex_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
   "source": {

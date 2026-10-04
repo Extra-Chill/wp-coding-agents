@@ -541,7 +541,7 @@
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_worktree_runtime_signatures", "datamachine_code_worktree_context_projection_targets", "datamachine_code_worktree_context_projection_cleanup", "data-machine-code"],
       "current_owner": "wp-coding-agents producer over DMC hooks",
-      "current_consumers": ["DMC worktree lifecycle", "OpenCode, Codex, and Kimaki signature registrations"],
+      "current_consumers": ["DMC worktree lifecycle", "OpenCode and Codex signature registrations"],
       "persistence": "Generated wp-coding-agents-runtimes.php and projected checkout files",
       "target_owner": "Homeboy",
       "disposition": "replace",
@@ -581,8 +581,8 @@
     {
       "id": "wca-kimaki-signature",
       "subsystem": null,
-      "surface": "Kimaki session/thread/channel attribution and legacy dispatch diagnostic",
-      "source": { "repository": "wp-coding-agents", "path": "bridges/kimaki.sh", "symbol_or_command": "_kimaki_register_runtime_signature; datamachine_code_cli_dispatch_spawn_failed" },
+      "surface": "Roadie session/thread attribution mapped onto Homeboy's session contract, and legacy dispatch diagnostic",
+      "source": { "repository": "wp-coding-agents", "path": "bridges/roadie/plugins/session-attribution.ts", "symbol_or_command": "shell.env HOMEBOY_SESSION_*; datamachine_code_cli_dispatch_spawn_failed" },
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_cli_dispatch_spawn_failed"],
       "current_owner": "wp-coding-agents",
@@ -591,7 +591,7 @@
       "target_owner": "Homeboy",
       "disposition": "replace",
       "migration_issue": "#528",
-      "verification_gate": "Concurrent Kimaki attribution test passes using only owning-layer names"
+      "verification_gate": "Concurrent session attribution test (tests/session-attribution.mjs) passes using only owning-layer names"
     },
     {
       "id": "wca-cli-channel-legacy",
@@ -616,7 +616,7 @@
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_cli_channels"],
       "current_owner": "wp-coding-agents",
-      "current_consumers": ["Kimaki, cc-connect, Telegram, and CLI transport"],
+      "current_consumers": ["Roadie and CLI transport"],
       "persistence": "Generated wp-coding-agents-channels.php",
       "target_owner": "WordPress integration package",
       "disposition": "move",

@@ -53,7 +53,7 @@ The agent should know only what it can use.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
 
-For example, a Kimaki install should know Kimaki is the Discord surface. It should not learn generic Kimaki worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available. wp-coding-agents policy declares repository authority; the selected coding runtime uses its native file, Git, and GitHub tools; Homeboy owns its native Rust worktree lifecycle and Cook.
+For example, a Roadie install should know Roadie is the Discord surface. It should not learn generic Roadie worktree, tunnel, or session-fanout recipes when those responsibilities belong to other installed components. Likewise, Homeboy guidance appears only when Homeboy is available. wp-coding-agents policy declares repository authority; the selected coding runtime uses its native file, Git, and GitHub tools; Homeboy owns its native Rust worktree lifecycle and Cook.
 
 ## What It Enables
 
@@ -78,8 +78,8 @@ cd ~/Studio/my-site && codex
 Connect the coding runtime to a human chat surface for planning, status, file uploads, and review loops.
 
 ```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat kimaki
-cd ~/Studio/my-site && kimaki
+EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat roadie
+cd ~/Studio/my-site && roadie
 ```
 
 ### Always-On VPS Agent
@@ -111,9 +111,7 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | Claude Code | Coding runtime | Selected or auto-detected |
 | Codex | Coding runtime | Selected or auto-detected |
 | wp-coding-agents | Source policy, declared repository authority, runtime permissions, setup, and upgrade | Always installed |
-| Kimaki | Discord bridge for OpenCode sessions | Optional chat bridge |
-| cc-connect | Multi-platform bridge, commonly used with Claude Code | Optional chat bridge |
-| opencode-telegram | Telegram bridge for OpenCode | Optional chat bridge |
+| Roadie | Discord bridge for OpenCode sessions | Optional chat bridge (the only one) |
 | Homeboy | Optional repo-aware task/lab orchestration, native Rust worktree lifecycle, and Cook | Enabled with `--with-homeboy` when available |
 | AI Provider for Claude Code | WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 
@@ -200,16 +198,16 @@ them from its process environment or credential store.
 RUNTIME_PROJECT_ROOT=/srv/agent \
 WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \
 ./setup.sh --external-wordpress --wordpress-path '/srv/wordpress site' \
-  --wordpress-user agent --runtime opencode --chat kimaki
+  --wordpress-user agent --runtime opencode --chat roadie
 ```
 
 Setup validates `core is-installed` through the transport, then projects Data
 Machine injectable files below `$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context`.
-OpenCode, Kimaki state, skills, `AGENTS.md`, and `CLAUDE.md` stay below the
+OpenCode, Roadie state, skills, `AGENTS.md`, and `CLAUDE.md` stay below the
 runtime root. The transport must provide WordPress commands and must not be
 stored in project files.
 
-Start Kimaki from the same runtime environment so the generated
+Start Roadie from the same runtime environment so the generated
 `.wp-coding-agents/bin/wp-control` wrapper can read the transport variables.
 External profiles deliberately avoid writing those variables to launchd or
 systemd units. Re-run setup to refresh projected Data Machine context.
@@ -243,7 +241,7 @@ lease their own events.
 
 ```bash
 WP_CONTROL_TRANSPORT_JSON='["/usr/local/bin/wp-control","--target","site-a"]' \
-  /srv/agent/.wp-coding-agents/bin/kimaki
+  /srv/agent/.wp-coding-agents/bin/roadie
 ```
 
 The setup profile compiler emits this credential-bearing start command
@@ -254,7 +252,7 @@ Add `--with-ai-gateway` to generate the credential-free
 `wp-ai-gateway/site-default` OpenCode provider. External mode does not install
 gateway plugins, configure a route, mint a token, or write an env file. Supply
 `OPENAI_BASE_URL` and `OPENAI_API_KEY` in the runtime environment when starting
-Kimaki.
+Roadie.
 
 Use the same transport input when validating an external profile. `verify.sh`
 continues to validate colocated WordPress installs; external runtime validation
@@ -282,10 +280,10 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--existing` | Add to an existing WordPress install. |
 | `--wp-path <path>` | WordPress root path. Implies `--existing`. |
 | `--agent-slug <slug>` | Override the Data Machine agent slug used by runtime instruction projections. Persisted for subsequent upgrades. |
-| `--kimaki-unit <unit>` | Target a Kimaki systemd instance, such as `kimaki-example.service`. |
-| `--kimaki-data-dir <path>` | Override that Kimaki instance's state directory. |
-| `--kimaki-lock-port <port>` | Override that Kimaki instance's lock port. |
-| `--chat <bridge>` | Chat bridge: `kimaki`, `cc-connect`, or `telegram`. Codex currently runs without a managed chat bridge. |
+| `--roadie-unit <unit>` | Target a Roadie systemd instance, such as `roadie-example.service`. |
+| `--roadie-data-dir <path>` | Override that Roadie instance's state directory. |
+| `--roadie-lock-port <port>` | Override that Roadie instance's lock port. |
+| `--chat <bridge>` | Chat bridge: `roadie` (the only bridge; OpenCode runtime). Claude Code and Codex run without a managed chat bridge. |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
 | `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for OpenCode runtimes. |
@@ -492,17 +490,17 @@ Setup also records the resolved runtime and optional-component intent in
 profile before detection; explicit invocation values remain authoritative, and
 tokens or command transports are never persisted there.
 
-On VPS hosts with multiple Kimaki services, setup and upgrade select the unit
+On VPS hosts with multiple Roadie services, setup and upgrade select the unit
 whose `WorkingDirectory=` exactly matches the WordPress site path. Ambiguous or
-unmatched installed units fail safely; pass `--kimaki-unit` to select or create
-an instance explicitly. The traditional single-instance defaults remain
-`kimaki.service` and `<service-home>/.kimaki`.
+unmatched installed units fail safely; pass `--roadie-unit` to select or create
+an instance explicitly. The single-instance defaults are `roadie.service` and
+`<service-home>/.roadie`.
 
 ## Runtime And Bridge Notes
 
 ### OpenCode
 
-OpenCode uses `opencode.json` with Data Machine-composed instruction files. Kimaki is the default chat bridge for OpenCode when chat is enabled.
+OpenCode uses `opencode.json` with Data Machine-composed instruction files. Roadie is the chat bridge for OpenCode when chat is enabled.
 
 Pass `--with-ai-gateway` to opt OpenCode into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, and writes an OpenAI-compatible `provider.wp-ai-gateway` entry so clients receive only the gateway token while upstream credentials stay in WordPress. Native OpenCode auth is untouched unless gateway mode is opted in.
 
@@ -548,29 +546,24 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
 cd ~/Studio/my-site && codex
 ```
 
-### Kimaki
+### Roadie
 
-Kimaki is the Discord surface for OpenCode. Managed installs replace Kimaki's generic runtime prompt with a small bridge prompt so orchestration, workspace, tunnel, and preview guidance can come from the installed components that own those capabilities.
+[Roadie](https://github.com/Extra-Chill/roadie) is the Discord surface for OpenCode and the only managed chat bridge. Setup installs the pinned release (`bridges/roadie/roadie-version`) into `/usr/local/lib/wp-coding-agents/roadie` on a VPS, runs it with `ROADIE_MANAGED=1` so it never upgrades itself, and keeps secrets as files under `/etc/wp-coding-agents/roadie/` (`bot-token`, and a `send-token` the web user reads so scheduled dispatch can `roadie send` through the running bot without sudo). Roadie resumes runs that a restart interrupted.
 
-Kimaki-specific OpenCode plugins are synced into Kimaki's config directory and restored across package updates. The managed-plugin rig verifies that contract:
+Managed installs replace Roadie's generic prompt sections with a small bridge prompt (`ROADIE_PROMPT_CONFIG`) so orchestration, workspace, tunnel, and preview guidance come from the installed components that own those capabilities. The managed OpenCode plugins (Data Machine memory sync, the command ownership guard, and Homeboy session attribution) are synced into Roadie's config directory. See [managed Roadie context](docs/roadie-managed-context.md).
 
-Managed context also enforces coding-route ownership independently of prompt text. The [dispatch contract and guard documentation](docs/kimaki-managed-context.md) explains the retained-array boundary, lifecycle checks, and real OpenCode loopback verification.
+**Migrating from Kimaki.** An upgrade on a Kimaki install migrates it in place: Kimaki is stopped, its session database is copied with an SQLite online backup and integrity check, attachments and projects are copied, the bot token, lock port, and agent slug are carried over, and the Kimaki unit is disabled. The Kimaki unit and `~/.kimaki` are left untouched as the rollback; a failed migration restarts Kimaki.
 
-Inbound events queue independently of a runtime. The queue intentionally has no Kimaki connector: the supported Kimaki CLI proves outbound `send --channel <id> --prompt <text>`, but not inbound event injection or a durable conversation-to-runtime mapping. A connector can be added only after that contract exists; missing mappings fail closed.
+**Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)). Claude Code and Codex run without a managed chat bridge.
+
+Inbound events queue independently of a runtime. The queue intentionally has no Roadie connector yet: a connector needs a durable conversation-to-runtime mapping, and missing mappings fail closed.
 
 The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists.
 
 ```bash
-bash tests/kimaki-managed-plugin-rig.sh
+bash tests/roadie-command-guard.sh
+bash tests/roadie-kimaki-migration.sh
 ```
-
-### cc-connect
-
-cc-connect is the default bridge for Claude Code. It writes a project config pointing at the WordPress site root and can run under launchd or systemd depending on install mode.
-
-### Telegram
-
-Telegram support uses `opencode-telegram`. Provide `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` during setup.
 
 ## Data Machine Memory
 
@@ -599,8 +592,8 @@ Useful local checks:
 ```bash
 bash tests/agents-md-guidance.sh
 bash tests/homeboy-agents-md.sh
-bash tests/kimaki-managed-plugin-rig.sh
-node tests/effective-prompt/run.mjs --verbose
+bash tests/roadie-command-guard.sh
+bash tests/roadie-kimaki-migration.sh
 ```
 
 Use setup output and operator entrypoints for environment-specific verification commands. The generated summary is the source of truth for service names, paths, and bridge restart commands.
@@ -656,7 +649,7 @@ Run `./upgrade.sh --help` for upgrade flags.
 
 - [Data Machine](https://github.com/Extra-Chill/data-machine) — WordPress-native agent memory, abilities, flows, and jobs.
 - [Homeboy](https://github.com/Extra-Chill/homeboy) — Optional orchestration/lab layer for repo-aware coding workflows.
-- [Kimaki](https://kimaki.xyz) — Discord bridge used by OpenCode installs.
+- [Roadie](https://github.com/Extra-Chill/roadie) — Discord bridge used by OpenCode installs.
 
 ## Contributing
 
