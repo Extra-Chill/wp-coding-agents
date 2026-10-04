@@ -4,13 +4,38 @@
 runtime_install() {
   log "Phase 7: Installing OpenCode..."
 
+  local version minimum="${OPENCODE_GENERAL_DISPATCH_MIN_VERSION:-}"
   if ! command -v opencode &> /dev/null || [ "$DRY_RUN" = true ]; then
     run_cmd npm install -g opencode-ai
   else
-    log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
+    version="$(opencode --version 2>/dev/null || echo 'unknown')"
+    # An existing install is kept only while it meets the version the managed
+    # integrations require. Installing only when missing left hosts on an old
+    # global OpenCode forever, so general-subagent projection kept failing
+    # with unsupported_runtime on every upgrade.
+    if [ -n "$minimum" ] && ! _opencode_version_at_least "$version" "$minimum"; then
+      log "OpenCode $version is older than the required $minimum; upgrading"
+      run_cmd npm install -g opencode-ai@latest
+      version="$(opencode --version 2>/dev/null || echo 'unknown')"
+      if ! _opencode_version_at_least "$version" "$minimum"; then
+        warn "OpenCode is still $version after upgrading; $(command -v opencode) may not be the npm global install. Upgrade it or remove the older copy from PATH."
+      fi
+    fi
+    log "OpenCode installed: $version"
   fi
 
   _opencode_register_runtime_signature
+}
+
+# True when VERSION (x.y.z, optional leading v) is at least MINIMUM. A version
+# that does not parse is treated as current: never reinstall on a guess.
+_opencode_version_at_least() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+actual, minimum = sys.argv[1:]
+match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", actual.strip())
+raise SystemExit(0 if not match or tuple(map(int, match.groups())) >= tuple(map(int, minimum.split("."))) else 1)
+PY
 }
 
 opencode_claude_code_auth_enabled() {

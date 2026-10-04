@@ -82,7 +82,11 @@ composer_provision_download() {
   fi
 
   mkdir -p "$COMPOSER_PROVISION_LIB_DIR"
-  if ! php "$installer" --install-dir="$COMPOSER_PROVISION_LIB_DIR" --filename=composer.phar >"$install_log" 2>&1; then
+  # The installer refuses to run without HOME or COMPOSER_HOME ("The HOME or
+  # COMPOSER_HOME environment variable must be set"), and systemd oneshot
+  # upgrade units run with neither. Give it a throwaway home inside tmp_dir so
+  # nothing is written to a real user's config.
+  if ! COMPOSER_HOME="$tmp_dir/composer-home" php "$installer" --install-dir="$COMPOSER_PROVISION_LIB_DIR" --filename=composer.phar >"$install_log" 2>&1; then
     warn "Composer installer failed: $(tail -n 5 "$install_log")"
     rm -rf "$tmp_dir"
     return 1

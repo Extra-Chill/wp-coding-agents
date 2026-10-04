@@ -79,6 +79,15 @@ DATAMACHINE_WORKER_REQUEST=enabled
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
 [ "${RECONCILER_PLAN_RECORDS[*]}" = bridges.roadie ] || error "external WordPress planned local services"
+# A bridge reconcile can migrate a multi-GB session database (sqlite .backup +
+# integrity check took 121s on a 2.1 GB Kimaki database), so it gets a longer
+# step budget than the 120s default, overridable, and inside the 480s total.
+[ "${RECONCILER_PLAN_TIMEOUTS[0]}" = 420 ] || error "bridge record did not get its longer default step budget (got '${RECONCILER_PLAN_TIMEOUTS[0]}')"
+DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS=90
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
+[ "${RECONCILER_PLAN_TIMEOUTS[0]}" = 90 ] || error "DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS did not override the bridge budget"
+unset DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS
 
 # Managed unit runtime health is reported, never acted on (#576). A unit whose
 # file is already correct but which has been dead for weeks is the quietest

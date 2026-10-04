@@ -87,6 +87,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/opencode-subagents.sh
         run: bash tests/opencode-subagents.sh
+      - name: Run tests/opencode-runtime-install.sh
+        run: bash tests/opencode-runtime-install.sh
 
   opencode-general-dispatch:
     name: bounded OpenCode general dispatch (#453)
