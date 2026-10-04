@@ -17,6 +17,10 @@ source "$ROOT_DIR/services/datamachine-worker.sh"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/services/wordpress-service.sh"
 # shellcheck disable=SC1091
+source "$ROOT_DIR/lib/homeboy.sh"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/services/homeboy-daemon.sh"
+# shellcheck disable=SC1091
 source "$ROOT_DIR/lib/bridge-service-adapters.sh"
 
 log() { :; }
@@ -79,6 +83,15 @@ DATAMACHINE_WORKER_REQUEST=enabled
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
 [ "${RECONCILER_PLAN_RECORDS[*]}" = bridges.roadie ] || error "external WordPress planned local services"
+# A bridge reconcile can migrate a multi-GB session database (sqlite .backup +
+# integrity check took 121s on a 2.1 GB Kimaki database), so it gets a longer
+# step budget than the 120s default, overridable, and inside the 480s total.
+[ "${RECONCILER_PLAN_TIMEOUTS[0]}" = 420 ] || error "bridge record did not get its longer default step budget (got '${RECONCILER_PLAN_TIMEOUTS[0]}')"
+DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS=90
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
+[ "${RECONCILER_PLAN_TIMEOUTS[0]}" = 90 ] || error "DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS did not override the bridge budget"
+unset DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS
 
 # Managed unit runtime health is reported, never acted on (#576). A unit whose
 # file is already correct but which has been dead for weeks is the quietest
@@ -156,5 +169,31 @@ export FAKE_ACTIVE=failed FAKE_ENABLED=enabled
 _smart_update_systemd_unit "$UNCHANGED_UNIT" "$(cat "$UNCHANGED_UNIT")" roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 1 ] || error "unchanged unit file suppressed the health report"
 [ "${#UPDATED_ITEMS[@]}" -eq 0 ] || error "unchanged unit file was reported as updated"
+
+# A managed VPS install that owns a service-owned Homeboy plans the supervised
+# daemon unit; local and external-WordPress installs never do (#659).
+LOCAL_MODE=false
+EXTERNAL_WORDPRESS=false
+INSTALL_CHAT=false
+CHAT_BRIDGE=""
+unset WORDPRESS_SERVICE_REQUEST DATAMACHINE_WORKER_REQUEST
+SERVICE_USER=wpagent
+WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/prefix/wp-coding-agents/bin/homeboy"
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
+mkdir -p "$(dirname "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN")"
+printf '#!/bin/sh\n' > "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN"
+chmod +x "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN"
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${RECONCILER_PLAN_RECORDS[*]}" = services.homeboy-daemon ] || error "managed install did not plan the Homeboy daemon unit: ${RECONCILER_PLAN_RECORDS[*]}"
+LOCAL_MODE=true
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "local install planned the Homeboy daemon unit"
+LOCAL_MODE=false
+EXTERNAL_WORDPRESS=true
+reconciler_plan_reset
+bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "external WordPress planned the Homeboy daemon unit"
 
 echo "PASS: tests/bridge-service-adapters.sh"

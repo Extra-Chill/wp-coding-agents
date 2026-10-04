@@ -4,7 +4,7 @@
 # owners; it only makes their presence and plan records explicit.
 
 bridge_service_adapter_names() {
-  printf '%s\n' bridge wordpress-service datamachine-worker
+  printf '%s\n' bridge wordpress-service datamachine-worker homeboy-daemon
 }
 
 bridge_service_adapter_operation_validate() {
@@ -61,8 +61,14 @@ bridge_service_adapter_detect() {
         BRIDGE_SERVICE_ADAPTER_PRESENT=true
       fi
       ;;
+    homeboy-daemon)
+      # Owned whenever this install owns a service-owned Homeboy under systemd.
+      declare -F homeboy_daemon_service_applicable >/dev/null 2>&1 || return 0
+      homeboy_daemon_service_applicable && BRIDGE_SERVICE_ADAPTER_PRESENT=true
+      ;;
     *) error "Unknown bridge/service adapter: $adapter" ;;
   esac
+  return 0
 }
 
 bridge_service_adapter_record() {
@@ -70,17 +76,25 @@ bridge_service_adapter_record() {
     bridge) printf 'bridges.%s' "$CHAT_BRIDGE" ;;
     wordpress-service) printf 'services.wordpress' ;;
     datamachine-worker) printf 'services.datamachine-worker' ;;
+    homeboy-daemon) printf 'services.homeboy-daemon' ;;
   esac
 }
 
 bridge_service_adapter_plan() {
-  local adapter="$1" record
+  local adapter="$1" record timeout=""
   bridge_service_adapter_detect "$adapter"
   [ "$BRIDGE_SERVICE_ADAPTER_PRESENT" = true ] || return 0
   record="$(bridge_service_adapter_record "$adapter")"
+  # Reconciling the chat bridge can include a one-time state migration (e.g.
+  # copying a multi-GB SQLite session database between bridges with
+  # `sqlite3 .backup` plus an integrity check). The default 120s step budget
+  # cut that off mid-copy, so the bridge record gets the same longer budget
+  # as the runtime record.
+  [ "$adapter" = bridge ] && timeout="${DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS:-420}"
   reconciler_plan_add "$record" "bridge-services.reconcile.$adapter" \
     "bridge_service_adapter_apply_${adapter//-/_}" \
-    "bridge_service_adapter_verify_${adapter//-/_}"
+    "bridge_service_adapter_verify_${adapter//-/_}" \
+    "$timeout"
 }
 
 bridge_service_adapters_plan() {
@@ -137,6 +151,18 @@ bridge_service_adapter_apply_datamachine_worker() {
   return 0
 }
 
+bridge_service_adapter_apply_homeboy_daemon() {
+  local before=0
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    warn "Skipping Homeboy daemon unit because upgrade is running non-root"
+    return 0
+  fi
+  homeboy_daemon_service_reconcile || return $?
+  declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
+  return 0
+}
+
 bridge_service_adapter_verify_bridge() {
   bridge_file "$CHAT_BRIDGE" >/dev/null 2>&1 && bridge_has_hook install && bridge_has_hook sync_config
 }
@@ -147,4 +173,8 @@ bridge_service_adapter_verify_wordpress_service() {
 
 bridge_service_adapter_verify_datamachine_worker() {
   datamachine_worker_desired_state >/dev/null
+}
+
+bridge_service_adapter_verify_homeboy_daemon() {
+  homeboy_daemon_service_verify
 }

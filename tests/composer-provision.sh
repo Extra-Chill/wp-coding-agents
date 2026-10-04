@@ -185,6 +185,40 @@ else
 fi
 
 echo ""
+echo "==> the installer gets a COMPOSER_HOME even when HOME is unset"
+# A systemd oneshot upgrade unit runs with neither HOME nor COMPOSER_HOME, and
+# the real installer then refuses: "The HOME or COMPOSER_HOME environment
+# variable must be set for composer to run correctly".
+cat > "$STUB_BIN/php" <<'PHP'
+#!/bin/bash
+for arg in "$@"; do
+  case "$arg" in
+    --install-dir=*)
+      if [ -z "${HOME:-}" ] && [ -z "${COMPOSER_HOME:-}" ]; then
+        echo "The HOME or COMPOSER_HOME environment variable must be set for composer to run correctly" >&2
+        exit 1
+      fi
+      dir="${arg#--install-dir=}"
+      mkdir -p "$dir" && echo "phar" > "$dir/composer.phar"
+      exit 0
+      ;;
+  esac
+done
+if printf '%s' "$*" | grep -q 'hash_file'; then
+  file="$(printf '%s' "$*" | grep -oE "/[^']+composer-setup\.php")"
+  sha384sum "$file" 2>/dev/null | awk '{print $1}'
+  exit 0
+fi
+echo "Composer version 2.10.3"
+PHP
+chmod +x "$STUB_BIN/php"
+rm -f "$(composer_provision_phar)"
+RC=0
+(unset HOME COMPOSER_HOME; composer_provision_download) >"$TMP/download-nohome.out" 2>&1 || RC=$?
+assert_eq "download succeeds without HOME or COMPOSER_HOME" "0" "$RC"
+[ -f "$(composer_provision_phar)" ] && echo "  ok   the phar is installed without HOME" && PASS=$((PASS + 1)) || { echo "  FAIL no phar installed without HOME: $(cat "$TMP/download-nohome.out")"; FAIL=$((FAIL + 1)); }
+
+echo ""
 echo "==> dry-run leaves the host untouched"
 DRY_RUN=true
 LOCAL_MODE=false

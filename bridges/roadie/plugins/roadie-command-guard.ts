@@ -26,7 +26,7 @@ export default roadieCommandGuard;
 function assertManagedRoadieCommand(command: string, depth = 0): void {
   if (!/roadie/i.test(command)) return;
   if (depth > 8) throw new Error("Managed command nesting exceeds the ownership guard limit.");
-  for (let words of shellCommands(command)) {
+  for (let words of shellCommands(stripHeredocBodies(command))) {
     while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words = words.slice(1);
     let executable = words[0]?.split("/").pop();
     if (executable === "env") {
@@ -98,6 +98,30 @@ function assertManagedRoadieCommand(command: string, depth = 0): void {
 
 function shellQuote(word: string): string {
   return "'" + word.replace(/'/g, "'\\''") + "'";
+}
+
+// Heredoc bodies are data (commit messages, PR bodies, file contents): an
+// apostrophe in prose there is not an open quote. Drop each body, keeping the
+// command line. An unquoted heredoc still expands $(...) and backticks, so
+// those substitutions are kept as commands and inspected like any other.
+function stripHeredocBodies(command: string): string {
+  const lines = command.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out.push(line);
+    for (const [, dash, quote, tag] of line.matchAll(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) {
+      const expands = quote === "";
+      while (i + 1 < lines.length) {
+        const body = lines[++i];
+        if ((dash ? body.replace(/^\t+/, "") : body) === tag) break;
+        if (expands) {
+          for (const sub of body.match(/\$\([^()]*\)|`[^`]*`/g) ?? []) out.push(sub);
+        }
+      }
+    }
+  }
+  return out.join("\n");
 }
 
 function shellCommands(command: string): string[][] {

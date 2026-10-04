@@ -353,7 +353,7 @@ section "service identity coherence"
 UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 UNITS_CHECKED=0
 NON_ROOT_SERVICE=false
-for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service; do
+for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "$UNIT_DIR"/homeboy-daemon.service; do
   [ -f "$unit" ] || continue
   UNITS_CHECKED=$((UNITS_CHECKED + 1))
   name="$(basename "$unit")"
