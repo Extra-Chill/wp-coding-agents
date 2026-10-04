@@ -30,6 +30,10 @@ source "$SCRIPT_DIR/bridges/roadie.sh"
 log() { :; }
 warn() { :; }
 systemctl() { printf '%s\n' "$*" >> "$TMP/systemctl.log"; }
+# The account move has its own suite (tests/roadie-accounts.sh); here it is
+# recorded in the same log so its ordering against stop/disable is checked.
+ACCOUNTS_RESULT=0
+_roadie_accounts() { printf 'accounts %s\n' "$1" >> "$TMP/systemctl.log"; printf '%s\n' "${ROADIE_SUBROUTER_PRESETS_JSON:-}" > "$TMP/presets.json"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
 DRY_RUN=false
 UPDATED_ITEMS=()
 LOCAL_MODE=false
@@ -55,6 +59,11 @@ UNIT_BEFORE="$(cksum < "$SYSTEMD_UNIT_DIR/kimaki.service")"
 DB="$KIMAKI_DATA/discord-sessions.db"
 sqlite3 "$DB" "PRAGMA journal_mode=WAL; CREATE TABLE thread_sessions(thread_id TEXT PRIMARY KEY, session_id TEXT);" >/dev/null
 for i in 1 2 3; do sqlite3 "$DB" "INSERT INTO thread_sessions VALUES ('t$i','s$i');"; done
+sqlite3 "$DB" "CREATE TABLE session_models(session_id TEXT PRIMARY KEY, model_id TEXT NOT NULL, variant TEXT);
+  INSERT INTO session_models VALUES ('s1','anthropic/claude-opus-5-5','max'),('s2','openai/gpt-6.1-sol',NULL),('s3','zai-coding-plan/glm-5.2',NULL);"
+SITE_PATH="$TMP/site"
+mkdir -p "$SITE_PATH"
+printf '{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}\n' > "$SITE_PATH/opencode.json"
 printf 'png' > "$KIMAKI_DATA/attachments/a.png"
 printf 'x' > "$KIMAKI_DATA/projects/demo/state"
 DATA_BEFORE="$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort)"
@@ -79,6 +88,19 @@ grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki disable
 [ "$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort | grep -v 'discord-sessions.db-\(wal\|shm\)')" = "$(printf '%s\n' "$DATA_BEFORE" | grep -v 'discord-sessions.db-\(wal\|shm\)')" ]
 check $? "Kimaki data dir kept unchanged (rollback)"
 printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "kept as rollback"; check $? "summary reports the kept rollback"
+line() { grep -nx "$1" "$TMP/systemctl.log" | head -1 | cut -d: -f1; }
+[ -n "$(line 'accounts import')" ] && [ "$(line 'stop kimaki.service')" -lt "$(line 'accounts import')" ] && [ "$(line 'accounts import')" -lt "$(line 'disable kimaki.service')" ]
+check $? "accounts move into subrouter while Kimaki is stopped, before it is disabled"
+printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "accounts.mjs export"; check $? "summary gives the account rollback command"
+NEW_DB="$ROADIE_DATA_DIR/discord-sessions.db"
+[ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "subrouter/anthropic-claude-opus-5-5| subrouter/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
+check $? "OAuth model choices routed through per-model presets; API-key model kept"
+[ "$(sqlite3 "$DB" "SELECT model_id FROM session_models WHERE session_id='s1'")" = anthropic/claude-opus-5-5 ]; check $? "Kimaki database keeps its model choices (rollback)"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'anthropic-claude-sonnet-5-5':['anthropic/claude-sonnet-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/presets.json"
+check $? "presets derived from stored choices and opencode.json, one model each"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert (d['model'],d['small_model'],d['plugin'])==('subrouter/anthropic-claude-opus-5-5','subrouter/anthropic-claude-sonnet-5-5',['x']), d" "$SITE_PATH/opencode.json"
+check $? "opencode.json defaults routed through subrouter, other keys kept"
+ls "$SITE_PATH"/opencode.json.before-subrouter-* >/dev/null 2>&1; check $? "opencode.json backed up"
 
 echo "==> re-run never overwrites Roadie data"
 sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "INSERT INTO thread_sessions VALUES ('roadie-only','x');"
@@ -98,6 +120,18 @@ unset -f sqlite3
 grep -qx "start kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki started again"
 ! grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki not disabled"
 [ ! -f "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "no partial Roadie database left behind"
+
+echo "==> a failed account move restarts Kimaki"
+rm -rf "$ROADIE_DATA_DIR"
+: > "$TMP/systemctl.log"
+ACCOUNTS_RESULT=1
+( roadie_migrate_from_kimaki ) >/dev/null 2>&1
+rc=$?
+ACCOUNTS_RESULT=0
+[ "$rc" -ne 0 ]; check $? "migration fails"
+grep -qx "start kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki started again"
+! grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki not disabled"
+[ ! -f "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "no Roadie database left behind, so the next run retries"
 
 echo "==> no Kimaki unit, nothing to do"
 mv "$SYSTEMD_UNIT_DIR/kimaki.service" "$TMP/kimaki.service.away"
