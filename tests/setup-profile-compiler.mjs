@@ -32,7 +32,7 @@ function compile(profile) {
   assert.doesNotMatch(plan.commands.apply, /--source-mode/)
   assert.doesNotMatch(plan.commands.apply, /--workspace-repository/)
   assert.ok(plan.warnings.some((warning) => warning.includes("no new mutable repository authority")))
-  assert.match(plan.commands.start, /WP_CONTROL_TRANSPORT_JSON=.*\/tmp\/runtime root\/\.wp-coding-agents\/bin\/kimaki/)
+  assert.match(plan.commands.start, /WP_CONTROL_TRANSPORT_JSON=.*\/tmp\/runtime root\/\.wp-coding-agents\/bin\/roadie/)
   assert.ok(plan.verification.overlays.includes("verify-external-wordpress-transport"))
 }
 
@@ -41,7 +41,7 @@ function compile(profile) {
     install_target: "existing-vps",
     target: { wordpress_path: "/var/www/example.com" },
     runtime: { selection: "opencode" },
-    chat_bridge: { selection: "kimaki" },
+    chat_bridge: { selection: "roadie" },
     overlays: {},
     systems_capabilities: { profile: "managed-vps" },
     agent: {},
@@ -91,7 +91,7 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
     install_target: "local",
     target: { wordpress_path: "~/Studio/site", wordpress_studio: true },
     runtime: { selection: "opencode", runtimes: [] },
-    chat_bridge: { selection: "kimaki" },
+    chat_bridge: { selection: "roadie" },
     codex_path: "not-applicable",
     overlays: { homeboy: true, wordpress_studio: true },
     agent: { slug: "site" },
@@ -99,11 +99,11 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
 
   assert.equal(
     plan.commands.dry_run,
-    'EXISTING_WP="$HOME/Studio/site" WP_CLI_TRANSPORT_JSON=\'["studio","wp"]\' ./setup.sh --local --runtime opencode --chat kimaki --with-homeboy --agent-slug site --dry-run'
+    'EXISTING_WP="$HOME/Studio/site" WP_CLI_TRANSPORT_JSON=\'["studio","wp"]\' ./setup.sh --local --runtime opencode --chat roadie --with-homeboy --agent-slug site --dry-run'
   )
   assert.ok(plan.verification.overlays.includes("verify-wordpress-studio"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))
-  assert.ok(plan.verification.overlays.includes("verify-bridge-kimaki-opencode-plugins"))
+  assert.ok(plan.verification.overlays.includes("verify-bridge-roadie-opencode-plugins"))
   assert.ok(plan.verification.overlays.includes("verify-homeboy"))
 }
 

@@ -8,7 +8,7 @@
 //     expired
 //
 // Scenarios:
-// 1. KIMAKI gate — with KIMAKI set, the plugin registers no auth hook.
+// 1. Bridge gate — with ROADIE or KIMAKI set, the plugin registers no auth hook.
 // 2. Store normalization — identity fields survive normalization; junk
 //    records are dropped.
 // 3. Identity preservation — upsert/replace keep email/accountId and dedupe
@@ -42,6 +42,7 @@ const realFetch = globalThis.fetch;
 process.env.XDG_DATA_HOME = dataHome;
 process.env.OPENCODE_ANTHROPIC_USER_AGENT = 'coexist-test';
 delete process.env.KIMAKI;
+delete process.env.ROADIE;
 process.env.PATH = `${binDir}:${process.env.PATH}`;
 
 const AUTH_FILE = path.join(dataHome, 'opencode', 'auth.json');
@@ -143,11 +144,13 @@ const loaderFetch = async () => {
 };
 
 try {
-  // 1. KIMAKI gate.
-  process.env.KIMAKI = '1';
-  const gated = await claudeCodeAuthPlugin({});
-  assert.equal(gated.auth, undefined, 'KIMAKI sessions must register no auth hook');
-  delete process.env.KIMAKI;
+  // 1. Bridge gates: Roadie (subrouter auth) and a kept Kimaki rollback unit.
+  for (const marker of ['ROADIE', 'KIMAKI']) {
+    process.env[marker] = '1';
+    const gated = await claudeCodeAuthPlugin({});
+    assert.equal(gated.auth, undefined, `${marker} sessions must register no auth hook`);
+    delete process.env[marker];
+  }
 
   // 2. Store normalization keeps identity fields and drops junk records.
   const normalized = normalizeAccountStore({
@@ -301,7 +304,7 @@ try {
   assert.ok(!(await exists(LOCK_DIR)), 'shared lock is released after refresh');
   assert.ok(!(await exists(`${AUTH_FILE}.anthropic-refresh.lock`)), 'legacy private lock never appears');
 
-  console.log('PASS: dynamic coexistence behavior (KIMAKI gate, shared lock, identity, rotation)');
+  console.log('PASS: dynamic coexistence behavior (bridge gate, shared lock, identity, rotation)');
 } finally {
   globalThis.fetch = realFetch;
   for (const key of Object.keys(process.env)) {

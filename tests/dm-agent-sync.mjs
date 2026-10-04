@@ -1,4 +1,4 @@
-// tests/dm-agent-sync.mjs — lifecycle tests for the Kimaki DM memory sync plugin.
+// tests/dm-agent-sync.mjs — lifecycle tests for the DM memory sync plugin (Roadie bridge).
 
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
@@ -6,7 +6,7 @@ import { createHash } from "node:crypto"
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import dmAgentSync from "../bridges/kimaki/plugins/dm-agent-sync.ts"
+import dmAgentSync from "../bridges/roadie/plugins/dm-agent-sync.ts"
 
 const sitePath = "/tmp/datamachine-site"
 
@@ -121,7 +121,7 @@ await plugin["chat.message"]({ sessionID: process.env.DM_SESSION_ID }, {})
         DATAMACHINE_COMPOSE_TIMEOUT_MS: timeout,
         DATAMACHINE_COMPOSE_STATE_DIR: stateDirectoryOverride,
         DM_COMPOSE_COUNT: composeCount,
-        DM_AGENT_SYNC_MODULE: new URL("../bridges/kimaki/plugins/dm-agent-sync.ts", import.meta.url).href,
+        DM_AGENT_SYNC_MODULE: new URL("../bridges/roadie/plugins/dm-agent-sync.ts", import.meta.url).href,
         DM_SESSION_ID: sessionID,
         DM_READY_FILE: readyFile,
         DM_START_FILE: startFile,

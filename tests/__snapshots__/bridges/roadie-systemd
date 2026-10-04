@@ -1,0 +1,27 @@
+[Unit]
+Description=Roadie Discord bridge (wp-coding-agents)
+After=network.target
+
+[Service]
+Type=simple
+User=chubes
+WorkingDirectory=/var/www/site
+Environment=HOME=/home/chubes
+Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin
+Environment=ROADIE_DATA_DIR=/home/chubes/.roadie
+Environment=ROADIE_MANAGED=1
+Environment=ROADIE_NO_DEFAULT_CHANNEL=1
+Environment=ROADIE_PROMPT_CONFIG=/opt/roadie-config/prompt-config.yaml
+Environment=ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token
+Environment=DATAMACHINE_SITE_PATH=/var/www/site
+Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"
+Environment=DATAMACHINE_AGENT_SLUG=intelligence-chubes4
+# Roadie stops its own orphaned agent server on start, resumes runs a restart
+# interrupted, and never upgrades itself (ROADIE_MANAGED=1). SIGTERM stops it
+# within 15s; SIGUSR2 restarts it in place.
+ExecStart=/usr/local/lib/wp-coding-agents/roadie/bin/roadie --data-dir /home/chubes/.roadie --auto-restart
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

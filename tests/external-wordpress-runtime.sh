@@ -10,7 +10,7 @@ WORDPRESS_PATH="/remote/site root"
 WORDPRESS_USER="agent user"
 TRANSPORT="$TMP/control transport"
 ARGS="$TMP/transport-args"
-KIMAKI_ENV="$TMP/kimaki-env"
+ROADIE_ENV="$TMP/roadie-env"
 GRAPH="$TMP/remote-subagent-graph.json"
 TRANSIENT_READ_MARKER="$TMP/transient-read"
 
@@ -89,21 +89,21 @@ esac
 SH
 chmod +x "$TRANSPORT"
 mkdir -p "$TMP/bin"
-cat > "$TMP/bin/kimaki" <<'SH'
+cat > "$TMP/bin/roadie" <<'SH'
 #!/bin/bash
-printf '%s\n%s\n%s\n' "$EXTERNAL_WORDPRESS" "$WORDPRESS_PATH" "$WORDPRESS_USER" > "$WP_TEST_KIMAKI_ENV"
+printf '%s\n%s\n%s\n' "$EXTERNAL_WORDPRESS" "$WORDPRESS_PATH" "$WORDPRESS_USER" > "$WP_TEST_ROADIE_ENV"
 SH
-chmod +x "$TMP/bin/kimaki"
+chmod +x "$TMP/bin/roadie"
 
 export SCRIPT_DIR RUNTIME_PROJECT_ROOT WORDPRESS_PATH WORDPRESS_USER AGENT_SLUG=coordinator
 export WP_TEST_ARGS="$ARGS"
-export WP_TEST_KIMAKI_ENV="$KIMAKI_ENV"
+export WP_TEST_ROADIE_ENV="$ROADIE_ENV"
 export WP_TEST_GRAPH="$GRAPH"
 export WP_TEST_TRANSIENT_READ_MARKER="$TRANSIENT_READ_MARKER"
 export PATH="$TMP/bin:$PATH"
 export WP_CONTROL_TRANSPORT_JSON="[\"$TRANSPORT\",\"--identity\",\"secret value with spaces\"]"
 export EXTERNAL_WORDPRESS=true DRY_RUN=false LOCAL_MODE=true IS_STUDIO=false
-export SITE_PATH="$RUNTIME_PROJECT_ROOT" CHAT_BRIDGE=kimaki KIMAKI_DATA_DIR="$RUNTIME_PROJECT_ROOT/.kimaki"
+export SITE_PATH="$RUNTIME_PROJECT_ROOT" CHAT_BRIDGE=roadie ROADIE_DATA_DIR="$RUNTIME_PROJECT_ROOT/.roadie"
 export OPENCODE_MODEL='' OPENCODE_SMALL_MODEL='' WITH_CLAUDE_CODE_AUTH=false RUNTIME=opencode
 export SOURCE_MODE=workspace DM_WORKSPACE_DIR="$TMP/workspace"
 UPDATED_ITEMS=()
@@ -151,8 +151,8 @@ opencode_project_subagents
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/shared/SITE.md")" = "site context" ] || { echo "FAIL: site context not projected"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/agent/SOUL.md")" = "agent context" ] || { echo "FAIL: agent context not projected"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents/SKILL.md" ] || { echo "FAIL: skills were not installed below runtime root"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.kimaki/kimaki-config/plugins/dm-context-filter.ts" ] || { echo "FAIL: Kimaki config was not installed below runtime root"; exit 1; }
-[ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/kimaki-seed-credential" ] || { echo "FAIL: managed Kimaki credential helper was not installed"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: Roadie config was not installed below runtime root"; exit 1; }
+[ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/roadie" ] || { echo "FAIL: managed Roadie launcher was not installed"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }
 [ -L "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context" ] || { echo "FAIL: projected context is not atomically activated"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" ] || { echo "FAIL: embedded writer was not projected"; exit 1; }
@@ -229,10 +229,10 @@ unset WORDPRESS_PATH WORDPRESS_USER
 "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/wp-control" option get siteurl >/dev/null
 after_wrapper_calls="$(wc -l < "$ARGS" | tr -d ' ')"
 [ "$after_wrapper_calls" -gt "$before_wrapper_calls" ] || { echo "FAIL: runtime control wrapper did not execute transport"; exit 1; }
-"$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/kimaki"
-[ "$(sed -n '1p' "$KIMAKI_ENV")" = true ] || { echo "FAIL: Kimaki launcher did not set external profile"; exit 1; }
-[ "$(sed -n '2p' "$KIMAKI_ENV")" = "/remote/site root" ] || { echo "FAIL: Kimaki launcher lost WordPress path"; exit 1; }
-[ "$(sed -n '3p' "$KIMAKI_ENV")" = "agent user" ] || { echo "FAIL: Kimaki launcher lost WordPress user"; exit 1; }
+"$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/roadie"
+[ "$(sed -n '1p' "$ROADIE_ENV")" = true ] || { echo "FAIL: Roadie launcher did not set external profile"; exit 1; }
+[ "$(sed -n '2p' "$ROADIE_ENV")" = "/remote/site root" ] || { echo "FAIL: Roadie launcher lost WordPress path"; exit 1; }
+[ "$(sed -n '3p' "$ROADIE_ENV")" = "agent user" ] || { echo "FAIL: Roadie launcher lost WordPress user"; exit 1; }
 export WORDPRESS_PATH="/remote/site root" WORDPRESS_USER="agent user"
 
 # Userless profiles retain the transport prefix and emit only the path global.

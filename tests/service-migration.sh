@@ -19,7 +19,7 @@
 #
 #   3. --non-root ON A ROOT INSTALL FAILS CLOSED. This is the original #93
 #      footgun: it renders User=opencode, creates no user, and repoints
-#      KIMAKI_DATA_DIR at an empty home while the live session database stays in
+#      ROADIE_DATA_DIR at an empty home while the live session database stays in
 #      /root. Refusing is the fix; a passing migration is no good if the broken
 #      neighbouring flag is still reachable.
 set -eu
@@ -126,7 +126,7 @@ man="$(service_migration_inventory owned)"
 
 # Runtime state is what the agent IS — required under every mode, or the
 # migrated service comes back with no sessions and no runtime auth.
-for p in .kimaki .config/opencode .local/share/opencode; do
+for p in .roadie .config/opencode .local/share/opencode; do
   assert_contains "$eng" "$p" "engineering carries $p"
   assert_contains "$man" "$p" "managed carries $p"
 done
@@ -228,17 +228,17 @@ run_fixture_preflight() (
 )
 
 mkdir -p "$TMP/units"
-bridge_systemd_units() { echo "kimaki.service"; }
+bridge_systemd_units() { echo "roadie.service"; }
 
 # No unit installed -> empty, so --migrate-non-root can tell "fresh install"
 # apart from "installed and running as root".
 SYSTEMD_UNIT_DIR="$TMP/units"
 assert_eq "$(service_migration_installed_user)" "" "no unit yields empty identity"
 
-printf '[Service]\nUser=root\nExecStart=/bin/true\n' >"$TMP/units/kimaki.service"
+printf '[Service]\nUser=root\nExecStart=/bin/true\n' >"$TMP/units/roadie.service"
 assert_eq "$(service_migration_installed_user)" "root" "reads User=root"
 
-printf '[Service]\nUser=opencode\nExecStart=/bin/true\n' >"$TMP/units/kimaki.service"
+printf '[Service]\nUser=opencode\nExecStart=/bin/true\n' >"$TMP/units/roadie.service"
 assert_eq "$(service_migration_installed_user)" "opencode" "reads User=opencode"
 
 echo ""
@@ -261,20 +261,20 @@ assert_contains "$out" "must run as root" "preflight refuses an unprivileged run
 
 # A target home that already holds runtime state means a previous attempt got
 # partway. Merging two session databases corrupts both.
-mkdir -p "$PREFLIGHT_TARGET_HOME/.kimaki"
+mkdir -p "$PREFLIGHT_TARGET_HOME/.roadie"
 out=$(run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "already contains" "preflight refuses to merge runtime state"
-rm -rf "$PREFLIGHT_TARGET_HOME/.kimaki"
+rm -rf "$PREFLIGHT_TARGET_HOME/.roadie"
 
 # The capacity guard receives filesystem identity, free space, and inventory
 # size from the fixture, so it is testable without the host's mount table.
-mkdir -p "$PREFLIGHT_OLD_HOME/.kimaki"
-printf 'state\n' >"$PREFLIGHT_OLD_HOME/.kimaki/session"
+mkdir -p "$PREFLIGHT_OLD_HOME/.roadie"
+printf 'state\n' >"$PREFLIGHT_OLD_HOME/.roadie/session"
 out=$(PREFLIGHT_SOURCE_FILESYSTEM=fixture-source PREFLIGHT_TARGET_FILESYSTEM=fixture-target \
   PREFLIGHT_PATH_BYTES=2048 PREFLIGHT_AVAILABLE_BYTES=1 \
   run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "Not enough space to migrate" "preflight refuses an undersized cross-filesystem move"
-rm -rf "$PREFLIGHT_OLD_HOME/.kimaki"
+rm -rf "$PREFLIGHT_OLD_HOME/.roadie"
 
 echo ""
 echo "service-migration: --non-root on a root install is refused"
@@ -302,18 +302,18 @@ echo ""
 echo "service-migration: refuses to migrate from inside the unit it stops"
 
 # An agent driving its own upgrade runs inside the chat-bridge unit
-# (0::/system.slice/kimaki.service). Stopping that unit kills the migration
+# (0::/system.slice/roadie.service). Stopping that unit kills the migration
 # mid-move: state partly relocated, no unit rendered, nothing left running to
 # finish or report. It must refuse, and it must be a refusal rather than a
 # warning, because the process that would read the warning is the one that dies.
-out=$(PREFLIGHT_CURRENT_UNIT=kimaki.service PREFLIGHT_UNITS=kimaki.service \
+out=$(PREFLIGHT_CURRENT_UNIT=roadie.service PREFLIGHT_UNITS=roadie.service \
   run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
 assert_contains "$out" "systemd-run" "names a detached way to re-run it"
 
 # ...and does NOT refuse when the caller is outside the service (an SSH shell,
 # or systemd-run under its own transient unit).
-out=$(PREFLIGHT_UNITS=kimaki.service PREFLIGHT_TARGET_HOME="$TMP/fresh-home" \
+out=$(PREFLIGHT_UNITS=roadie.service PREFLIGHT_TARGET_HOME="$TMP/fresh-home" \
   run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 && echo PREFLIGHT_OK || true)
 assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
 
@@ -352,7 +352,7 @@ echo "service-migration: state lands owned by the service user"
 # chowning only `.local/share` leaves `.local` unwritable — which surfaces later
 # as a permission error nowhere near this code.
 MOVE=$TMP/move
-mkdir -p "$MOVE/old/.local/share/opencode" "$MOVE/old/.kimaki" "$MOVE/new"
+mkdir -p "$MOVE/old/.local/share/opencode" "$MOVE/old/.roadie" "$MOVE/new"
 echo data >"$MOVE/old/.local/share/opencode/sessions.db"
 
 MOVE_USER="daemon"
@@ -365,10 +365,10 @@ if [ "$(id -u)" -eq 0 ]; then
     # shellcheck disable=SC1091
     source lib/service-migration.sh
     service_migration_move_path ".local/share/opencode" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
-    service_migration_move_path ".kimaki" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
+    service_migration_move_path ".roadie" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
   ) >/dev/null 2>&1
 
-  for p in ".local" ".local/share" ".local/share/opencode" ".kimaki"; do
+  for p in ".local" ".local/share" ".local/share/opencode" ".roadie"; do
     owner=$(file_owner "$MOVE/new/$p" 2>/dev/null || echo MISSING)
     assert_eq "$owner" "$MOVE_USER" "$p is owned by the service user"
   done
@@ -376,7 +376,7 @@ if [ "$(id -u)" -eq 0 ]; then
     "$MOVE_USER" "moved file contents are owned by the service user"
   # The source must be gone — a copy would leave the old identity's session
   # database live alongside the new one.
-  if [ ! -e "$MOVE/old/.kimaki" ]; then
+  if [ ! -e "$MOVE/old/.roadie" ]; then
     echo "  ok   source path is moved, not copied"
   else
     echo "  FAIL source path still exists after migration"
@@ -394,60 +394,6 @@ assert_eq "$(service_migration_user_group nobody)" "$(id -gn nobody)" \
   "primary group is read from the account, not assumed"
 assert_eq "$(service_migration_user_group definitely-no-such-user-here)" \
   "definitely-no-such-user-here" "falls back to the user name when absent"
-
-echo ""
-echo "service-migration: ExecStartPre survives a root-owned package dir"
-
-# bridges/kimaki/post-upgrade.sh runs as ExecStartPre, as the SERVICE user,
-# under `set -euo pipefail`, with no `-` prefix on the unit directive — so any
-# non-zero exit blocks the service from starting at all. It removes bundled
-# skills from the npm package dir, which is root-owned (/usr/lib/node_modules,
-# 0755) and which a non-root service user cannot unlink from.
-#
-# This predates the migration: it breaks any `--non-root` install, a shape
-# setup.sh already supports. The migration is what makes it reachable. It also
-# fails LATE — only once `npm update -g kimaki` has recreated a bundled skill is
-# there anything to remove — so it would present as a service that mysteriously
-# stops booting long after the migration looked successful.
-assert_contains "$(cat bridges/kimaki/post-upgrade.sh)" "try_remove_package_path" \
-  "package-dir removals go through the best-effort helper"
-
-unguarded=$(grep -nE '^\s*rm -(rf|f) "\$(skill_dir|obsolete_plugin)"' bridges/kimaki/post-upgrade.sh || true)
-if [ -z "$unguarded" ]; then
-  echo "  ok   no unguarded rm on a package path remains"
-else
-  echo "  FAIL unguarded rm would abort ExecStartPre under set -e:"
-  echo "$unguarded" | sed 's/^/         /'
-  FAILED=$((FAILED + 1))
-fi
-
-# Behavioural: the helper must return 0 and keep going when the path cannot be
-# removed. An assertion on the text alone would not catch a helper that warns
-# and then still fails.
-if [ "$(id -u)" -eq 0 ]; then
-  EP=$TMP/execstartpre
-  mkdir -p "$EP/skills/upgrade-wp-coding-agents"
-  echo x >"$EP/skills/upgrade-wp-coding-agents/SKILL.md"
-  chmod -R go+rX "$TMP" 2>/dev/null || true
-  helper_src=$(sed -n '/^try_remove_package_path() {/,/^}/p' bridges/kimaki/post-upgrade.sh)
-  out=$(su -s /bin/bash nobody -c "bash -c '
-set -euo pipefail
-skills_removed=0; skills_unremovable=0
-$helper_src
-try_remove_package_path \"$EP/skills/upgrade-wp-coding-agents\" \"duplicate skill\"
-echo REACHED_END
-'" 2>&1 || true)
-  assert_contains "$out" "REACHED_END" "script continues past an unremovable path"
-  assert_contains "$out" "WARNING" "and warns about it"
-  if [ -d "$EP/skills/upgrade-wp-coding-agents" ]; then
-    echo "  ok   the unremovable path is left in place"
-  else
-    echo "  FAIL path was removed in a test that should not have been able to"
-    FAILED=$((FAILED + 1))
-  fi
-else
-  echo "  skip ExecStartPre behavioural check (requires root)"
-fi
 
 echo ""
 echo "service-migration: AGENTS.md is composed as the site owner"
@@ -498,7 +444,7 @@ echo "service-migration: the unit's environment follows the identity"
 
 # Found by migrating h44lacrosse.com and checking the rendered unit BEFORE
 # starting anything. The migration produced User=opencode alongside
-# Environment=HOME=/root and KIMAKI_DATA_DIR=/root/.kimaki: the merge keeps the
+# Environment=HOME=/root and ROADIE_DATA_DIR=/root/.roadie: the merge keeps the
 # installed unit's value for any key the template also sets, deliberately, so
 # operator edits survive an upgrade — but identity-derived values are not
 # operator edits. Starting that unit runs the agent as a user that cannot read
@@ -512,14 +458,14 @@ echo "service-migration: the unit's environment follows the identity"
 source bridges/_dispatch.sh 2>/dev/null || true
 
 INSTALLED_ENV='Environment=HOME=/root
-Environment=PATH=/root/.kimaki/bin:/root/.cargo/bin:/usr/bin:/bin
-Environment=KIMAKI_DATA_DIR=/root/.kimaki
+Environment=PATH=/root/.roadie/bin:/root/.cargo/bin:/usr/bin:/bin
+Environment=ROADIE_DATA_DIR=/root/.roadie
 Environment=BUN_INSTALL=/root/.bun
 Environment=OPERATOR_CUSTOM=keep-me'
 
 TEMPLATE_ENV='Environment=HOME=/home/opencode
-Environment=PATH=/home/opencode/.kimaki/bin:/usr/bin:/bin
-Environment=KIMAKI_DATA_DIR=/home/opencode/.kimaki'
+Environment=PATH=/home/opencode/.roadie/bin:/usr/bin:/bin
+Environment=ROADIE_DATA_DIR=/home/opencode/.roadie'
 
 # Without a migration in flight nothing is invalidated: an ordinary upgrade must
 # not rewrite an operator's environment.
@@ -532,9 +478,9 @@ assert_contains "$MERGED_NORMAL" "OPERATOR_CUSTOM=keep-me" \
 # Mid-migration, every value built from the old home is replaced.
 MERGED_MIG=$(SERVICE_MIGRATION_PREVIOUS_HOME="/root" _merge_systemd_env_lines "$INSTALLED_ENV" "$TEMPLATE_ENV")
 assert_contains "$MERGED_MIG" "Environment=HOME=/home/opencode" "HOME follows the new identity"
-assert_contains "$MERGED_MIG" "KIMAKI_DATA_DIR=/home/opencode/.kimaki" "the data dir follows"
+assert_contains "$MERGED_MIG" "ROADIE_DATA_DIR=/home/opencode/.roadie" "the data dir follows"
 refute_contains "$MERGED_MIG" "HOME=/root" "the old HOME is gone"
-refute_contains "$MERGED_MIG" "/root/.kimaki" "no value still points into the old home"
+refute_contains "$MERGED_MIG" "/root/.roadie" "no value still points into the old home"
 
 # PATH is the one a key-name list would have missed: it is not obviously an
 # identity value, and a stale one leaves the agent unable to reach its binaries.

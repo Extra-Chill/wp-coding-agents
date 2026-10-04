@@ -82,12 +82,12 @@ eval "$(load_upgrade_function reconcile_provider_and_service_state)"
 eval "$(load_upgrade_function update_chat_bridge_systemd)"
 eval "$(load_upgrade_function update_chat_bridge_launchd)"
 
-LOCAL_SERVICE="$TMP/com.wp.kimaki.plist"
-VPS_SERVICE="$TMP/kimaki.service"
+LOCAL_SERVICE="$TMP/com.wp.roadie.plist"
+VPS_SERVICE="$TMP/roadie.service"
 printf 'local service sentinel\n' > "$LOCAL_SERVICE"
 printf 'vps service sentinel\n' > "$VPS_SERVICE"
 
-KIMAKI_ONLY=false
+ROADIE_ONLY=false
 PLUGINS_ONLY=true
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
@@ -97,7 +97,7 @@ LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=false
 PLATFORM=mac
-CHAT_BRIDGE=kimaki
+CHAT_BRIDGE=roadie
 upgrade_data_machine_plugins() { printf 'data-machine\n' >> "$TMP/plugins"; }
 update_wp_codebox_plugin_subtree() { printf 'codebox\n' >> "$TMP/plugins"; }
 plugin_update_execute() { local slug="$1"; shift; "$@"; }

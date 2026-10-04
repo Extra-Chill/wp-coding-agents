@@ -84,7 +84,7 @@ chmod 664 "$site/wp-config.php"
 # Exercise the ordinary-upgrade gate itself: root mode must not touch the
 # config, while non-root mode converges default and explicit-opt-in modes.
 eval "$(sed -n '/^upgrade_harden_wp_config_permissions() {/,/^}/p' upgrade.sh)"
-LOCAL_MODE=false PLUGINS_ONLY=false KIMAKI_ONLY=false SKILLS_ONLY=false
+LOCAL_MODE=false PLUGINS_ONLY=false ROADIE_ONLY=false SKILLS_ONLY=false
 AGENTS_MD_ONLY=false RECONCILE_SERVICES_ONLY=false SITE_PATH="$site"
 eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
 RUN_AS_ROOT=true

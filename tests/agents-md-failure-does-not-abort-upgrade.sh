@@ -46,7 +46,7 @@ PHASES_AFTER=(
 {
   echo 'set -eu'
   # Narrow-scope flags off; this is the full default upgrade path.
-  for flag in PLUGINS_ONLY SKILLS_ONLY KIMAKI_ONLY AGENTS_MD_ONLY RECONCILE_SERVICES_ONLY DRY_RUN; do
+  for flag in PLUGINS_ONLY SKILLS_ONLY ROADIE_ONLY AGENTS_MD_ONLY RECONCILE_SERVICES_ONLY DRY_RUN; do
     echo "${flag}=false"
   done
   echo 'SITE_PATH=/tmp/site'

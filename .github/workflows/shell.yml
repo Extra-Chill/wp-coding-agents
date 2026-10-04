@@ -117,8 +117,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Run tests/dm-agent-sync.mjs
         run: bun tests/dm-agent-sync.mjs
-      - name: Run tests/kimaki-session-attribution.mjs
-        run: bun tests/kimaki-session-attribution.mjs
+      - name: Run tests/session-attribution.mjs
+        run: bun tests/session-attribution.mjs
       - name: Run tests/setup-profile-compiler.mjs
         run: node tests/setup-profile-compiler.mjs
 
@@ -170,16 +170,8 @@ jobs:
       - name: Run tests/ai-gateway.sh
         run: ./tests/ai-gateway.sh
 
-  kimaki-agent-fallback:
-    name: Kimaki native agent fallback regression
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/kimaki-agent-fallback.sh
-        run: ./tests/kimaki-agent-fallback.sh
-
   cli-channel-binary-path:
-    name: CLI channel binary-path web-reachability regression (#198)
+    name: Roadie CLI channel reachable by the web user (#198)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -202,21 +194,13 @@ jobs:
       - name: Run tests/service-identity-adoption.sh
         run: ./tests/service-identity-adoption.sh
 
-  kimaki-dispatch-helper-health:
-    name: Kimaki dispatch helper health (#304)
+  roadie-managed-env:
+    name: Roadie managed env in every render site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/kimaki-dispatch-helper-health.sh
-        run: ./tests/kimaki-dispatch-helper-health.sh
-
-  kimaki-no-default-channel:
-    name: Kimaki default-channel opt-out (remorses/kimaki#175)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/kimaki-no-default-channel.sh
-        run: ./tests/kimaki-no-default-channel.sh
+      - name: Run tests/roadie-managed-env.sh
+        run: ./tests/roadie-managed-env.sh
 
   runtime-guard:
     name: runtime deactivation guard (#328)
@@ -303,13 +287,10 @@ jobs:
           - homeboy-project-id
           - homeboy-service-identity
           - homeboy-verification-guidance
-          - kimaki-credential-seeding
-          - kimaki-install-existing
-          - kimaki-launchd-start
-          - kimaki-managed-plugin-rig
-          - kimaki-multi-instance
-          - kimaki-restart-continuation
-          - kimaki-system-message-patch
+          - roadie-command-guard
+          - roadie-kimaki-migration
+          - roadie-multi-instance
+          - roadie-provision
           - installation-profile
           - install-source-integrity-report
           - install-source-managed-file-sync
@@ -324,7 +305,6 @@ jobs:
           - upgrade-help
           - verify
           - path-helpers
-          - post-upgrade-restore
           - plugins-only-scope
           - plugin-upgrade-bounds
           - runtime-signature
@@ -342,11 +322,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'kimaki-managed-plugin-rig'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard'
         with:
           node-version: 24
       - name: Install supported OpenCode dispatch fixture
-        if: matrix.test == 'kimaki-managed-plugin-rig'
+        if: matrix.test == 'roadie-command-guard'
         run: npm install --global opencode-ai@1.18.20
+      - name: Install sqlite3 for the Kimaki migration test
+        if: matrix.test == 'roadie-kimaki-migration'
+        run: command -v sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)
       - name: Run tests/${{ matrix.test }}.sh
         run: bash tests/${{ matrix.test }}.sh

@@ -87,17 +87,17 @@ assert_lacks "dry-run does not print fake token" "$DRY_OUTPUT" "wpag_"
 assert_file_contains "dry-run leaves env token untouched" "$SITE_PATH/.opencode/wp-ai-gateway.env" "OPENAI_API_KEY=wpag_existing_secret"
 
 echo "==> unit/plist dry-run diffs redact secrets"
-REDACTED="$(printf '%s\n' '+Environment=OPENAI_API_KEY=wpag_existing_secret' ' <key>KIMAKI_BOT_TOKEN</key>' ' <string>discord_secret</string>' | _redact_secret_diff)"
+REDACTED="$(printf '%s\n' '+Environment=OPENAI_API_KEY=wpag_existing_secret' ' <key>ROADIE_BOT_TOKEN</key>' ' <string>discord_secret</string>' | _redact_secret_diff)"
 assert_lacks "systemd-style secret redacted" "$REDACTED" "wpag_existing_secret"
 assert_lacks "plist-style secret redacted" "$REDACTED" "discord_secret"
 
 echo "==> Kimaki launchd inherits gateway environment"
 # shellcheck disable=SC1091
-source bridges/kimaki.sh
-KIMAKI_BIN="/usr/bin/kimaki"
-KIMAKI_DATA_DIR="$TMPDIR_TEST/kimaki"
+source bridges/roadie.sh
+ROADIE_BIN="/usr/bin/kimaki"
+ROADIE_DATA_DIR="$TMPDIR_TEST/kimaki"
 PLIST_OUT="$TMPDIR_TEST/kimaki.plist"
-bridge_render_launchd com.wp.kimaki > "$PLIST_OUT"
+bridge_render_launchd com.wp.roadie > "$PLIST_OUT"
 assert_file_contains "launchd includes gateway base URL" "$PLIST_OUT" "<key>OPENAI_BASE_URL</key>"
 assert_file_contains "launchd includes gateway key" "$PLIST_OUT" "<key>OPENAI_API_KEY</key>"
 

@@ -32,18 +32,18 @@ ok() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1" >&2; FAILED=1; }
 
 SITE_PATH="$TMP/site"
-mkdir -p "$SITE_PATH/.opencode/skills" "$SITE_PATH/.claude/hooks" "$SITE_PATH/.wp-coding-agents" "$TMP/kimaki-config/plugins"
+mkdir -p "$SITE_PATH/.opencode/skills" "$SITE_PATH/.claude/hooks" "$SITE_PATH/.wp-coding-agents" "$TMP/roadie-config/plugins"
 printf 'x\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
-printf 'x\n' > "$TMP/kimaki-config/plugins/dm-agent-sync.ts"
+printf 'x\n' > "$TMP/roadie-config/plugins/dm-agent-sync.ts"
 ln -s "$TMP/elsewhere" "$SITE_PATH/.codex"
-RESOLVED_KIMAKI_CONFIG_DIR="$TMP/kimaki-config"
+RESOLVED_ROADIE_CONFIG_DIR="$TMP/roadie-config"
 LOCAL_MODE=false
 SERVICE_USER="$(id -un)"
 UPDATED_ITEMS=()
 
 echo "1. roots are the agent-maintained set"
 roots="$(agent_state_ownership_roots | sort)"
-want="$(printf '%s\n' "$SITE_PATH/.claude" "$SITE_PATH/.opencode" "$SITE_PATH/.wp-coding-agents" "$TMP/kimaki-config" | sort)"
+want="$(printf '%s\n' "$SITE_PATH/.claude" "$SITE_PATH/.opencode" "$SITE_PATH/.wp-coding-agents" "$TMP/roadie-config" | sort)"
 if [ "$roots" = "$want" ]; then ok "exact root set, symlinked .codex skipped"; else fail "roots: $roots"; fi
 case "$roots" in
   *systemd*|*sudoers*|*journald*) fail "privileged host state leaked into agent roots" ;;
@@ -61,11 +61,11 @@ if [ "$(id -u)" -ne 0 ]; then
   # maintainable (only the owner can chmod), so ownership alone decides.
   # Non-root cannot fabricate a foreign owner, so pin the identity the audit
   # compares against to a uid that is not ours for one root.
-  chmod 555 "$TMP/kimaki-config/plugins"
+  chmod 555 "$TMP/roadie-config/plugins"
   AGENT_STATE_OWNERSHIP_UID=0
   audit_out="$(agent_state_ownership_audit 2>&1)"
   case "$audit_out" in
-    *"root-owned agent state found"*"$TMP/kimaki-config"*"one-time repair: sudo "*"--reconcile-agent-state-ownership"*) ok "one consolidated warning with repair command" ;;
+    *"root-owned agent state found"*"$TMP/roadie-config"*"one-time repair: sudo "*"--reconcile-agent-state-ownership"*) ok "one consolidated warning with repair command" ;;
     *) fail "audit output: $audit_out" ;;
   esac
   case "$audit_out" in
@@ -79,10 +79,10 @@ if [ "$(id -u)" -ne 0 ]; then
   # Re-run in-process so the state arrays are populated for the maintainability check.
   agent_state_ownership_audit >/dev/null 2>&1
   unset AGENT_STATE_OWNERSHIP_UID
-  ! agent_state_ownership_can_maintain "$TMP/kimaki-config/plugins/dm-agent-sync.ts" && ok "descendant of unmaintainable root is skipped" || fail "descendant still reported maintainable"
+  ! agent_state_ownership_can_maintain "$TMP/roadie-config/plugins/dm-agent-sync.ts" && ok "descendant of unmaintainable root is skipped" || fail "descendant still reported maintainable"
   [ "$(printf '%s\n' "$audit_out" | grep -c 'root_repair_required')" -eq 1 ] && ok "exactly one record for all roots" || fail "record emitted per root"
-  [ "$(file_mode "$TMP/kimaki-config/plugins")" = 555 ] && ok "audit did not mutate" || fail "audit mutated permissions"
-  chmod 755 "$TMP/kimaki-config/plugins"
+  [ "$(file_mode "$TMP/roadie-config/plugins")" = 555 ] && ok "audit did not mutate" || fail "audit mutated permissions"
+  chmod 755 "$TMP/roadie-config/plugins"
 
   echo "4. reconcile is a no-op without root"
   agent_state_ownership_reconcile >"$TMP/rec.out" 2>&1
@@ -90,10 +90,10 @@ if [ "$(id -u)" -ne 0 ]; then
 else
   echo "3/4. root: reconcile hands roots to the service user with the right group"
   target="nobody"
-  chown -R root:root "$TMP/kimaki-config" "$SITE_PATH"
+  chown -R root:root "$TMP/roadie-config" "$SITE_PATH"
   chgrp "$(id -gn "$target")" "$SITE_PATH"
   SERVICE_USER="$target" agent_state_ownership_reconcile >"$TMP/rec.out" 2>&1
-  [ "$(file_owner "$TMP/kimaki-config/plugins/dm-agent-sync.ts")" = "$target" ] && ok "persistent config reassigned" || fail "kimaki-config still $(file_owner "$TMP/kimaki-config/plugins/dm-agent-sync.ts")"
+  [ "$(file_owner "$TMP/roadie-config/plugins/dm-agent-sync.ts")" = "$target" ] && ok "persistent config reassigned" || fail "roadie-config still $(file_owner "$TMP/roadie-config/plugins/dm-agent-sync.ts")"
   [ "$(file_owner "$SITE_PATH/.wp-coding-agents/installation-profile")" = "$target" ] && ok "installation profile reassigned" || fail "profile not reassigned"
   [ "$(file_group "$SITE_PATH/.opencode")" = "$(file_group "$SITE_PATH")" ] && ok "site roots keep the site group" || fail "site group not preserved"
   [ -L "$SITE_PATH/.codex" ] && [ ! -e "$TMP/elsewhere" ] && ok "symlinked root untouched" || fail "symlink followed"
@@ -108,7 +108,7 @@ grep -qF -- '--reconcile-agent-state-ownership' upgrade.sh && ok "one-shot repai
 grep -qF 'AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED' upgrade.sh && ok "summary reports root repair" || fail "summary silent"
 grep -qF 'agent_state_ownership_reconcile' setup.sh && ok "setup hands state over" || fail "setup does not reconcile"
 grep -qF 'agent_state_ownership_reconcile' lib/service-migration.sh && ok "migration hands state over" || fail "migration does not reconcile"
-grep -qF 'agent_state_ownership_can_maintain' bridges/kimaki.sh && ok "kimaki config sync skips cleanly" || fail "kimaki sync unguarded"
+grep -qF 'agent_state_ownership_can_maintain' bridges/roadie.sh && ok "kimaki config sync skips cleanly" || fail "kimaki sync unguarded"
 grep -qF 'agent_state_ownership_can_maintain' lib/opencode-subagents.sh && ok "subagent projection skips cleanly" || fail "projection unguarded"
 grep -qF 'agent_state_ownership_can_maintain' runtimes/claude-code.sh && ok "claude hook install skips cleanly" || fail "hook install unguarded"
 
