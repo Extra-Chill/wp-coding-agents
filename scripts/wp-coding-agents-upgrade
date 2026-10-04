@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# wp-coding-agents-upgrade — let the agent account upgrade its own install.
+#
+# Installed by setup/upgrade at /usr/local/sbin/wp-coding-agents-upgrade
+# (root:root 0755) with a grant for the service user:
+#
+#     <service-user> ALL=(root) NOPASSWD: /usr/local/sbin/wp-coding-agents-upgrade start, \
+#                                         /usr/local/sbin/wp-coding-agents-upgrade status
+#
+#   start   launch the upgrade in its own transient systemd unit and return
+#   status  report whether one is running and how the last one ended
+#
+# The caller supplies no path, content, or ref. Everything comes from root-owned
+# config (/etc/wp-coding-agents/self-upgrade.conf) written by setup.
+#
+# WHAT RUNS IS WHAT WAS MERGED. The upgrade checks the root-owned checkout out
+# at origin/<trust ref> (default main), detached and forced, then runs its
+# upgrade.sh. The agent cannot write that checkout, so it cannot choose what
+# runs as root, only when. Same trust model as homeboy-edge-apply.
+#
+# WHY A TRANSIENT UNIT. The agent's shell lives inside the chat bridge's
+# service cgroup. An upgrade launched there is killed the moment it stops or
+# restarts the bridge, possibly halfway through migrating it. systemd-run puts
+# the upgrade in its own cgroup, so it outlives the bridge it replaces.
+#
+# Exit codes: 0 started / status printed, 1 failed, 2 usage or refused,
+#             3 an upgrade is already running.
+set -Eeuo pipefail
+
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+IFS=$' \t\n'
+umask 022
+
+# sudo resets the environment; defend in depth anyway. An inherited GIT_*
+# variable is arbitrary command execution the next time git runs as root.
+for _var in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_var"; done
+unset BASH_ENV CDPATH ENV LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH PERL5LIB NODE_OPTIONS
+export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+
+readonly PROGRAM=wp-coding-agents-upgrade
+readonly CONFIG=/etc/wp-coding-agents/self-upgrade.conf
+readonly STATE=/var/lib/wp-coding-agents/self-upgrade.last
+readonly UNIT=wp-coding-agents-upgrade
+readonly SELF=/usr/local/sbin/wp-coding-agents-upgrade
+
+log() {
+  logger -t "$PROGRAM" -- "$*" 2>/dev/null || true
+  printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+die() { log "$1"; exit "${2:-1}"; }
+
+# owner:mode of a path, GNU or BSD stat.
+owner_mode() { stat -c '%U:%a' "$1" 2>/dev/null || stat -f '%Su:%Lp' "$1"; }
+
+# Root-owned and not writable by group or other.
+root_locked() {
+  local om mode
+  om="$(owner_mode "$1")" || return 1
+  mode="${om#*:}"
+  [ "${om%%:*}" = root ] || return 1
+  [ $(( 8#$mode & 8#022 )) -eq 0 ]
+}
+
+# KEY=value lines only; never sourced.
+config_value() {
+  sed -n "s/^$1=//p" "$CONFIG" | tail -1
+}
+
+load_config() {
+  [ -f "$CONFIG" ] || die "no $CONFIG; rerun setup or upgrade as root" 2
+  root_locked "$CONFIG" || die "$CONFIG must be root-owned and not group/other-writable" 2
+  CHECKOUT="$(config_value CHECKOUT)"
+  SITE_PATH="$(config_value SITE_PATH)"
+  TRUST_REF="$(config_value TRUST_REF)"
+  TRUST_REF="${TRUST_REF:-main}"
+  case "$CHECKOUT" in /*) ;; *) die "CHECKOUT must be an absolute path" 2 ;; esac
+  case "$SITE_PATH" in /*) ;; *) die "SITE_PATH must be an absolute path" 2 ;; esac
+  [[ "$TRUST_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "invalid TRUST_REF" 2
+  [ -d "$CHECKOUT/.git" ] || die "$CHECKOUT is not a git checkout" 2
+  local path="$CHECKOUT"
+  while [ -n "$path" ] && [ "$path" != / ]; do
+    root_locked "$path" || die "$path must be root-owned and not group/other-writable" 2
+    path="$(dirname "$path")"
+  done
+}
+
+cmd_start() {
+  [ "$(id -u)" -eq 0 ] || die "start must run as root (via sudo)" 2
+  load_config
+  if systemctl is-active --quiet "$UNIT.service"; then
+    die "an upgrade is already running; check: $PROGRAM status" 3
+  fi
+  systemctl reset-failed "$UNIT.service" >/dev/null 2>&1 || true
+  systemd-run --unit="$UNIT" --description="wp-coding-agents self-upgrade" \
+    --property=Type=exec --collect --quiet "$SELF" apply
+  log "started $UNIT.service (follow with: journalctl -u $UNIT.service -f)"
+  printf 'started %s.service\nfollow: journalctl -u %s.service -f\nresult: %s status\n' "$UNIT" "$UNIT" "$PROGRAM"
+}
+
+cmd_status() {
+  if systemctl is-active --quiet "$UNIT.service"; then
+    printf 'running\n'
+  else
+    printf 'idle\n'
+  fi
+  if [ -f "$STATE" ]; then
+    printf 'last: %s\n' "$(cat "$STATE")"
+  else
+    printf 'last: none\n'
+  fi
+}
+
+record() {
+  mkdir -p "$(dirname "$STATE")"
+  printf '%s exit=%s commit=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "${2:-unknown}" > "$STATE.tmp"
+  chmod 0644 "$STATE.tmp"
+  mv "$STATE.tmp" "$STATE"
+}
+
+# Restart the enabled Roadie units that serve this site. Kimaki units are
+# disabled by the migration, so they are never restarted here.
+restart_bridges() {
+  local unit working
+  for unit in /etc/systemd/system/roadie*.service; do
+    [ -f "$unit" ] || continue
+    working="$(sed -n 's/^WorkingDirectory=//p' "$unit" | head -1)"
+    [ "$working" = "$SITE_PATH" ] || continue
+    systemctl is-enabled --quiet "$(basename "$unit")" || continue
+    log "restarting $(basename "$unit")"
+    systemctl restart "$(basename "$unit")"
+  done
+}
+
+# Runs only inside the transient unit, never from the caller's sudo (the grant
+# allows start and status only; the cgroup check is defense in depth).
+cmd_apply() {
+  [ "$(id -u)" -eq 0 ] || die "apply must run as root" 2
+  grep -q "/$UNIT.service\$" /proc/self/cgroup 2>/dev/null || die "apply runs only inside $UNIT.service; use start" 2
+  load_config
+  export HOME=/root
+  local commit rc=0
+  git -C "$CHECKOUT" fetch --quiet origin "+refs/heads/$TRUST_REF:refs/remotes/origin/$TRUST_REF" \
+    || { record fetch-failed; die "git fetch failed"; }
+  git -C "$CHECKOUT" checkout --quiet --force --detach "origin/$TRUST_REF" \
+    || { record checkout-failed; die "checkout of origin/$TRUST_REF failed"; }
+  commit="$(git -C "$CHECKOUT" rev-parse --short HEAD)"
+  log "upgrading $SITE_PATH from $CHECKOUT at $commit (origin/$TRUST_REF)"
+  (cd "$CHECKOUT" && ./upgrade.sh --wp-path "$SITE_PATH") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    record "$rc" "$commit"
+    die "upgrade.sh exited $rc at $commit; bridges not restarted" 1
+  fi
+  restart_bridges || rc=$?
+  record "$rc" "$commit"
+  log "done at $commit (exit $rc)"
+  return "$rc"
+}
+
+main() {
+  case "${1:-}" in
+    start) [ $# -eq 1 ] || die "start takes no arguments" 2; cmd_start ;;
+    status) [ $# -eq 1 ] || die "status takes no arguments" 2; cmd_status ;;
+    apply) [ $# -eq 1 ] || die "apply takes no arguments" 2; cmd_apply ;;
+    *) die "usage: $PROGRAM start|status" 2 ;;
+  esac
+}
+
+main "$@"
