@@ -753,14 +753,21 @@ PY
     "$env_json"
 }
 
-_roadie_path_value() {
-  local roadie_bin_dir node_bin_dir homeboy_bin_dir=""
-  roadie_bin_dir=$(dirname "$ROADIE_BIN")
-  node_bin_dir=$(_resolve_node_bin_dir "$ROADIE_BIN")
+# Directory of the service-owned Homeboy on managed non-root installs, empty
+# otherwise. It must lead the service PATH: a legacy ~/.local/bin/homeboy seed
+# copy is never upgraded and would otherwise shadow the managed binary.
+_roadie_managed_homeboy_dir() {
   if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] \
      && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
-    homeboy_bin_dir="$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")"
+    dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
   fi
+}
+
+_roadie_path_value() {
+  local roadie_bin_dir node_bin_dir homeboy_bin_dir
+  roadie_bin_dir=$(dirname "$ROADIE_BIN")
+  node_bin_dir=$(_resolve_node_bin_dir "$ROADIE_BIN")
+  homeboy_bin_dir="$(_roadie_managed_homeboy_dir)"
   # The service user's own tool dirs come before the system ones: the OpenCode
   # installer puts its binary in ~/.opencode/bin, and a stale distro copy in
   # /usr/bin would otherwise win (Roadie spawns `opencode` from PATH).
@@ -897,6 +904,10 @@ bridge_update_systemd() {
       current_env=$(_ensure_systemd_path_first "$current_env" "$tool_dir")
     done
   fi
+  # Prepending user-tool dirs must not demote the managed Homeboy: a stale
+  # ~/.local/bin/homeboy would win and agent shells would run an old
+  # controller. Keep the fresh-render order: managed Homeboy first.
+  current_env=$(_ensure_systemd_path_first "$current_env" "$(_roadie_managed_homeboy_dir)")
 
   merged_env=$(_merge_systemd_env_lines "$current_env" "$(_roadie_template_env "$path_value")")
   merged_env=$(_preserve_systemd_umask "$unit_file" "$merged_env")
