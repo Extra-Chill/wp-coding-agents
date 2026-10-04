@@ -288,6 +288,7 @@ jobs:
           - homeboy-components
           - homeboy-project-id
           - homeboy-service-identity
+          - homeboy-daemon-service
           - homeboy-verification-guidance
           - roadie-accounts
           - roadie-command-guard
