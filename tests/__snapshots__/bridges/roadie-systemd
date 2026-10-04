@@ -7,7 +7,7 @@ Type=simple
 User=chubes
 WorkingDirectory=/var/www/site
 Environment=HOME=/home/chubes
-Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes/.local/bin:/home/chubes/.opencode/bin:/home/chubes/.local/share/pnpm:/home/chubes/.bun/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin
 Environment=ROADIE_DATA_DIR=/home/chubes/.roadie
 Environment=ROADIE_MANAGED=1
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
