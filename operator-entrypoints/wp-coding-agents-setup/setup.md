@@ -25,7 +25,7 @@ Use the scripts for operational details:
 | Chat bridge implementations | `bridges/*.sh` and `bridges/_dispatch.sh` |
 | Homeboy setup behavior | `lib/homeboy.sh` |
 | WordPress/WP-CLI behavior | `lib/wordpress.sh` |
-| Upgrade behavior | `./upgrade.sh --help` and `upgrade-wp-coding-agents` |
+| Upgrade behavior | `./upgrade.sh --help`; on a managed VPS, `/upgrade-and-restart` |
 
 Do not duplicate script internals in this guide. Compile commands from the setup profile, then verify against script output.
 
@@ -72,7 +72,6 @@ Do not duplicate script internals in this guide. Compile commands from the setup
 - Workspace mode requires explicitly declared absolute Git checkout roots. Homeboy
   can attach those roots but never discovers or creates repository authority.
 - Use `--no-chat` when the operator wants terminal/SSH-only operation.
-- Use `--no-skills` only when the operator explicitly wants to skip installing the upgrade skill on the target runtime.
 
 ## When To Use
 

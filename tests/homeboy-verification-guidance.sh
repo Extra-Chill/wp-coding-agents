@@ -18,7 +18,6 @@ SUMMARY="$(print_homeboy_verification_commands)"
 wp_cli_transport_set studio wp
 SITE_PATH=""
 STUDIO_SUMMARY="$(print_homeboy_verification_commands)"
-SKILL="skills/upgrade-wp-coding-agents/SKILL.md"
 SETUP_VERIFY="operator-entrypoints/wp-coding-agents-setup/verify.md"
 
 assert_contract_command() {
@@ -29,7 +28,7 @@ assert_contract_command() {
     *) echo "FAIL: generated summary is missing: $command"; exit 1 ;;
   esac
 
-  for file in "$SKILL" "$SETUP_VERIFY"; do
+  for file in "$SETUP_VERIFY"; do
     if ! grep -qF -- "$command" "$file"; then
       echo "FAIL: $file is missing generated summary command: $command"
       exit 1
@@ -51,7 +50,7 @@ for command in \
     *"$command"*) ;;
     *) echo "FAIL: generated Studio summary is missing: $command"; exit 1 ;;
   esac
-  for file in "$SKILL" "$SETUP_VERIFY"; do
+  for file in "$SETUP_VERIFY"; do
     if ! grep -qF -- "$command" "$file"; then
       echo "FAIL: $file is missing generated Studio summary command: $command"
       exit 1

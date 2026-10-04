@@ -94,7 +94,7 @@ codex --version
 test -f /path/to/site/AGENTS.md
 test -f /path/to/site/AGENTS.override.md
 grep -q 'WP_CODING_AGENTS_CODEX_MEMORY_START' /path/to/site/AGENTS.override.md
-test -d /path/to/site/.agents/skills/upgrade-wp-coding-agents
+test ! -e /path/to/site/.agents/skills/upgrade-wp-coding-agents   # retired skill removed
 ```
 
 ### `verify-runtime-multiple`

@@ -1,208 +1,42 @@
 #!/bin/bash
-# Upgrade skill installation from the wp-coding-agents repo itself.
-# Site-specific WordPress, Data Machine, and Homeboy guidance belongs in the
-# composed AGENTS.md, which is fresher than static external skill snapshots.
+# Retired managed skills.
+#
+# wp-coding-agents used to install an `upgrade-wp-coding-agents` skill: a
+# runbook the agent followed to run upgrade.sh by hand. Upgrades are now
+# deterministic: `roadie upgrade` / `/upgrade-and-restart` call the host's
+# upgrade command (lib/self-upgrade.sh) through Roadie's host_upgrade hook.
+# This file only removes copies earlier installs left in runtime skill dirs.
+# Site-specific guidance belongs in the composed AGENTS.md.
 
-WP_CODING_AGENTS_SKILLS=(upgrade-wp-coding-agents)
+WP_CODING_AGENTS_RETIRED_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
 
-is_wp_coding_agents_skill() {
-  local candidate="$1"
-  local skill
-
-  for skill in "${WP_CODING_AGENTS_SKILLS[@]}"; do
-    [ "$candidate" = "$skill" ] && return 0
-  done
-
-  return 1
-}
-
-# Install managed skills shipped in this repo ($SCRIPT_DIR/skills/).
-# The installed set intentionally excludes setup. Setup is a pre-install entry
-# point that should be used once from the operator's machine, then discarded.
-# Installed agents only need the upgrade runbook for ongoing maintenance.
-install_skills_from_local_repo() {
-  local src_dir="$SCRIPT_DIR/skills"
-  [ -d "$src_dir" ] || return
-
-  if [ "$DRY_RUN" = true ]; then
-    for skill_dir in "$src_dir"/*/; do
-      local skill_name
-      skill_name=$(basename "$skill_dir")
-      [ -f "$skill_dir/SKILL.md" ] || continue
-      is_wp_coding_agents_skill "$skill_name" || continue
-      echo -e "${BLUE}[dry-run]${NC} Would install upgrade skill: $skill_name → $SKILLS_DIR/"
-    done
-    return
-  fi
-
-  local copied=0
-  for skill_dir in "$src_dir"/*/; do
-    local skill_name
-    skill_name=$(basename "$skill_dir")
-    if [ -f "$skill_dir/SKILL.md" ] && is_wp_coding_agents_skill "$skill_name"; then
-      rm -rf "$SKILLS_DIR/$skill_name"
-      cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
-      # Skills dirs live under the web tree (.claude/skills, .opencode/skills,
-      # .agents/skills) and get rewritten across setup/upgrade runs that may
-      # each run as a different identity (root, opencode, www-data) — same
-      # multi-writer problem as the mu-plugins, just for a directory tree
-      # instead of a single file.
-      service_dir_normalize_perms "$SKILLS_DIR/$skill_name"
-      log "  Installed upgrade skill: $skill_name"
-      copied=$((copied + 1))
-    fi
-  done
-  if [ "$copied" -gt 0 ]; then
-    log "wp-coding-agents upgrade skill installed ($copied)"
-  fi
-}
-
-# Resolve the skills dir for a given runtime without mutating the currently
-# sourced runtime functions permanently. We source the runtime file in a
-# subshell, call its runtime_skills_dir(), and echo the result.
-_resolve_skills_dir_for_runtime() {
-  local rt="$1"
-  local rt_file="$SCRIPT_DIR/runtimes/${rt}.sh"
-  [ -f "$rt_file" ] || { echo ""; return 1; }
-  (
-    # shellcheck disable=SC1090
-    source "$rt_file"
-    runtime_skills_dir
-  )
-}
-
-# Return whether a detected runtime discovers both skill directories. Runtime
-# discovery roots may overlap even when their native install directories differ.
-_managed_skill_dirs_overlap() {
-  local first_dir="$1" second_dir="$2"
-  local rt rt_file discovery_dir has_first has_second
-
+# Every skill dir a detected runtime discovers.
+_retired_skill_roots() {
+  local rt rt_file
   for rt in "${DETECTED_RUNTIMES[@]:-$RUNTIME}"; do
     rt_file="$SCRIPT_DIR/runtimes/${rt}.sh"
     [ -f "$rt_file" ] || continue
-    has_first=false
-    has_second=false
-
-    while IFS= read -r discovery_dir; do
-      [ "$discovery_dir" = "$first_dir" ] && has_first=true
-      [ "$discovery_dir" = "$second_dir" ] && has_second=true
-    done < <(
+    (
       # shellcheck disable=SC1090
       source "$rt_file"
-      runtime_skill_discovery_dirs
+      declare -F runtime_skill_discovery_dirs >/dev/null && runtime_skill_discovery_dirs
+      declare -F runtime_skills_dir >/dev/null && runtime_skills_dir
     )
-
-    [ "$has_first" = true ] && [ "$has_second" = true ] && return 0
-  done
-
-  return 1
+  done | awk 'NF && !seen[$0]++'
 }
 
-# Resolve both the runtime roots that may contain managed skills and the
-# canonical targets to populate. Select the first native target in each set of
-# overlapping discovery roots.
-_resolve_managed_skill_dirs() {
-  local -a runtimes=("${DETECTED_RUNTIMES[@]:-$RUNTIME}")
-  local rt dir seen_dir target already overlaps
-
-  WP_CODING_AGENTS_SKILL_ROOTS=()
-  WP_CODING_AGENTS_SKILL_TARGETS=()
-
-  for rt in "${runtimes[@]}"; do
-    dir="$(_resolve_skills_dir_for_runtime "$rt")"
-    [ -n "$dir" ] || continue
-
-    already=false
-    for seen_dir in "${WP_CODING_AGENTS_SKILL_ROOTS[@]}"; do
-      [ "$seen_dir" = "$dir" ] && { already=true; break; }
-    done
-    [ "$already" = true ] || WP_CODING_AGENTS_SKILL_ROOTS+=("$dir")
-
-    overlaps=false
-    for target in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
-      _managed_skill_dirs_overlap "$target" "$dir" && { overlaps=true; break; }
-    done
-    [ "$overlaps" = true ] || WP_CODING_AGENTS_SKILL_TARGETS+=("$dir")
-  done
-
-  [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 0 ] \
-    || WP_CODING_AGENTS_SKILL_TARGETS=("$(runtime_skills_dir)")
-  SKILLS_DIR="${WP_CODING_AGENTS_SKILL_TARGETS[0]}"
-}
-
-_cleanup_managed_skill_duplicates() {
-  local root target is_target
-
-  for root in "${WP_CODING_AGENTS_SKILL_ROOTS[@]}"; do
-    if [ -d "$root/wp-coding-agents-setup" ]; then
-      if [ "$DRY_RUN" = true ]; then
-        echo -e "${BLUE}[dry-run]${NC} Would remove retired managed skill: $root/wp-coding-agents-setup"
-      else
-        rm -rf "$root/wp-coding-agents-setup"
-        log "  Removed retired managed skill: $root/wp-coding-agents-setup"
+remove_retired_skills() {
+  local root skill
+  while IFS= read -r root; do
+    for skill in "${WP_CODING_AGENTS_RETIRED_SKILLS[@]}"; do
+      [ -d "$root/$skill" ] || continue
+      if [ "${DRY_RUN:-false}" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would remove retired managed skill: $root/$skill"
+        continue
       fi
-    fi
-
-    is_target=false
-    for target in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
-      [ "$root" = "$target" ] && { is_target=true; break; }
+      rm -rf "${root:?}/$skill"
+      log "  Removed retired managed skill: $root/$skill"
+      UPDATED_ITEMS+=("removed retired skill $skill")
     done
-    if [ "$is_target" = false ] && [ -d "$root/upgrade-wp-coding-agents" ]; then
-      if [ "$DRY_RUN" = true ]; then
-        echo -e "${BLUE}[dry-run]${NC} Would remove noncanonical managed skill: $root/upgrade-wp-coding-agents"
-      else
-        rm -rf "$root/upgrade-wp-coding-agents"
-        log "  Removed noncanonical managed skill: $root/upgrade-wp-coding-agents"
-      fi
-    fi
-  done
-}
-
-install_skills() {
-  _resolve_managed_skill_dirs
-
-  if [ "$INSTALL_SKILLS" != true ]; then
-    log "Phase 8.5: Skipping upgrade skill (--no-skills)"
-    return
-  fi
-
-  log "Phase 8.5: Installing upgrade skill..."
-
-  if [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 1 ]; then
-    log "  Populating ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} unique skills dir(s)"
-  fi
-
-  # Install the managed upgrade skill into each canonical runtime target.
-  local target_dir
-  for target_dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
-    if [ ${#WP_CODING_AGENTS_SKILL_TARGETS[@]} -gt 1 ]; then
-      log "→ Installing skills into $target_dir"
-    fi
-    SKILLS_DIR="$target_dir"
-    run_cmd mkdir -p "$SKILLS_DIR"
-
-    install_skills_from_local_repo
-  done
-
-  # Keep existing fallback copies until the canonical install succeeds.
-  _cleanup_managed_skill_duplicates
-
-  SKILLS_DIR="${WP_CODING_AGENTS_SKILL_TARGETS[0]}"
-
-}
-
-print_skills_summary() {
-  echo ""
-
-  _resolve_managed_skill_dirs
-
-  local dir
-  for dir in "${WP_CODING_AGENTS_SKILL_TARGETS[@]}"; do
-    log "Managed upgrade skill target: $dir/"
-    if [ "$DRY_RUN" = false ]; then
-      ls -1 "$dir" 2>/dev/null | while read -r skill; do
-        log "  - $skill"
-      done
-    fi
-  done
+  done < <(_retired_skill_roots)
 }

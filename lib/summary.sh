@@ -75,12 +75,6 @@ print_summary() {
   if [ "$INSTALL_CHAT" = true ]; then
     echo "  Bridge:   $CHAT_BRIDGE"
   fi
-  _resolve_managed_skill_dirs
-  if [ "$INSTALL_SKILLS" = true ]; then
-    echo "  Upgrade skill: $SKILLS_DIR"
-  else
-    echo "  Upgrade skill: Skipped (--no-skills)"
-  fi
   echo ""
 
   # Save credentials (VPS only)
