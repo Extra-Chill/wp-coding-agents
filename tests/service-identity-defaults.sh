@@ -19,7 +19,7 @@
 #      chose it; changing its default here would be an unrelated behaviour
 #      change smuggled in under a security fix.
 #   4. Re-derivation is idempotent and does not clobber an explicit
-#      --kimaki-data-dir.
+#      --roadie-data-dir.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,31 +48,31 @@ assert_contains() {
 }
 
 # Evaluate the default in a subshell and report the resulting identity.
-# Args: SOURCE_MODE SERVICE_USER_FORCED LOCAL_MODE RUN_AS_ROOT [KIMAKI_DATA_DIR]
+# Args: SOURCE_MODE SERVICE_USER_FORCED LOCAL_MODE RUN_AS_ROOT [ROADIE_DATA_DIR]
 identity_after_default() {
   (
     SOURCE_MODE="$1"
     SERVICE_USER_FORCED="$2"
     LOCAL_MODE="$3"
     RUN_AS_ROOT="$4"
-    KIMAKI_DATA_DIR_EXPLICIT=false
+    ROADIE_DATA_DIR_EXPLICIT=false
     if [ -n "${5:-}" ]; then
-      KIMAKI_DATA_DIR="$5"
-      KIMAKI_DATA_DIR_EXPLICIT=true
+      ROADIE_DATA_DIR="$5"
+      ROADIE_DATA_DIR_EXPLICIT=true
     fi
     log() { :; }
     # shellcheck disable=SC1091
     source lib/detect.sh
     detect_service_identity
     detect_apply_source_mode_identity_default
-    printf '%s|%s|%s|%s' "$RUN_AS_ROOT" "$SERVICE_USER" "$SERVICE_HOME" "$KIMAKI_DATA_DIR"
+    printf '%s|%s|%s|%s' "$RUN_AS_ROOT" "$SERVICE_USER" "$SERVICE_HOME" "$ROADIE_DATA_DIR"
   )
 }
 
 echo "owned mode defaults to a non-root service user"
 
 assert_eq "$(identity_after_default owned false false true)" \
-  "false|opencode|/home/opencode|/home/opencode/.kimaki" \
+  "false|opencode|/home/opencode|/home/opencode/.roadie" \
   "fresh owned install lands fully on the opencode identity"
 
 echo ""
@@ -80,23 +80,23 @@ echo "the operator's explicit choice wins"
 
 # --root: SERVICE_USER_FORCED=true with RUN_AS_ROOT=true.
 assert_eq "$(identity_after_default owned true false true)" \
-  "true|root|/root|/root/.kimaki" \
+  "true|root|/root|/root/.roadie" \
   "--root is not overridden by the owned default"
 
 # --non-root: already non-root, nothing to do.
 assert_eq "$(identity_after_default owned true false false)" \
-  "false|opencode|/home/opencode|/home/opencode/.kimaki" \
+  "false|opencode|/home/opencode|/home/opencode/.roadie" \
   "--non-root is left as it is"
 
 echo ""
 echo "workspace mode is untouched"
 
 assert_eq "$(identity_after_default workspace false false true)" \
-  "true|root|/root|/root/.kimaki" \
+  "true|root|/root|/root/.roadie" \
   "workspace mode keeps its existing root default"
 
 assert_eq "$(identity_after_default workspace false false false)" \
-  "false|opencode|/home/opencode|/home/opencode/.kimaki" \
+  "false|opencode|/home/opencode|/home/opencode/.roadie" \
   "workspace mode still honours an explicit non-root"
 
 echo ""
@@ -115,7 +115,7 @@ once="$(identity_after_default owned false false true)"
 twice="$(
   (
     SOURCE_MODE=owned SERVICE_USER_FORCED=false LOCAL_MODE=false RUN_AS_ROOT=true
-    KIMAKI_DATA_DIR_EXPLICIT=false
+    ROADIE_DATA_DIR_EXPLICIT=false
     log() { :; }
     # shellcheck disable=SC1091
     source lib/detect.sh
@@ -123,34 +123,34 @@ twice="$(
     detect_apply_source_mode_identity_default
     detect_apply_source_mode_identity_default
     detect_service_identity
-    printf '%s|%s|%s|%s' "$RUN_AS_ROOT" "$SERVICE_USER" "$SERVICE_HOME" "$KIMAKI_DATA_DIR"
+    printf '%s|%s|%s|%s' "$RUN_AS_ROOT" "$SERVICE_USER" "$SERVICE_HOME" "$ROADIE_DATA_DIR"
   )
 )"
 assert_eq "$twice" "$once" "applying the default repeatedly is idempotent"
 
-# An explicit --kimaki-data-dir must survive the re-derivation. Without the
+# An explicit --roadie-data-dir must survive the re-derivation. Without the
 # guard, the second detect_service_identity call would silently relocate the
 # operator's data dir to the new home.
 assert_eq "$(identity_after_default owned false false true /srv/kimaki-data)" \
   "false|opencode|/home/opencode|/srv/kimaki-data" \
-  "an explicit --kimaki-data-dir is not relocated"
+  "an explicit --roadie-data-dir is not relocated"
 
-# A caller that only exported KIMAKI_DATA_DIR, without the flag machinery, keeps
-# the historical `${KIMAKI_DATA_DIR:-default}` behaviour rather than being
+# A caller that only exported ROADIE_DATA_DIR, without the flag machinery, keeps
+# the historical `${ROADIE_DATA_DIR:-default}` behaviour rather than being
 # silently relocated by the re-derivation.
 legacy_env=$(
   (
-    unset KIMAKI_DATA_DIR_EXPLICIT
+    unset ROADIE_DATA_DIR_EXPLICIT
     SOURCE_MODE=owned SERVICE_USER_FORCED=false LOCAL_MODE=false RUN_AS_ROOT=true
-    KIMAKI_DATA_DIR=/opt/preset-data
+    ROADIE_DATA_DIR=/opt/preset-data
     log() { :; }
     # shellcheck disable=SC1091
     source lib/detect.sh
     detect_service_identity
-    printf '%s' "$KIMAKI_DATA_DIR"
+    printf '%s' "$ROADIE_DATA_DIR"
   )
 )
-assert_eq "$legacy_env" "/opt/preset-data" "a bare exported KIMAKI_DATA_DIR is respected"
+assert_eq "$legacy_env" "/opt/preset-data" "a bare exported ROADIE_DATA_DIR is respected"
 
 echo ""
 echo "wiring"

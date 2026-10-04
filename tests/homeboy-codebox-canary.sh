@@ -122,7 +122,7 @@ assert config["routing"] == {
     "channel": "canary-channel",
     "thread": "canary-thread",
     "client": "discord",
-    "ui": "kimaki",
+    "ui": "roadie",
     "user_required": False,
 }
 assert config["mounts"] == [

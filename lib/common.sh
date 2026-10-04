@@ -386,23 +386,23 @@ git_clone_with_retry() {
   warn "Clone of $url failed after $max_attempts attempts."
   return 1
 }
-initialize_kimaki_overrides() {
-  KIMAKI_UNIT_EXPLICIT=false
-  KIMAKI_DATA_DIR_EXPLICIT=false
-  KIMAKI_LOCK_PORT_EXPLICIT=false
+initialize_roadie_overrides() {
+  ROADIE_UNIT_EXPLICIT=false
+  ROADIE_DATA_DIR_EXPLICIT=false
+  ROADIE_LOCK_PORT_EXPLICIT=false
   AGENT_SLUG_EXPLICIT=false
 
-  if [ "${KIMAKI_UNIT+x}" = x ]; then
-    KIMAKI_UNIT_EXPLICIT=true
+  if [ "${ROADIE_UNIT+x}" = x ]; then
+    ROADIE_UNIT_EXPLICIT=true
   else
-    KIMAKI_UNIT="kimaki.service"
+    ROADIE_UNIT="roadie.service"
   fi
-  KIMAKI_LOCK_PORT="${KIMAKI_LOCK_PORT:-}"
-  if [ -n "${KIMAKI_DATA_DIR:-}" ]; then
-    KIMAKI_DATA_DIR_EXPLICIT=true
+  ROADIE_LOCK_PORT="${ROADIE_LOCK_PORT:-}"
+  if [ -n "${ROADIE_DATA_DIR:-}" ]; then
+    ROADIE_DATA_DIR_EXPLICIT=true
   fi
-  if [ -n "$KIMAKI_LOCK_PORT" ]; then
-    KIMAKI_LOCK_PORT_EXPLICIT=true
+  if [ -n "$ROADIE_LOCK_PORT" ]; then
+    ROADIE_LOCK_PORT_EXPLICIT=true
   fi
   if [ -n "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG_EXPLICIT=true

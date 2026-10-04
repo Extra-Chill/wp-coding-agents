@@ -154,7 +154,7 @@ _print_local_next_steps() {
   fi
 
   # macOS launchd without creds: bridge-specific setup prose. Bridges that
-  # are always-ready (cc-connect) never reach this branch.
+  # that are always ready never reach this branch.
   if [ "$env" = "local-launchd" ]; then
     if bridge_has_hook launchd_setup_block; then
       bridge_launchd_setup_block

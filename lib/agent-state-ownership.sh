@@ -3,7 +3,7 @@
 #
 # setup.sh historically defaulted to running as root while the agent itself
 # runs as a dedicated service user. Everything setup wrote for the *agent* to
-# keep current — the persistent Kimaki config, runtime config under the site,
+# keep current — the persistent Roadie config, runtime config under the site,
 # the installation profile — was left root-owned, so every later non-root
 # upgrade degraded into per-file "Permission denied" noise and silently kept
 # stale plugin sources, skills, and hooks. Ownership of agent state follows the
@@ -31,7 +31,7 @@ agent_state_ownership_roots() {
   local site="${SITE_PATH:-${EXISTING_WP:-}}"
   local candidate
   for candidate in \
-    "${RESOLVED_KIMAKI_CONFIG_DIR:-/opt/kimaki-config}" \
+    "${RESOLVED_ROADIE_CONFIG_DIR:-/opt/roadie-config}" \
     "${site:+$site/.wp-coding-agents}" \
     "${site:+$site/.opencode}" \
     "${site:+$site/.claude}" \

@@ -1,49 +1,28 @@
 #!/usr/bin/env bash
-# tests/cli-channel-binary-path.sh — Regression coverage for issue #198.
+# tests/cli-channel-binary-path.sh — the Roadie CLI channel is reachable by the
+# web user (issue #198).
 #
-# The command registered for the kimaki CLI channel is shelled by the Data
-# wp-coding-agents CLI transport from `agents/dispatch-message`, which runs inside
-# PHP-FPM as the WordPress web user (www-data) on WP-cron / Action Scheduler
-# fires. That user is NOT the kimaki.service user.
+# The `roadie` CLI channel is shelled by the wp-coding-agents CLI transport from
+# `agents/dispatch-message`, inside PHP-FPM as the web user (www-data). That
+# user is not the Roadie service user and cannot open the Roadie data dir.
 #
-# On a RUN_AS_ROOT install the kimaki binary resolves under /root/.kimaki/bin
-# (and the data dir under /root, mode 0700). www-data cannot traverse 0700
-# /root, so proc_open fails with EACCES and every scheduled dispatch dies as
-# a process start failure. The opencode service-user home
-# (/home/opencode, mode 0750) is the same trap.
-#
-# The resolver (_kimaki_find_native_binary) and the KIMAKI_BIN short-circuit in
-# _kimaki_register_cli_channel must therefore only register a binary whose
-# ancestor directories are world-traversable (`o+x`), preferring a reachable
-# system-prefix path over any private-home wrapper.
-#
-# Asserts:
-#   1. _kimaki_path_is_web_traversable accepts a 0755-ancestor path and
-#      rejects a 0700- and a 0750-ancestor path (the /root and /home/opencode
-#      traps).
-#   2. _kimaki_find_native_binary skips an executable-but-unreachable PATH
-#      entry (private-home wrapper) in favor of a later reachable one.
-#   3. _kimaki_register_cli_channel ignores a KIMAKI_BIN that is executable but
-#      trapped under a non-traversable home, falling back to the reachable
-#      PATH binary on local installs.
-#   4. A VPS service-user install registers the sudo dispatch wrapper, not the
-#      private-home binary that www-data cannot traverse.
-#   5. The registered command is never under a non-traversable home.
+# Roadie covers this without a sudo hop: the package lives in a root-owned,
+# world-readable system prefix, and `roadie send` posts to the running bot
+# with a send token when it cannot open the data dir. So the channel must:
+#   1. register the system-prefix binary on VPS installs, never a binary
+#      under a private home;
+#   2. pass ROADIE_SERVICE_TOKEN_FILE, the service's ROADIE_DATA_DIR and
+#      ROADIE_LOCK_PORT so `roadie send` takes the remote path to the right
+#      bot;
+#   3. use `send --channel {recipient} --prompt {message}`;
+#   4. register the PATH binary on local installs (same user, no prefix).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d /tmp/wpca-cli-channel.XXXXXX)"
-trap 'chmod -R u+rwx "$TMP" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"' EXIT
 
-# mktemp -d creates the dir at 0700 by design. This test simulates a WEB-
-# REACHABLE install prefix, so make the temp root world-traversable; the
-# individual "trap" dirs below re-tighten their own permissions to 0700/0750.
-# (/tmp itself is 1777, and the temp root's parent chain is world-traversable
-# in CI, so this gives us a clean 0755 base to build reachable paths under.)
-chmod 0755 "$TMP"
-
-# Silence helper logs; capture cli_channel_register args for assertions.
 log() { :; }
 warn() { printf 'WARN: %s\n' "$1" >&2; }
 cli_channel_register() {
@@ -55,130 +34,64 @@ UPDATED_ITEMS=()
 
 # shellcheck disable=SC1091
 source "$ROOT/lib/common.sh"
-source "$ROOT/lib/grants.sh"
 # shellcheck disable=SC1091
-source "$ROOT/bridges/kimaki.sh"
+source "$ROOT/bridges/roadie.sh"
 
 FAILED=0
 fail() { echo "  FAIL $1"; FAILED=$((FAILED + 1)); }
 ok()   { echo "  ok   $1"; }
 
-# A fake kimaki binary the resolver can find.
-make_kimaki() {
-  local dir="$1"
-  mkdir -p "$dir"
-  printf '#!/bin/sh\nexit 0\n' > "$dir/kimaki"
-  chmod 0755 "$dir/kimaki"
-}
-
-# Read the command (2nd arg) that _kimaki_register_cli_channel passed through.
-registered_command() {
-  python3 - "$TMP/cli-channel.args" <<'PY'
+# Print one registered argument: name, command, args, timeout, env.
+registered() {
+  python3 - "$TMP/cli-channel.args" "$1" <<'PY'
 import sys
 with open(sys.argv[1], 'rb') as handle:
     parts = [p.decode() for p in handle.read().split(b'\0') if p]
-# cli_channel_register "kimaki" "<command>" "<args_json>" "<timeout>"
-print(parts[1] if len(parts) > 1 else '')
+index = {"name": 0, "command": 1, "args": 2, "timeout": 3, "env": 4}[sys.argv[2]]
+print(parts[index] if len(parts) > index else '')
 PY
 }
 
-# --- 1. _kimaki_path_is_web_traversable on hostile vs friendly ancestors ----
-echo "==> _kimaki_path_is_web_traversable ancestor checks"
+env_value() {
+  python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$(registered env)" "$1"
+}
 
-reachable_dir="$TMP/reachable/bin"        # all ancestors 0755 by default
-make_kimaki "$reachable_dir"
-if _kimaki_path_is_web_traversable "$reachable_dir/kimaki"; then
-  ok "accepts 0755-ancestor path"
-else
-  fail "should accept 0755-ancestor path"
-fi
-
-# Simulate /root (0700) trap.
-root_trap="$TMP/roothome"                 # stands in for /root
-mkdir -p "$root_trap/.kimaki/bin"
-make_kimaki "$root_trap/.kimaki/bin"
-chmod 0700 "$root_trap"
-if _kimaki_path_is_web_traversable "$root_trap/.kimaki/bin/kimaki"; then
-  fail "should REJECT 0700-ancestor (/root) path"
-else
-  ok "rejects 0700-ancestor (/root) path"
-fi
-
-# Simulate /home/opencode (0750) trap.
-home_trap="$TMP/opencodehome"             # stands in for /home/opencode
-mkdir -p "$home_trap/.kimaki/bin"
-make_kimaki "$home_trap/.kimaki/bin"
-chmod 0750 "$home_trap"
-if _kimaki_path_is_web_traversable "$home_trap/.kimaki/bin/kimaki"; then
-  fail "should REJECT 0750-ancestor (/home/opencode) path"
-else
-  ok "rejects 0750-ancestor (/home/opencode) path"
-fi
-
-# --- 2. resolver skips unreachable PATH entry for a reachable one -----------
-echo "==> _kimaki_find_native_binary prefers reachable PATH entry"
-
-# PATH puts the 0700-trapped wrapper FIRST (mirrors root's $PATH ordering),
-# then a reachable system-style dir.
-unset KIMAKI_BIN || true
-resolved="$(PATH="$root_trap/.kimaki/bin:$reachable_dir:/usr/bin:/bin" _kimaki_find_native_binary)"
-if [ "$resolved" = "$reachable_dir/kimaki" ]; then
-  ok "skips 0700 wrapper, returns reachable binary"
-else
-  fail "expected $reachable_dir/kimaki, got '$resolved'"
-fi
-
-# --- 3. local register ignores trapped KIMAKI_BIN, falls back to reachable PATH
-echo "==> _kimaki_register_cli_channel ignores trapped KIMAKI_BIN on local installs"
-
+echo "==> VPS install registers the system-prefix binary with send-token env"
 rm -f "$TMP/cli-channel.args"
-KIMAKI_BIN="$root_trap/.kimaki/bin/kimaki"   # executable but trapped under 0700
-LOCAL_MODE=true PATH="$reachable_dir:/usr/bin:/bin" _kimaki_register_cli_channel
-got="$(registered_command)"
-if [ "$got" = "$reachable_dir/kimaki" ]; then
-  ok "trapped KIMAKI_BIN ignored; registered reachable $got"
-else
-  fail "expected reachable $reachable_dir/kimaki, got '$got'"
-fi
+LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
+  ROADIE_DATA_DIR=/home/opencode/.roadie ROADIE_LOCK_PORT=29988 \
+  ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
+  ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
+  _roadie_register_cli_channel
 
-# --- 4. VPS service-user register uses the sudo dispatch wrapper -------------
-echo "==> _kimaki_register_cli_channel uses wrapper for service-user VPS installs"
+[ "$(registered name)" = roadie ] && ok "channel name is roadie" || fail "channel name: '$(registered name)'"
+got="$(registered command)"
+[ "$got" = /usr/local/lib/wp-coding-agents/roadie/bin/roadie ] \
+  && ok "registers the system-prefix binary" || fail "expected system-prefix binary, got '$got'"
+case "$got" in
+  /root/*|/home/*) fail "registered command is under a private home: $got" ;;
+  *) ok "registered command is outside private homes" ;;
+esac
+[ "$(registered args)" = '["send","--channel","{recipient}","--prompt","{message}"]' ] \
+  && ok "send argv" || fail "argv: $(registered args)"
+[ "$(env_value ROADIE_SERVICE_TOKEN_FILE)" = /etc/wp-coding-agents/roadie/send-token ] \
+  && ok "send token file passed" || fail "token file: '$(env_value ROADIE_SERVICE_TOKEN_FILE)'"
+[ "$(env_value ROADIE_DATA_DIR)" = /home/opencode/.roadie ] \
+  && ok "service data dir passed (unreadable to the web user, so send goes remote)" \
+  || fail "data dir: '$(env_value ROADIE_DATA_DIR)'"
+[ "$(env_value ROADIE_LOCK_PORT)" = 29988 ] && ok "lock port passed" || fail "lock port: '$(env_value ROADIE_LOCK_PORT)'"
 
+echo "==> local install registers the PATH binary"
 rm -f "$TMP/cli-channel.args"
-LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME="$home_trap" KIMAKI_DATA_DIR="$home_trap/.kimaki" \
-  KIMAKI_BIN="$root_trap/.kimaki/bin/kimaki" PATH="$reachable_dir:/usr/bin:/bin" _kimaki_register_cli_channel
-got_vps="$(registered_command)"
-if [ "$got_vps" = "/usr/local/bin/wp-coding-agents-kimaki-dispatch" ]; then
-  ok "VPS channel registers sudo dispatch wrapper"
-else
-  fail "expected /usr/local/bin/wp-coding-agents-kimaki-dispatch, got '$got_vps'"
-fi
-
-# --- 5. registered command is never under a non-traversable home ------------
-echo "==> registered command is web-traversable"
-
-if _kimaki_path_is_web_traversable "$got"; then
-  ok "registered command '$got' is web-traversable"
-else
-  fail "registered command '$got' is NOT web-traversable"
-fi
-
-# Sanity: a reachable KIMAKI_BIN is still honored (no regression).
-rm -f "$TMP/cli-channel.args"
-reachable_bin_dir="$TMP/reachable2/bin"
-make_kimaki "$reachable_bin_dir"
-KIMAKI_BIN="$reachable_bin_dir/kimaki"
-LOCAL_MODE=true PATH="/usr/bin:/bin" _kimaki_register_cli_channel
-got2="$(registered_command)"
-if [ "$got2" = "$reachable_bin_dir/kimaki" ]; then
-  ok "reachable KIMAKI_BIN still honored (no regression)"
-else
-  fail "expected $reachable_bin_dir/kimaki, got '$got2'"
-fi
+mkdir -p "$TMP/bin"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/roadie"
+chmod 0755 "$TMP/bin/roadie"
+LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" PATH="$TMP/bin:/usr/bin:/bin" _roadie_register_cli_channel
+[ "$(registered command)" = "$TMP/bin/roadie" ] && ok "local PATH binary" || fail "local command: '$(registered command)'"
 
 echo
 if [ "$FAILED" -gt 0 ]; then
   echo "FAILED: $FAILED assertion(s)"
   exit 1
 fi
-echo "OK: all cli-channel binary-path assertions passed"
+echo "OK: all cli-channel assertions passed"

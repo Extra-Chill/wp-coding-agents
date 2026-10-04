@@ -39,10 +39,10 @@ mkdir -p "$SNAPSHOT_DIR"
 # the pre-refactor test so existing snapshots stay valid.
 #
 # CRITICAL: PATH is sanitized to a minimal, machine-independent set so that
-# `_resolve_node_bin_dir`'s `command -v node` probe and the kimaki-shim
-# fallback both miss. KIMAKI_BIN points at a path that does not exist on
-# any normal machine for the same reason. Without this, the kimaki snapshot
-# leaks the dev machine's actual node / kimaki shim paths into the rendered
+# `_resolve_node_bin_dir`'s `command -v node` probe and the roadie-shim
+# fallback both miss. ROADIE_BIN points at a path that does not exist on
+# any normal machine for the same reason. Without this, the roadie snapshot
+# leaks the dev machine's actual node / roadie shim paths into the rendered
 # Environment=PATH= line, and CI (which has neither) fails the diff.
 # Snapshot files under tests/__snapshots__/bridges/ are the contract; this
 # block is what makes the contract reproducible everywhere.
@@ -59,27 +59,14 @@ export RUN_AS_ROOT=false
 export IS_STUDIO=false
 export WP_CMD="wp"
 export AGENT_SLUG="intelligence-chubes4"
-export KIMAKI_LOCK_PORT=""
+export ROADIE_LOCK_PORT=""
 
-# kimaki
-export KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
-export KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-export KIMAKI_BIN="/usr/bin/kimaki"
-export KIMAKI_BOT_TOKEN=""
-
-# cc-connect
-export CC_BIN="/usr/bin/cc-connect"
-export CC_DATA_DIR="$SERVICE_HOME/.cc-connect"
-export CC_CONNECT_TOKEN=""
-
-# telegram
-export OPENCODE_BIN="/usr/bin/opencode"
-export TELEGRAM_BIN="/usr/bin/opencode-telegram"
-export SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
-export TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
-export TELEGRAM_BOT_TOKEN=""
-export TELEGRAM_ALLOWED_USER_ID=""
-export OPENCODE_MODEL=""
+# roadie
+export ROADIE_DATA_DIR="$SERVICE_HOME/.roadie"
+export ROADIE_SYSTEM_PREFIX="/usr/local/lib/wp-coding-agents/roadie"
+export ROADIE_SECRETS_ROOT="/etc/wp-coding-agents"
+export ROADIE_BIN="$ROADIE_SYSTEM_PREFIX/bin/roadie"
+export ROADIE_BOT_TOKEN=""
 
 # ---------------------------------------------------------------------------
 # Helpers — env blocks identical to what the legacy install functions used to
@@ -91,58 +78,21 @@ source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # /usr/bin; node-path resolution has dedicated coverage in path-helpers.sh.
 _resolve_node_bin_dir() { printf ''; }
 
-REDACTED_DIFF=$(printf '%s\n' ' Environment=KIMAKI_BOT_TOKEN=secret-token' '         <key>KIMAKI_BOT_TOKEN</key>' '         <string>secret-token</string>' | _redact_secret_diff)
+REDACTED_DIFF=$(printf '%s\n' ' Environment=ROADIE_BOT_TOKEN=secret-token' '         <key>ROADIE_BOT_TOKEN</key>' '         <string>secret-token</string>' | _redact_secret_diff)
 if echo "$REDACTED_DIFF" | grep -q 'secret-token'; then
   echo "FAIL: bridge diff redaction leaked a token"
   exit 1
 fi
 
-kimaki_env_block() {
-  local kimaki_bin_dir node_bin_dir homeboy_bin_dir path_value
-  kimaki_bin_dir=$(dirname "$KIMAKI_BIN")
-  node_bin_dir=$(_resolve_node_bin_dir "$KIMAKI_BIN")
-  homeboy_bin_dir=""
-  if [ "$LOCAL_MODE" != true ] && [ "$SERVICE_USER" != root ]; then
-    homeboy_bin_dir=$(dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}")
-  fi
-  path_value=$(_compose_path_value "$homeboy_bin_dir" "$kimaki_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin)
-  local transport_json
-  transport_json=$(wp_cli_transport_json)
-  transport_json=${transport_json//\\/\\\\}
-  transport_json=${transport_json//\"/\\\"}
-  local out="Environment=HOME=$SERVICE_HOME
-Environment=PATH=$path_value
-Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA_DIR
-Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
-Environment=DATAMACHINE_WP_TRANSPORT_JSON=\"$transport_json\"
-Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
-  if [ -n "${KIMAKI_BOT_TOKEN:-}" ]; then
-    out="$out
-Environment=KIMAKI_BOT_TOKEN=$KIMAKI_BOT_TOKEN"
-  fi
-  printf '%s' "$out"
+# roadie_env_block — the env block a fresh systemd install writes, built by
+# the bridge's own helpers so the snapshot tracks what actually ships.
+roadie_env_block() {
+  ( bridge_load roadie >/dev/null 2>&1
+    _roadie_append_env_files "$(_roadie_template_env "$(_roadie_path_value)")" )
 }
 
-cc_connect_env_block() {
-  local out="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-  if [ -n "${CC_CONNECT_TOKEN:-}" ]; then
-    out="$out
-Environment=CC_CONNECT_TOKEN=$CC_CONNECT_TOKEN"
-  fi
-  printf '%s' "$out"
-}
-
-telegram_env_block() {
-  printf '%s' "Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-}
-
-# render_with_bridge <bridge> <hook> [args...]
-#
-# Loads the bridge in a subshell and invokes its render hook. Subshell keeps
-# the rendered files isolated — sourcing kimaki.sh defines bridge_render_*,
-# loading cc-connect.sh into the same shell would clobber them.
+# render_with_bridge <bridge> <hook> [args...] — load the bridge in a subshell
+# and invoke its render hook.
 render_with_bridge() {
   local bridge="$1" hook="$2"
   shift 2
@@ -158,31 +108,29 @@ trap 'rm -rf "$TMPDIR_NEW"' EXIT
 echo "==> rendering snapshots"
 
 # systemd ---------------------------------------------------------------
-render_with_bridge kimaki     render_systemd kimaki.service           "$(kimaki_env_block)"     > "$TMPDIR_NEW/kimaki-systemd"
-if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/bin:/usr/local/bin:/bin' "$TMPDIR_NEW/kimaki-systemd"; then
-  echo "FAIL: Kimaki systemd PATH does not include managed Homeboy directory"
+render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" > "$TMPDIR_NEW/roadie-systemd"
+if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin' "$TMPDIR_NEW/roadie-systemd"; then
+  echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
+  exit 1
+fi
+for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
+  ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token; do
+  grep -Fq "Environment=$required" "$TMPDIR_NEW/roadie-systemd" \
+    || { echo "FAIL: Roadie systemd unit is missing Environment=$required"; exit 1; }
+done
+if grep -q '^Environment=ROADIE_BOT_TOKEN=' "$TMPDIR_NEW/roadie-systemd"; then
+  echo "FAIL: Roadie systemd unit inlines the bot token instead of a file reference"
   exit 1
 fi
 
-render_with_bridge cc-connect render_systemd cc-connect.service       "$(cc_connect_env_block)" > "$TMPDIR_NEW/cc-connect-systemd"
-render_with_bridge telegram   render_systemd opencode-serve.service   "$(telegram_env_block)"   > "$TMPDIR_NEW/telegram-serve-systemd"
-render_with_bridge telegram   render_systemd opencode-telegram.service "$(telegram_env_block)" > "$TMPDIR_NEW/telegram-bot-systemd"
-
 # launchd ---------------------------------------------------------------
-# Mac context: launchd binaries live under /opt/homebrew/bin per legacy test.
 PLATFORM="mac"
 LOCAL_MODE=true
 HOME_SAVE="$HOME"
 export HOME="$SERVICE_HOME"
-KIMAKI_BIN="/opt/homebrew/bin/kimaki"
-CC_BIN="/opt/homebrew/bin/cc-connect"
-OPENCODE_BIN="/opt/homebrew/bin/opencode"
-TELEGRAM_BIN="/opt/homebrew/bin/opencode-telegram"
+ROADIE_BIN="/opt/homebrew/bin/roadie"
 
-render_with_bridge kimaki     render_launchd com.wp.kimaki            > "$TMPDIR_NEW/kimaki-launchd"
-render_with_bridge cc-connect render_launchd com.wp.cc-connect        > "$TMPDIR_NEW/cc-connect-launchd"
-render_with_bridge telegram   render_launchd com.wp.opencode-serve    > "$TMPDIR_NEW/telegram-serve-launchd"
-render_with_bridge telegram   render_launchd com.wp.opencode-telegram > "$TMPDIR_NEW/telegram-bot-launchd"
+render_with_bridge roadie render_launchd com.wp.roadie > "$TMPDIR_NEW/roadie-launchd"
 
 export HOME="$HOME_SAVE"
 
@@ -253,86 +201,24 @@ printf '#!/bin/sh\nexit 0\n' > "$TMPDIR_NEW/managed/homeboy"
 printf '#!/bin/sh\nexit 0\n' > "$TMPDIR_NEW/legacy/homeboy"
 chmod 0755 "$TMPDIR_NEW/managed/homeboy" "$TMPDIR_NEW/legacy/homeboy"
 export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMPDIR_NEW/managed/homeboy"
-KIMAKI_BIN="$TMPDIR_NEW/legacy/kimaki"
-KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
-KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-KIMAKI_ENV="$(kimaki_env_block)"
-KIMAKI_RENDERED="$(render_with_bridge kimaki render_systemd kimaki.service "$KIMAKI_ENV")"
-RENDERED_PATH="$(printf '%s\n' "$KIMAKI_RENDERED" | sed -n 's/^Environment=PATH=//p' | sed -n '1p')"
+ROADIE_BIN="$TMPDIR_NEW/legacy/roadie"
+ROADIE_DATA_DIR="$SERVICE_HOME/.roadie"
+ROADIE_ENV="$(roadie_env_block)"
+ROADIE_RENDERED="$(render_with_bridge roadie render_systemd roadie.service "$ROADIE_ENV")"
+RENDERED_PATH="$(printf '%s\n' "$ROADIE_RENDERED" | sed -n 's/^Environment=PATH=//p' | sed -n '1p')"
 RESOLVED_HOMEBOY="$(env PATH="$RENDERED_PATH" /bin/sh -c 'command -v homeboy')"
 if [ "$RESOLVED_HOMEBOY" != "$TMPDIR_NEW/managed/homeboy" ]; then
-  echo "FAIL: Kimaki systemd PATH '$RENDERED_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
+  echo "FAIL: Roadie systemd PATH '$RENDERED_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
   exit 1
 fi
-echo "  ok   Kimaki PATH resolves the managed binary ahead of the legacy home bin"
+echo "  ok   Roadie PATH resolves the managed binary ahead of the legacy home bin"
 UPGRADE_ENV="$(_ensure_systemd_path_first "Environment=PATH=$TMPDIR_NEW/legacy:$TMPDIR_NEW/managed:/usr/bin:$TMPDIR_NEW/legacy" "$TMPDIR_NEW/managed")"
 UPGRADE_PATH="$(printf '%s\n' "$UPGRADE_ENV" | sed -n 's/^Environment=PATH=//p' | sed -n '1p')"
 RESOLVED_HOMEBOY="$(env PATH="$UPGRADE_PATH" /bin/sh -c 'command -v homeboy')"
 if [ "$RESOLVED_HOMEBOY" != "$TMPDIR_NEW/managed/homeboy" ] || [ "${UPGRADE_PATH%%:*}" != "$TMPDIR_NEW/managed" ]; then
-  echo "FAIL: upgraded Kimaki PATH '$UPGRADE_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
+  echo "FAIL: upgraded Roadie PATH '$UPGRADE_PATH' resolves $RESOLVED_HOMEBOY instead of managed Homeboy"
   exit 1
 fi
 echo "  ok   upgrade moves managed Homeboy ahead of legacy PATH entries"
 unset WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
 
-# ---------------------------------------------------------------------------
-echo "==> effective-prompt runner resolution"
-# ---------------------------------------------------------------------------
-#
-# The harness imports dm-context-filter.ts directly. node cannot load
-# TypeScript — it exits ERR_UNKNOWN_FILE_EXTENSION before rendering a single
-# prompt — and the upgrade reported that crash as
-# "dm-context-filter may be leaking banned phrases".
-#
-# It warned on every h44lacrosse.com upgrade while the filter was in fact clean
-# (verified: OK — 2 scenarios, 0 leaks, under bun). An alarm that is always
-# wrong is worse than silence, because it teaches everyone to scroll past the
-# one time it is right.
-
-_ep_probe() {
-  # Args: PATH_DIR SERVICE_HOME HOME
-  ( PATH="$1:/usr/bin:/bin"; SERVICE_HOME="$2"; HOME="$3"
-    # Model a host with no bun anywhere; this box really does have /root/.bun.
-    KIMAKI_BUN_FALLBACK_HOME="${4:-$3}"
-    # shellcheck disable=SC1090
-    eval "$(sed -n '/^_kimaki_effective_prompt_runner()/,/^}/p' "$SCRIPT_DIR/bridges/kimaki.sh")"
-    _kimaki_effective_prompt_runner )
-}
-
-EPT="$(mktemp -d)"
-trap 'rm -rf "$EPT"' EXIT
-mkdir -p "$EPT/onpath" "$EPT/svc/.bun/bin" "$EPT/root/.bun/bin" "$EPT/empty"
-printf '#!/bin/sh\n' > "$EPT/onpath/bun"; chmod +x "$EPT/onpath/bun"
-printf '#!/bin/sh\n' > "$EPT/svc/.bun/bin/bun"; chmod +x "$EPT/svc/.bun/bin/bun"
-
-got="$(_ep_probe "$EPT/onpath" "" "$EPT/empty" "$EPT/empty")"
-[ -n "$got" ] && echo "  ok   prefers bun on PATH" || { echo "  FAIL bun on PATH not found"; FAILED=$((FAILED+1)); }
-
-# A service-identity migration moves the toolchain: bun installed for one
-# identity is not on the PATH of a shell running as another.
-got="$(_ep_probe "$EPT/empty" "$EPT/svc" "$EPT/empty" "$EPT/empty")"
-case "$got" in
-  */svc/.bun/bin/bun) echo "  ok   falls back to the service home" ;;
-  *) echo "  FAIL did not find bun under SERVICE_HOME (got: ${got:-none})"; FAILED=$((FAILED+1)) ;;
-esac
-
-# No TypeScript-capable runtime: must report nothing, so the caller can say
-# "unverified" instead of alleging a leak.
-got="$(_ep_probe "$EPT/empty" "$EPT/empty" "$EPT/empty" "$EPT/empty")"
-[ -z "$got" ] && echo "  ok   reports nothing when no TS runtime exists" || { echo "  FAIL returned '$got'"; FAILED=$((FAILED+1)); }
-
-# And the caller must distinguish the two.
-kimaki_src="$(cat "$SCRIPT_DIR/bridges/kimaki.sh")"
-case "$kimaki_src" in
-  *"effective-prompt test SKIPPED"*) echo "  ok   a missing runtime is reported as skipped" ;;
-  *) echo "  FAIL no skipped path — a crash would still be called a leak"; FAILED=$((FAILED+1)) ;;
-esac
-case "$kimaki_src" in
-  *"not known to be leaking"*) echo "  ok   the skip message denies alleging a leak" ;;
-  *) echo "  FAIL the skip message does not disclaim a leak"; FAILED=$((FAILED+1)) ;;
-esac
-# node must not be invoked against the TypeScript import at all.
-case "$kimaki_src" in
-  *'TEST_OUT=$(node "$TEST_SCRIPT"'*) echo "  FAIL still runs the harness under node"; FAILED=$((FAILED+1)) ;;
-  *) echo "  ok   no longer runs the harness under node" ;;
-esac

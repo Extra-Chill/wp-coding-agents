@@ -16,7 +16,7 @@
 # instead of hanging the test runner, and asserts the banner still renders
 # correctly for the two lines that DO need a runtime value substituted after
 # the heredoc (the migration default user) or intentionally shown as a
-# literal placeholder ($KIMAKI_DATA_DIR) rather than expanded.
+# literal placeholder ($ROADIE_DATA_DIR) rather than expanded.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -71,9 +71,9 @@ else
   echo "  ok   default user resolved"
 fi
 
-echo "==> KIMAKI_DATA_DIR placeholder renders as a clean literal (no stray backslash)"
-if ! grep -qF '$KIMAKI_DATA_DIR/kimaki-config/plugins' "$OUT"; then
-  echo "  FAIL expected literal \$KIMAKI_DATA_DIR placeholder line"
+echo "==> ROADIE_DATA_DIR placeholder renders as a clean literal (no stray backslash)"
+if ! grep -qF '$ROADIE_DATA_DIR/roadie-config/plugins' "$OUT"; then
+  echo "  FAIL expected literal \$ROADIE_DATA_DIR placeholder line"
   FAILED=1
 else
   echo "  ok   placeholder renders cleanly"

@@ -80,23 +80,14 @@ export RUN_AS_ROOT=false
 export IS_STUDIO=false
 export WP_CMD="wp"
 export AGENT_SLUG="$HOSTILE"
-export KIMAKI_LOCK_PORT=""
+export ROADIE_LOCK_PORT=""
 
-export KIMAKI_DATA_DIR="$SERVICE_HOME/.kimaki"
-export KIMAKI_CONFIG_DIR="/opt/kimaki-config"
-export KIMAKI_BIN="/usr/bin/kimaki"
-export KIMAKI_BOT_TOKEN="tok$HOSTILE"
-
-export CC_BIN="/usr/bin/cc-connect"
-export CC_DATA_DIR="$SERVICE_HOME/.cc-connect"
-export CC_CONNECT_TOKEN=""
+export ROADIE_DATA_DIR="$SERVICE_HOME/.roadie"
+export ROADIE_CONFIG_DIR="/opt/roadie-config"
+export ROADIE_BIN="/usr/bin/roadie"
+export ROADIE_BOT_TOKEN="tok$HOSTILE"
 
 export OPENCODE_BIN="/usr/bin/opencode"
-export TELEGRAM_BIN="/usr/bin/opencode-telegram"
-export SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
-export TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
-export TELEGRAM_BOT_TOKEN="tok$HOSTILE"
-export TELEGRAM_ALLOWED_USER_ID="123"
 export OPENCODE_MODEL="prov/$HOSTILE"
 
 source bridges/_dispatch.sh
@@ -108,21 +99,9 @@ _resolve_node_bin_dir() { printf ''; }
 
 render_in_subshell() { ( bridge_load "$1" >/dev/null 2>&1; bridge_render_launchd "$2" ); }
 
-CC="$(render_in_subshell cc-connect com.wp.cc-connect)"
-check_plist "cc-connect" "$CC"
-check_roundtrip "cc-connect" "$CC"
-
-KIMAKI="$(render_in_subshell kimaki com.wp.kimaki)"
-check_plist "kimaki" "$KIMAKI"
-check_roundtrip "kimaki" "$KIMAKI"
-
-TG_SERVE="$(render_in_subshell telegram com.wp.opencode-serve)"
-check_plist "telegram opencode-serve" "$TG_SERVE"
-check_roundtrip "telegram opencode-serve" "$TG_SERVE"
-
-TG_BOT="$(render_in_subshell telegram com.wp.opencode-telegram)"
-check_plist "telegram bot" "$TG_BOT"
-check_roundtrip "telegram bot" "$TG_BOT"
+ROADIE="$(render_in_subshell roadie com.wp.roadie)"
+check_plist "roadie" "$ROADIE"
+check_roundtrip "roadie" "$ROADIE"
 
 # ---------------------------------------------------------------------------
 # Services

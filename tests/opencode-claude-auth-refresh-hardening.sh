@@ -25,12 +25,12 @@ refuse_source() {
   fi
 }
 
-require_source "function authStateLockPath()" "shared Kimaki-compatible auth-state lock path"
-require_source 'authFilePath()}.lock' "lock directory shared with Kimaki's withAuthStateLock"
-require_source "AUTH_LOCK_STALE_MS = 30_000" "30s stale window matching Kimaki's lock contract"
+require_source "function authStateLockPath()" "auth-state lock path shared with bridge-era auth plugins"
+require_source 'authFilePath()}.lock' "lock directory shared with the Kimaki-era withAuthStateLock"
+require_source "AUTH_LOCK_STALE_MS = 30_000" "30s stale window matching the shared lock contract"
 require_source "async function withAuthStateLock" "cross-process shared auth-state lock"
-refuse_source "anthropic-refresh.lock" "private lock file that races Kimaki's lock (#626)"
-require_source "if (process.env.KIMAKI) return {};" "Kimaki sessions register no auth hook (#626)"
+refuse_source "anthropic-refresh.lock" "private lock file that races the shared lock (#626)"
+require_source "if (process.env.ROADIE || process.env.KIMAKI) return {};" "bridge sessions (Roadie, Kimaki rollback) register no auth hook (#626)"
 require_source "const isRemote = Boolean(process.env.WP_CODING_AGENTS_REMOTE_AUTH)" "remote pasted-code login flow"
 require_source "await readAnthropicAuth()" "auth file re-read inside refresh path"
 require_source "if (usableAccessToken(latest)) return latest" "winner-token reuse after lock acquisition"
@@ -53,6 +53,6 @@ require_source "rotateAnthropicAccount(currentAuth, client)" "rate-limit retry r
 require_source "tried.has(rotated.refresh)" "rotation stops when every account has been tried"
 
 node "$SCRIPT_DIR/tests/claude-client-identity.mjs"
-node "$SCRIPT_DIR/tests/opencode-claude-auth-kimaki-coexistence.mjs"
+node "$SCRIPT_DIR/tests/opencode-claude-auth-bridge-coexistence.mjs"
 
 echo "PASS: tests/opencode-claude-auth-refresh-hardening.sh"

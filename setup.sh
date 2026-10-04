@@ -93,7 +93,7 @@ HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
 DETECTED_RUNTIMES=()
 IS_STUDIO=false
 EXTERNAL_WORDPRESS=false
-initialize_kimaki_overrides
+initialize_roadie_overrides
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -316,19 +316,22 @@ while [[ $# -gt 0 ]]; do
       AGENT_NAME="$2"
       shift 2
       ;;
-    --kimaki-unit)
-      KIMAKI_UNIT="$2"
-      KIMAKI_UNIT_EXPLICIT=true
+    --kimaki-unit|--kimaki-data-dir|--kimaki-lock-port)
+      error "$1 was renamed to ${1/kimaki/roadie} (Kimaki was replaced by Roadie)."
+      ;;
+    --roadie-unit)
+      ROADIE_UNIT="$2"
+      ROADIE_UNIT_EXPLICIT=true
       shift 2
       ;;
-    --kimaki-data-dir)
-      KIMAKI_DATA_DIR="$2"
-      KIMAKI_DATA_DIR_EXPLICIT=true
+    --roadie-data-dir)
+      ROADIE_DATA_DIR="$2"
+      ROADIE_DATA_DIR_EXPLICIT=true
       shift 2
       ;;
-    --kimaki-lock-port)
-      KIMAKI_LOCK_PORT="$2"
-      KIMAKI_LOCK_PORT_EXPLICIT=true
+    --roadie-lock-port)
+      ROADIE_LOCK_PORT="$2"
+      ROADIE_LOCK_PORT_EXPLICIT=true
       shift 2
       ;;
     --help|-h)
@@ -413,15 +416,14 @@ OPTIONS:
                       explicit opt-in uses www-data:www-data mode 0660.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
-  --kimaki-unit <u>  Kimaki systemd unit (default: kimaki.service)
-  --kimaki-data-dir <path>
-                     Kimaki state directory (default: <service-home>/.kimaki)
-  --kimaki-lock-port <port>
-                     Kimaki lock port (default: Kimaki's built-in default)
-  --no-chat          Skip chat bridge installation
-  --chat <bridge>    Chat bridge to install (default: kimaki for opencode,
-                     cc-connect for claude-code, none for codex)
-                     Supported: kimaki (Discord), cc-connect, telegram
+  --roadie-unit <u>  Roadie systemd unit (default: roadie.service)
+  --roadie-data-dir <path>
+                     Roadie state directory (default: <service-home>/.roadie)
+  --roadie-lock-port <port>
+                     Roadie lock port (default: Roadie's built-in default)
+  --no-chat          Skip the chat bridge
+  --chat <bridge>    Chat bridge to install. The only bridge is roadie (Discord),
+                     installed by default for the opencode runtime
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
@@ -508,19 +510,11 @@ ENVIRONMENT VARIABLES:
   AI_GATEWAY_API_MODEL_ID    Model ID sent to WP AI Gateway
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
   WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
-  KIMAKI_BOT_TOKEN          Bot token or gateway clientId:clientSecret
-                            (skip interactive setup)
-  KIMAKI_UNIT               Kimaki systemd unit (default: kimaki.service)
-  KIMAKI_DATA_DIR           Kimaki state directory
-  KIMAKI_LOCK_PORT          Kimaki lock port
-  KIMAKI_PACKAGE_ROOT       Kimaki dist directory used for external credential setup
-  KIMAKI_GATEWAY_APP_ID     Gateway application ID override
-  KIMAKI_GATEWAY_PROXY_REST_URL
-                            Gateway REST URL override
-  TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
-  TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
-  OPENCODE_MODEL_PROVIDER   Default model provider for Telegram bot (default: opencode)
-  OPENCODE_MODEL_ID         Default model ID for Telegram bot (default: big-pickle)
+  ROADIE_BOT_TOKEN          Discord bot token (stored in a root-managed token
+                            file; skips interactive setup)
+  ROADIE_UNIT               Roadie systemd unit (default: roadie.service)
+  ROADIE_DATA_DIR           Roadie state directory
+  ROADIE_LOCK_PORT          Roadie lock port
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CLI_TRANSPORT_JSON
@@ -586,20 +580,18 @@ fi
 source "$RUNTIME_FILE"
 
 # Set default chat bridge based on runtime
-if [ -z "$CHAT_BRIDGE" ]; then
-  case "$RUNTIME" in
-    claude-code) CHAT_BRIDGE="cc-connect" ;;
-    codex)       INSTALL_CHAT=false ;;
-    *)                       CHAT_BRIDGE="kimaki" ;;
-  esac
-fi
-
-if [ "$RUNTIME" = "codex" ] && [ "$INSTALL_CHAT" = true ]; then
-  if [ "$CHAT_BRIDGE_EXPLICIT" = true ]; then
-    error "Codex runtime does not currently support chat bridges; use --no-chat or omit --chat."
+# Roadie is the only chat bridge, and it runs the OpenCode runtime.
+if [ "$INSTALL_CHAT" = true ]; then
+  if [ "$RUNTIME" != "opencode" ]; then
+    if [ "$CHAT_BRIDGE_EXPLICIT" = true ]; then
+      error "The chat bridge (Roadie) requires --runtime opencode; use --no-chat with $RUNTIME."
+    fi
+    INSTALL_CHAT=false
+    CHAT_BRIDGE=""
+  else
+    CHAT_BRIDGE="${CHAT_BRIDGE:-roadie}"
+    [ "$CHAT_BRIDGE" = roadie ] || error "Unsupported chat bridge '$CHAT_BRIDGE'. The only bridge is roadie."
   fi
-  INSTALL_CHAT=false
-  CHAT_BRIDGE=""
 fi
 
 if [ "$EXTERNAL_WORDPRESS" = true ] && [ "$RUNTIME" != "opencode" ]; then
@@ -635,9 +627,9 @@ source_policy_assert_runtime_supports_mode
 # which branch on RUN_AS_ROOT.
 detect_apply_source_mode_identity_default
 
-if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$LOCAL_MODE" = false ]; then
-  bridge_load kimaki
-  _kimaki_resolve_instance
+if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "roadie" ] && [ "$LOCAL_MODE" = false ]; then
+  bridge_load roadie
+  _roadie_resolve_instance
 fi
 
 # Persist only declarative installation intent after environment and optional

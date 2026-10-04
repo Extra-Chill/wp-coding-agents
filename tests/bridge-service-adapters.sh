@@ -30,7 +30,7 @@ PLATFORM=mac
 EXTERNAL_WORDPRESS=false
 RUNTIME=opencode
 INSTALL_CHAT=true
-CHAT_BRIDGE=kimaki
+CHAT_BRIDGE=roadie
 WORDPRESS_SERVICE_REQUEST=enabled
 DATAMACHINE_WORKER_REQUEST=enabled
 WORDPRESS_SERVICE_LAUNCHD_DIR="$TMP/LaunchAgents"
@@ -41,11 +41,11 @@ mkdir -p "$SITE_PATH" "$SERVICE_HOME"
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
 setup_records="${RECONCILER_PLAN_RECORDS[*]}"
-[ "$setup_records" = 'bridges.kimaki services.wordpress services.datamachine-worker' ] || error "setup records were not derived from opt-in state: $setup_records"
+[ "$setup_records" = 'bridges.roadie services.wordpress services.datamachine-worker' ] || error "setup records were not derived from opt-in state: $setup_records"
 
 # Upgrade detects the installed bridge while service records come from the same
 # persisted opt-in state, so both entrypoints converge on the same records.
-bridge_detect_local() { printf 'kimaki\n'; }
+bridge_detect_local() { printf 'roadie\n'; }
 CHAT_BRIDGE=""
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
@@ -73,12 +73,12 @@ bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
 # opt-in request. The bridge remains independently eligible.
 EXTERNAL_WORDPRESS=true
 INSTALL_CHAT=true
-CHAT_BRIDGE=kimaki
+CHAT_BRIDGE=roadie
 WORDPRESS_SERVICE_REQUEST=enabled
 DATAMACHINE_WORKER_REQUEST=enabled
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_SETUP"
-[ "${RECONCILER_PLAN_RECORDS[*]}" = bridges.kimaki ] || error "external WordPress planned local services"
+[ "${RECONCILER_PLAN_RECORDS[*]}" = bridges.roadie ] || error "external WordPress planned local services"
 
 # Managed unit runtime health is reported, never acted on (#576). A unit whose
 # file is already correct but which has been dead for weeks is the quietest
@@ -111,17 +111,17 @@ warn() { CAPTURED="$CAPTURED$1
 HEALTH_WARNINGS=()
 CAPTURED=""
 export FAKE_ACTIVE=active FAKE_ENABLED=enabled FAKE_SINCE=""
-_report_systemd_unit_health kimaki.service kimaki.service
+_report_systemd_unit_health roadie.service roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 0 ] || error "active unit produced a health warning"
 
 # Failed unit: warns and records for the summary.
 HEALTH_WARNINGS=()
 CAPTURED=""
 export FAKE_ACTIVE=failed FAKE_ENABLED=enabled FAKE_SINCE="Wed 2026-08-05 14:46:59 UTC"
-_report_systemd_unit_health kimaki.service kimaki.service
+_report_systemd_unit_health roadie.service roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 1 ] || error "failed unit was not recorded for the summary"
 case "${HEALTH_WARNINGS[0]}" in
-  *failed*kimaki.service*) : ;;
+  *failed*roadie.service*) : ;;
   *) error "failed-unit summary entry did not name the unit and state: ${HEALTH_WARNINGS[0]}" ;;
 esac
 case "$CAPTURED" in
@@ -133,14 +133,14 @@ esac
 HEALTH_WARNINGS=()
 CAPTURED=""
 export FAKE_ACTIVE=inactive FAKE_ENABLED=enabled
-_report_systemd_unit_health kimaki.service kimaki.service
+_report_systemd_unit_health roadie.service roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 1 ] || error "enabled-but-inactive unit was not recorded"
 
 # Deliberately disabled units stay quiet.
 HEALTH_WARNINGS=()
 CAPTURED=""
 export FAKE_ACTIVE=inactive FAKE_ENABLED=disabled
-_report_systemd_unit_health kimaki.service kimaki.service
+_report_systemd_unit_health roadie.service roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 0 ] || error "disabled unit produced a health warning"
 
 # Health is reported even when the unit file is byte-identical, which is the
@@ -150,10 +150,10 @@ CAPTURED=""
 UPDATED_ITEMS=()
 DRY_RUN=false
 TIMESTAMP=test
-UNCHANGED_UNIT="$TMP/kimaki.service"
-printf '[Service]\nExecStart=/usr/bin/kimaki\n' > "$UNCHANGED_UNIT"
+UNCHANGED_UNIT="$TMP/roadie.service"
+printf '[Service]\nExecStart=/usr/bin/roadie\n' > "$UNCHANGED_UNIT"
 export FAKE_ACTIVE=failed FAKE_ENABLED=enabled
-_smart_update_systemd_unit "$UNCHANGED_UNIT" "$(cat "$UNCHANGED_UNIT")" kimaki.service
+_smart_update_systemd_unit "$UNCHANGED_UNIT" "$(cat "$UNCHANGED_UNIT")" roadie.service
 [ "${#HEALTH_WARNINGS[@]}" -eq 1 ] || error "unchanged unit file suppressed the health report"
 [ "${#UPDATED_ITEMS[@]}" -eq 0 ] || error "unchanged unit file was reported as updated"
 

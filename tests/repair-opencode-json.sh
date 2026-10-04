@@ -35,8 +35,8 @@ JSON
 python3 "$REPAIR" \
   --file "$TMP/default-only.json" \
   --runtime opencode \
-  --chat-bridge kimaki \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --additive > "$TMP/default-only.out"
 
 assert_json_missing_agent_slots "$TMP/default-only.json"
@@ -63,8 +63,8 @@ JSON
 python3 "$REPAIR" \
   --file "$TMP/prompt-migration.json" \
   --runtime opencode \
-  --chat-bridge kimaki \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --additive > "$TMP/prompt-migration.out"
 
 assert_json_missing_agent_slots "$TMP/prompt-migration.json"
@@ -92,8 +92,8 @@ JSON
 python3 "$REPAIR" \
   --file "$TMP/custom-agent.json" \
   --runtime opencode \
-  --chat-bridge kimaki \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --additive > "$TMP/custom-agent.out"
 
 python3 - "$TMP/custom-agent.json" <<'PY'
@@ -122,8 +122,8 @@ JSON
 python3 "$REPAIR" \
   --file "$TMP/local-plugin-path.json" \
   --runtime opencode \
-  --chat-bridge kimaki \
-  --kimaki-plugins-dir /Users/example/.kimaki/kimaki-config/plugins \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /Users/example/.roadie/roadie-config/plugins \
   --additive > "$TMP/local-plugin-path.out"
 
 python3 - "$TMP/local-plugin-path.json" <<'PY'
@@ -133,10 +133,12 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
+# Kimaki-era entries: dm-agent-sync is rewritten into the Roadie config dir,
+# the retired Kimaki plugins are dropped, and Roadie's new plugins are added.
 expected = [
-    "/Users/example/.kimaki/kimaki-config/plugins/dm-context-filter.ts",
-    "/Users/example/.kimaki/kimaki-config/plugins/dm-agent-sync.ts",
-    "/Users/example/.kimaki/kimaki-config/plugins/kimaki-session-attribution.ts",
+    "/Users/example/.roadie/roadie-config/plugins/dm-agent-sync.ts",
+    "/Users/example/.roadie/roadie-config/plugins/roadie-command-guard.ts",
+    "/Users/example/.roadie/roadie-config/plugins/session-attribution.ts",
 ]
 if data.get("plugin") != expected:
     raise SystemExit(f"unexpected plugin paths: {data.get('plugin')}")
@@ -162,8 +164,8 @@ EOF
 python3 "$REPAIR" \
   --file "$TMP/managed-instructions.json" \
   --runtime opencode \
-  --chat-bridge kimaki \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --managed-instructions-file "$TMP/managed-instructions.txt" \
   --additive > "$TMP/managed-instructions.out"
 
@@ -202,7 +204,7 @@ python3 "$REPAIR" \
   --file "$TMP/edit-permissions.json" \
   --runtime opencode \
   --chat-bridge none \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --additive > "$TMP/edit-permissions.out"
 
 python3 - "$TMP/edit-permissions.json" <<'PY'
@@ -248,7 +250,7 @@ run_repair() {
     --file "$TMP/workspace-config-permission.json" \
     --runtime opencode \
     --chat-bridge none \
-    --kimaki-plugins-dir /opt/kimaki-config/plugins \
+    --roadie-plugins-dir /opt/roadie-config/plugins \
     --source-mode workspace "$@"
 }
 
@@ -333,7 +335,7 @@ python3 "$REPAIR" \
   --file "$TMP/workspace-permission.json" \
   --runtime opencode \
   --chat-bridge none \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --workspace-dir /Users/example/Developer \
   --workspace-dir /Users/example/Studio \
   --additive > "$TMP/workspace-permission.out"
@@ -365,7 +367,7 @@ python3 "$REPAIR" \
   --file "$TMP/claude-code-auth-plugin.json" \
   --runtime opencode \
   --chat-bridge none \
-  --kimaki-plugins-dir /opt/kimaki-config/plugins \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
   --claude-code-auth-plugin /srv/site/.opencode/plugins/claude-code-auth.ts \
   --additive > "$TMP/claude-code-auth-plugin.out"
 

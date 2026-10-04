@@ -7,15 +7,15 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 SITE_PATH="$TMP/site"
-KIMAKI_DATA_DIR="$TMP/kimaki-data"
+ROADIE_DATA_DIR="$TMP/roadie-data"
 WORKSPACE_REPOSITORY="$TMP/workspace"
-mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR" "$WORKSPACE_REPOSITORY"
+mkdir -p "$SITE_PATH" "$ROADIE_DATA_DIR" "$WORKSPACE_REPOSITORY"
 git -C "$WORKSPACE_REPOSITORY" init -q
 
 export SCRIPT_DIR
 export SITE_PATH
-export KIMAKI_DATA_DIR
-export CHAT_BRIDGE="kimaki"
+export ROADIE_DATA_DIR
+export CHAT_BRIDGE="roadie"
 export LOCAL_MODE=true
 export DRY_RUN=false
 export OPENCODE_MODEL=""
@@ -40,29 +40,29 @@ SOURCE_MODE="${SOURCE_MODE:-workspace}"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/runtimes/opencode.sh"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/bridges/kimaki.sh"
+source "$SCRIPT_DIR/bridges/roadie.sh"
 
-RESOLVED_KIMAKI_PLUGINS_DIR=/opt/kimaki-config/plugins
-[ "$(bridge_managed_plugins_dir)" = "$KIMAKI_DATA_DIR/kimaki-config/plugins" ] || {
+RESOLVED_ROADIE_PLUGINS_DIR=/opt/roadie-config/plugins
+[ "$(bridge_managed_plugins_dir)" = "$ROADIE_DATA_DIR/roadie-config/plugins" ] || {
   echo "FAIL: local plugin path depended on child-process bridge state"
   exit 1
 }
 
 runtime_generate_config
 
-python3 - "$SITE_PATH/opencode.json" "$KIMAKI_DATA_DIR" "$WORKSPACE_REPOSITORY" <<'PY'
+python3 - "$SITE_PATH/opencode.json" "$ROADIE_DATA_DIR" "$WORKSPACE_REPOSITORY" <<'PY'
 import json
 import os
 import sys
 
-opencode_json, kimaki_data_dir, workspace_repository = sys.argv[1:]
+opencode_json, roadie_data_dir, workspace_repository = sys.argv[1:]
 with open(opencode_json, encoding="utf-8") as handle:
     data = json.load(handle)
 
 expected = [
-    f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/kimaki-session-attribution.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/dm-agent-sync.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/roadie-command-guard.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/session-attribution.ts",
     f"{opencode_json.rsplit('/', 1)[0]}/.opencode/plugins/claude-code-auth.ts",
 ]
 actual = data.get("plugin")
@@ -87,30 +87,30 @@ if [ ! -f "$SITE_PATH/.opencode/plugins/claude-code-auth.ts" ]; then
   echo "FAIL: default Claude Code auth plugin was not installed"
   exit 1
 fi
-if [ -e "$KIMAKI_DATA_DIR/kimaki-config/plugins/homeboy-notification-context.ts" ]; then
+if [ -e "$ROADIE_DATA_DIR/roadie-config/plugins/homeboy-notification-context.ts" ]; then
   echo "FAIL: fresh config generation installed obsolete notification plugin"
   exit 1
 fi
 
 WITH_CLAUDE_CODE_AUTH=false
 SITE_PATH="$TMP/site-without-auth"
-mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
+mkdir -p "$SITE_PATH" "$ROADIE_DATA_DIR"
 UPDATED_ITEMS=()
 
 runtime_generate_config
 
-python3 - "$SITE_PATH/opencode.json" "$KIMAKI_DATA_DIR" "$SITE_PATH" <<'PY'
+python3 - "$SITE_PATH/opencode.json" "$ROADIE_DATA_DIR" "$SITE_PATH" <<'PY'
 import json
 import sys
 
-opencode_json, kimaki_data_dir, site_path = sys.argv[1], sys.argv[2], sys.argv[3]
+opencode_json, roadie_data_dir, site_path = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(opencode_json, encoding="utf-8") as handle:
     data = json.load(handle)
 
 expected = [
-    f"{kimaki_data_dir}/kimaki-config/plugins/dm-context-filter.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/dm-agent-sync.ts",
-    f"{kimaki_data_dir}/kimaki-config/plugins/kimaki-session-attribution.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/dm-agent-sync.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/roadie-command-guard.ts",
+    f"{roadie_data_dir}/roadie-config/plugins/session-attribution.ts",
 ]
 actual = data.get("plugin")
 if actual != expected:

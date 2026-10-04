@@ -352,7 +352,7 @@ section "service identity coherence"
 
 UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 UNITS_CHECKED=0
-for unit in "$UNIT_DIR"/kimaki*.service "$UNIT_DIR"/datamachine-worker.service; do
+for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service; do
   [ -f "$unit" ] || continue
   UNITS_CHECKED=$((UNITS_CHECKED + 1))
   name="$(basename "$unit")"
@@ -403,7 +403,7 @@ if [ -x "$HOMEBOY_MANAGED_BIN" ]; then
     else
       fail "$(basename "$unit") PATH does not include $HOMEBOY_BIN_DIR — service and guidance may select different Homeboy binaries"
     fi
-  done < <(printf '%s\n' "$UNIT_DIR"/kimaki*.service)
+  done < <(printf '%s\n' "$UNIT_DIR"/roadie*.service)
 else
   skip "no executable managed Homeboy at $HOMEBOY_MANAGED_BIN"
 fi

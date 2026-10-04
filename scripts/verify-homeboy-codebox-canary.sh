@@ -271,7 +271,7 @@ if os.environ.get("CANARY_CHANNEL"):
 if os.environ.get("CANARY_THREAD"):
     routing["thread"] = os.environ["CANARY_THREAD"]
 if routing:
-    routing.update({"client": "discord", "ui": "kimaki", "user_required": False})
+    routing.update({"client": "discord", "ui": "roadie", "user_required": False})
     config["routing"] = routing
 
 with open(sys.argv[1], "w", encoding="utf-8") as handle:

@@ -44,8 +44,8 @@ Output (stdout): JSON diagnostic object. Examples:
 CLI usage:
   repair-opencode-json.py --file <path> \
     --runtime <opencode|claude-code> \
-    --chat-bridge <kimaki|cc-connect|telegram|none> \
-    [--kimaki-plugins-dir <path>] \
+    --chat-bridge <roadie|none> \
+    [--roadie-plugins-dir <path>] \
     [--claude-code-auth-plugin <path>] \
     [--additive | --apply] \
     [--backup-suffix <timestamp>]
@@ -53,8 +53,8 @@ CLI usage:
 Without --additive or --apply the tool is a pure diagnostic.
 
 --additive is the default mode called from setup.sh and upgrade.sh: it
-installs managed plugin entries the user is missing (dm-context-filter
-and dm-agent-sync on Kimaki bridges), removes retired managed plugin
+installs managed plugin entries the user is missing (the Roadie bridge's
+managed plugins), removes retired managed plugin
 entries, and migrates legacy agent prompts to the top-level `instructions`
 array (fixes Anthropic Claude Max OAuth, see wp-coding-agents#60). It never
 removes user-added plugin entries.
@@ -73,8 +73,14 @@ import sys
 from typing import List, Tuple
 
 
-MANAGED_KIMAKI_PLUGIN_NAMES = {"dm-context-filter.ts", "dm-agent-sync.ts", "kimaki-session-attribution.ts"}
-OBSOLETE_KIMAKI_PLUGIN_NAMES = {"homeboy-notification-context.ts"}
+MANAGED_ROADIE_PLUGIN_NAMES = ("dm-agent-sync.ts", "roadie-command-guard.ts", "session-attribution.ts")
+# Kimaki-era managed plugins. Roadie's prompt config replaces dm-context-filter
+# and its own shell attribution replaces kimaki-session-attribution.
+OBSOLETE_MANAGED_PLUGIN_NAMES = {
+    "dm-context-filter.ts",
+    "kimaki-session-attribution.ts",
+    "homeboy-notification-context.ts",
+}
 DM_MEMORY_MARKER = "/datamachine-files/"
 PROJECTED_MEMORY_MARKER = "/.wp-coding-agents/context/"
 # Every installed path wp-coding-agents manages, as ready-made edit patterns in
@@ -114,7 +120,7 @@ DEFAULT_SOURCE_MODE = "workspace"
 def expected_plugins(
     runtime: str,
     chat_bridge: str,
-    kimaki_plugins_dir: str,
+    roadie_plugins_dir: str,
     claude_code_auth_plugin: str = "",
 ) -> List[str]:
     """Return the `plugin` array wp-coding-agents setup would produce today.
@@ -130,16 +136,10 @@ def expected_plugins(
         # "drift" comparisons on those runtimes are no-ops.
         return plugins
 
-    # DM context filter + memory sync: only when the bridge is Kimaki. These
-    # plugins filter Kimaki-specific prompt sections and refresh composed Data
-    # Machine memory; they do not write OpenCode agent prompts. wp-coding-agents does
-    # not manage opencode-claude-auth on any bridge — Kimaki ships its own
-    # AnthropicAuthPlugin, and non-kimaki bridges use opencode's native auth
-    # flow. See wp-coding-agents#117.
-    if chat_bridge == "kimaki":
-        plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
-        plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
-        plugins.append(f"{kimaki_plugins_dir}/kimaki-session-attribution.ts")
+    # Managed plugins only on the Roadie bridge: Data Machine memory sync, the
+    # managed-runtime command guard, and Homeboy session attribution.
+    if chat_bridge == "roadie":
+        plugins.extend(f"{roadie_plugins_dir}/{name}" for name in MANAGED_ROADIE_PLUGIN_NAMES)
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)
@@ -164,29 +164,28 @@ def diff_plugins(current: List[str], expected: List[str]) -> dict:
     }
 
 
-def normalize_managed_kimaki_plugin_paths(
-    current: List[str], kimaki_plugins_dir: str
+def normalize_managed_plugin_paths(
+    current: List[str], roadie_plugins_dir: str
 ) -> Tuple[List[str], List[dict]]:
-    """Rewrite managed Kimaki plugin paths to the durable configured dir.
+    """Rewrite managed plugin paths to the durable configured dir.
 
-    Older local installs pointed opencode.json at npm package-local plugin files
-    under ``$(npm root -g)/kimaki/plugins``. Those files disappear on
-    ``npm update -g kimaki``. Treat any managed plugin basename outside the
-    configured persistent dir as a stale wp-coding-agents-owned entry and rewrite
-    it in place, preserving user-added plugins.
+    Kimaki installs pointed opencode.json at /opt/kimaki-config/plugins (or
+    npm package-local copies). Any managed plugin basename outside the Roadie
+    config dir is a stale wp-coding-agents-owned entry and is rewritten in
+    place; retired Kimaki-era plugins are dropped. User plugins are kept.
     """
     normalized: List[str] = []
     rewrites: List[dict] = []
     seen = set()
-    plugins_dir = kimaki_plugins_dir.rstrip("/")
+    plugins_dir = roadie_plugins_dir.rstrip("/")
 
     for plugin in current:
         basename = os.path.basename(plugin)
-        if basename in OBSOLETE_KIMAKI_PLUGIN_NAMES:
+        if basename in OBSOLETE_MANAGED_PLUGIN_NAMES:
             rewrites.append({"from": plugin, "to": None})
             continue
         replacement = plugin
-        if basename in MANAGED_KIMAKI_PLUGIN_NAMES:
+        if basename in MANAGED_ROADIE_PLUGIN_NAMES:
             expected = f"{plugins_dir}/{basename}"
             if os.path.dirname(plugin).rstrip("/") != plugins_dir:
                 replacement = expected
@@ -607,7 +606,7 @@ def main() -> int:
     parser.add_argument(
         "--chat-bridge",
         required=True,
-        choices=["kimaki", "cc-connect", "telegram", "none"],
+        choices=["roadie", "none"],
     )
     parser.add_argument(
         "--source-mode",
@@ -644,9 +643,9 @@ def main() -> int:
         help="Absolute path outside the site root the agent may read. Repeatable.",
     )
     parser.add_argument(
-        "--kimaki-plugins-dir",
-        default="/opt/kimaki-config/plugins",
-        help="Directory where DM plugins live (VPS default: /opt/kimaki-config/plugins)",
+        "--roadie-plugins-dir",
+        default="/opt/roadie-config/plugins",
+        help="Directory where DM plugins live (VPS default: /opt/roadie-config/plugins)",
     )
     parser.add_argument(
         "--claude-code-auth-plugin",
@@ -729,17 +728,17 @@ def main() -> int:
     expected = expected_plugins(
         runtime=args.runtime,
         chat_bridge=args.chat_bridge,
-        kimaki_plugins_dir=args.kimaki_plugins_dir.rstrip("/"),
+        roadie_plugins_dir=args.roadie_plugins_dir.rstrip("/"),
         claude_code_auth_plugin=args.claude_code_auth_plugin,
     )
 
     current: List[str] = list(data.get("plugin", []))
     normalized_current = current
     plugin_rewrites: List[dict] = []
-    if args.runtime == "opencode" and args.chat_bridge == "kimaki":
-        normalized_current, plugin_rewrites = normalize_managed_kimaki_plugin_paths(
+    if args.runtime == "opencode" and args.chat_bridge == "roadie":
+        normalized_current, plugin_rewrites = normalize_managed_plugin_paths(
             current,
-            args.kimaki_plugins_dir,
+            args.roadie_plugins_dir,
         )
 
     # Claude Code: no plugin array concept here. Report ok

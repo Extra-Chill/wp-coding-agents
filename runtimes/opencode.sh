@@ -101,27 +101,19 @@ wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
 }
 
 runtime_generate_config() {
-  # Resolve Kimaki plugin dir + copy plugin files FIRST, unconditionally.
-  # Setup.sh must be idempotent: whether this site has a fresh install or an
-  # existing opencode.json, the kimaki plugins dir on disk must end up with
-  # the current managed Kimaki plugins. dm-agent-sync only
-  # recomposes Data Machine memory; it must not write config.agent.* prompts.
-  # Previously this only ran on fresh installs because the whole function
-  # early-returned on an existing file, which left upgraded installs missing
-  # the security policy filter they're meant to run with. See
-  # wp-coding-agents#67.
-  KIMAKI_PLUGINS_DIR=""
-  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
+  # Resolve the Roadie managed-plugin dir and copy the plugins FIRST,
+  # unconditionally, so a fresh install and an existing opencode.json both end
+  # up with the current managed plugins on disk (#67).
+  ROADIE_PLUGINS_DIR=""
+  if [ "$CHAT_BRIDGE" = "roadie" ]; then
     if [ "$LOCAL_MODE" = true ]; then
-      KIMAKI_PLUGINS_DIR="${KIMAKI_DATA_DIR:-$(runtime_project_root)/.kimaki}/kimaki-config/plugins"
-      if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_PLUGINS_DIR" ]; then
-        mkdir -p "$KIMAKI_PLUGINS_DIR"
-        cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
-        cp "$SCRIPT_DIR/bridges/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
-        cp "$SCRIPT_DIR/bridges/kimaki/plugins/kimaki-session-attribution.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+      ROADIE_PLUGINS_DIR="${ROADIE_DATA_DIR:-$(runtime_project_root)/.roadie}/roadie-config/plugins"
+      if [ "$DRY_RUN" = false ] && [ -n "$ROADIE_PLUGINS_DIR" ]; then
+        mkdir -p "$ROADIE_PLUGINS_DIR"
+        cp "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$ROADIE_PLUGINS_DIR/" 2>/dev/null || true
       fi
     else
-      KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
+      ROADIE_PLUGINS_DIR="/opt/roadie-config/plugins"
     fi
   fi
 
@@ -149,14 +141,15 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
   fi
 
-  # OpenCode plugins. The Data Machine prompt/memory plugins are managed on
-  # Kimaki bridges. Claude Code OAuth auth is an explicit OpenCode runtime
-  # opt-in so direct opencode sessions can use Claude Pro/Max subscription auth.
+  # OpenCode plugins. The Roadie bridge manages the Data Machine memory sync,
+  # the managed-runtime command guard and Homeboy session attribution. Claude
+  # Code OAuth auth is an explicit OpenCode runtime opt-in.
   OPENCODE_PLUGINS=""
-  if [ "$CHAT_BRIDGE" = "kimaki" ]; then
-    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
-    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
-    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/kimaki-session-attribution.ts\","
+  if [ "$CHAT_BRIDGE" = "roadie" ]; then
+    local managed_plugin
+    for managed_plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do
+      OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${ROADIE_PLUGINS_DIR}/${managed_plugin}\","
+    done
   fi
   if opencode_claude_code_auth_enabled; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"$(opencode_claude_code_auth_plugin_path)\","
@@ -320,7 +313,7 @@ _runtime_repair_opencode_json_additive() {
   fi
 
   local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
-  local PLUGINS_DIR="${KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+  local PLUGINS_DIR="${ROADIE_PLUGINS_DIR:-/opt/roadie-config/plugins}"
   local CLAUDE_CODE_AUTH_PLUGIN=""
   local claude_code_auth_args=()
   local SUFFIX
@@ -352,7 +345,7 @@ _runtime_repair_opencode_json_additive() {
     --chat-bridge "$BRIDGE_ARG" \
     --source-mode "${SOURCE_MODE:-workspace}" \
     "${_managed_source_args[@]}" \
-    --kimaki-plugins-dir "$PLUGINS_DIR" \
+    --roadie-plugins-dir "$PLUGINS_DIR" \
     "${claude_code_auth_args[@]}" \
     "${managed_args[@]}" \
     --additive \
