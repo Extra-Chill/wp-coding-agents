@@ -40,6 +40,11 @@ for (const command of [
   "true && roadie send --prompt x",
   "true; roadie project add .",
   "roadie send --prompt 'unterminated",
+  // An unquoted heredoc expands substitutions: those still run.
+  "cat > f <<EOF\nnote: $(roadie send --prompt x)\nEOF",
+  "cat > f <<EOF\nisn't `roadie send --prompt x`\nEOF",
+  // A command after the heredoc is still a command.
+  "cat > f <<'EOF'\ndata\nEOF\nroadie send --prompt x",
 ]) await denied(command);
 
 for (const command of [
@@ -53,6 +58,10 @@ for (const command of [
   "node -e \"console.log('roadie send --prompt x')\"",
   "echo roadie",
   "git status",
+  // Heredoc bodies are data: prose apostrophes and the word roadie are inert (#658).
+  "cat > body.md <<'EOF'\nRoadie's guard isn't fooled by roadie send --prompt x\nEOF\ngh pr create --body-file body.md",
+  "cat > body.md <<EOF\nRoadie's plugins don't run roadie send here\nEOF",
+  "git commit -F- <<-'MSG'\n\tfix: Roadie's send path\n\tMSG",
 ]) await allowed(command);
 
 await assert.doesNotReject(before({ tool: "read" }, { args: { command: "roadie send --prompt x" } }), "non-bash tools are ignored");
