@@ -489,6 +489,79 @@ _roadie_restore_kimaki() {
   fi
 }
 
+# The state copy carries the database's operational directory bindings
+# verbatim, so channels, thread working directories, and scheduled tasks
+# would keep pointing beneath the retired Kimaki data directory after their
+# projects were copied (#660). Relocate exactly the references into the
+# copied projects root: component-safe, outside paths and historical error
+# text untouched, conversation payloads never rewritten, backend session
+# history reported rather than re-keyed. Failures roll the migration back.
+_roadie_relocate_copied_bindings() {
+  local kimaki_data="$1" target_db="$2" relocate_out
+  if ! relocate_out="$(python3 "$SCRIPT_DIR/bridges/roadie/relocate-project-paths.py" apply \
+         --db "$target_db" \
+         --source-root "$kimaki_data/projects" \
+         --target-root "$ROADIE_DATA_DIR/projects" 2>&1)"; then
+    printf '%s\n' "$relocate_out" >&2
+    return 1
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && log "  $entry"
+  done <<< "$relocate_out"
+}
+
+# An install migrated before #660 was fixed keeps a Roadie copy whose
+# bindings still point beneath the retired Kimaki projects root. Relocation
+# is a text mapping and idempotent, so the existing copy converges without
+# recopying state — and without the retired directory even existing. A value
+# is rewritten only when its mapped target was actually copied; the rest are
+# reported instead of silently pointing a channel at nothing. Best-effort:
+# a locked or unreadable database defers to the next run rather than failing
+# the install.
+_roadie_relocate_existing_copy_bindings() {
+  local kimaki_data="$1" relocate_out status=0
+  [ -d "$ROADIE_DATA_DIR/projects" ] || return 0
+  local args=(apply --db "$ROADIE_DATA_DIR/discord-sessions.db"
+    --source-root "$kimaki_data/projects" --target-root "$ROADIE_DATA_DIR/projects"
+    --opencode-db "$(_roadie_opencode_data_dir)/opencode.db" --require-target-exists)
+  [ "${DRY_RUN:-false}" != true ] || args+=(--dry-run)
+  if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    relocate_out="$(sudo -n -H -u "$SERVICE_USER" python3 - "${args[@]}" \
+      < "$SCRIPT_DIR/bridges/roadie/relocate-project-paths.py" 2>&1)" || status=$?
+  else
+    relocate_out="$(python3 "$SCRIPT_DIR/bridges/roadie/relocate-project-paths.py" "${args[@]}" 2>&1)" || status=$?
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && log "  $entry"
+  done <<< "$relocate_out"
+  if [ "${DRY_RUN:-false}" != true ] && grep -Eq ': [1-9][0-9]* (binding|reference)\(s\) relocated$' <<< "$relocate_out" && declare -p UPDATED_ITEMS >/dev/null 2>&1; then
+    UPDATED_ITEMS+=("relocated Kimaki project paths in the existing Roadie copy (#660)")
+  fi
+  if [ "$status" -ne 0 ]; then
+    warn "  Copied project-path reconciliation requires follow-up:"
+    warn "  $relocate_out"
+    if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+      PENDING_ITEMS+=("Kimaki project-path relocation in $ROADIE_DATA_DIR: keep the source until the reported references are resolved")
+    fi
+    return 0
+  fi
+}
+
+# Also repair installations cut over before project paths were relocated.
+# This runs through ordinary bridge sync even when the legacy unit/data is gone.
+_roadie_reconcile_existing_project_paths() {
+  [ -f "$ROADIE_DATA_DIR/discord-sessions.db" ] || return 0
+  local kimaki_data="${KIMAKI_DATA_DIR:-${SERVICE_HOME:-$HOME}/.kimaki}" unit value
+  if [ "${LOCAL_MODE:-false}" != true ]; then
+    unit="$(_roadie_kimaki_unit || true)"
+    if [ -n "$unit" ]; then
+      value="$(_roadie_unit_env_value "$(_roadie_unit_dir)/$unit" KIMAKI_DATA_DIR)"
+      [ -z "$value" ] || kimaki_data="$value"
+    fi
+  fi
+  _roadie_relocate_existing_copy_bindings "$kimaki_data"
+}
+
 roadie_migrate_from_kimaki() {
   local unit_dir kimaki_unit unit_file kimaki_data
   unit_dir="$(_roadie_unit_dir)"
@@ -524,11 +597,12 @@ roadie_migrate_from_kimaki() {
 
   local source_db="$kimaki_data/discord-sessions.db"
   local target_db="$ROADIE_DATA_DIR/discord-sessions.db"
-  [ -f "$source_db" ] || return 0
   if [ -f "$target_db" ]; then
     log "  Roadie data already present at $ROADIE_DATA_DIR; Kimaki state not copied"
+    _roadie_relocate_existing_copy_bindings "$kimaki_data"
     return 0
   fi
+  [ -f "$source_db" ] || return 0
 
   log "Migrating Kimaki → Roadie: $kimaki_data → $ROADIE_DATA_DIR"
   if [ "${DRY_RUN:-false}" = true ]; then
@@ -557,8 +631,17 @@ roadie_migrate_from_kimaki() {
   local entry
   for entry in attachments session-system session-system-pinned projects; do
     [ -e "$kimaki_data/$entry" ] || continue
-    cp -a "$kimaki_data/$entry" "$ROADIE_DATA_DIR/"
+    # Merge into an existing directory, so a re-run after a partial failure
+    # converges instead of nesting a second copy (#660 repeat application).
+    mkdir -p "$ROADIE_DATA_DIR/$entry"
+    cp -a "$kimaki_data/$entry/." "$ROADIE_DATA_DIR/$entry/"
   done
+
+  _roadie_relocate_copied_bindings "$kimaki_data" "$target_db" || {
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Relocating copied project paths failed; Kimaki state left untouched and Kimaki restarted"
+  }
 
   # Accounts, and a subrouter preset for each direct model the stored choices
   # use (derived from them, no routing policy). Without them Roadie cannot
@@ -598,13 +681,17 @@ roadie_migrate_from_kimaki() {
     chown -R "$SERVICE_USER:$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")" "$ROADIE_DATA_DIR"
   fi
 
+  # Bridge relocation does not own backend session storage. Surface those
+  # dependencies in the fresh migration's pending summary too.
+  _roadie_relocate_existing_copy_bindings "$kimaki_data"
+
   if [ -n "${kimaki_unit:-}" ]; then
     systemctl disable "$kimaki_unit" 2>/dev/null || true
     log "  Disabled $kimaki_unit (kept as rollback with $kimaki_data)"
   fi
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
   UPDATED_ITEMS+=("subscription accounts moved into subrouter; on rollback, first run: $(roadie_accounts_rollback_command)")
-  UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with `subrouter preset` (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
+  UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with 'subrouter preset' (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
 }
 
 # ============================================================================
@@ -754,6 +841,7 @@ bridge_sync_config() {
   ROADIE_BIN="$(roadie_bin)"
   _roadie_install_secrets
   _roadie_sync_assets
+  _roadie_reconcile_existing_project_paths
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] && _roadie_register_cli_channel
   log "  Done."
   RESOLVED_ROADIE_CONFIG_DIR="$(roadie_config_dir)"

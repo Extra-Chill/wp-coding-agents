@@ -367,3 +367,45 @@ harden_wp_config_permissions() {
   fi
   run_cmd chmod "$mode" "$config"
 }
+
+# Restore setup's shared webroot contract after directory-mode drift (#644).
+# AGENTS.md composition needs an atomic rename at the root. Only add group
+# write to this directory; preserve ownership, special bits, and all children.
+ensure_site_root_group_write() {
+  local site_path="$1"
+  SITE_ROOT_GROUP_WRITE_CHANGED=0
+  SITE_ROOT_GROUP_WRITE_REPAIR_REQUIRED=false
+  SITE_ROOT_GROUP_WRITE_REPAIR_COMMAND=""
+  [ -n "$site_path" ] && [ -d "$site_path" ] || return 0
+
+  local mode
+  mode="$(file_mode "$site_path" 2>/dev/null || true)"
+  case "${mode: -2:1}" in
+    2|3|6|7) return 0 ;;  # group digit already carries write
+  esac
+  [ -n "$mode" ] || return 0
+
+  local owner_id euid
+  owner_id="$(file_owner_id "$site_path" 2>/dev/null || true)"
+  euid="$(id -u)"
+  if [ "$euid" -eq 0 ] || [ "$owner_id" = "$euid" ]; then
+    run_cmd chmod g+w "$site_path"
+    if [ "${DRY_RUN:-false}" != true ]; then
+      SITE_ROOT_GROUP_WRITE_CHANGED=1
+      log "[site-root] re-asserted group-write on $site_path (was $mode)"
+    fi
+    return 0
+  fi
+
+  SITE_ROOT_GROUP_WRITE_REPAIR_REQUIRED=true
+  SITE_ROOT_GROUP_WRITE_REPAIR_COMMAND="sudo chmod g+w $(printf '%q' "$site_path")"
+  local owner
+  owner="$(file_owner "$site_path" 2>/dev/null || true)"
+  [ -n "$owner" ] || owner="uid $owner_id"
+  warn "[site-root] $site_path (mode $mode, owner $owner) is not group-writable; the service identity cannot write files at the site root (#644)."
+  warn "[site-root] one-time repair: $SITE_ROOT_GROUP_WRITE_REPAIR_COMMAND"
+  printf '{"status":"root_repair_required","component":"site_root_group_write","paths":["%s"],"repair_command":"%s"}\n' \
+    "$(json_escape "$site_path")" \
+    "$(json_escape "$SITE_ROOT_GROUP_WRITE_REPAIR_COMMAND")"
+  return 0
+}

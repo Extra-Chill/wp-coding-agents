@@ -18,6 +18,10 @@ cd "$SCRIPT_DIR"
 FAILED=0
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+# This suite models a disposable install, including its privilege grants.
+# Host sudoers files are outside the fixture and must not affect its verdict.
+export GRANTS_SUDOERS_DIR="$TMP/sudoers"
+mkdir -p "$GRANTS_SUDOERS_DIR"
 
 assert_contains() {
   case "$1" in *"$2"*) echo "  ok   $3" ;; *) echo "  FAIL $3 (missing: $2)"; FAILED=$((FAILED + 1)) ;; esac
@@ -43,6 +47,9 @@ fi
 : > "$SITE/wp-config.php"
 touch "$SITE/wp-content/mu-plugins/wp-coding-agents-source-reconcile.php" \
       "$SITE/wp-content/mu-plugins/wp-coding-agents-runtime-guard.php"
+# The site root models the provisioned sharing contract (#644): group-writable,
+# so the non-root service identity can write at the root.
+chmod 2775 "$SITE"
 
 cat > "$TMP/wp" <<'WP'
 #!/bin/bash
@@ -284,6 +291,15 @@ OUT="$(SYSTEMS_CAPABILITIES_PROFILE=managed-vps CODEBOX_DATABASE_ENV_FILE="$TMP/
   bash verify.sh --site-path "$SITE" 2>&1 || true)"
 assert_contains "$OUT" "no codebox test database env file" "skips cleanly when the profile is enabled but nothing was provisioned yet"
 refute_contains "$OUT" "FAIL" "an unprovisioned codebox database is skipped, not failed"
+
+echo "verify: site-root sharing drift is reported without repair"
+chmod 2755 "$SITE"
+OUT="$(run_verify)"
+assert_contains "$OUT" 'site root mode 2755 is not group-writable' "detects the non-root composition failure"
+[ "$(stat -c '%a' "$SITE" 2>/dev/null || stat -f '%Lp' "$SITE")" = 2755 ] || { echo 'FAIL: verifier repaired directory mode'; FAILED=$((FAILED + 1)); }
+chmod 2775 "$SITE"
+OUT="$(run_verify)"
+assert_contains "$OUT" 'site root is group-writable' "reports the repaired sharing contract"
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

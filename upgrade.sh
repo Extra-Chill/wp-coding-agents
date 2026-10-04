@@ -563,6 +563,27 @@ upgrade_harden_wp_config_permissions() {
 }
 upgrade_harden_wp_config_permissions
 
+# Converge the site root's own directory mode (#644). setup's one-time
+# recursive grant does not survive an external directory replacement, and the
+# service identity needs group-write at the root for AGENTS.md composition.
+# Same guard as the credentials hardener: ordinary non-root VPS upgrades only.
+# Root repairs the bit directly; the service user gets a single root-repair
+# result instead of every later write failing.
+upgrade_ensure_site_root_group_write() {
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] && [ "${RUN_AS_ROOT:-}" = false ] && \
+     [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && \
+     [ "$SKILLS_ONLY" != true ] && \
+     [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+    ensure_site_root_group_write "$SITE_PATH"
+    if [ "${SITE_ROOT_GROUP_WRITE_CHANGED:-0}" -eq 1 ] && declare -p UPDATED_ITEMS >/dev/null 2>&1; then
+      UPDATED_ITEMS+=("Site root group-write re-asserted ($SITE_PATH)")
+    fi
+    if [ "${SITE_ROOT_GROUP_WRITE_REPAIR_REQUIRED:-false}" = true ] && declare -p PENDING_ITEMS >/dev/null 2>&1; then
+      PENDING_ITEMS+=("Site root group-write (root): $SITE_ROOT_GROUP_WRITE_REPAIR_COMMAND")
+    fi
+  fi
+}
+
 if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$RUN_AS_ROOT" = true ] && [ "$EUID" -ne 0 ]; then
   error "Please run as root (sudo ./upgrade.sh), or use --non-root for installs whose service and WordPress files are writable by the current user."
 fi
@@ -655,6 +676,11 @@ if [ "$EUID" -eq 0 ]; then
 else
   agent_state_ownership_audit
 fi
+
+# Restore the site root's group-write before any phase writes at the root
+# (#644); the summary picks the repair-or-report result up from
+# UPDATED_ITEMS / PENDING_ITEMS.
+upgrade_ensure_site_root_group_write
 
 # A root upgrade may discover the system Homeboy binary, but managed non-root
 # services must execute the service-owned copy instead.

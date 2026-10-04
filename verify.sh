@@ -352,12 +352,14 @@ section "service identity coherence"
 
 UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 UNITS_CHECKED=0
+NON_ROOT_SERVICE=false
 for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service; do
   [ -f "$unit" ] || continue
   UNITS_CHECKED=$((UNITS_CHECKED + 1))
   name="$(basename "$unit")"
   u_user="$(awk -F= '/^User=/ {print $2; exit}' "$unit")"
   [ -n "$u_user" ] || continue
+  [ "$u_user" = "root" ] || NON_ROOT_SERVICE=true
   u_home="$(getent passwd "$u_user" 2>/dev/null | cut -d: -f6)"
   [ -n "$u_home" ] || u_home="/home/$u_user"
   [ "$u_user" = "root" ] && u_home="/root"
@@ -387,6 +389,31 @@ for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service; 
 done
 
 [ "$UNITS_CHECKED" -eq 0 ] && skip "no agent systemd units on this host"
+
+# The site root's own mode is part of the sharing contract (#644): a non-root
+# service identity that is a member of the webroot group can create and
+# replace files at the site root only when the root directory itself is
+# group-writable — which is how Data Machine's session-start composition
+# atomically writes AGENTS.md there. setup's one-time recursive grant does
+# not survive an external directory replacement, so measure the drift here;
+# ./upgrade.sh owns the repair.
+if [ "$NON_ROOT_SERVICE" != true ]; then
+  skip "no non-root agent service — the site-root sharing contract does not apply"
+elif [ ! -d "$SITE_PATH" ]; then
+  skip "no site root directory at $SITE_PATH"
+else
+  SR_MODE="$(file_mode "$SITE_PATH" 2>/dev/null || true)"
+  case "${SR_MODE: -2:1}" in
+    2|3|6|7)
+      pass "site root is group-writable ($SR_MODE) — the service identity can write at the root" ;;
+    *)
+      if [ -n "$SR_MODE" ]; then
+        fail "site root mode $SR_MODE is not group-writable — AGENTS.md composition at the root fails; repair with: sudo chmod g+w $SITE_PATH"
+      else
+        skip "cannot read the site root mode"
+      fi ;;
+  esac
+fi
 
 HOMEBOY_MANAGED_BIN="${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
 if [ -x "$HOMEBOY_MANAGED_BIN" ]; then
