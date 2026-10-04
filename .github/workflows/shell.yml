@@ -287,6 +287,7 @@ jobs:
           - homeboy-project-id
           - homeboy-service-identity
           - homeboy-verification-guidance
+          - roadie-accounts
           - roadie-command-guard
           - roadie-kimaki-migration
           - roadie-multi-instance
@@ -322,7 +323,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-accounts'
         with:
           node-version: 24
       - name: Install supported OpenCode dispatch fixture

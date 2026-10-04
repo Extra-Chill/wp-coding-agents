@@ -552,7 +552,18 @@ cd ~/Studio/my-site && codex
 
 Managed installs replace Roadie's generic prompt sections with a small bridge prompt (`ROADIE_PROMPT_CONFIG`) so orchestration, workspace, tunnel, and preview guidance come from the installed components that own those capabilities. The managed OpenCode plugins (Data Machine memory sync, the command ownership guard, and Homeboy session attribution) are synced into Roadie's config directory. See [managed Roadie context](docs/roadie-managed-context.md).
 
-**Migrating from Kimaki.** An upgrade on a Kimaki install migrates it in place: Kimaki is stopped, its session database is copied with an SQLite online backup and integrity check, attachments and projects are copied, the bot token, lock port, and agent slug are carried over, and the Kimaki unit is disabled. The Kimaki unit and `~/.kimaki` are left untouched as the rollback; a failed migration restarts Kimaki.
+**Migrating from Kimaki.** An upgrade on a Kimaki install migrates it in place: Kimaki is stopped, its session database is copied with an SQLite online backup and integrity check, attachments and projects are copied, the bot token, lock port, and agent slug are carried over, and the Kimaki unit is disabled. The subscription accounts move too: OpenCode's rotation pools (`<provider>-oauth-accounts.json`) and logins (`auth.json`) become [subrouter](https://subrouter.org) pools, the account router Roadie uses, in the same order with the same active account, so nobody logs in again. This happens only while Kimaki is stopped, because refresh tokens rotate on use and two live copies invalidate each other. The Kimaki unit and `~/.kimaki` are left untouched as the rollback; a failed migration (database or accounts) restarts Kimaki.
+
+To roll back, write subrouter's current tokens back first (Roadie has refreshed them since, so Kimaki's copies are stale), then swap the services. The upgrade summary prints the exact command:
+
+```bash
+sudo -u <service-user> -H node /opt/roadie-config/accounts.mjs export \
+  --opencode-data <service-home>/.local/share/opencode \
+  --roadie-package /usr/local/lib/wp-coding-agents/roadie/lib/node_modules/@extrachill/roadie
+systemctl disable --now roadie && systemctl enable --now kimaki
+```
+
+After the cutover, add accounts with Roadie's `/login` and pick `subrouter`: that adds to the rotation pool. Picking a provider directly stores a single OpenCode login that does not rotate.
 
 **Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)). Claude Code and Codex run without a managed chat bridge.
 
