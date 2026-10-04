@@ -63,6 +63,18 @@ root_locked() {
   [ $(( 8#$mode & 8#022 )) -eq 0 ]
 }
 
+# Setup installs WP-CLI and other tools under /usr/local. Keep the wrapper's
+# bootstrap PATH fixed, then admit only locked local prefixes for its trusted
+# installer child; caller PATH entries never become privileged search paths.
+installer_path() {
+  local directory
+  for directory in /usr/local /usr/local/sbin /usr/local/bin; do
+    [ ! -d "$directory" ] || root_locked "$directory" \
+      || die "$directory must be root-owned and not group/other-writable" 2
+  done
+  printf '%s\n' "/usr/local/sbin:/usr/local/bin:$PATH"
+}
+
 # KEY=value lines only; never sourced.
 config_value() {
   sed -n "s/^$1=//p" "$CONFIG" | tail -1
@@ -140,14 +152,15 @@ cmd_apply() {
   grep -q "/$UNIT.service\$" /proc/self/cgroup 2>/dev/null || die "apply runs only inside $UNIT.service; use start" 2
   load_config
   export HOME=/root
-  local commit rc=0
+  local commit child_path rc=0
+  child_path="$(installer_path)" || return $?
   git -C "$CHECKOUT" fetch --quiet origin "+refs/heads/$TRUST_REF:refs/remotes/origin/$TRUST_REF" \
     || { record fetch-failed; die "git fetch failed"; }
   git -C "$CHECKOUT" checkout --quiet --force --detach "origin/$TRUST_REF" \
     || { record checkout-failed; die "checkout of origin/$TRUST_REF failed"; }
   commit="$(git -C "$CHECKOUT" rev-parse --short HEAD)"
   log "upgrading $SITE_PATH from $CHECKOUT at $commit (origin/$TRUST_REF)"
-  (cd "$CHECKOUT" && ./upgrade.sh --wp-path "$SITE_PATH") || rc=$?
+  (cd "$CHECKOUT" && env PATH="$child_path" ./upgrade.sh --wp-path "$SITE_PATH") || rc=$?
   if [ "$rc" -ne 0 ]; then
     record "$rc" "$commit"
     die "upgrade.sh exited $rc at $commit; bridges not restarted" 1
