@@ -419,6 +419,15 @@ roadie_migrate_from_kimaki() {
 
   if [ "${LOCAL_MODE:-false}" = true ]; then
     kimaki_data="${KIMAKI_DATA_DIR:-$HOME/.kimaki}"
+    local kimaki_plist="$HOME/Library/LaunchAgents/com.wp.kimaki.plist"
+    if [ -f "$kimaki_plist" ]; then
+      [ -n "${ROADIE_BOT_TOKEN:-}" ] || ROADIE_BOT_TOKEN="$(_plist_string_after_key "$kimaki_plist" KIMAKI_BOT_TOKEN || true)"
+      if [ -z "${ROADIE_LOCK_PORT:-}" ]; then
+        local plist_port
+        plist_port="$(_plist_string_after_key "$kimaki_plist" KIMAKI_LOCK_PORT || true)"
+        [ -z "$plist_port" ] || ROADIE_LOCK_PORT="$plist_port"
+      fi
+    fi
   else
     kimaki_unit="$(_roadie_kimaki_unit || true)"
     [ -n "$kimaki_unit" ] || return 0
