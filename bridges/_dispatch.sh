@@ -44,8 +44,7 @@
 #
 # Caller contract — bridge files expect the same per-install globals the
 # legacy lib/chat-bridge.sh / lib/chat-bridges.sh did (SERVICE_USER,
-# SERVICE_HOME, SITE_PATH, KIMAKI_BIN, KIMAKI_DATA_DIR, CC_BIN, CC_DATA_DIR,
-# OPENCODE_BIN, TELEGRAM_BIN, etc.). Subshell exports them automatically; no
+# SERVICE_HOME, SITE_PATH, ROADIE_BIN, ROADIE_DATA_DIR, OPENCODE_BIN, etc.). Subshell exports them automatically; no
 # extra wiring needed.
 
 # Resolve the bridges/ directory once. SCRIPT_DIR is the wp-coding-agents
@@ -63,7 +62,7 @@ fi
 # bridges inherit them for free.
 # ===========================================================================
 
-# _resolve_node_bin_dir [<kimaki-bin-hint>]
+# _resolve_node_bin_dir [<bridge-bin-hint>]
 #
 # Prints the directory containing `node` to stdout, or empty if none found.
 # launchd inherits a minimal PATH, so plugins shelling out via `#!/usr/bin/env
@@ -73,19 +72,19 @@ fi
 #
 # Resolution order:
 #   1. `command -v node` in the renderer's interactive shell.
-#   2. The node baked into the kimaki shim itself (parses `exec '<node>' …`
+#   2. The node baked into the bridge's npm shim itself (parses `exec '<node>' …`
 #      from the shim's first non-shebang line).
 #   3. Empty — caller falls back to its existing PATH and warns.
 _resolve_node_bin_dir() {
-  local kimaki_hint="${1:-}"
+  local bin_hint="${1:-}"
   local node_path=""
 
   if command -v node >/dev/null 2>&1; then
     node_path="$(command -v node)"
-  elif [ -n "$kimaki_hint" ] && [ -f "$kimaki_hint" ]; then
+  elif [ -n "$bin_hint" ] && [ -f "$bin_hint" ]; then
     # Shim looks like:
     #   #!/bin/sh
-    #   exec '/path/to/node' '--flag' … '/path/to/kimaki.js' "$@"
+    #   exec '/path/to/node' '--flag' … '/path/to/cli.js' "$@"
     # Walk space-separated tokens on the `exec` line and pick the first
     # single-quoted absolute path ending in /node. Pure bash so the helper
     # works under launchd / minimal-PATH contexts where coreutils may be
@@ -110,7 +109,7 @@ _resolve_node_bin_dir() {
           break
           ;;
       esac
-    done < "$kimaki_hint"
+    done < "$bin_hint"
   fi
 
   [ -n "$node_path" ] || return 0
@@ -126,7 +125,7 @@ _resolve_node_bin_dir() {
 # Joins directories into a colon-separated PATH value, dropping duplicates and
 # empties while preserving the first-occurrence order. Used by the launchd
 # renderer so prepending the node bin dir doesn't shadow homebrew/system paths
-# or generate `dir::dir` strings when the kimaki and node bins live in the
+# or generate `dir::dir` strings when the bridge and node bins live in the
 # same directory (the pre-PR-#73 npm-global world).
 _compose_path_value() {
   local seen="" out="" dir
@@ -165,7 +164,7 @@ _merge_systemd_env_lines() {
   # an identity that no longer exists.
   #
   # Measured on h44lacrosse.com: the migration produced User=opencode alongside
-  # Environment=HOME=/root and KIMAKI_DATA_DIR=/root/.kimaki. Starting that unit
+  # Environment=HOME=/root and ROADIE_DATA_DIR=/root/.kimaki. Starting that unit
   # runs the agent as a user that cannot read either path — /root is 0700 — so
   # it comes up with no session database and no runtime state. The same defect
   # #204 fixed from the other direction: there the User flipped silently while
@@ -174,7 +173,7 @@ _merge_systemd_env_lines() {
   # Filtering by VALUE rather than by a list of key names is what makes this
   # hold. PATH on a long-lived install carries /root/.kimaki/bin,
   # /root/.cargo/bin and /root/.bun/bin; BUN_INSTALL points at /root/.bun.
-  # Enumerating keys would have fixed HOME and KIMAKI_DATA_DIR and left the
+  # Enumerating keys would have fixed HOME and ROADIE_DATA_DIR and left the
   # agent with a PATH full of directories it can no longer read (#318: prefer
   # the property over a list of names).
   if [ -n "${SERVICE_MIGRATION_PREVIOUS_HOME:-}" ]; then
@@ -297,7 +296,7 @@ _preserve_systemd_umask() {
 #
 # Walks the loaded bridge's systemd units, reads User= from the first one
 # that exists, and re-derives SERVICE_USER / SERVICE_HOME /
-# KIMAKI_DATA_DIR / RUN_AS_ROOT to match. Skipped in local mode (no
+# ROADIE_DATA_DIR / RUN_AS_ROOT to match. Skipped in local mode (no
 # systemd), when no bridge is loaded, or when the operator forced an
 # identity explicitly via --root / --non-root (SERVICE_USER_FORCED=true).
 #
@@ -311,6 +310,10 @@ adopt_service_identity_from_units() {
   local units=""
   if declare -F bridge_systemd_units >/dev/null 2>&1; then
     units="$(bridge_systemd_units)"
+  fi
+  # Units a bridge migrates from (Kimaki → Roadie) carry the same identity.
+  if declare -F bridge_legacy_systemd_units >/dev/null 2>&1; then
+    units="$units $(bridge_legacy_systemd_units)"
   fi
   if declare -F datamachine_worker_systemd_units >/dev/null 2>&1; then
     units="$units $(datamachine_worker_systemd_units)"
@@ -331,8 +334,8 @@ adopt_service_identity_from_units() {
       log "  Adopting service identity from $unit: User=$unit_user (script default was $SERVICE_USER)"
       SERVICE_USER="$unit_user"
       SERVICE_HOME="$unit_home"
-      if [ "${KIMAKI_DATA_DIR_EXPLICIT:-false}" != true ]; then
-        KIMAKI_DATA_DIR="$unit_home/.kimaki"
+      if [ "${ROADIE_DATA_DIR_EXPLICIT:-false}" != true ]; then
+        ROADIE_DATA_DIR="$unit_home/.roadie"
       fi
       if [ "$unit_user" = "root" ]; then
         RUN_AS_ROOT=true
@@ -365,7 +368,7 @@ _redact_secret_diff() {
       print
       next
     }
-    /^[-+ ](OPENAI_API_KEY|KIMAKI_BOT_TOKEN|TELEGRAM_BOT_TOKEN|CC_CONNECT_TOKEN)=/ {
+    /^[-+ ](OPENAI_API_KEY|ROADIE_BOT_TOKEN|KIMAKI_BOT_TOKEN)=/ {
       sub(/=.*/, "=<redacted>")
       print
       next
@@ -514,8 +517,8 @@ bridge_file() {
 # Source bridges/<name>.sh INTO THE CURRENT SHELL. Defines bridge_install,
 # bridge_render_systemd, bridge_render_launchd, bridge_sync_config, etc. for
 # direct invocation. Use after CHAT_BRIDGE is decided so subsequent calls
-# (install, render, summary) can mutate parent state (KIMAKI_BIN,
-# RESOLVED_KIMAKI_PLUGINS_DIR, UPDATED_ITEMS, etc.) the same way the legacy
+# (install, render, summary) can mutate parent state (ROADIE_BIN,
+# RESOLVED_ROADIE_PLUGINS_DIR, UPDATED_ITEMS, etc.) the same way the legacy
 # code did.
 #
 # Mirrors the runtimes/<name>.sh model: load once, call hooks directly.
@@ -580,13 +583,9 @@ bridge_has_hook() {
   )
 }
 
-# Detection priority. The legacy lib/chat-bridges.sh::bridge_names hardcoded
-# the order "kimaki cc-connect telegram"; the same order is preserved here so
-# detection tie-breaks are unchanged for hosts that somehow have multiple
-# bridges installed (rare, since the install paths are mutually exclusive).
-# Bridges not listed here fall to alphabetical filesystem order after the
-# known ones — this is the auto-discovery extension point.
-BRIDGE_DETECTION_ORDER="kimaki cc-connect telegram"
+# Detection priority. Roadie is the only bridge; the list stays so the walk
+# below needs no special case.
+BRIDGE_DETECTION_ORDER="roadie"
 
 # bridge_names_for_detection — emit known bridges in priority order, then any
 # unknown ones in alphabetical order. Both groups are filtered to bridges
@@ -629,6 +628,11 @@ bridge_detect_local() {
         return 0
       fi
     done
+    # A local Kimaki install is migrated to Roadie in place.
+    if [ "$bridge" = "roadie" ] && { [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ] || command -v kimaki >/dev/null 2>&1; }; then
+      echo "$bridge"
+      return 0
+    fi
   done
   return 0
 }
@@ -643,8 +647,10 @@ bridge_detect_vps() {
         return 0
       fi
     done
-    if [ "$bridge" = "kimaki" ]; then
-      for unit in "$unit_dir"/kimaki*.service; do
+    if [ "$bridge" = "roadie" ]; then
+      # Instance units (roadie-<name>.service), and Kimaki units an upgrade
+      # migrates to Roadie in place.
+      for unit in "$unit_dir"/roadie*.service "$unit_dir"/kimaki*.service; do
         if [ -f "$unit" ]; then
           echo "$bridge"
           return 0

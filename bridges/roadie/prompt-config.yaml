@@ -1,0 +1,46 @@
+# Roadie prompt config for wp-coding-agents installs (ROADIE_PROMPT_CONFIG).
+#
+# Managed installs get their instructions from the composed Data Machine /
+# AGENTS.md stack, not from Roadie's generic CLI guidance, so every built-in
+# section is disabled and a short managed block is appended. Tool schemas
+# still describe the bridge tools (questions, uploads, sleep, buttons).
+# Replaces the Kimaki-era dm-context-filter.ts prompt rewrite.
+disable:
+  - discord-output
+  - bash-tool
+  - permissions
+  - upgrading
+  - debugging
+  - file-upload
+  - file-request
+  - sleep
+  - archive
+  - abort
+  - title
+  - mentions
+  - send
+  - scheduled-sends
+  - cwd
+  - reading-sessions
+  - cross-project
+  - waiting
+  - submodules
+  - markdown
+  - callouts
+  - urls
+  - diagrams
+  - questions
+append:
+  - id: managed-bridge
+    content: |
+      ## Roadie Discord Bridge
+
+      Roadie connects this OpenCode session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
+
+      ## Managed Coding Runtime
+
+      Use the composed Data Machine AGENTS.md guidance for the coding runtime, workspace, orchestration, preview, tunnel, and evidence capabilities available on this install.
+
+      ## Bridge Diagnostics
+
+      For Roadie bridge failures, check `journalctl -u roadie.service` (or the unit for this site) and `curl -s http://127.0.0.1:$ROADIE_LOCK_PORT/health`.
