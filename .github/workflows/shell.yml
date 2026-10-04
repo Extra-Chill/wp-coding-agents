@@ -101,13 +101,13 @@ jobs:
       - name: Run tests/opencode-general-dispatch.sh
         run: bash tests/opencode-general-dispatch.sh
 
-  managed-skill-targets:
-    name: managed skill target deduplication (#306)
+  retired-skills:
+    name: retired managed skills are removed
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests/managed-skill-targets.sh
-        run: ./tests/managed-skill-targets.sh
+      - name: Run tests/retired-skills.sh
+        run: ./tests/retired-skills.sh
 
   dm-agent-sync:
     name: Data Machine agent sync plugin
@@ -292,6 +292,7 @@ jobs:
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
+          - self-upgrade
           - installation-profile
           - install-source-integrity-report
           - install-source-managed-file-sync
