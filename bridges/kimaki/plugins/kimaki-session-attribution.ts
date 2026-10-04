@@ -1,5 +1,13 @@
-// Temporary compatibility bridge for remorses/kimaki#137.
-// Remove after the native KIMAKI_THREAD_ID contract ships and is installed.
+// Session attribution for agent shells.
+//
+// 1. Thread lookup: a temporary compatibility bridge for remorses/kimaki#137.
+//    Remove the lookup once the native KIMAKI_THREAD_ID contract ships and is
+//    installed.
+// 2. Homeboy session contract: map this bridge's session onto the
+//    bridge-neutral HOMEBOY_SESSION_* names that Homeboy notification
+//    transports read (Extra-Chill/homeboy-extensions#2910). This mapping
+//    stays after the lookup is gone; it is the only place the bridge's own
+//    names meet the generic contract.
 
 import { spawn } from "node:child_process";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
@@ -12,6 +20,7 @@ type SessionAwareHooks = Awaited<ReturnType<Plugin>> & {
 };
 
 const DISCORD_THREAD_URL = /^https:\/\/discord\.com\/channels\/\d{17,20}\/(\d{17,20})\/?$/;
+const SNOWFLAKE = /^\d{17,20}$/;
 const LOOKUP_TIMEOUT_MS = 5_000;
 const OUTPUT_LIMIT = 1_024;
 
@@ -27,7 +36,10 @@ const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHoo
       if (!output.env.KIMAKI_SESSION_ID) {
         output.env.KIMAKI_SESSION_ID = sessionID;
       }
-      if (output.env.KIMAKI_THREAD_ID) return;
+      if (output.env.KIMAKI_THREAD_ID) {
+        exportHomeboySession(output.env, output.env.KIMAKI_THREAD_ID);
+        return;
+      }
 
       let lookup = cache.get(sessionID);
       if (!lookup) {
@@ -46,6 +58,7 @@ const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHoo
       if (!output.env.KIMAKI_THREAD_ID) {
         output.env.KIMAKI_THREAD_ID = threadId;
       }
+      exportHomeboySession(output.env, output.env.KIMAKI_THREAD_ID);
     },
     event: async ({ event }) => {
       if (event.type === "session.deleted") {
@@ -55,9 +68,42 @@ const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHoo
   };
 }) satisfies Plugin;
 
+/**
+ * Describe the invoking session through Homeboy's bridge-neutral contract.
+ *
+ * - HOMEBOY_SESSION_THREAD_ID: the Discord thread that owns this session.
+ * - HOMEBOY_SESSION_SEND_COMMAND: delivers a prompt into that thread as a real
+ *   turn (`<command> --thread <id> --prompt <text>`). The bridge drops messages
+ *   its own bot posts over REST, so this is how a completion notification
+ *   reaches the agent instead of only the human.
+ *
+ * Values already present (set by the host or the user) win. The bot token is
+ * deliberately not exported: agent shells do not need it to deliver to their
+ * own session, and every other route posts with the service's own credentials.
+ */
+function exportHomeboySession(env: Record<string, string>, threadId: string) {
+  if (!SNOWFLAKE.test(threadId)) return;
+  if (!env.HOMEBOY_SESSION_THREAD_ID) {
+    env.HOMEBOY_SESSION_THREAD_ID = threadId;
+  }
+  if (!env.HOMEBOY_SESSION_SEND_COMMAND && !env.HOMEBOY_SESSION_SEND_URL) {
+    const bin = bridgeBin();
+    // The command is split on whitespace and run without a shell, so a binary
+    // path containing whitespace cannot be expressed; leave it unset and let
+    // delivery fall back to REST rather than run the wrong program.
+    if (!/\s/.test(bin)) {
+      env.HOMEBOY_SESSION_SEND_COMMAND = `${bin} send`;
+    }
+  }
+}
+
+function bridgeBin(): string {
+  return process.env.KIMAKI_BIN || "kimaki";
+}
+
 function resolveThreadId(sessionID: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn(process.env.KIMAKI_BIN || "kimaki", ["session", "discord-url", sessionID], {
+    const child = spawn(bridgeBin(), ["session", "discord-url", sessionID], {
       shell: false,
       stdio: ["ignore", "pipe", "ignore"],
     });
