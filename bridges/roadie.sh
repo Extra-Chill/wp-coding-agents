@@ -349,6 +349,15 @@ bridge_managed_plugins_dir() {
   printf '%s/plugins\n' "$(roadie_config_dir)"
 }
 
+# Roadie plugins (ROADIE_PLUGINS), as opposed to the OpenCode plugins above.
+roadie_plugins_dir() {
+  printf '%s/roadie-plugins\n' "$(roadie_config_dir)"
+}
+
+roadie_plugins_value() {
+  printf '%s/host-upgrade.mjs\n' "$(roadie_plugins_dir)"
+}
+
 roadie_prompt_config_file() {
   printf '%s/prompt-config.yaml\n' "$(roadie_config_dir)"
 }
@@ -369,12 +378,14 @@ _roadie_sync_assets() {
 
   run_cmd mkdir -p "$plugins_dir"
 
+  run_cmd mkdir -p "$(roadie_plugins_dir)"
   for src in "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
-             "$SCRIPT_DIR/bridges/roadie/accounts.mjs"; do
+             "$SCRIPT_DIR/bridges/roadie/accounts.mjs" "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs; do
     [ -f "$src" ] || continue
     local name dest
     name="$(basename "$src")"
-    case "$name" in
+    case "$src" in
+      */roadie-plugins/*) dest="$(roadie_plugins_dir)/$name" ;;
       *.ts) dest="$plugins_dir/$name" ;;
       *)    dest="$config_dir/$name" ;;
     esac
@@ -676,6 +687,7 @@ Environment=ROADIE_DATA_DIR=$ROADIE_DATA_DIR
 Environment=ROADIE_MANAGED=1
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
 Environment=ROADIE_PROMPT_CONFIG=$(roadie_prompt_config_file)
+Environment=ROADIE_PLUGINS=$(roadie_plugins_value)
 Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_roadie_datamachine_wp_transport_systemd_env)
@@ -896,6 +908,8 @@ bridge_render_launchd() {
         <string>1</string>
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>
+        <key>ROADIE_PLUGINS</key>
+        <string>$(xml_escape "$(roadie_plugins_value)")</string>
         <key>ROADIE_SERVICE_TOKEN_FILE</key>
         <string>$(xml_escape "$(_roadie_send_token_file)")</string>
         <key>DATAMACHINE_SITE_PATH</key>

@@ -143,14 +143,14 @@ export WITH_AI_GATEWAY OPENAI_BASE_URL OPENAI_API_KEY
 ai_gateway_configure_opencode
 runtime_generate_instructions
 DETECTED_RUNTIMES=(opencode)
-INSTALL_SKILLS=true
-install_skills
+mkdir -p "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents"
+remove_retired_skills
 opencode_project_subagents
 
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-config.php" ] || { echo "FAIL: test created a local WordPress tree"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/shared/SITE.md")" = "site context" ] || { echo "FAIL: site context not projected"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/agent/SOUL.md")" = "agent context" ] || { echo "FAIL: agent context not projected"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents/SKILL.md" ] || { echo "FAIL: skills were not installed below runtime root"; exit 1; }
+[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents" ] || { echo "FAIL: retired upgrade skill was not removed below runtime root"; exit 1; }
 [ -f "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: Roadie config was not installed below runtime root"; exit 1; }
 [ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/roadie" ] || { echo "FAIL: managed Roadie launcher was not installed"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }

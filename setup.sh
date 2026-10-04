@@ -13,7 +13,6 @@
 #
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
 # files (SOUL/MEMORY/USER/RULES/SITE), auto-composed AGENTS.md,
-# wp-coding-agents upgrade skill,
 # MCP surface. Workspace policy and repository authority belong to
 # wp-coding-agents. It is not optional. Uninstall the plugin
 # later if you don't want it.
@@ -24,7 +23,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -427,7 +426,7 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
-  --no-skills        Skip installing the wp-coding-agents upgrade skill
+  --no-skills        Accepted for compatibility (no skills are installed)
   --systems-capabilities managed-vps
                        Opt in to root-managed journald and debug-log rotation on
                        a VPS.
@@ -479,7 +478,7 @@ OPTIONS:
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
-  --skills-only      Only run wp-coding-agents upgrade skill installation on existing site
+  --skills-only      Only remove retired managed skills from an existing site
   --runtime-only     Only run runtime setup on an existing agent install
                      (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
@@ -548,8 +547,8 @@ fi
 # First-match cascade: claude-code > opencode > codex.
 #
 # DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
-# machine with claude, opencode, and codex installed, the upgrade skill gets
-# installed into every detected runtime's skills dir (see install_skills in lib/skills.sh).
+# machine with claude, opencode, and codex installed, retired managed skills are
+# removed from every detected runtime's skills dir (see lib/skills.sh).
 # Explicit --runtime <name> narrows both lists to that single runtime.
 if [ -n "$RUNTIME" ]; then
   # User passed --runtime explicitly — respect it, single-runtime mode.
@@ -638,8 +637,7 @@ installation_profile_normalize "$INSTALLATION_OPERATION_SETUP"
 
 # --skills-only early exit
 if [ "$SKILLS_ONLY" = true ]; then
-  install_skills
-  print_skills_summary
+  remove_retired_skills
   exit 0
 fi
 
@@ -674,6 +672,7 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
 fi
 
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
+[ "$RUNTIME_ONLY" != true ] && self_upgrade_apply
 CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
 CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"
 [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
@@ -685,7 +684,7 @@ if convergence_run "$INSTALLATION_OPERATION_SETUP"; then :; else
 fi
 [ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
 [ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
-[ "$RUNTIME_ONLY" != true ] && install_skills
+[ "$RUNTIME_ONLY" != true ] && remove_retired_skills
 if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.

@@ -13,7 +13,7 @@
 #      Roadie prompt config.
 #        VPS:   /opt/roadie-config (plugins + prompt-config.yaml)
 #        Local: $ROADIE_DATA_DIR/roadie-config/
-#   4. Sync the wp-coding-agents upgrade skill
+#   4. Remove retired managed skills
 #   5. Regenerate AGENTS.md via Data Machine compose
 #   6. Smart systemd update (VPS only): roadie.service. Existing Environment=
 #      lines are preserved (host custom values) while structural lines are
@@ -28,7 +28,7 @@
 #   ./upgrade.sh --roadie-only   # only sync Roadie config + plugins
 #   ./upgrade.sh --plugins-only  # only update Data Machine plugins
 #   ./upgrade.sh --reconcile-services  # only sync provider, chat, and service state
-#   ./upgrade.sh --skills-only   # only sync the wp-coding-agents upgrade skill
+#   ./upgrade.sh --skills-only   # only remove retired managed skills
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
@@ -58,7 +58,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -226,7 +226,7 @@ USAGE:
   ./upgrade.sh --reconcile-services
                                  Only reconcile carried providers, Homeboy,
                                 chat-bridge configuration, and service templates
-  ./upgrade.sh --skills-only    Only sync the wp-coding-agents upgrade skill
+  ./upgrade.sh --skills-only    Only remove retired managed skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
   ./upgrade.sh --repair-opencode-json
@@ -1077,22 +1077,14 @@ for item in data:
 }
 
 # ============================================================================
-# Phase 4: Sync wp-coding-agents upgrade skill
+# Phase 4: Remove retired managed skills (the upgrade skill is replaced by
+# `roadie upgrade` / /upgrade-and-restart, see lib/self-upgrade.sh)
 # ============================================================================
 
 sync_skills() {
   _run_filter_active skills || return 0
-
-  log "Phase 4: Syncing wp-coding-agents upgrade skill..."
-
-  if [ "$DRY_RUN" = true ]; then
-    SKILLS_DIR="$(runtime_skills_dir)"
-    echo -e "${BLUE}[dry-run]${NC} Would install upgrade skill from $SCRIPT_DIR/skills → $SKILLS_DIR"
-    return 0
-  fi
-
-  install_skills
-  UPDATED_ITEMS+=("wp-coding-agents upgrade skill")
+  log "Phase 4: Removing retired managed skills..."
+  remove_retired_skills
 }
 
 # ============================================================================
@@ -1486,7 +1478,6 @@ _print_verify_block() {
 
   log "  $(wp_cli_transport_display) plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
-  log "  ls $(runtime_skills_dir)              # installed upgrade skill"
 }
 
 _print_plugins_only_verify_block() {
@@ -1521,6 +1512,7 @@ update_ai_gateway
 sync_chat_bridge_config
 if _run_filter_active systemd; then
   systems_capabilities_apply
+  self_upgrade_apply
 fi
 check_opencode_json_drift
 if _run_filter_active reconciliation; then

@@ -59,7 +59,7 @@ PHASES_AFTER=(
 
   # Phases before the failing one, plus the unconditional ones.
   for phase in reconcile_provider_and_service_state sync_cli_transport_runtime \
-    update_ai_gateway sync_chat_bridge_config systems_capabilities_apply \
+    update_ai_gateway sync_chat_bridge_config systems_capabilities_apply self_upgrade_apply \
     check_opencode_json_drift ai_gateway_configure_opencode sync_skills \
     "${PHASES_AFTER[@]}"; do
     echo "${phase}() { echo \"RAN ${phase}\"; }"

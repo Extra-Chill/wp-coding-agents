@@ -293,7 +293,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--rotate-ai-gateway-token` | Mint a replacement gateway token instead of reusing `.opencode/wp-ai-gateway.env`. |
 | `--multisite` | Configure WordPress multisite. |
 | `--subdomain` | Use subdomain multisite. |
-| `--no-skills` | Skip installing bundled agent skills. |
+| `--no-skills` | Accepted for compatibility; no agent skills are installed. |
 | `--dry-run` | Print planned actions without applying them. |
 
 Run `./setup.sh --help` for the complete setup surface.
@@ -537,7 +537,7 @@ Codex reads `AGENTS.override.md` from the WordPress site root when present, befo
 
 Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that OpenCode also reads. On a site with both runtimes, OpenCode keeps using `AGENTS.md` plus `opencode.json` instructions, while Codex gets the same site guidance and memory through its generated override.
 
-Setup installs the managed upgrade skill into `.agents/skills`, registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
+Setup registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
 
 Codex does not currently have a managed chat bridge in this repo, so setup defaults to terminal/manual operation:
 
@@ -609,6 +609,17 @@ bash tests/roadie-kimaki-migration.sh
 
 Use setup output and operator entrypoints for environment-specific verification commands. The generated summary is the source of truth for service names, paths, and bridge restart commands.
 
+## Agent Self-Upgrade
+
+On a managed VPS with a non-root service user, setup installs `/usr/local/sbin/wp-coding-agents-upgrade` and a sudoers grant that lets the service user run exactly `start` and `status`:
+
+```bash
+sudo /usr/local/sbin/wp-coding-agents-upgrade start
+sudo /usr/local/sbin/wp-coding-agents-upgrade status
+```
+
+Roadie's `/upgrade-and-restart` and `roadie upgrade` call `start` through the bundled `host-upgrade.mjs` Roadie plugin (`ROADIE_PLUGINS`). `start` launches the upgrade in its own transient systemd unit (`wp-coding-agents-upgrade.service`), so it survives the bridge restart it causes. That unit fetches the root-owned checkout setup ran from, checks out `origin/main` detached, runs `upgrade.sh`, and restarts the site's enabled Roadie unit on success. The caller supplies no path, ref or content, so the agent decides when an upgrade runs, never what runs. The command is installed only when the checkout and every parent directory are root-owned and not group- or world-writable; otherwise the grant would amount to a root shell. Config: `/etc/wp-coding-agents/self-upgrade.conf`. One site per host.
+
 ## Verification
 
 ```
@@ -634,7 +645,7 @@ than passed.
 
 ## Upgrades
 
-Installed agents receive an `upgrade-wp-coding-agents` skill. The skill runs `upgrade.sh`, preserves user state, syncs managed bridge/runtime files, and prints verification and restart commands for the detected environment.
+On a managed VPS, `/upgrade-and-restart` in Discord (or `roadie upgrade` on the host) upgrades the install: Roadie's `host_upgrade` hook calls the [agent self-upgrade command](#agent-self-upgrade), which runs what is merged to `main` and restarts Roadie when it finishes. Elsewhere, run `./upgrade.sh`; it preserves user state, syncs managed bridge and runtime files, and prints verification and restart commands for the detected environment. Earlier installs carried an `upgrade-wp-coding-agents` agent skill for this; upgrades remove it.
 
 Run `./upgrade.sh --help` for upgrade flags.
 
