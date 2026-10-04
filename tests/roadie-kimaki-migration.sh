@@ -36,6 +36,7 @@ ACCOUNTS_RESULT=0
 _roadie_accounts() { printf 'accounts %s\n' "$1" >> "$TMP/systemctl.log"; printf '%s\n' "${ROADIE_SUBROUTER_PRESETS_JSON:-}" > "$TMP/presets.json"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
 DRY_RUN=false
 UPDATED_ITEMS=()
+PENDING_ITEMS=()
 LOCAL_MODE=false
 SERVICE_USER=""
 WP_CODING_AGENTS_TEST_EUID=1000
@@ -55,14 +56,31 @@ ExecStart=/usr/bin/kimaki --data-dir $KIMAKI_DATA --lock-port 31337 --auto-resta
 EOF
 UNIT_BEFORE="$(cksum < "$SYSTEMD_UNIT_DIR/kimaki.service")"
 
-# A WAL-mode session database, as Kimaki keeps it.
+# A WAL-mode session database, as Kimaki keeps it. The schema here is the
+# Kimaki-era shape: channel_directories without guild_id, thread_worktrees as
+# the legacy working-directory table, and error text columns that must never
+# be rewritten by the path relocation.
 DB="$KIMAKI_DATA/discord-sessions.db"
 sqlite3 "$DB" "PRAGMA journal_mode=WAL; CREATE TABLE thread_sessions(thread_id TEXT PRIMARY KEY, session_id TEXT);" >/dev/null
 for i in 1 2 3; do sqlite3 "$DB" "INSERT INTO thread_sessions VALUES ('t$i','s$i');"; done
 sqlite3 "$DB" "CREATE TABLE session_models(session_id TEXT PRIMARY KEY, model_id TEXT NOT NULL, variant TEXT);
   INSERT INTO session_models VALUES ('s1','anthropic/claude-opus-5-5','max'),('s2','openai/gpt-6.1-sol',NULL),('s3','zai-coding-plan/glm-5.2',NULL);"
+sqlite3 "$DB" "CREATE TABLE channel_directories(channel_id TEXT PRIMARY KEY, directory TEXT NOT NULL, channel_type TEXT NOT NULL);
+  INSERT INTO channel_directories VALUES
+    ('c1','$KIMAKI_DATA/projects/demo','text'),
+    ('c2','$TMP/site-external','text'),
+    ('c3','$KIMAKI_DATA/projects-demo','text'),
+    ('c4','$KIMAKI_DATA/projects/demo/','text');"
+sqlite3 "$DB" "CREATE TABLE thread_worktrees(thread_id TEXT PRIMARY KEY, worktree_name TEXT, worktree_directory TEXT, project_directory TEXT);
+  INSERT INTO thread_worktrees VALUES ('t1','b','$KIMAKI_DATA/projects/demo/.worktrees/b','$KIMAKI_DATA/projects/demo');"
+sqlite3 "$DB" "CREATE TABLE scheduled_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, next_run_at TEXT NOT NULL, payload_json TEXT NOT NULL, prompt_preview TEXT NOT NULL, project_directory TEXT, last_error TEXT);
+  INSERT INTO scheduled_tasks (next_run_at,payload_json,prompt_preview,project_directory,last_error)
+    VALUES ('2030-01-01','{}','weekly sweep','$KIMAKI_DATA/projects/demo','old failure at $KIMAKI_DATA/projects/demo/known');"
+sqlite3 "$DB" "CREATE TABLE scheduled_task_runs(id INTEGER PRIMARY KEY AUTOINCREMENT, scheduled_task_id INTEGER NOT NULL, status TEXT, project_directory TEXT, error TEXT);
+  INSERT INTO scheduled_task_runs (scheduled_task_id,status,project_directory,error)
+    VALUES (1,'failed','$KIMAKI_DATA/projects/demo','run died in $KIMAKI_DATA/projects/demo/sub');"
 SITE_PATH="$TMP/site"
-mkdir -p "$SITE_PATH"
+mkdir -p "$SITE_PATH" "$TMP/site-external"
 printf '{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}\n' > "$SITE_PATH/opencode.json"
 printf 'png' > "$KIMAKI_DATA/attachments/a.png"
 printf 'x' > "$KIMAKI_DATA/projects/demo/state"
@@ -71,7 +89,7 @@ DATA_BEFORE="$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort)"
 echo "==> VPS migration"
 ROADIE_UNIT=roadie.service
 ROADIE_DATA_DIR="$SERVICE_HOME/.roadie"
-unset ROADIE_BOT_TOKEN ROADIE_LOCK_PORT AGENT_SLUG KIMAKI_UNIT
+unset ROADIE_BOT_TOKEN ROADIE_LOCK_PORT AGENT_SLUG KIMAKI_UNIT KIMAKI_DATA_DIR
 roadie_migrate_from_kimaki
 
 [ "$(sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" 'SELECT count(*) FROM thread_sessions;')" = 3 ]
@@ -102,12 +120,90 @@ python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert (d['model'],
 check $? "opencode.json defaults routed through subrouter, other keys kept"
 ls "$SITE_PATH"/opencode.json.before-subrouter-* >/dev/null 2>&1; check $? "opencode.json backed up"
 
+# #660: the copy carries the database's operational directory bindings, so the
+# migration must relocate exactly the references into the copied projects root
+# and leave everything else verbatim.
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c1'")" = "$ROADIE_DATA_DIR/projects/demo" ]
+check $? "copied project's channel binding points at the Roadie copy"
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c4'")" = "$ROADIE_DATA_DIR/projects/demo/" ]
+check $? "trailing separator survives relocation"
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c2'")" = "$TMP/site-external" ]
+check $? "external project binding preserved"
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c3'")" = "$KIMAKI_DATA/projects-demo" ]
+check $? "sibling prefix is not relocated (component-safe mapping)"
+[ "$(sqlite3 "$NEW_DB" "SELECT project_directory||'|'||worktree_directory FROM thread_worktrees")" = "$ROADIE_DATA_DIR/projects/demo|$ROADIE_DATA_DIR/projects/demo/.worktrees/b" ]
+check $? "thread working-directory references relocated"
+[ "$(sqlite3 "$NEW_DB" "SELECT project_directory FROM scheduled_tasks")" = "$ROADIE_DATA_DIR/projects/demo" ]
+check $? "scheduled task project directory relocated"
+[ "$(sqlite3 "$NEW_DB" "SELECT last_error FROM scheduled_tasks")" = "old failure at $KIMAKI_DATA/projects/demo/known" ]
+check $? "historical error text preserved"
+[ "$(sqlite3 "$NEW_DB" "SELECT project_directory FROM scheduled_task_runs")" = "$ROADIE_DATA_DIR/projects/demo" ]
+check $? "scheduled task run directory relocated"
+[ "$(sqlite3 "$NEW_DB" "SELECT error FROM scheduled_task_runs")" = "run died in $KIMAKI_DATA/projects/demo/sub" ]
+check $? "run error text preserved"
+[ "$(sqlite3 "$DB" "SELECT directory FROM channel_directories WHERE channel_id='c1'")" = "$KIMAKI_DATA/projects/demo" ]
+check $? "Kimaki database keeps its own bindings (rollback)"
+
+echo "==> copied projects stay reachable after the retired directory is removed"
+rm -rf "$KIMAKI_DATA/projects/demo"
+[ -f "$ROADIE_DATA_DIR/projects/demo/state" ] \
+  && [ -d "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c1'")" ]
+check $? "relocated binding resolves to the copied project without the original"
+
 echo "==> re-run never overwrites Roadie data"
 sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "INSERT INTO thread_sessions VALUES ('roadie-only','x');"
 : > "$TMP/systemctl.log"
 roadie_migrate_from_kimaki
 [ "$(sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "SELECT count(*) FROM thread_sessions WHERE thread_id='roadie-only';")" = 1 ]; check $? "existing Roadie database kept"
 [ ! -s "$TMP/systemctl.log" ]; check $? "no service actions on re-run"
+[ "$(sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "SELECT count(*) FROM channel_directories WHERE directory = '$KIMAKI_DATA/projects/demo' OR directory = '$KIMAKI_DATA/projects/demo/'")" = 0 ]
+check $? "re-run leaves relocated bindings alone (idempotent)"
+
+echo "==> an existing Roadie copy with retired-path bindings converges on re-run"
+# Simulate a copy migrated before the relocation existed: its bindings still
+# point beneath the retired Kimaki projects root, whose demo project has
+# already been removed above.
+sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "INSERT INTO channel_directories VALUES
+  ('c9','$KIMAKI_DATA/projects/demo','text'),
+  ('c10','$KIMAKI_DATA/projects/never-copied','text');"
+UPDATED_ITEMS_BEFORE="${#UPDATED_ITEMS[@]}"
+roadie_migrate_from_kimaki
+[ "$(sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "SELECT directory FROM channel_directories WHERE channel_id='c9'")" = "$ROADIE_DATA_DIR/projects/demo" ]
+check $? "stale binding whose project was copied is relocated in the existing copy"
+[ "$(sqlite3 "$ROADIE_DATA_DIR/discord-sessions.db" "SELECT directory FROM channel_directories WHERE channel_id='c10'")" = "$KIMAKI_DATA/projects/never-copied" ]
+check $? "stale binding without a copied project is reported, not rewritten"
+[ "${#UPDATED_ITEMS[@]}" -gt "$UPDATED_ITEMS_BEFORE" ]; check $? "existing-copy relocation is reported in the summary"
+[ "${#PENDING_ITEMS[@]}" -gt 0 ]; check $? "uncopied project paths block retiring the source"
+roadie_migrate_from_kimaki
+[ "$(printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -c 'existing Roadie copy')" -eq 1 ]; check $? "repeat application adds no further summary item"
+
+echo "==> ordinary bridge sync repairs paths after the legacy install is gone"
+sqlite3 "$NEW_DB" "DELETE FROM channel_directories WHERE channel_id='c10'; UPDATE channel_directories SET directory='$KIMAKI_DATA/projects/demo' WHERE channel_id='c9';"
+mv "$KIMAKI_DATA" "$TMP/retired-kimaki"
+mv "$SYSTEMD_UNIT_DIR/kimaki.service" "$TMP/retired-kimaki.service"
+_roadie_provision_package() { :; }
+roadie_bin() { printf /usr/bin/roadie; }
+_roadie_install_secrets() { :; }
+_roadie_sync_assets() { :; }
+_roadie_register_cli_channel() { :; }
+DRY_RUN=true
+bridge_sync_config
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c9'")" = "$KIMAKI_DATA/projects/demo" ]; check $? "bridge dry-run leaves stored paths untouched"
+DRY_RUN=false
+bridge_sync_config
+[ "$(sqlite3 "$NEW_DB" "SELECT directory FROM channel_directories WHERE channel_id='c9'")" = "$ROADIE_DATA_DIR/projects/demo" ]; check $? "ordinary bridge sync relocates bindings without a Kimaki unit or source database"
+mv "$TMP/retired-kimaki" "$KIMAKI_DATA"
+mv "$TMP/retired-kimaki.service" "$SYSTEMD_UNIT_DIR/kimaki.service"
+
+echo "==> backend session history is preserved and blocks source cleanup"
+mkdir -p "$SERVICE_HOME/.local/share/opencode"
+BACKEND_DB="$SERVICE_HOME/.local/share/opencode/opencode.db"
+sqlite3 "$BACKEND_DB" "CREATE TABLE session(id TEXT PRIMARY KEY, directory TEXT); INSERT INTO session VALUES ('backend-session','$KIMAKI_DATA/projects/demo');"
+PENDING_ITEMS=()
+bridge_sync_config
+[ "${#PENDING_ITEMS[@]}" -eq 1 ]; check $? "backend directory dependencies are a cleanup blocker"
+[ "$(sqlite3 "$BACKEND_DB" 'SELECT id FROM session')" = backend-session ] && [ "$(sqlite3 "$BACKEND_DB" 'SELECT directory FROM session')" = "$KIMAKI_DATA/projects/demo" ]; check $? "backend session identity and directory are not rewritten"
+rm "$BACKEND_DB"
 
 echo "==> a failed backup restarts Kimaki"
 rm -rf "$ROADIE_DATA_DIR"

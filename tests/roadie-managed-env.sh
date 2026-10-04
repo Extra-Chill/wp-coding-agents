@@ -185,6 +185,21 @@ UPGRADED_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT")"
 check $? "upgrade moves ~/.opencode/bin to the front of an installed unit's PATH"
 [ "$(grep -o "$FAKE_HOME/.opencode/bin" <<< "$UPGRADED_PATH" | wc -l)" -eq 1 ]
 check $? "and only once"
+
+# The same cutover also lost pnpm. Exercise actual executable lookup through
+# an existing unit's repaired PATH, retaining its custom tool directory.
+mkdir -p "$FAKE_HOME/.local/share/pnpm" "$TMP/custom-tools"
+printf '#!/bin/sh\nprintf "pnpm-from-user-home\\n"\n' > "$FAKE_HOME/.local/share/pnpm/pnpm"
+chmod +x "$FAKE_HOME/.local/share/pnpm/pnpm"
+sed -i "s|^Environment=PATH=.*|Environment=PATH=$TMP/custom-tools:/usr/local/bin:/usr/bin:/bin|" "$UNIT"
+bridge_update_systemd >/dev/null 2>&1
+UPGRADED_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT")"
+[ "$(PATH="$UPGRADED_PATH" pnpm)" = pnpm-from-user-home ]
+check $? "existing-unit repair restores pnpm executable lookup"
+case ":$UPGRADED_PATH:" in *":$TMP/custom-tools:"*) check 0 "custom PATH entries survive repair" ;; *) check 1 "custom PATH entries survive repair" ;; esac
+bridge_update_systemd >/dev/null 2>&1
+[ "$(grep -o "$FAKE_HOME/.local/share/pnpm" "$UNIT" | wc -l)" -eq 1 ]
+check $? "repeat upgrade keeps the pnpm directory exactly once"
 SERVICE_HOME="$SAVED_HOME"
 
 echo "==> fresh install and upgrade share one env source"

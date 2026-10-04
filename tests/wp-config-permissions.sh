@@ -188,4 +188,149 @@ if [ $(( $(file_mode "$site/wp-config.php") % 10 & 4 )) -ne 0 ]; then
   fail "world permissions must be cleared on the credentials file"
 fi
 
+# ---------------------------------------------------------------------------
+# 6. The site root's own directory carries the sharing contract (#644). setup's
+#    one-time recursive grant does not survive an external directory
+#    replacement, so the ordinary upgrade converges the root directory's
+#    group-write bit: additive and non-recursive, with ownership, the setgid
+#    bit, unrelated children, and the hardened config untouched. A root this
+#    identity cannot chmod produces one clear root-repair result.
+# ---------------------------------------------------------------------------
+eval "$(sed -n '/^ensure_site_root_group_write() {/,/^}/p' lib/wordpress.sh)"
+eval "$(sed -n '/^upgrade_ensure_site_root_group_write() {/,/^}/p' upgrade.sh)"
+
+root_site="$TMP/owned-site"
+mkdir -p "$root_site/wp-content/uploads"
+printf '<?php // credentials\n' > "$root_site/wp-config.php"
+printf 'x' > "$root_site/wp-content/uploads/keep.txt"
+chmod 2755 "$root_site" "$root_site/wp-content"
+chmod 640 "$root_site/wp-config.php"
+chmod 664 "$root_site/wp-content/uploads/keep.txt"
+LOCAL_MODE=false PLUGINS_ONLY=false ROADIE_ONLY=false SKILLS_ONLY=false
+AGENTS_MD_ONLY=false RECONCILE_SERVICES_ONLY=false RUN_AS_ROOT=false
+SITE_PATH="$root_site"
+DRY_RUN=false
+
+# The ordinary-upgrade wrapper runs the convergence for a non-root install
+# and records repair-or-report into the summary arrays the run prints.
+# Expected repair = the drifted mode with exactly the group-write bit added,
+# so special bits and owner bits are asserted preserved whatever the
+# filesystem decides to keep (some strip setgid at chmod time).
+group_write_added() {
+  local mode="$1"
+  printf '%s%s%s' "${mode:0:${#mode}-2}" "$(( ${mode: -2:1} | 2 ))" "${mode: -1}"
+}
+chmod 2755 "$root_site" "$root_site/wp-content"
+drifted_root="$(file_mode "$root_site")"
+drifted_child="$(file_mode "$root_site/wp-content")"
+UPDATED_ITEMS=()
+PENDING_ITEMS=()
+upgrade_ensure_site_root_group_write
+[ "$(file_mode "$root_site")" = "$(group_write_added "$drifted_root")" ] \
+  || fail "site root must gain group-write and nothing else: $(file_mode "$root_site") vs drift $drifted_root"
+[ "$(file_mode "$root_site/wp-content")" = "$drifted_child" ] || fail "non-recursive repair must not touch children, got $(file_mode "$root_site/wp-content")"
+[ "$(file_mode "$root_site/wp-config.php")" = 640 ] || fail "root repair must not reach wp-config.php, got $(file_mode "$root_site/wp-config.php")"
+[ "$(file_mode "$root_site/wp-content/uploads/keep.txt")" = 664 ] || fail "unrelated child files must be untouched"
+[ "${UPDATED_ITEMS[*]}" = "Site root group-write re-asserted ($root_site)" ] || fail "repair must be reported: ${UPDATED_ITEMS[*]:-none}"
+[ "${#PENDING_ITEMS[@]}" -eq 0 ] || fail "an identity that can repair must not request root repair"
+
+# Already-correct roots are a no-op, so repeated application converges.
+UPDATED_ITEMS=()
+upgrade_ensure_site_root_group_write
+[ "$(file_mode "$root_site")" = "$(group_write_added "$drifted_root")" ] || fail "repeat application must keep the converged mode"
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ] || fail "no-op convergence must not report a change"
+
+# Drift the production way: only the root loses group-write while children
+# keep theirs. An identity that cannot chmod a foreign-owned directory gets
+# one machine-readable root-repair result and the mode stays untouched.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 2755 "$root_site"
+  drifted_again="$(file_mode "$root_site")"
+  PENDING_ITEMS=()
+  id() { [ "${1:-}" != -u ] || { printf '4242\n'; return; }; command id "$@"; }
+  # Direct call, not command substitution: the summary arrays must be mutated
+  # in this shell, exactly as upgrade.sh runs the wrapper.
+  upgrade_ensure_site_root_group_write > "$TMP/repair.out" 2>&1
+  unset -f id
+  [ "$(file_mode "$root_site")" = "$drifted_again" ] \
+    || fail "a foreign-owned root must not be mutated by this identity"
+  [ "${#PENDING_ITEMS[@]}" -eq 1 ] || fail "exactly one pending root-repair item expected: ${PENDING_ITEMS[*]:-none}"
+  case "${PENDING_ITEMS[0]}" in
+    "Site root group-write (root): sudo chmod g+w"*) : ;;
+    *) fail "pending item must carry the repair command: ${PENDING_ITEMS[0]}" ;;
+  esac
+  case "$(cat "$TMP/repair.out")" in
+    *'"status":"root_repair_required","component":"site_root_group_write"'*) : ;;
+    *) fail "no machine-readable root_repair_required record: $(cat "$TMP/repair.out")" ;;
+  esac
+  case "$(cat "$TMP/repair.out")" in
+    *sudo\ chmod\ g+w*) : ;;
+    *) fail "root-repair output must name the exact command: $(cat "$TMP/repair.out")" ;;
+  esac
+
+  # Root can repair it: a root-run upgrade of the same drift applies the bit
+  # directly. Not exercisable without a real root identity, so the seam is
+  # only asserted when the suite itself runs unprivileged.
+  :
+else
+  chmod 2755 "$root_site"
+  chown nobody:nogroup "$root_site" 2>/dev/null || chown nobody "$root_site" 2>/dev/null || true
+  repair_out="$(upgrade_ensure_site_root_group_write 2>&1)"
+  [ "$(file_mode "$root_site")" = 2775 ] || fail "root must repair a foreign-owned drifted root, got $(file_mode "$root_site")"
+  chown "$(id -un)" "$root_site"
+fi
+
+# Dry-run must not mutate the drifted root.
+chmod 2755 "$root_site"
+drifted_dry="$(file_mode "$root_site")"
+DRY_RUN=true
+UPDATED_ITEMS=()
+PENDING_ITEMS=()
+upgrade_ensure_site_root_group_write >/dev/null 2>&1
+DRY_RUN=false
+[ "$(file_mode "$root_site")" = "$drifted_dry" ] || fail "dry-run must not mutate the site root"
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ] && [ "${#PENDING_ITEMS[@]}" -eq 0 ] || fail "dry-run must not report repair or change"
+
+# Local mode and *-only operations are outside the sharing contract: the
+# wrapper must not touch the site at all.
+chmod 2755 "$root_site"
+drifted_scoped="$(file_mode "$root_site")"
+LOCAL_MODE=true
+upgrade_ensure_site_root_group_write
+LOCAL_MODE=false
+[ "$(file_mode "$root_site")" = "$drifted_scoped" ] || fail "local mode must not converge the site root"
+EXTERNAL_WORDPRESS=true
+upgrade_ensure_site_root_group_write
+EXTERNAL_WORDPRESS=false
+[ "$(file_mode "$root_site")" = "$drifted_scoped" ] || fail "external runtime must not converge a remote site's root"
+ROADIE_ONLY=true
+upgrade_ensure_site_root_group_write
+ROADIE_ONLY=false
+[ "$(file_mode "$root_site")" = "$drifted_scoped" ] || fail "scoped operations must not converge the site root"
+AGENTS_MD_ONLY=true
+upgrade_ensure_site_root_group_write
+AGENTS_MD_ONLY=false
+[ "$(file_mode "$root_site")" = "$(group_write_added "$drifted_scoped")" ] || fail "guidance-only upgrade must restore the directory needed for composition"
+
+# Real Linux identities prove the atomic-replacement seam, rather than merely
+# asserting that the mode has the expected shape.
+if [ "$(id -u)" -eq 0 ] && command -v runuser >/dev/null 2>&1 && id nobody >/dev/null 2>&1; then
+  shared="$TMP/shared-site"
+  mkdir "$shared"
+  printf original > "$shared/AGENTS.md"
+  chown "root:$(id -gn nobody)" "$shared"
+  chmod o+rx "$TMP"
+  chmod 2755 "$shared"
+  compose='file=$(mktemp "$1/.agents.XXXXXX") && printf composed > "$file" && mv "$file" "$1/AGENTS.md"'
+  if runuser -u nobody -- sh -c "$compose" sh "$shared" 2>/dev/null; then
+    fail "non-root composition unexpectedly succeeded before directory repair"
+  fi
+  ensure_site_root_group_write "$shared"
+  runuser -u nobody -- sh -c "$compose" sh "$shared" || fail "non-root atomic replacement failed after repair"
+  [ "$(cat "$shared/AGENTS.md")" = composed ] || fail "atomic replacement did not install the composed content"
+  echo "real non-root atomic AGENTS.md replacement passed"
+fi
+
+echo "site-root group-write convergence tests passed"
+
 echo "wp-config permissions tests passed"
