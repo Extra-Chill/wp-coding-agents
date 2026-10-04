@@ -43,20 +43,51 @@ try {
   assert.equal(duplicate.env.KIMAKI_SESSION_ID, "one");
   assert.equal(readCalls().length, 1, "concurrent lookups should share one process");
 
+  // Homeboy's bridge-neutral session contract (homeboy-extensions#2910).
+  assert.equal(first.env.HOMEBOY_SESSION_THREAD_ID, "323456789012345678");
+  assert.equal(first.env.HOMEBOY_SESSION_SEND_COMMAND, `${kimaki} send`);
+  assert.equal(duplicate.env.HOMEBOY_SESSION_THREAD_ID, "323456789012345678");
+  assert.equal(first.env.DISCORD_BOT_TOKEN, undefined, "the bot token must not reach agent shells");
+  assert.equal(first.env.KIMAKI_BOT_TOKEN, undefined);
+
   const second = { env: {} };
   await hooks["shell.env"]({ cwd: root, sessionID: "two" }, second);
   assert.equal(second.env.KIMAKI_THREAD_ID, "423456789012345678");
+  assert.equal(second.env.HOMEBOY_SESSION_THREAD_ID, "423456789012345678", "concurrent sessions keep their own thread");
 
   const native = { env: { KIMAKI_THREAD_ID: "523456789012345678", KIMAKI_SESSION_ID: "native-session" } };
   await hooks["shell.env"]({ cwd: root, sessionID: "native" }, native);
   assert.equal(native.env.KIMAKI_THREAD_ID, "523456789012345678");
   assert.equal(native.env.KIMAKI_SESSION_ID, "native-session");
+  assert.equal(native.env.HOMEBOY_SESSION_THREAD_ID, "523456789012345678", "native attribution still maps onto the contract");
+  assert.equal(native.env.HOMEBOY_SESSION_SEND_COMMAND, `${kimaki} send`);
+
+  // Values the host already set win over the bridge mapping.
+  const preset = {
+    env: {
+      KIMAKI_THREAD_ID: "623456789012345678",
+      HOMEBOY_SESSION_THREAD_ID: "723456789012345678",
+      HOMEBOY_SESSION_SEND_URL: "http://127.0.0.1:9/send",
+    },
+  };
+  await hooks["shell.env"]({ cwd: root, sessionID: "preset" }, preset);
+  assert.equal(preset.env.HOMEBOY_SESSION_THREAD_ID, "723456789012345678");
+  assert.equal(preset.env.HOMEBOY_SESSION_SEND_COMMAND, undefined, "an HTTP sender excludes the command sender");
+
+  // A thread id that is not a snowflake is never exported.
+  const bogus = { env: { KIMAKI_THREAD_ID: "token=secret" } };
+  await hooks["shell.env"]({ cwd: root, sessionID: "bogus" }, bogus);
+  assert.equal(bogus.env.HOMEBOY_SESSION_THREAD_ID, undefined);
+  assert.equal(bogus.env.HOMEBOY_SESSION_SEND_COMMAND, undefined);
+  assert.equal(readCalls().length, 2, "preset attribution should skip the bridge lookup");
   assert.equal(readCalls().length, 2, "native attribution should skip the bridge lookup");
 
   for (const sessionID of [undefined, "missing", "invalid"]) {
     const output = { env: {} };
     await hooks["shell.env"]({ cwd: root, sessionID }, output);
     assert.equal(output.env.KIMAKI_THREAD_ID, undefined);
+    assert.equal(output.env.HOMEBOY_SESSION_THREAD_ID, undefined);
+    assert.equal(output.env.HOMEBOY_SESSION_SEND_COMMAND, undefined);
   }
 
   await hooks.event({ event: { type: "session.deleted", properties: { info: { id: "one" } } } });
