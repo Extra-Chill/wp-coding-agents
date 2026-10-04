@@ -403,7 +403,10 @@ _roadie_sync_assets() {
 #   4. move the subscription accounts (OpenCode's rotation pools) into
 #      subrouter, which Roadie routes through. Only while Kimaki is stopped:
 #      refresh tokens rotate on use, so two live copies invalidate each other.
-#   5. disable the Kimaki unit, keep it and ~/.kimaki untouched as rollback
+#   5. route model choices on those providers through subrouter: one preset
+#      per model in use (exactly that model; fallbacks are operator policy),
+#      in the Roadie database copy and opencode.json
+#   6. disable the Kimaki unit, keep it and ~/.kimaki untouched as rollback
 # Roadie's own schema migrations run on first start. Idempotent: a Roadie data
 # dir that already holds a database is never overwritten.
 _roadie_kimaki_unit() {
@@ -442,6 +445,9 @@ _roadie_accounts() {
   local mode="$1" node_bin
   node_bin="$(command -v node 2>/dev/null)" || { warn "  node not found; cannot move accounts"; return 1; }
   local args=("$mode" --opencode-data "$(_roadie_opencode_data_dir)" --roadie-package "$(roadie_package_dir)")
+  if [ "$mode" = import ] && [ -n "${ROADIE_SUBROUTER_PRESETS_JSON:-}" ]; then
+    args+=(--presets-json "$ROADIE_SUBROUTER_PRESETS_JSON")
+  fi
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" "$node_bin" --input-type=module - "${args[@]}" \
       < "$SCRIPT_DIR/bridges/roadie/accounts.mjs"
@@ -543,9 +549,17 @@ roadie_migrate_from_kimaki() {
     cp -a "$kimaki_data/$entry" "$ROADIE_DATA_DIR/"
   done
 
-  # Accounts: without them Roadie cannot reach a model, so a failure here
-  # rolls the whole migration back like a failed database copy.
-  local accounts_out
+  # Accounts, and a subrouter preset for each direct model the stored choices
+  # use (derived from them, no routing policy). Without them Roadie cannot
+  # reach a model, so a failure rolls the whole migration back.
+  local accounts_out models_out
+  if ! ROADIE_SUBROUTER_PRESETS_JSON="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" presets \
+         --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
+    printf '%s\n' "$ROADIE_SUBROUTER_PRESETS_JSON" >&2
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Reading stored model choices failed; Kimaki state left untouched and Kimaki restarted"
+  fi
   if ! accounts_out="$(_roadie_accounts import 2>&1)"; then
     printf '%s\n' "$accounts_out" >&2
     rm -f "$target_db"
@@ -555,6 +569,19 @@ roadie_migrate_from_kimaki() {
   while IFS= read -r entry; do
     [ -n "$entry" ] && log "  subrouter $entry"
   done <<< "$accounts_out"
+
+  # Point those choices at the presets, in the Roadie copy of the database
+  # (before Roadie first starts) and opencode.json.
+  if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
+         --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
+    printf '%s\n' "$models_out" >&2
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Moving model choices to subrouter presets failed; Kimaki state left untouched and Kimaki restarted"
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && log "  $entry"
+  done <<< "$models_out"
 
   if [ -n "${SERVICE_USER:-}" ] && [ "$(_roadie_effective_uid)" -eq 0 ]; then
     chown -R "$SERVICE_USER:$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")" "$ROADIE_DATA_DIR"
@@ -566,6 +593,7 @@ roadie_migrate_from_kimaki() {
   fi
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
   UPDATED_ITEMS+=("subscription accounts moved into subrouter; on rollback, first run: $(roadie_accounts_rollback_command)")
+  UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with `subrouter preset` (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
 }
 
 # ============================================================================

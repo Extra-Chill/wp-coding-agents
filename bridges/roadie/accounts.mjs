@@ -13,12 +13,17 @@
 // first invalidates the other's refresh token.
 //
 // Usage (as the service user):
-//   node accounts.mjs import --opencode-data <dir> --roadie-package <dir>
+//   node accounts.mjs import --opencode-data <dir> --roadie-package <dir> [--presets-json <json>]
 //   node accounts.mjs export --opencode-data <dir> --roadie-package <dir>
 //
 // subrouter's own store API does the reading, writing and locking, resolved
 // from the installed Roadie package so the format matches the pinned release.
 // Output names providers and counts only, never tokens.
+//
+// --presets-json <json> (import only): a JSON object of subrouter presets,
+// { "<name>": ["<provider>/<model>", ...] }, served to OpenCode as
+// subrouter/<name>. A preset subrouter already has is left as it is, so edits
+// made with `subrouter preset` survive upgrades.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -72,7 +77,7 @@ async function loadSubrouter(roadiePackage) {
     usage(`@subrouter/cli is not installed with Roadie at ${roadiePackage}`)
   }
   const module = await import(pathToFileURL(entry).href)
-  for (const name of ['loadAccounts', 'saveAccounts', 'withStoreLock', 'upsertAccount']) {
+  for (const name of ['loadAccounts', 'saveAccounts', 'withStoreLock', 'upsertAccount', 'loadPresets', 'savePreset']) {
     if (typeof module[name] !== 'function') usage(`@subrouter/cli does not export ${name}; Roadie and this script disagree`)
   }
   return module
@@ -149,6 +154,28 @@ async function importAccounts() {
     await subrouter.saveAccounts(store)
   })
   console.log(summary.length ? summary.join('\n') : 'No OpenCode accounts to import.')
+  if (options['presets-json']) await importPresets(options['presets-json'])
+}
+
+async function importPresets(json) {
+  let wanted
+  try {
+    wanted = JSON.parse(json)
+  } catch (error) {
+    usage(`invalid presets JSON: ${error.message}`)
+  }
+  const existing = (await subrouter.loadPresets()).presets ?? {}
+  for (const [name, models] of Object.entries(wanted)) {
+    if (!Array.isArray(models) || models.some((entry) => typeof entry !== 'string' || !entry.includes('/'))) {
+      usage(`preset ${name} must be a list of provider/model ids`)
+    }
+    if (existing[name]) {
+      console.log(`preset ${name}: kept existing`)
+      continue
+    }
+    await subrouter.savePreset({ name, models })
+    console.log(`preset ${name}: ${models.join(' -> ')}`)
+  }
 }
 
 function writeSecretJson(file, value) {

@@ -78,6 +78,14 @@ OUT="$(run import)"; check $? "import succeeds"
 [ "$(stat -c %a "$SUBROUTER_HOME/auth.json" 2>/dev/null || stat -f %Lp "$SUBROUTER_HOME/auth.json")" = 600 ]; check $? "subrouter store is 0600"
 case "$OUT" in *refresh-*|*access-*|*-key*) check 1 "output contains no secrets" ;; *) check 0 "output contains no secrets" ;; esac
 
+echo "==> presets"
+cfg() { python3 -c "import json,sys; d=json.load(open('$SUBROUTER_HOME/config.json'))['presets']; print(eval(sys.argv[1]))" "$1"; }
+run import --presets-json '{"anthropic-claude-x":["anthropic/claude-x"]}' >/dev/null; check $? "import with presets succeeds"
+[ "$(cfg "d['anthropic-claude-x']")" = "['anthropic/claude-x']" ]; check $? "preset created"
+run import --presets-json '{"anthropic-claude-x":["anthropic/other"]}' | grep -q "kept existing"; check $? "existing preset reported as kept"
+[ "$(cfg "d['anthropic-claude-x']")" = "['anthropic/claude-x']" ]; check $? "operator-edited preset not overwritten"
+run import --presets-json '{"bad":["no-slash"]}' >/dev/null 2>&1; [ $? -ne 0 ]; check $? "malformed preset rejected"
+
 echo "==> re-import never overwrites what subrouter holds"
 python3 - "$SUBROUTER_HOME/auth.json" <<'PY'
 import json, sys
