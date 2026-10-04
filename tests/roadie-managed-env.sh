@@ -109,6 +109,47 @@ fi
 bridge_update_systemd
 check_managed_once "re-run keeps"
 
+echo "==> upgrade keeps managed Homeboy ahead of user-tool dirs"
+
+# A managed non-root unit whose home has ~/.local/bin (holding a stale legacy
+# Homeboy seed) and ~/.opencode/bin. Upgrade prepends those user-tool dirs; the
+# managed Homeboy dir must still lead so `homeboy` resolves to it.
+USER_HOME="$TMP/home"
+MANAGED_DIR="$TMP/prefix/wp-coding-agents/bin"
+mkdir -p "$USER_HOME/.local/bin" "$USER_HOME/.opencode/bin" "$MANAGED_DIR"
+printf '#!/bin/sh\n' > "$USER_HOME/.local/bin/homeboy"
+printf '#!/bin/sh\n' > "$MANAGED_DIR/homeboy"
+chmod 0755 "$USER_HOME/.local/bin/homeboy" "$MANAGED_DIR/homeboy"
+cat > "$UNIT" <<EOF
+[Service]
+User=wpagent
+WorkingDirectory=$TMP/site
+Environment=HOME=$USER_HOME
+Environment=PATH=$MANAGED_DIR:/usr/bin:/bin
+Environment=ROADIE_DATA_DIR=$USER_HOME/.roadie
+Environment=DATAMACHINE_SITE_PATH=$TMP/site
+ExecStart=/usr/bin/roadie --data-dir $USER_HOME/.roadie --auto-restart
+EOF
+SAVED_USER="$SERVICE_USER" SAVED_HOME="$SERVICE_HOME" SAVED_DATA_DIR="$ROADIE_DATA_DIR"
+SERVICE_USER=wpagent
+SERVICE_HOME="$USER_HOME"
+ROADIE_DATA_DIR="$USER_HOME/.roadie"
+WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$MANAGED_DIR/homeboy"
+export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
+bridge_update_systemd
+UNIT_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT" | sed -n '1p')"
+if [ "${UNIT_PATH%%:*}" = "$MANAGED_DIR" ]; then rc=0; else rc=1; fi
+check "$rc" "managed Homeboy dir leads the upgraded PATH ($UNIT_PATH)"
+RESOLVED="$(env PATH="$UNIT_PATH" /bin/sh -c 'command -v homeboy')"
+if [ "$RESOLVED" = "$MANAGED_DIR/homeboy" ]; then rc=0; else rc=1; fi
+check "$rc" "homeboy resolves to the managed binary, not the legacy seed"
+case ":$UNIT_PATH:" in
+  *":$USER_HOME/.opencode/bin:"*) check 0 "user-tool dirs are still added" ;;
+  *) check 1 "user-tool dirs are still added" ;;
+esac
+unset WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
+SERVICE_USER="$SAVED_USER" SERVICE_HOME="$SAVED_HOME" ROADIE_DATA_DIR="$SAVED_DATA_DIR"
+
 echo "==> launchd plist carries the managed env"
 
 PLIST="$(SITE_PATH="$TMP/site" LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" ROADIE_BIN=/usr/bin/roadie \
