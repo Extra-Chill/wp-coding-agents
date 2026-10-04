@@ -38,15 +38,11 @@ The user says something like:
    ```
    Read the output. Stop and investigate if anything fails or looks wrong (wrong runtime, unexpected unit rewrite, plugin paths point somewhere weird).
 
-3. **Restart the detected chat bridge.** The script prints the exact restart command for the detected bridge × environment. For managed Kimaki services, run it from the active thread's tool shell: the bridge-owned helper records only bounded identity, route IDs, typed checks, and the next-action enum, then detaches before restarting. Startup atomically consumes the record and sends one fixed resume event to the original thread. Delivery is at-most-once: an ambiguous dispatch failure is never replayed automatically. Inspect `restart-status.json` or `resume-status.json` under `$KIMAKI_DATA_DIR/kimaki-config/restart-continuation/`; failed restart status includes the credential-free `recovery_command`. If restart or resume fails, report incomplete work and use that explicit recovery evidence rather than rerunning upgrade mutations.
+3. **Restart Roadie.** The script prints the exact restart command for the environment (`systemctl restart roadie.service` on a VPS). Running it from inside a Roadie thread is safe: Roadie stops cleanly on SIGTERM and, on start, resumes the runs the restart interrupted, so the thread continues. An upgrade from Kimaki migrates its state to Roadie and disables (but keeps) the Kimaki unit; the summary says so when it happens.
 
-4. **After restart, verify Kimaki's OpenCode plugins when Kimaki + OpenCode are in use.** The summary's verify block checks the managed plugin files. Run it, then inspect the Kimaki startup logs for `kimaki-config: WARNING:` lines. Any warning about a missing persistent plugin source dir or missing required OpenCode plugin means `opencode.json` may reference plugin files OpenCode silently skipped.
+4. **After restart, verify Roadie and its managed plugins.** Run the summary's verify command (`systemctl status` plus `curl http://127.0.0.1:<lock port>/health`, which reports `discordReady`). Then check the Roadie logs (`journalctl -u roadie.service`) for plugin-load errors: `opencode.json` must reference `dm-agent-sync.ts`, `roadie-command-guard.ts` and `session-attribution.ts` in the Roadie config plugins dir, and the prompt config (`ROADIE_PROMPT_CONFIG`) must exist.
 
-5. **Verify the filter behavior from the repo when available.** Run:
-   ```bash
-   node tests/effective-prompt/run.mjs
-   ```
-   Passing output (`OK — ... scenario(s)`) proves `dm-context-filter` still replaces Kimaki's generic prompt with the managed bridge prompt while preserving unrelated system blocks. If this fails after a Kimaki upgrade, fix the filter or refresh snapshots intentionally before calling the upgrade healthy.
+5. **Roadie's built-in prompt sections are managed by `prompt-config.yaml`.** The managed config disables every built-in section and appends the managed block. If a thread shows generic bridge guidance, check that the unit's `ROADIE_PROMPT_CONFIG` points at the synced file.
 
 6. **Verify Homeboy when the install uses it.** Only do this when the user enabled Homeboy or `AGENTS.md` contains the Homeboy section. Run the project/component checks and pass failures through clearly:
    ```bash
@@ -67,15 +63,15 @@ The user says something like:
 
    Setup and upgrade write `define( 'DATAMACHINE_COMPOSE_AGENTS_MD', true )` to wp-config.php (idempotent grep-guard; skipped on Studio and dry-run). This is the gate that turns on core-owned AGENTS.md composition — `wp config get DATAMACHINE_COMPOSE_AGENTS_MD` should return `true` after either run.
 
-Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
+Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--roadie-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
 
 ## Never do
 
 - **Never leave the chat bridge running after a successful upgrade.** Restart it with the summary command so managed config changes take effect.
-- **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.kimaki/` auth state and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
+- **Never touch user state:** `opencode.json` (the script does additive-only repair), the WordPress DB, nginx, SSL certs, `~/.roadie/` (and a kept `~/.kimaki/` rollback copy), subrouter accounts and OAuth tokens, the DM workspace cloned repos, or agent memory files (`SOUL.md` / `MEMORY.md` / `USER.md`).
 - **Never vendor Homeboy** into wp-coding-agents or scaffold `homeboy.json` in the WordPress site root. The site root is a Homeboy project; component metadata belongs in attached primary workspace repos.
 - **Never auto-attach `@` worktrees** as Homeboy components during upgrade. They are task-specific worktrees and are skipped by default.
-- **Never hardcode workspace paths** (`/var/lib/...`, `/opt/...`, `/var/www/...`, `/root/...`) in commands you give the user. Use `git rev-parse --show-toplevel`, `$(npm root -g)`, `$KIMAKI_DATA_DIR`, and the script's auto-detection.
+- **Never hardcode workspace paths** (`/var/lib/...`, `/opt/...`, `/var/www/...`, `/root/...`) in commands you give the user. Use `git rev-parse --show-toplevel`, `$(npm root -g)`, `$ROADIE_DATA_DIR`, and the script's auto-detection.
 
 ## Source of truth
 
@@ -83,6 +79,6 @@ Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `
 |---|---|
 | What flags exist? | `./upgrade.sh --help` |
 | What did the upgrade actually do? | The script's summary block (printed at the end of every run) |
-| What's the right restart command for this bridge × env? | The summary block — rendered from `bridges/<name>.sh::bridge_restart_cmd`; managed Kimaki commands require the active thread route injected into the tool shell |
+| What's the right restart command for this bridge × env? | The summary block — rendered from `bridges/roadie.sh::bridge_restart_cmd` |
 | What's the right verify command? | The summary block |
-| What chat bridges are supported? | `bridges/_dispatch.sh::bridge_names` (auto-discovered from `bridges/*.sh` — currently kimaki, cc-connect, telegram) |
+| What chat bridges are supported? | `bridges/_dispatch.sh::bridge_names` (auto-discovered from `bridges/*.sh` — currently Roadie only) |
