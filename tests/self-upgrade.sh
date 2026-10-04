@@ -91,6 +91,23 @@ fi
 grep -q 'grep -q "/$UNIT.service\\$" /proc/self/cgroup' "$W"; check $? "apply only runs inside its own transient unit"
 grep -q 'checkout --quiet --force --detach "origin/$TRUST_REF"' "$W"; check $? "runs only the fetched trust ref"
 
+echo "==> installer tools use locked local prefixes, not the caller PATH"
+eval "$(sed -n '/^installer_path() {/,/^}/p' "$W")"
+root_locked() { [ "${DENIED_PREFIX:-}" != "$1" ]; }
+die() { printf '%s\n' "$1" >&2; exit "$2"; }
+BOOTSTRAP_PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CHILD_PATH="$(PATH="$BOOTSTRAP_PATH" installer_path)"
+[ "$CHILD_PATH" = "/usr/local/sbin:/usr/local/bin:$BOOTSTRAP_PATH" ]; check $? "installer receives setup's local prefixes with the fixed bootstrap tail"
+env PATH="$CHILD_PATH" sh -c 'command -v sh >/dev/null'; check $? "installer child can resolve tools through the admitted PATH"
+if [ -d /usr/local/bin ]; then
+  ( DENIED_PREFIX=/usr/local/bin; PATH="$BOOTSTRAP_PATH" installer_path ) >"$TMP/path.out" 2>&1
+  [ $? -eq 2 ]; check $? "an unlocked executable prefix is refused before the installer starts"
+fi
+if [ -d /usr/local ]; then
+  ( DENIED_PREFIX=/usr/local; PATH="$BOOTSTRAP_PATH" installer_path ) >"$TMP/path.out" 2>&1
+  [ $? -eq 2 ]; check $? "an unlocked parent of executable prefixes is refused"
+fi
+
 echo
 if [ "$FAIL" -gt 0 ]; then echo "FAIL: $FAIL assertion(s)"; exit 1; fi
 echo "PASS: tests/self-upgrade.sh ($PASS assertions)"
