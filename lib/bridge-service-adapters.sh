@@ -74,13 +74,20 @@ bridge_service_adapter_record() {
 }
 
 bridge_service_adapter_plan() {
-  local adapter="$1" record
+  local adapter="$1" record timeout=""
   bridge_service_adapter_detect "$adapter"
   [ "$BRIDGE_SERVICE_ADAPTER_PRESENT" = true ] || return 0
   record="$(bridge_service_adapter_record "$adapter")"
+  # Reconciling the chat bridge can include a one-time state migration (e.g.
+  # copying a multi-GB SQLite session database between bridges with
+  # `sqlite3 .backup` plus an integrity check). The default 120s step budget
+  # cut that off mid-copy, so the bridge record gets the same longer budget
+  # as the runtime record.
+  [ "$adapter" = bridge ] && timeout="${DESIRED_STATE_BRIDGE_TIMEOUT_SECONDS:-420}"
   reconciler_plan_add "$record" "bridge-services.reconcile.$adapter" \
     "bridge_service_adapter_apply_${adapter//-/_}" \
-    "bridge_service_adapter_verify_${adapter//-/_}"
+    "bridge_service_adapter_verify_${adapter//-/_}" \
+    "$timeout"
 }
 
 bridge_service_adapters_plan() {
