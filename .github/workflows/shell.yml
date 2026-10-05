@@ -293,6 +293,7 @@ jobs:
           - roadie-accounts
           - roadie-application-config
           - roadie-command-guard
+          - roadie-fork-workspace
           - roadie-wordpress-context
           - roadie-kimaki-migration
           - roadie-multi-instance
@@ -331,9 +332,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-accounts'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-accounts' || matrix.test == 'roadie-fork-workspace'
         with:
           node-version: 24
+      - name: Install verified Homeboy workspace fixture
+        if: matrix.test == 'roadie-fork-workspace'
+        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.399.35/homeboy-installer.sh | sh
       - name: Install supported OpenCode dispatch fixture
         if: matrix.test == 'roadie-command-guard'
         run: npm install --global opencode-ai@1.18.20

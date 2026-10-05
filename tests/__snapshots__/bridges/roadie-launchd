@@ -32,7 +32,7 @@
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>/home/chubes/.roadie/roadie-config/prompt-config.yaml</string>
         <key>ROADIE_PLUGINS</key>
-        <string>/home/chubes/.roadie/roadie-config/roadie-plugins/host-upgrade.mjs,/home/chubes/.roadie/roadie-config/roadie-plugins/wordpress-context.mjs</string>
+        <string>/home/chubes/.roadie/roadie-config/roadie-plugins/host-upgrade.mjs,/home/chubes/.roadie/roadie-config/roadie-plugins/wordpress-context.mjs,/home/chubes/.roadie/roadie-config/roadie-plugins/fork-workspace.mjs</string>
         <key>ROADIE_SERVICE_TOKEN_FILE</key>
         <string>/home/chubes/.roadie/secrets/send-token</string>
         <key>DATAMACHINE_SITE_PATH</key>

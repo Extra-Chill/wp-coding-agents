@@ -12,7 +12,7 @@ Environment=ROADIE_DATA_DIR=/home/chubes/.roadie
 Environment=ROADIE_MANAGED=1
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
 Environment=ROADIE_PROMPT_CONFIG=/opt/roadie-config/prompt-config.yaml
-Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/opt/roadie-config/roadie-plugins/wordpress-context.mjs
+Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/opt/roadie-config/roadie-plugins/wordpress-context.mjs,/opt/roadie-config/roadie-plugins/fork-workspace.mjs
 Environment=ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token
 Environment=DATAMACHINE_SITE_PATH=/var/www/site
 Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"

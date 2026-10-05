@@ -355,7 +355,7 @@ roadie_plugins_dir() {
 }
 
 roadie_plugins_value() {
-  printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
+  printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs,%s/fork-workspace.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
 }
 
 roadie_speaker_context_enabled() {
