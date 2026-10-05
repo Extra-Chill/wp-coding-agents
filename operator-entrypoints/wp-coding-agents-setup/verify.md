@@ -156,7 +156,7 @@ This overlay proves Homeboy is installed and linked, its native worktree lifecyc
 ```bash
 homeboy --version
 homeboy extension list
-homeboy extension show wordpress
+homeboy extension show wordpress --live-readiness
 homeboy config show --format=json | jq -e '.data.config.worktree_providers.dmc == null and .data.config.settings.worktree_provider_lifecycle.dmc == null'
 homeboy project show <project-id>
 homeboy project components list <project-id>
