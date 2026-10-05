@@ -366,6 +366,18 @@ roadie_prompt_config_file() {
   printf '%s/prompt-config.yaml\n' "$(roadie_config_dir)"
 }
 
+# Operator-owned application/channel policy. Discover it without creating or
+# overwriting bindings; service reconciliation must retain the explicit contract.
+roadie_channels_config_file() {
+  if [ -n "${ROADIE_CHANNELS_CONFIG:-}" ]; then
+    printf '%s\n' "$ROADIE_CHANNELS_CONFIG"
+    return 0
+  fi
+  local file="$(roadie_config_dir)/channels.yaml"
+  [ -f "$file" ] || return 0
+  printf '%s\n' "$file"
+}
+
 # Copy the wp-coding-agents-owned assets (OpenCode plugins, Roadie prompt
 # config) into the durable config dir. Idempotent; reports what changed.
 _roadie_sync_assets() {
@@ -785,7 +797,8 @@ _roadie_path_value() {
 
 # Environment every Roadie service carries. Secrets are file references.
 _roadie_template_env() {
-  local path_value="$1"
+  local path_value="$1" channels_config
+  channels_config="$(roadie_channels_config_file)"
   cat <<EOF
 Environment=HOME=$SERVICE_HOME
 Environment=PATH=$path_value
@@ -798,6 +811,9 @@ Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_roadie_datamachine_wp_transport_systemd_env)
 EOF
+  if [ -n "$channels_config" ]; then
+    printf 'Environment=ROADIE_CHANNELS_CONFIG="%s"\n' "$channels_config"
+  fi
   if [ -s "$(_roadie_bot_token_file)" ] || [ -n "${ROADIE_BOT_TOKEN:-}" ]; then
     echo "Environment=ROADIE_BOT_TOKEN_FILE=$(_roadie_bot_token_file)"
   fi
@@ -1067,7 +1083,8 @@ EOF
 bridge_render_launchd() {
   local label="$1"
   [ "$label" = "com.wp.roadie" ] || { echo "roadie has no label '$label'" >&2; return 1; }
-  local roadie_bin_dir node_bin_dir path_value datamachine_wp_transport_json
+  local roadie_bin_dir node_bin_dir path_value datamachine_wp_transport_json channels_config
+  channels_config="$(roadie_channels_config_file)"
   roadie_bin_dir="$(dirname "$ROADIE_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
   path_value="$(_compose_path_value "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
@@ -1101,7 +1118,7 @@ bridge_render_launchd() {
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
         <string>1</string>
         <key>ROADIE_PROMPT_CONFIG</key>
-        <string>$(xml_escape "$(roadie_prompt_config_file)")</string>
+        <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>
         <string>$(xml_escape "$(roadie_plugins_value)")</string>
         <key>ROADIE_SERVICE_TOKEN_FILE</key>
