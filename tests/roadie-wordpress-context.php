@@ -16,10 +16,13 @@ namespace DataMachine\Core\FilesRepository {
 namespace DataMachine\Core\Agents {
     class AgentIdentityResolver { public function resolve_agent_identity($slug) { return (object) array('owner_id'=>1); } }
 }
+namespace DataMachine\Core\Database\Agents {
+    class AgentAccess { public function user_can_access($agent_id,$user_id,$role) { return $user_id===3 && $agent_id===7 && $role==='viewer'; } }
+}
 namespace {
     class WP_Agent { public function get_meta() { return array('datamachine_agent_id'=>7); } }
     function wp_get_agent($slug) { return new WP_Agent(); }
-    function get_user_by($field,$id) { return $id === 1 || $id === 2 ? (object) array('ID'=>$id) : false; }
+    function get_user_by($field,$id) { return in_array($id,array(1,2,3),true) ? (object) array('ID'=>$id) : false; }
     function user_can($user,$cap) { return $user->ID===2; }
     function apply_filters($name,$value,...$args) { return $value; }
     function wp_json_encode($value) { return json_encode($value); }
@@ -30,7 +33,7 @@ namespace {
     $base=array('operation'=>'context','agent_slug'=>'franklin');
     $shared=resolve_context($base+array('event'=>'session_start','user_id'=>1));
     if (array_column($shared['sections'],'content')!==array('agent:0:SOUL.md')) throw new \RuntimeException('Pinned context contains user memory');
-    foreach (array(1,2) as $id) {
+    foreach (array(1,2,3) as $id) {
         $turn=resolve_context($base+array('event'=>'turn','user_id'=>$id));
         $content=array_column($turn['sections'],'content');
         if (!in_array('user:'.$id.':USER.md',$content,true)||!in_array('principal:'.$id.':USER_MEMORY.md',$content,true)||in_array('agent:0:SOUL.md',$content,true)) throw new \RuntimeException('Wrong speaker/layer');

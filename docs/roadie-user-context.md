@@ -33,9 +33,9 @@ Multiple channels can share the same context. Roadie's context/project binding
 selects a named context; `channelContexts` can explicitly bind identity lookup
 channels when several contexts are configured.
 
-The selected WordPress user must exist and be the persisted agent owner or a
-WordPress administrator. A host can extend this using
-`wp_coding_agents_roadie_user_context_allowed($allowed, $user_id, $agent_slug, $actor)`.
+The selected WordPress user must exist and be the persisted agent owner, a
+WordPress administrator, or have an existing viewer-or-higher agent grant.
+The canonical `datamachine_can_access_agent` filter also applies.
 Capabilities are explicitly declared in the mapping; defaults grant sessions
 only. Unmapped actors are denied when this identity plugin is configured.
 

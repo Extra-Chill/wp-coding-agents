@@ -21,8 +21,10 @@ if ( $agent_id <= 0 ) {
 $user = $user_id > 0 ? get_user_by( 'id', $user_id ) : false;
 $identity_class = '\DataMachine\Core\Agents\AgentIdentityResolver';
 $owner_id = class_exists( $identity_class ) ? ( new $identity_class() )->resolve_agent_identity( $agent_slug )->owner_id : 0;
-$allowed = $user && ( $user_id === $owner_id || user_can( $user, 'manage_options' ) );
-$allowed = (bool) apply_filters( 'wp_coding_agents_roadie_user_context_allowed', $allowed, $user_id, $agent_slug, $request['actor'] ?? array() );
+$access_class = '\DataMachine\Core\Database\Agents\AgentAccess';
+$granted = $user && class_exists( $access_class ) && ( new $access_class() )->user_can_access( $agent_id, $user_id, 'viewer' );
+$allowed = $user && ( $user_id === $owner_id || user_can( $user, 'manage_options' ) || $granted );
+$allowed = (bool) apply_filters( 'datamachine_can_access_agent', $allowed, $agent_id, $user_id, 'viewer' );
 if ( 'person' === $request['operation'] ) {
     echo wp_json_encode( array( 'allowed' => $allowed && (bool) $user ) );
     return;
