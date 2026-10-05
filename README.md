@@ -553,7 +553,7 @@ cd ~/Studio/my-site && codex
 
 ### Roadie
 
-[Roadie](https://github.com/Extra-Chill/roadie) is the Discord surface for OpenCode and the only managed chat bridge. Setup installs the pinned release (`bridges/roadie/roadie-version`) into `/usr/local/lib/wp-coding-agents/roadie` on a VPS, runs it with `ROADIE_MANAGED=1` so it never upgrades itself, and keeps secrets as files under `/etc/wp-coding-agents/roadie/` (`bot-token`, and a `send-token` the web user reads so scheduled dispatch can `roadie send` through the running bot without sudo). Roadie resumes runs that a restart interrupted.
+[Roadie](https://github.com/Extra-Chill/roadie) is the Discord surface for OpenCode and the only managed chat bridge. Setup installs the pinned release (`bridges/roadie/roadie-version`, moved to Roadie's newest release hourly by the `Refresh Roadie pin` workflow) into `/usr/local/lib/wp-coding-agents/roadie` on a VPS, runs it with `ROADIE_MANAGED=1` so it never upgrades itself, and keeps secrets as files under `/etc/wp-coding-agents/roadie/` (`bot-token`, and a `send-token` the web user reads so scheduled dispatch can `roadie send` through the running bot without sudo). Roadie resumes runs that a restart interrupted.
 
 Managed installs replace Roadie's generic prompt sections with a small bridge prompt (`ROADIE_PROMPT_CONFIG`) so orchestration, workspace, tunnel, and preview guidance come from the installed components that own those capabilities. The managed OpenCode plugins (Data Machine memory sync, the command ownership guard, and Homeboy session attribution) are synced into Roadie's config directory. See [managed Roadie context](docs/roadie-managed-context.md).
 
