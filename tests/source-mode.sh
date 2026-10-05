@@ -535,15 +535,6 @@ print(k.index("wp-content/plugins/**") < k.index("wp-content/plugins/acme-core/*
   "True" "reconciler emits denies before owned allows"
 rm -f "$RECON_IN"
 
-if [ "$FAILED" -ne 0 ]; then
-  echo
-  echo "FAILED: $FAILED assertion(s)"
-  exit 1
-fi
-
-echo
-echo "OK: all source-mode assertions passed"
-
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
 
@@ -838,3 +829,12 @@ dry_mode=$(
   printf '%s' "$SOURCE_MODE"
 )
 assert_eq "$dry_mode" "owned" "a dry run reports the mode the install actually has"
+
+if [ "$FAILED" -ne 0 ]; then
+  echo
+  echo "FAILED: $FAILED assertion(s)"
+  exit 1
+fi
+
+echo
+echo "OK: all source-mode assertions passed"
