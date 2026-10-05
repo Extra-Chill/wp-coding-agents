@@ -2,6 +2,10 @@
 # Bounded, observable execution for setup-installed plugin upgrades.
 
 PLUGIN_UPDATE_EXIT_PARTIAL=75
+# Exit statuses of plugin_update_state_from_json beyond found/slug-absent.
+# 2 means the captured output held no valid JSON document, so terminal
+# verification could not run at all (for example a database-unavailable error).
+PLUGIN_UPDATE_PARSE_NO_VALID_JSON=2
 PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS="${PLUGIN_UPDATE_PHASE_TIMEOUT_SECONDS:-120}"
 PLUGIN_UPDATE_TOTAL_TIMEOUT_SECONDS="${PLUGIN_UPDATE_TOTAL_TIMEOUT_SECONDS:-480}"
 PLUGIN_UPDATE_PROGRESS_SECONDS="${PLUGIN_UPDATE_PROGRESS_SECONDS:-10}"
@@ -150,10 +154,14 @@ import os
 
 slug = os.environ['PLUGIN_STATE_SLUG']
 raw = os.environ['PLUGIN_STATES_JSON']
+# WP-CLI may print PHP or database diagnostics before (or instead of) the
+# plugin JSON. Only a validated JSON document reaches the state extraction:
+# decode the first array or object candidate instead of parsing the full
+# output, and report 2 when no JSON document exists at all.
 decoder = json.JSONDecoder()
 plugins = None
 for offset, character in enumerate(raw):
-    if character != '[':
+    if character not in '[{':
         continue
     try:
         candidate, _ = decoder.raw_decode(raw[offset:])
@@ -161,6 +169,15 @@ for offset, character in enumerate(raw):
         continue
     if isinstance(candidate, list):
         plugins = candidate
+        break
+    if isinstance(candidate, dict):
+        inner = candidate.get('plugins')
+        if isinstance(inner, list):
+            plugins = inner
+        elif isinstance(candidate.get('name'), str):
+            plugins = [candidate]
+        else:
+            continue
         break
 if plugins is None:
     raise SystemExit(2)
@@ -231,7 +248,7 @@ plugin_update_slug_failed() {
 }
 
 plugin_update_verify_installed_plugins() {
-  local slugs=("$@") slug plugin_dir tuple version status active file_version phase_status=0 failed=false
+  local slugs=("$@") slug plugin_dir tuple version status active file_version phase_status=0 failed=false parse_status=0
   if [ "${DRY_RUN:-false}" = true ]; then
     for slug in "${slugs[@]}"; do
       [ -d "$SITE_PATH/wp-content/plugins/$slug" ] || continue
@@ -255,13 +272,24 @@ plugin_update_verify_installed_plugins() {
   for slug in "${slugs[@]}"; do
     plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
     [ -d "$plugin_dir" ] || continue
+    parse_status=0
     if plugin_update_state_from_json "$PLUGIN_STATES_AFTER_JSON" "$slug"; then
       tuple="$PLUGIN_STATE_TUPLE"
       IFS=$'\t' read -r version status <<< "$tuple"
     else
+      parse_status=$?
       version=""; status="missing"
     fi
     file_version="$(plugin_update_local_version "$slug" 2>/dev/null || true)"
+    if [ "$parse_status" -eq "$PLUGIN_UPDATE_PARSE_NO_VALID_JSON" ]; then
+      # Verification could not run: WP-CLI emitted no JSON document. Keep this
+      # typed outcome distinct from a verification that ran and rejected state,
+      # and never feed the unusable value into further shell evaluation.
+      plugin_update_record_failure "$slug" verification-unavailable "$parse_status"
+      warn "[$slug] terminal=verification-unavailable evidence=no-valid-json file_version=${file_version:-missing}"
+      failed=true
+      continue
+    fi
     case "$status" in active|active-network) active=yes ;; *) active=no ;; esac
     log "[$slug] installed-after version=${version:-missing} active=$active file_version=${file_version:-missing}"
     if [ -z "$version" ] || [ "$version" != "$file_version" ] || [ "$status" = missing ]; then

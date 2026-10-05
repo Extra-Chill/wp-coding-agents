@@ -316,6 +316,7 @@ jobs:
           - path-helpers
           - plugins-only-scope
           - plugin-upgrade-bounds
+          - plugin-terminal-verification
           - runtime-signature
           - runtime-guidance-desired-state
           - convergence-orchestrator
