@@ -6,6 +6,11 @@
 
 The goal is a focused agent context: each installed component contributes the guidance it owns, and unavailable components stay out of the prompt.
 
+OpenCode agents and their models remain operator-owned. Portable specialist
+graphs install only through `--project-agent-bundle <slug>`; selecting a
+WordPress agent for context does not project its chat model into native
+subagents. See [OpenCode agent ownership](docs/opencode-agent-ownership.md).
+
 ## Who It Is For
 
 Use `wp-coding-agents` when you want:

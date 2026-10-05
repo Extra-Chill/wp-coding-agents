@@ -118,6 +118,7 @@ import json, sys
 path, workspace, port = sys.argv[1:]
 json.dump({
     "$schema": "https://opencode.ai/config.json",
+    "agent": {"general": {"model": "fixture/test"}},
     "provider": {"fixture": {
         "npm": "@ai-sdk/openai-compatible",
         "name": "Fixture",

@@ -230,9 +230,33 @@ def manifest(path, root):
     return data
 
 
+def retire_coordinator_model(config, previous):
+    agents = config.get('agent', {})
+    if previous.get('general_agent') is None or not isinstance(agents, dict) or agents.get('general') != previous['general_agent']:
+        return False
+    agents.pop('general')
+    if not agents: config.pop('agent')
+    return True
+
+
 def main():
     if len(sys.argv) != 3: raise SystemExit("usage: project-opencode-subagents.py GRAPH_JSON|--stdin PROJECT_ROOT")
     try:
+        if sys.argv[1] == '--retire-coordinator-model':
+            project = Path(sys.argv[2])
+            root = project / '.opencode'
+            manifest_path = root / MANIFEST_NAME
+            config_path = project / 'opencode.json'
+            if not manifest_path.exists() or not config_path.exists(): return 0
+            previous = manifest(manifest_path, root)
+            regular(config_path, 'OpenCode configuration', project)
+            config = json.loads(config_path.read_text(encoding='utf-8'))
+            if retire_coordinator_model(config, previous):
+                atomic_write(config_path, (json.dumps(config, indent=2) + '\n').encode(), project)
+            if previous.get('general_agent') is not None:
+                previous['general_agent'] = None
+                atomic_write(manifest_path, (json.dumps(previous, indent=2, sort_keys=True) + '\n').encode(), root)
+            return 0
         raw = sys.stdin.read() if sys.argv[1] == "--stdin" else Path(sys.argv[1]).read_text(encoding="utf-8")
         nodes, edges, coordinator = graph(json.loads(raw))
         project, root = Path(sys.argv[2]), Path(sys.argv[2]) / ".opencode"
@@ -289,9 +313,7 @@ def main():
         if current not in (None, previous["task_permission"]): fail("refusing to overwrite user-owned OpenCode permission.task")
         agents_config = config.get("agent", {})
         if not isinstance(agents_config, dict): fail("OpenCode config agent must be an object")
-        general_agent = {"model": nodes[coordinator]["model"]} if nodes[coordinator]["model"] else {}
         current_general_agent = agents_config.get("general")
-        if current_general_agent not in (None, previous["general_agent"], general_agent): fail("refusing to overwrite user-owned OpenCode agent.general")
         current_skill = config["permission"].get("skill", {})
         if not isinstance(current_skill, dict): fail("refusing to overwrite non-map OpenCode permission.skill")
         previous_skill = previous["skill_permission"]
@@ -312,19 +334,17 @@ def main():
                 path.unlink()
         if current != task:
             config["permission"]["task"] = task
-        if general_agent:
-            config.setdefault("agent", {})["general"] = general_agent
-        elif current_general_agent is not None:
-            config["agent"].pop("general", None)
-            if not config["agent"]:
-                config.pop("agent")
+        # The coordinator model is not OpenCode's native general model. Retire
+        # only an unchanged value this projector previously owned; operator
+        # edits survive and future manifests claim no ownership of general.
+        retire_coordinator_model(config, previous)
         if coordinator_skill_permission:
             config["permission"]["skill"] = {**current_skill, **coordinator_skill_permission}
         elif previous_skill:
             config["permission"]["skill"] = {key: value for key, value in current_skill.items() if key not in previous_skill}
         if config["permission"].get("task") != current or config["permission"].get("skill", {}) != current_skill or config.get("agent", {}).get("general") != current_general_agent:
             atomic_write(config_path, (json.dumps(config, indent=2) + "\n").encode(), project)
-        data = {"sentinel": SENTINEL, "agents": sorted(agents), "artifacts": sorted(artifacts), "task_permission": task, "skill_permission": coordinator_skill_permission, "general_agent": general_agent or None}
+        data = {"sentinel": SENTINEL, "agents": sorted(agents), "artifacts": sorted(artifacts), "task_permission": task, "skill_permission": coordinator_skill_permission, "general_agent": None, "ownership": "explicit_bundle"}
         serialized = (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()
         if not manifest_path.is_file() or manifest_path.read_bytes() != serialized: atomic_write(manifest_path, serialized, root)
     except (OSError, ValueError, json.JSONDecodeError) as error:

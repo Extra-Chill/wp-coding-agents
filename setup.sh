@@ -59,6 +59,7 @@ SKIP_SSL=false
 INSTALL_CHAT=true
 CHAT_BRIDGE=""
 SHOW_HELP=false
+OPENCODE_AGENT_BUNDLE=""
 DRY_RUN=false
 RUN_AS_ROOT=true
 SERVICE_USER_FORCED=false
@@ -312,6 +313,10 @@ while [[ $# -gt 0 ]]; do
       AGENT_SLUG_EXPLICIT=true
       shift 2
       ;;
+    --project-agent-bundle)
+      OPENCODE_AGENT_BUNDLE="$2"
+      shift 2
+      ;;
     --agent-name)
       AGENT_NAME="$2"
       shift 2
@@ -415,6 +420,9 @@ OPTIONS:
                       wp-config.php is supported in workspace or owned mode;
                       explicit opt-in uses www-data:www-data mode 0660.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
+  --project-agent-bundle <slug>
+                    Explicitly install a portable specialist graph into OpenCode.
+                    Native general agent/model remains operator-owned.
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --roadie-unit <u>  Roadie systemd unit (default: roadie.service)
   --roadie-data-dir <path>
