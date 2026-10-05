@@ -295,6 +295,7 @@ jobs:
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
+          - roadie-retire-kimaki
           - self-upgrade
           - installation-profile
           - install-source-integrity-report
