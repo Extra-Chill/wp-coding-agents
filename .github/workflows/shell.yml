@@ -292,6 +292,7 @@ jobs:
           - homeboy-verification-guidance
           - roadie-accounts
           - roadie-command-guard
+          - roadie-wordpress-context
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision

@@ -1004,6 +1004,9 @@ for item in data:
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
       managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
     fi
+    if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
+      managed_args+=(--speaker-context)
+    fi
     dry_out=$(python3 "$HELPER" \
       --file "$OPENCODE_JSON_FILE" \
       --runtime "$RUNTIME_ARG" \
@@ -1022,6 +1025,9 @@ for item in data:
   local managed_args=()
   if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
     managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+  fi
+  if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
+    managed_args+=(--speaker-context)
   fi
   repair_out=$(python3 "$HELPER" \
     --file "$OPENCODE_JSON_FILE" \

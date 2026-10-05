@@ -90,14 +90,18 @@ runtime_discover_dm_paths() {
     # SQLite translation layer may emit HTML error noise — extract only JSON.
     DM_INJECTABLE_JSON=$(echo "$DM_INJECTABLE_RAW" | sed -n '/^\[/,/^\]/p')
     if [ -n "$DM_INJECTABLE_JSON" ]; then
+      local speaker_context=false
+      if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then speaker_context=true; fi
       DM_AGENT_FILES=$(echo "$DM_INJECTABLE_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for f in data:
+    if sys.argv[1] == 'true' and f.get('layer') in ('user', 'principal'):
+        continue
     path = f.get('path')
     if path:
         print(path)
-")
+" "$speaker_context")
       log "Agent files discovered via '$(wp_cli_transport_display) datamachine memory injectable-files${AGENT_FLAG:+ ($AGENT_FLAG)}'"
       return
     fi
@@ -354,7 +358,10 @@ _runtime_repair_opencode_json_additive() {
         *) printf './%s\n' "$managed_instruction" ;;
       esac
     done <<< "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
-    managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+      managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
+    if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
+      managed_args+=(--speaker-context)
+    fi
   fi
   if opencode_claude_code_auth_enabled; then
     CLAUDE_CODE_AUTH_PLUGIN="$(opencode_claude_code_auth_plugin_path)"
