@@ -54,6 +54,9 @@ async function projectsFor(config, command, cwd) {
 }
 
 export function register(roadie) {
+  // Managed plugins load before Roadie starts its OpenCode backend. Enable
+  // the native API our automatic worktree binding uses; explicit host env wins.
+  process.env.OPENCODE_EXPERIMENTAL_WORKSPACES ??= 'true'
   const configPath = process.env.WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG ?? fileURLToPath(new URL('../fork-workspaces.json', import.meta.url))
   roadie.addFilter('fork_workspace', (_provider, request) => (async () => {
     if (_provider) return _provider
