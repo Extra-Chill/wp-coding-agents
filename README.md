@@ -226,20 +226,27 @@ the runtime environment:
 ```bash
 WP_CODING_AGENTS_INBOUND_SLACK_ENABLED=1 \
 WP_CODING_AGENTS_RUNTIME_ID='runtime-opaque-1' \
-WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT='http://127.0.0.1:3710/slack/events' \
+WP_CODING_AGENTS_INBOUND_SLACK_ENDPOINT='http://127.0.0.1:4000/slack/events' \
 WP_CODING_AGENTS_INBOUND_SLACK_SIGNING_SECRET_ENV=LOCAL_SLACK_SIGNING_SECRET \
 LOCAL_SLACK_SIGNING_SECRET='...' \
 /srv/agent/.wp-coding-agents/bin/inbound-event-connector
 ```
 
 The endpoint must be an `http` or `https` literal loopback IP URL. When explicitly
-enabled, the endpoint defaults to `http://127.0.0.1:3710/slack/events`.
+enabled, the endpoint defaults to `http://127.0.0.1:4000/slack/events`.
 The signing-secret variable name is explicit so secrets remain in the process
 environment, never generated files or command arguments. Slack ingress persists
-only verified `team_id`, `channel_id`, `actor_id`, `message_ts`, and root
-`thread_ts`; it does not persist request signatures, secrets, tokens, or raw
-payloads. Queue adapters can add bounded scalar-string `attributes` without
-changing the generic queue envelope.
+verified routing attributes plus bounded structured `data` for file metadata,
+native controls, modal state and explicitly allowlisted slash commands. It does
+not persist request signatures, secrets, verification tokens, response URLs or
+raw payloads. The connector posts messages to the configured Events endpoint
+and derives sibling `/slack/interactions` and `/slack/commands` routes for native
+form deliveries, signing each local request with fresh bytes and timestamp.
+The generic envelope supports scalar-string `attributes` and optional structured
+`data`, bounded together to 64 KiB with depth and field limits. View submissions
+retain opaque context IDs; the receiver resolves those IDs and applies the
+conversation's channel/actor authorization before any action. Slack trigger IDs
+remain short-lived, so a cold-start queue cannot extend a modal-open deadline.
 `WP_CODING_AGENTS_RUNTIME_ID` is required and must match the runtime ID in the
 queued envelope; the connector includes it in every queue poll so runtimes only
 lease their own events.
@@ -572,9 +579,9 @@ After the cutover, add accounts with Roadie's `/login` and pick `subrouter`: tha
 
 **Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)). Claude Code and Codex run without a managed chat bridge.
 
-Inbound events queue independently of a runtime. The queue intentionally has no Roadie connector yet: a connector needs a durable conversation-to-runtime mapping, and missing mappings fail closed.
+Inbound events queue independently of a runtime. External setup installs a runtime-scoped connector that forwards native Slack deliveries to the loopback receiver; missing or mismatched runtime ownership fails closed.
 
-The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists.
+The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists. Slash commands also require an explicit `allowed_commands` list, such as `["/roadie"]`. Bot/workflow messages are dropped; human `file_share` messages preserve file metadata. Signed views without a channel are forwarded to the configured runtime for opaque-context authorization.
 
 ```bash
 bash tests/roadie-command-guard.sh
