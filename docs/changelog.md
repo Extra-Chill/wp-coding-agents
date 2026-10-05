@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.0.0] - 2026-10-05
+
+### Added
+- provision fork workspaces through Homeboy
+- refresh the Roadie pin to the newest release automatically
+- resolve Roadie speaker context through WordPress memory
+- supervise the Homeboy daemon as its own systemd unit
+- move subscription accounts and model choices into subrouter during the Kimaki migration
+- export Homeboy's bridge-neutral session contract to agent shells
+
+### Changed
+- make portable OpenCode specialist projection explicit
+- /upgrade-and-restart upgrades the install; retire the upgrade skill
+- replace Kimaki with Roadie; Telegram and cc-connect bridges removed until Roadie supports them
+
+### Fixed
+- retain explicit Roadie application policy in managed services
+- reload managed launchd configuration on restart
+- honor canonical agent grants for Roadie user context
+- cook wp-coding-agents
+- retire Kimaki grants and unit once Roadie is healthy
+- keep managed Homeboy first when upgrading the service PATH
+- admit locked local tool paths for self-upgrade
+- emit literal upgrade help under macOS system Bash
+- preserve Roadie migration parity across upgrades
+- service PATH prefers the service user's OpenCode over a distro copy
+- command guard treats heredoc bodies as data
+- converge OpenCode version, Composer and the Roadie migration
+- preserve managed prompt dispatch and enforce coding ownership
+
 ## [1.25.7] - 2026-10-01
 
 ### Fixed
