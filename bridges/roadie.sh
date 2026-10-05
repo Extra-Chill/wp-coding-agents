@@ -355,7 +355,11 @@ roadie_plugins_dir() {
 }
 
 roadie_plugins_value() {
-  printf '%s/host-upgrade.mjs\n' "$(roadie_plugins_dir)"
+  printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
+}
+
+roadie_speaker_context_enabled() {
+  [ "${CHAT_BRIDGE:-}" = roadie ] && [ -f "$(roadie_config_dir)/wordpress-context.json" ]
 }
 
 roadie_prompt_config_file() {
@@ -380,7 +384,7 @@ _roadie_sync_assets() {
 
   run_cmd mkdir -p "$(roadie_plugins_dir)"
   for src in "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
-             "$SCRIPT_DIR/bridges/roadie/accounts.mjs" "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs; do
+              "$SCRIPT_DIR/bridges/roadie/accounts.mjs" "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.php; do
     [ -f "$src" ] || continue
     local name dest
     name="$(basename "$src")"

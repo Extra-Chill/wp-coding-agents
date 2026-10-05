@@ -597,6 +597,7 @@ def apply_edit_permission(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--speaker-context', action='store_true', help='Resolve user/principal memory through the configured Roadie context provider')
     parser.add_argument("--file", required=True, help="Path to opencode.json")
     parser.add_argument(
         "--runtime",
@@ -720,6 +721,8 @@ def main() -> int:
     prompt_result = check_prompt_migration(data)
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
+    if args.speaker_context:
+        managed_instructions = [item for item in managed_instructions if not (is_dm_managed_instruction(item) and '/users/' in item.replace('\\', '/'))]
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
     edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
     external_directory_result = check_external_directory(data, args.runtime, args.workspace_dirs, args.log_paths)
