@@ -6,7 +6,8 @@
  * Adapters register through `wp_coding_agents_inbound_event_adapters`. Each
  * adapter receives a WP_REST_Request and must authenticate it before returning
  * either a WP_Error, an immediate `response`, or a normalized event array:
- * source, external_id, type, conversation_id, runtime_id, message, attributes. Authentication material
+ * source, external_id, type, conversation_id, runtime_id, message, attributes,
+ * and optional bounded structured data. Authentication material
  * remains in the request and is never passed to the queue or diagnostics.
  */
 
@@ -107,9 +108,34 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 				$clean_attributes[ $key ] = $value;
 			}
 			$normalized['attributes'] = $clean_attributes;
+			if ( isset( $event['data'] ) ) {
+				if ( ! is_array( $event['data'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid structured data.', array( 'status' => 400 ) ); }
+				$data = self::content_data( $event['data'] );
+				if ( is_wp_error( $data ) ) { return $data; }
+				$normalized['data'] = $data;
+			}
 			$json = wp_json_encode( $normalized );
-			if ( false === $json || strlen( $json ) > 8192 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event is too large.', array( 'status' => 400 ) ); }
+			if ( false === $json || strlen( $json ) > 65536 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event is too large.', array( 'status' => 400 ) ); }
 			return $normalized;
+		}
+
+		/** Structured adapter data is content, never transport authentication. */
+		private static function content_data( $value, int $depth = 0 ) {
+			if ( $depth > 12 || ( ! is_array( $value ) && ! is_scalar( $value ) && null !== $value ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has invalid structured data.', array( 'status' => 400 ) ); }
+			if ( ! is_array( $value ) ) { return $value; }
+			if ( count( $value ) > 256 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_event', 'Verified event has too many content fields.', array( 'status' => 400 ) ); }
+			$clean = array();
+			foreach ( $value as $key => $item ) {
+				if ( is_string( $key ) && in_array( strtolower( $key ), array( 'authorization', 'signature', 'signing_secret', 'token', 'access_token', 'refresh_token', 'response_url', 'response_urls', 'raw_body', 'raw_payload' ), true ) ) { continue; }
+				$item = self::content_data( $item, $depth + 1 );
+				if ( is_wp_error( $item ) ) { return $item; }
+				$clean[ $key ] = $item;
+			}
+			return $clean;
+		}
+
+		private static function fields( array $value, array $keys ): array {
+			return array_intersect_key( $value, array_fill_keys( $keys, true ) );
 		}
 
 		/**
@@ -130,26 +156,83 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
 			$timestamp = $request->get_header( 'x-slack-request-timestamp' );
 			$signature = $request->get_header( 'x-slack-signature' );
 			$body = $request->get_body();
+			if ( strlen( $body ) > 65536 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Inbound payload is too large.', array( 'status' => 413 ) ); }
 			if ( ! ctype_digit( $timestamp ) || abs( time() - (int) $timestamp ) > 300 || ! is_string( $signature ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_signature', 'Invalid signed request.', array( 'status' => 403 ) ); }
 			$expected = 'v0=' . hash_hmac( 'sha256', 'v0:' . $timestamp . ':' . $body, $secret );
 			if ( ! hash_equals( $expected, $signature ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_signature', 'Invalid signed request.', array( 'status' => 403 ) ); }
-			$payload = json_decode( $body, true );
+			$is_form = str_starts_with( strtolower( $request->get_header( 'content-type' ) ), 'application/x-www-form-urlencoded' );
+			if ( $is_form ) {
+				parse_str( $body, $form );
+				$payload = isset( $form['payload'] ) && is_string( $form['payload'] ) ? json_decode( $form['payload'], true ) : $form;
+			} else { $payload = json_decode( $body, true ); }
 			if ( ! is_array( $payload ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
 			if ( 'url_verification' === ( $payload['type'] ?? null ) && is_string( $payload['challenge'] ?? null ) ) { return array( 'response' => array( 'challenge' => $payload['challenge'] ) ); }
+			if ( $is_form ) { return self::slack_control( $payload, $body, $config ); }
 			$event = $payload['event'] ?? null;
 			if ( 'event_callback' !== ( $payload['type'] ?? null ) || ! is_array( $event ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$event_type = $event['type'] ?? null;
 			if ( ! in_array( $event_type, array( 'message', 'app_mention' ), true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$team = $payload['team_id'] ?? null;
 			if ( ! is_string( $team ) || ! preg_match( '/^T[A-Z0-9]{1,63}$/', $team ) || ! in_array( $team, $teams, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
-			if ( isset( $event['bot_id'] ) || ! empty( $event['subtype'] ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			if ( isset( $event['bot_id'] ) || ( ! empty( $event['subtype'] ) && 'file_share' !== $event['subtype'] ) ) { return array( 'response' => array( 'accepted' => true ) ); }
 			$channel = $event['channel'] ?? null;
 			$actor = $event['user'] ?? null;
 			$message_ts = $event['ts'] ?? null;
 			$thread = $event['thread_ts'] ?? $event['ts'] ?? null;
 			if ( ! is_string( $channel ) || ! preg_match( '/^[A-Z0-9]{1,64}$/', $channel ) || ! in_array( $channel, $allowed, true ) ) { return array( 'response' => array( 'accepted' => true ) ); }
-			if ( ! is_string( $actor ) || ! preg_match( '/^[UW][A-Z0-9]{1,63}$/', $actor ) || ! is_string( $message_ts ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $message_ts ) || ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) || ! is_string( $event['text'] ?? null ) || '' === trim( $event['text'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
-			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => $event_type, 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => $event['text'], 'attributes' => array( 'team_id' => $team, 'channel_id' => $channel, 'actor_id' => $actor, 'message_ts' => $message_ts, 'thread_ts' => $thread ) );
+			$files = $event['files'] ?? array();
+			$text = $event['text'] ?? '';
+			if ( ! is_array( $files ) || count( $files ) > 10 || ! is_string( $text ) || ( '' === trim( $text ) && empty( $files ) ) || ! is_string( $actor ) || ! preg_match( '/^[UW][A-Z0-9]{1,63}$/', $actor ) || ! is_string( $message_ts ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $message_ts ) || ! is_string( $thread ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $thread ) || ! is_string( $payload['event_id'] ?? null ) || ! preg_match( '/^[A-Za-z0-9_-]{1,191}$/', $payload['event_id'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid event payload.', array( 'status' => 400 ) ); }
+			$data = array( 'text' => $text, 'files' => array() );
+			foreach ( $files as $file ) {
+				if ( ! is_array( $file ) || ! is_string( $file['id'] ?? null ) || ! preg_match( '/^F[A-Z0-9]{1,63}$/', $file['id'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid file metadata.', array( 'status' => 400 ) ); }
+				foreach ( array( 'name', 'mimetype', 'url_private' ) as $key ) { if ( isset( $file[ $key ] ) && ! is_string( $file[ $key ] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid file metadata.', array( 'status' => 400 ) ); } }
+				$data['files'][] = self::fields( $file, array( 'id', 'name', 'mimetype', 'url_private' ) );
+			}
+			return array( 'source' => 'slack', 'external_id' => $payload['event_id'], 'type' => $event_type, 'conversation_id' => $channel . ':' . $thread, 'runtime_id' => $runtime_id, 'message' => '' !== trim( $text ) ? $text : '[files]', 'attributes' => array( 'team_id' => $team, 'channel_id' => $channel, 'actor_id' => $actor, 'message_ts' => $message_ts, 'thread_ts' => $thread ), 'data' => $data );
+		}
+
+		/** Native controls retain verified identity; opaque views resolve channel access in the receiver. */
+		private static function slack_control( array $payload, string $body, array $config ) {
+			$command = isset( $payload['command'] );
+			$type = $command ? 'command' : ( $payload['type'] ?? '' );
+			$team = $command ? ( $payload['team_id'] ?? '' ) : ( $payload['team']['id'] ?? '' );
+			$actor = $command ? ( $payload['user_id'] ?? '' ) : ( $payload['user']['id'] ?? '' );
+			$channel = $command ? ( $payload['channel_id'] ?? '' ) : ( $payload['channel']['id'] ?? null );
+			if ( ! is_string( $team ) || ! in_array( $team, $config['allowed_team_ids'], true ) || ! is_string( $actor ) || ! preg_match( '/^[UW][A-Z0-9]{1,63}$/', $actor ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			if ( null !== $channel && ( ! is_string( $channel ) || ! in_array( $channel, $config['allowed_channel_ids'], true ) ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+			$attributes = array( 'team_id' => $team, 'actor_id' => $actor );
+			if ( $command ) {
+				if ( null === $channel || ! is_array( $config['allowed_commands'] ?? null ) || ! in_array( $payload['command'], $config['allowed_commands'], true ) || ! is_string( $payload['trigger_id'] ?? null ) || ! is_string( $payload['text'] ?? null ) ) { return array( 'response' => array( 'accepted' => true ) ); }
+				$data = self::fields( $payload, array( 'team_id', 'channel_id', 'user_id', 'user_name', 'command', 'text', 'trigger_id' ) );
+				$conversation = $channel . ':command';
+			} elseif ( in_array( $type, array( 'block_actions', 'view_submission', 'view_closed' ), true ) ) {
+				if ( 'block_actions' === $type && ( null === $channel || ! is_array( $payload['actions'] ?? null ) || ! is_array( $payload['message'] ?? null ) ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid interactive payload.', array( 'status' => 400 ) ); }
+				$data = self::fields( $payload, array( 'type', 'trigger_id' ) );
+				$data['team'] = array( 'id' => $team );
+				$data['user'] = self::fields( $payload['user'], array( 'id', 'username', 'name' ) );
+				if ( null !== $channel ) { $data['channel'] = array( 'id' => $channel ); }
+				if ( isset( $payload['message'] ) ) {
+					if ( ! is_array( $payload['message'] ) || ! is_string( $payload['message']['ts'] ?? null ) || ! preg_match( '/^\d{1,20}\.\d{1,6}$/', $payload['message']['ts'] ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid interactive message.', array( 'status' => 400 ) ); }
+					$data['message'] = self::fields( $payload['message'], array( 'ts', 'thread_ts' ) );
+				}
+				if ( isset( $payload['actions'] ) ) {
+					if ( ! is_array( $payload['actions'] ) || count( $payload['actions'] ) > 25 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid interactive actions.', array( 'status' => 400 ) ); }
+					$data['actions'] = array();
+					foreach ( $payload['actions'] as $action ) {
+						if ( ! is_array( $action ) || ! is_string( $action['action_id'] ?? null ) ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid interactive action.', array( 'status' => 400 ) ); }
+						$data['actions'][] = self::fields( $action, array( 'action_id', 'value', 'selected_option', 'selected_options' ) );
+					}
+				}
+				if ( isset( $payload['view'] ) ) {
+					if ( ! is_array( $payload['view'] ) || ! is_string( $payload['view']['private_metadata'] ?? null ) || '' === $payload['view']['private_metadata'] || strlen( $payload['view']['private_metadata'] ) > 191 ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Invalid interactive view.', array( 'status' => 400 ) ); }
+					$data['view'] = self::fields( $payload['view'], array( 'private_metadata', 'state' ) );
+					$attributes['context_id'] = $payload['view']['private_metadata'];
+				} elseif ( 'block_actions' !== $type ) { return new WP_Error( 'wp_coding_agents_inbound_invalid_payload', 'Missing interactive view.', array( 'status' => 400 ) ); }
+				$conversation = null !== $channel ? $channel . ':' . ( $data['message']['thread_ts'] ?? $data['message']['ts'] ?? 'control' ) : 'view:' . $attributes['context_id'];
+			} else { return array( 'response' => array( 'accepted' => true ) ); }
+			if ( null !== $channel ) { $attributes['channel_id'] = $channel; }
+			return array( 'source' => 'slack', 'external_id' => $type . '-' . hash( 'sha256', $body ), 'type' => $type, 'conversation_id' => $conversation, 'runtime_id' => $config['runtime_id'], 'message' => $command && '' !== trim( $data['text'] ) ? $data['text'] : $type, 'attributes' => $attributes, 'data' => $data );
 		}
 
 		/** @param mixed $ids */

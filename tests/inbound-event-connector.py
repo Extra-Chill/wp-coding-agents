@@ -16,10 +16,12 @@ MESSAGE = "private event body"
 
 class Receiver(http.server.BaseHTTPRequestHandler):
     requests = []
+    paths = []
     status = 200
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         self.__class__.requests.append((self.headers, body))
+        self.__class__.paths.append(self.path)
         self.send_response(self.__class__.status)
         if self.__class__.status == 302:
             self.send_header("Location", "http://198.51.100.1/not-loopback")
@@ -78,6 +80,43 @@ with tempfile.TemporaryDirectory() as temp:
     result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
     outputs.append(result.stdout + result.stderr)
     assert result.returncode == 1 and len(Receiver.requests) == 4
+    # Native content and controls use the same verified lease-to-loopback path.
+    file_event = claim("1710000005.000001", "1710000000.000001")
+    file_event["event"]["data"] = {"text": "", "files": [{"id": "F123", "name": "input.txt", "mimetype": "text/plain", "url_private": "https://files.slack.com/input.txt"}]}
+    controls = []
+    for kind in ("block_actions", "view_submission", "view_closed"):
+        native = {"type": kind, "team": {"id": "T123"}, "user": {"id": "U123"}}
+        if kind == "block_actions":
+            native |= {"channel": {"id": "C123"}, "message": {"ts": "1710000006.000001"}, "actions": [{"action_id": "native:choice", "selected_option": {"value": "selected"}}]}
+        else:
+            native["view"] = {"private_metadata": "opaque-context", "state": {"values": {"upload": {"files": {"files": ["F123"]}}}}}
+        envelope = claim("1710000006.000001", "1710000000.000001")
+        envelope["event"] |= {"type": kind, "attributes": {"team_id": "T123", "actor_id": "U123"} | ({"channel_id": "C123"} if kind == "block_actions" else {"context_id": "opaque-context"}), "data": native}
+        controls.append(envelope)
+    command_event = claim("1710000007.000001", "1710000000.000001")
+    command_event["event"] |= {"type": "command", "attributes": {"team_id": "T123", "channel_id": "C123", "actor_id": "U123"}, "data": {"team_id": "T123", "channel_id": "C123", "user_id": "U123", "command": "/roadie", "text": "new request", "trigger_id": "fresh-trigger"}}
+    for event in [file_event, *controls, command_event]:
+        state.write_text(json.dumps({"status": "claimed", "claim": event}))
+        result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
+        outputs.append(result.stdout + result.stderr)
+        assert result.returncode == 0
+    assert json.loads(Receiver.requests[4][1])["event"]["files"] == file_event["event"]["data"]["files"]
+    assert json.loads(Receiver.requests[4][1])["event"]["text"] == ""
+    import urllib.parse
+    for offset, event in enumerate(controls, 5):
+        headers, body = Receiver.requests[offset]
+        assert Receiver.paths[offset] == "/interactions"
+        assert headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert json.loads(urllib.parse.parse_qs(body.decode())["payload"][0]) == event["event"]["data"]
+    assert Receiver.paths[8] == "/commands"
+    assert urllib.parse.parse_qs(Receiver.requests[8][1].decode())["command"] == ["/roadie"]
+    for headers, body in Receiver.requests[4:]:
+        expected = "v0=" + hmac.new(SECRET.encode(), b"v0:" + headers["X-Slack-Request-Timestamp"].encode() + b":" + body, hashlib.sha256).hexdigest()
+        assert headers["X-Slack-Signature"] == expected
+    controls[0]["event"]["data"]["user"]["id"] = "UFOREIGN"
+    state.write_text(json.dumps({"status": "claimed", "claim": controls[0]}))
+    assert subprocess.run([str(connector), "--once"], env=env, capture_output=True).returncode == 1
+    assert len(Receiver.requests) == 9
     observed = connector.read_text() + log.read_text() + "".join(outputs)
     assert SECRET not in observed and MESSAGE not in observed
     server.shutdown()
