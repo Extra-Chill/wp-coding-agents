@@ -867,6 +867,77 @@ bridge_sync_config() {
 # Upgrade-time service refresh (Phase 5)
 # ============================================================================
 
+# Kimaki privilege and service artifacts left after the migration (#667). The
+# Kimaki unit is kept disabled as the rollback right after migrating; once
+# Roadie is running and answering on its lock port, its grants are a hazard:
+# `sudo systemctl restart kimaki` would start a second bot on the same token,
+# and Kimaki's single-instance eviction on the shared lock port protocol would
+# kill Roadie. The data dir is never touched here: it is the only copy of the
+# old history, and removing it is the operator's call.
+roadie_retire_kimaki_artifacts() {
+  [ "${LOCAL_MODE:-false}" = true ] && return 0
+  [ "$(_roadie_effective_uid)" -eq 0 ] || return 0
+  local suffix sudoers_dir unit_dir unit port
+  suffix="$(_roadie_instance_suffix)"
+  sudoers_dir="${KIMAKI_RETIRE_SUDOERS_DIR:-/etc/sudoers.d}"
+  unit_dir="$(_roadie_unit_dir)"
+  unit="kimaki${suffix}.service"
+  port="${ROADIE_LOCK_PORT:-29988}"
+
+  local artifacts=(
+    "$sudoers_dir/wp-coding-agents-kimaki${suffix}-dispatch"
+    "$sudoers_dir/wp-coding-agents-kimaki${suffix}-restart"
+    "$sudoers_dir/wp-coding-agents-kimaki${suffix}-upgrade"
+    "${KIMAKI_DISPATCH_WRAPPER_DIR:-/usr/local/bin}/wp-coding-agents-kimaki${suffix}-dispatch"
+    "${KIMAKI_DISPATCH_TARGET_DIR:-/usr/local/lib/wp-coding-agents}/kimaki${suffix}-dispatch-target"
+  )
+  # Hand-added Kimaki grants (e.g. `kimaki upgrade`) have no fixed name. Any
+  # sudoers file whose every rule names kimaki is Kimaki-only and goes too; a
+  # file mixing kimaki with anything else is left for the operator.
+  local grant
+  for grant in "$sudoers_dir"/*; do
+    [ -f "$grant" ] || continue
+    case "$(basename "$grant")" in README|*~|*.*) continue ;; esac
+    local rules
+    rules="$(grep -vE '^[[:space:]]*(#|$)' "$grant" 2>/dev/null || true)"
+    [ -n "$rules" ] || continue
+    if ! grep -viq 'kimaki' <<< "$rules"; then
+      artifacts+=("$grant")
+    elif grep -iq 'kimaki' <<< "$rules"; then
+      warn "  $grant mixes Kimaki rules with others; remove its Kimaki lines by hand"
+    fi
+  done
+
+  local present=() path
+  for path in "${artifacts[@]}"; do [ -e "$path" ] && present+=("$path"); done
+  [ -f "$unit_dir/$unit" ] && present+=("$unit_dir/$unit")
+  [ "${#present[@]}" -gt 0 ] || return 0
+
+  # Only retire the rollback once the replacement is proven: Roadie's unit
+  # active and its health endpoint answering.
+  if ! systemctl is-active --quiet "$ROADIE_UNIT" \
+     || ! curl -fsS -m 5 "http://127.0.0.1:$port/health" 2>/dev/null | grep -q '"discordReady":true'; then
+    log "  Keeping Kimaki rollback artifacts until $ROADIE_UNIT is healthy"
+    return 0
+  fi
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    for path in "${present[@]}"; do echo -e "${BLUE}[dry-run]${NC} Would remove Kimaki artifact: $path"; done
+    return 0
+  fi
+
+  if [ -f "$unit_dir/$unit" ]; then
+    systemctl stop "$unit" 2>/dev/null || true
+    systemctl disable "$unit" 2>/dev/null || true
+    rm -f "$unit_dir/$unit"
+    systemctl daemon-reload
+    systemctl reset-failed "$unit" 2>/dev/null || true
+  fi
+  for path in "${artifacts[@]}"; do [ -e "$path" ] && rm -f "$path"; done
+  log "  Retired Kimaki: ${present[*]}"
+  UPDATED_ITEMS+=("retired Kimaki unit and grants (data dir kept; remove it when you no longer need the history)")
+}
+
 bridge_update_systemd() {
   log "Phase 5: Checking $ROADIE_UNIT template..."
   local unit_file
@@ -914,6 +985,7 @@ bridge_update_systemd() {
   merged_env=$(_roadie_append_env_files "$merged_env")
 
   _smart_update_systemd_unit "$unit_file" "$(bridge_render_systemd "$ROADIE_UNIT" "$merged_env")" "$ROADIE_UNIT"
+  roadie_retire_kimaki_artifacts
 }
 
 bridge_update_launchd() {
