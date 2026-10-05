@@ -291,11 +291,14 @@ jobs:
           - homeboy-daemon-service
           - homeboy-verification-guidance
           - roadie-accounts
+          - roadie-application-config
           - roadie-command-guard
           - roadie-fork-workspace
+          - roadie-wordpress-context
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
+          - refresh-roadie-pin
           - roadie-retire-kimaki
           - self-upgrade
           - installation-profile
