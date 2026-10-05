@@ -1164,7 +1164,13 @@ _roadie_ai_gateway_launchd_env_xml() {
 bridge_restart_cmd() {
   local env="$1"
   case "$env" in
-    local-launchd) echo "launchctl kickstart -k gui/$(id -u)/com.wp.roadie" ;;
+    local-launchd)
+      local domain="gui/$(id -u)" plist
+      plist=$(_roadie_shell_quote "$HOME/Library/LaunchAgents/com.wp.roadie.plist")
+      # kickstart reuses launchd's loaded environment. Reload the managed
+      # plist so changed PATH, plugins and context providers take effect.
+      printf 'launchctl bootout %s %s 2>/dev/null || true; launchctl bootstrap %s %s\n' "$domain" "$plist" "$domain" "$plist"
+      ;;
     local-manual)  echo "cd $SITE_PATH && $(_roadie_manual_command)" ;;
     vps)           echo "systemctl restart ${ROADIE_UNIT:-roadie.service}" ;;
     *)
