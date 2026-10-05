@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.1] - 2026-10-05
+
+### Fixed
+- verify live Homeboy WordPress extension readiness
+- cook wp-coding-agents
+
 ## [2.0.0] - 2026-10-05
 
 ### Added
