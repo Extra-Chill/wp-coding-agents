@@ -472,22 +472,19 @@ ensure_homeboy_local_server() {
 homeboy_wordpress_extension_ready() {
   [ -n "$(homeboy_bin)" ] || return 1
 
-  local list_json
-  list_json=$(homeboy_run extension list 2>/dev/null) || return 1
+  # Default inspection is metadata-only. Reconciliation needs the dependency
+  # probe, including any changes since the last cached readiness result.
+  local show_json
+  show_json=$(homeboy_run extension show wordpress --live-readiness 2>/dev/null) || return 1
 
-  printf '%s' "$list_json" | python3 -c '
+  printf '%s' "$show_json" | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
-extensions = data.get("data", {}).get("extensions", [])
-for extension in extensions:
-    if extension.get("id") == "wordpress":
-        if extension.get("ready") is True and extension.get("compatible") is not False:
-            sys.exit(0)
-        sys.exit(1)
-sys.exit(1)
+extension = data.get("data", {}).get("extension", {})
+sys.exit(0 if data.get("success") is True and extension.get("id") == "wordpress" and extension.get("ready") is True and extension.get("compatible") is not False else 1)
 ' >/dev/null 2>&1
 }
 
@@ -810,7 +807,7 @@ print_homeboy_verification_commands() {
   log "Homeboy verification commands:"
   echo "  homeboy --version"
   echo "  homeboy extension list"
-  echo "  homeboy extension show wordpress"
+  echo "  homeboy extension show wordpress --live-readiness"
   echo "  homeboy config show --format=json | jq -e '.data.config.worktree_providers.dmc == null and .data.config.settings.worktree_provider_lifecycle.dmc == null'"
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
