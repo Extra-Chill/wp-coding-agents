@@ -222,3 +222,20 @@ fi
 echo "  ok   upgrade moves managed Homeboy ahead of legacy PATH entries"
 unset WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
 
+# Reload, rather than kickstart, is required when the managed plist changes.
+# Exercise the rendered shell command with a HOME containing spaces.
+HOME_SAVE="$HOME"
+export HOME="$TMPDIR_NEW/home with spaces"
+RESTART_COMMAND="$(render_with_bridge roadie restart_cmd local-launchd)"
+export HOME="$HOME_SAVE"
+CALLS_FILE="$TMPDIR_NEW/launchctl-calls"
+export CALLS_FILE
+launchctl() { printf '%s\n' "$*" >> "$CALLS_FILE"; }
+export -f launchctl
+bash -c "$RESTART_COMMAND"
+python3 - "$CALLS_FILE" "$TMPDIR_NEW/home with spaces/Library/LaunchAgents/com.wp.roadie.plist" "gui/$(id -u)" <<'PY'
+import pathlib,sys
+calls=pathlib.Path(sys.argv[1]).read_text().splitlines()
+assert calls==[f'bootout {sys.argv[3]} {sys.argv[2]}',f'bootstrap {sys.argv[3]} {sys.argv[2]}'],calls
+PY
+echo "  ok   managed launchd restart reloads the plist with correctly quoted paths"
