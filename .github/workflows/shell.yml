@@ -291,6 +291,7 @@ jobs:
           - homeboy-daemon-service
           - homeboy-verification-guidance
           - roadie-accounts
+          - roadie-application-config
           - roadie-command-guard
           - roadie-wordpress-context
           - roadie-kimaki-migration
