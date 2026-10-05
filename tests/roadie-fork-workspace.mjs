@@ -27,7 +27,7 @@ try {
   git('-c', 'user.name=Roadie Fixture', '-c', 'user.email=fixture@example.org', 'commit', '-m', 'fixture')
   run('homeboy', ['component', 'create', '--local-path', source])
   const configPath = path.join(root, 'fork-workspaces.json')
-  fs.writeFileSync(configPath, JSON.stringify({ version: 1, projects: [{ directory: source, component: 'fork-fixture', defaultMode: 'separate' }] }))
+  fs.writeFileSync(configPath, JSON.stringify({ version: 1, projects: [{ directory: source, component: 'fork-fixture' }] }))
   process.env.WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG = configPath
   fs.writeFileSync(path.join(source, 'dirty-source.txt'), 'uncommitted\n')
   const filters = {}, actions = {}
@@ -37,7 +37,7 @@ try {
   for (let i = 0; i < 2; i++) {
     const request = { requestId: crypto.randomUUID(), projectDirectory: source, sourceDirectory: source, sourceSessionId: 'parent', sourceThreadId: 'thread' }
     const provider = await filters.fork_workspace(null, request)
-    assert.equal(provider.defaultMode, 'separate')
+    assert.equal(provider.defaultMode, undefined)
     const workspace = await provider.provision(request)
     if (workspace instanceof Error) throw workspace
     allocated.push({ workspace, request })
@@ -59,7 +59,40 @@ try {
   const nonGit = path.join(root, 'site')
   fs.mkdirSync(nonGit)
   assert.equal(await filters.fork_workspace(null, { sourceDirectory: nonGit }), null)
-  console.log('PASS: real Homeboy allocations isolate two Git forks at the source commit, preserve dirty source work and retain failed-workspace evidence')
+  // A site-root session records successful coding paths in the backend's
+  // history. Select the actual checkout, including a worktree at a newer HEAD.
+  const active = allocated[1].workspace.workingDirectory
+  run('git', ['add', 'fork-only.txt'], active)
+  run('git', ['-c', 'user.name=Roadie Fixture', '-c', 'user.email=fixture@example.org', 'commit', '-m', 'active checkout'], active)
+  const activeHead = run('git', ['rev-parse', 'HEAD'], active).trim()
+  const siteRequest = { requestId: crypto.randomUUID(), sourceDirectory: nonGit, codingPaths: [path.join(source, 'committed.txt'), path.join(active, 'fork-only.txt')] }
+  const siteProvider = await filters.fork_workspace(null, siteRequest)
+  const siteWorkspace = await siteProvider.provision(siteRequest)
+  if (siteWorkspace instanceof Error) throw siteWorkspace
+  assert.equal(siteWorkspace.baseRef, activeHead)
+  assert.equal(run('git', ['rev-parse', 'HEAD'], siteWorkspace.workingDirectory).trim(), activeHead)
+  assert.equal(fs.readFileSync(path.join(siteWorkspace.workingDirectory, 'fork-only.txt'), 'utf8'), 'fork-1\n')
+  assert.equal(fs.existsSync(path.join(nonGit, '.git')), false)
+  // Nested forks trust their bound checkout, not inherited parent scopes.
+  const nestedProvider = await filters.fork_workspace(null, { sourceDirectory: siteWorkspace.workingDirectory, codingPaths: [source, root] })
+  assert.equal(typeof nestedProvider.provision, 'function')
+  // Automatic ownership comes from Homeboy's registry without another config.
+  fs.unlinkSync(configPath)
+  const automaticProvider = await filters.fork_workspace(null, siteRequest)
+  const automaticWorkspace = await automaticProvider.provision({ ...siteRequest, requestId: crypto.randomUUID() })
+  if (automaticWorkspace instanceof Error) throw automaticWorkspace
+  assert.equal(automaticWorkspace.baseRef, activeHead)
+  // Multiple coding repositories are explicit ambiguity, never last-write wins.
+  const other = path.join(root, 'other')
+  fs.mkdirSync(other)
+  run('git', ['init', '-b', 'main'], other)
+  const ambiguous = await filters.fork_workspace(null, { sourceDirectory: nonGit, codingPaths: [source, other] })
+  assert.ok(ambiguous instanceof Error)
+  assert.match(ambiguous.message, /multiple repositories/)
+  const unowned = await filters.fork_workspace(null, { sourceDirectory: nonGit, codingPaths: [other] })
+  assert.ok(unowned instanceof Error)
+  assert.match(unowned.message, /no Homeboy owner/)
+  console.log('PASS: automatic registry ownership and site-root coding scope allocate real isolated worktrees at the active checkout commit, preserve dirty source work, reject ambiguity and retain failure evidence')
 } finally {
   process.env = previous
   // All fixtures live under the test-owned temporary root and isolated HOME.
