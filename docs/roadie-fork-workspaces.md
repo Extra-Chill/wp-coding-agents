@@ -53,8 +53,9 @@ owns later cleanup. This uses the existing lifecycle.
 
 Requires the automatic coding-scope contract in Roadie PR #116 and OpenCode's
 existing experimental workspace APIs (released OpenCode 1.18.31).
-Configure `OPENCODE_EXPERIMENTAL_WORKSPACES=true` in the managed backend's
-startup environment and restart when activating the feature. Missing support,
+The managed provider enables `OPENCODE_EXPERIMENTAL_WORKSPACES=true` before
+Roadie starts the backend; an explicit host environment value takes precedence.
+Restart the bridge after upgrading the provider. Missing support,
 discovery or binding fails before a fork task runs.
 
 ## Verification

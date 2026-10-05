@@ -32,7 +32,12 @@ try {
   fs.writeFileSync(path.join(source, 'dirty-source.txt'), 'uncommitted\n')
   const filters = {}, actions = {}
   const plugin = await import(pathToFileURL(path.resolve(import.meta.dirname, '../bridges/roadie/roadie-plugins/fork-workspace.mjs')))
+  delete process.env.OPENCODE_EXPERIMENTAL_WORKSPACES
   plugin.register({ addFilter(name, fn) { filters[name] = fn }, addAction(name, fn) { actions[name] = fn } })
+  assert.equal(process.env.OPENCODE_EXPERIMENTAL_WORKSPACES, 'true')
+  process.env.OPENCODE_EXPERIMENTAL_WORKSPACES = 'false'
+  plugin.register({ addFilter() {}, addAction() {} })
+  assert.equal(process.env.OPENCODE_EXPERIMENTAL_WORKSPACES, 'false')
   const base = git('rev-parse', 'HEAD').trim()
   for (let i = 0; i < 2; i++) {
     const request = { requestId: crypto.randomUUID(), projectDirectory: source, sourceDirectory: source, sourceSessionId: 'parent', sourceThreadId: 'thread' }
