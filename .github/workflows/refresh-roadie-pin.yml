@@ -1,0 +1,69 @@
+name: Refresh Roadie pin
+
+# Hosts install the Roadie release pinned in bridges/roadie/roadie-version, so
+# every install from one commit gets the same Roadie. This keeps the pin on
+# Roadie's newest release without anyone editing it. Roadie does not notify
+# this repository; this workflow asks, hourly and on demand.
+#
+# A refresh lands on main directly once the Roadie install tests pass with the
+# new pin. Hosts pick it up on their next upgrade (`/upgrade-and-restart`);
+# nothing here restarts a running bridge.
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-roadie-pin
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve Roadie's newest release
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          before="$(tr -d '[:space:]' < bridges/roadie/roadie-version)"
+          after="$(./scripts/refresh-roadie-pin.sh)"
+          echo "before=$before" >> "$GITHUB_OUTPUT"
+          echo "after=$after" >> "$GITHUB_OUTPUT"
+          if [ "$before" = "$after" ]; then
+            echo "::notice::Roadie pin is current at $before."
+          fi
+
+      # Pushes made with the workflow token do not trigger the shell workflow,
+      # so the tests that read the pin run here before anything lands.
+      - uses: actions/setup-node@v4
+        if: steps.pin.outputs.before != steps.pin.outputs.after
+        with:
+          node-version: 24
+
+      - name: Test the new pin
+        if: steps.pin.outputs.before != steps.pin.outputs.after
+        run: |
+          set -euo pipefail
+          bash tests/roadie-provision.sh
+          bash tests/roadie-accounts.sh
+
+      - name: Commit the new pin
+        if: steps.pin.outputs.before != steps.pin.outputs.after
+        env:
+          VERSION: ${{ steps.pin.outputs.after }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add bridges/roadie/roadie-version
+          git commit -m "chore(roadie): pin v${VERSION}"
+          git push origin HEAD:main
