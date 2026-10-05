@@ -355,7 +355,7 @@ roadie_plugins_dir() {
 }
 
 roadie_plugins_value() {
-  printf '%s/host-upgrade.mjs\n' "$(roadie_plugins_dir)"
+  printf '%s/host-upgrade.mjs,%s/fork-workspace.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
 }
 
 roadie_prompt_config_file() {
