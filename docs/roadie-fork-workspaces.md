@@ -1,8 +1,25 @@
-# Host-owned fork workspaces
+# Automatic host-owned fork worktrees
 
-The managed `fork-workspace.mjs` plugin connects Roadie's `fork_workspace` hook
-to Homeboy's native worktree lifecycle. It activates only with operator-owned
-`roadie-config/fork-workspaces.json`:
+The managed `fork-workspace.mjs` provider connects Roadie's `fork_workspace`
+hook to Homeboy's native worktree lifecycle. `/fork` allocates automatically;
+there is no shared/separate selector or default mode.
+
+## Repository ownership
+
+For an existing Git-root or worktree-bound conversation, the current checkout
+identifies the source. For a conversation rooted outside Git (such as a
+WordPress site home), Roadie supplies `codingPaths` from successful persisted
+coding-tool activity. The provider resolves those locations through Git's
+common directory and requires one unique repository. Within that repository,
+the most recent coding location selects the checkout and its exact HEAD.
+Unrelated reads and prose are not scope. Multiple repositories fail with a
+useful explanation; no coding repository retains ordinary conversation forks.
+
+By default ownership is discovered from `homeboy component list` using
+registered repository-root components. Subdirectory components do not compete
+with their owning repository. An unregistered coding repository fails closed.
+An optional operator-owned `roadie-config/fork-workspaces.json` restricts the
+eligible repositories:
 
 ```json
 {
@@ -10,37 +27,40 @@ to Homeboy's native worktree lifecycle. It activates only with operator-owned
   "projects": [
     {
       "directory": "/code/project",
-      "component": "project",
-      "defaultMode": "separate"
+      "component": "project"
     }
   ]
 }
 ```
 
-`WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG` can select another config path. Projects
-must already be registered with Homeboy. Directory matching uses Git's common
-directory, so forks from existing worktrees resolve to the same owner. A
-multi-repository WordPress site root is not guessed to be a Git project.
+`WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG` selects another configuration path.
+Projects must already be registered with Homeboy. Source and target identity
+is verified by Git, including when activity occurs in an existing worktree.
 
-For separate forks the provider asks Homeboy to create a unique branch/worktree
-from the source checkout's exact HEAD, with a `roadie-fork-<request ID>` owner and
+## Allocation and binding
+
+The provider asks Homeboy to create a unique branch/worktree from the selected
+checkout's committed HEAD, with a `roadie-fork-<request ID>` owner and
 `preserve-on-failure` cleanup policy. It verifies the resulting commit. Dirty
-source files are preserved in the source and never copied into the fork.
+source files stay in the source and are not copied into the fork.
 
-Roadie stores Homeboy's workspace handle in its conversation binding. Abandoned
-fork setup finalizes the Homeboy record as failed, retaining evidence; Homeboy
-owns later cleanup. This is allocation through the existing lifecycle, not a
-second worktree implementation.
+Roadie discovers the new workspace under the target repository, forks the
+original conversation normally, and warps only the copy with
+`copyChanges: false`. The original conversation keeps its home directory.
+Roadie stores Homeboy's workspace handle in its conversation binding.
+Abandoned setup finalizes that record as failed, retaining evidence; Homeboy
+owns later cleanup. This uses the existing lifecycle.
 
-Requires Roadie's fork-workspace hook (#106) and OpenCode's existing experimental
-workspace APIs, verified on released OpenCode 1.18.31. Configure
-`OPENCODE_EXPERIMENTAL_WORKSPACES=true` in the managed backend's startup environment
-and restart when activating the feature. Roadie discovers the Homeboy-owned Git
-worktree, forks normally, and warps the copied session with `copyChanges: false`.
-It verifies the persisted native workspace binding before running a task. An
-OpenCode source patch is not required; missing support or discovery fails closed.
+Requires the automatic coding-scope contract in Roadie PR #116 and OpenCode's
+existing experimental workspace APIs (released OpenCode 1.18.31).
+Configure `OPENCODE_EXPERIMENTAL_WORKSPACES=true` in the managed backend's
+startup environment and restart when activating the feature. Missing support,
+discovery or binding fails before a fork task runs.
 
-Verification: `bash tests/roadie-fork-workspace.sh`. The test uses a real Homeboy
-CLI with isolated HOME/config, two real Git worktrees and actual independent
-writes. It proves committed-base parity, dirty-source preservation, distinct
-workspaces and retained failure evidence.
+## Verification
+
+`bash tests/roadie-fork-workspace.sh` uses a real Homeboy CLI with isolated
+HOME/config, real Git worktrees and independent writes. It proves dirty-source
+preservation, committed-base parity, retained failure evidence, a non-Git home
+selecting an active checkout at a newer commit, automatic registry ownership,
+nested-fork scope precedence, and ambiguity/unregistered-repository refusal.
