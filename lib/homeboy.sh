@@ -797,7 +797,6 @@ recompose_agents_md_for_homeboy() {
   # correct file the main compose phase just wrote.
   if (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md >/dev/null); then
     log "AGENTS.md recomposed after Homeboy reconciliation."
-    opencode_project_subagents_optional
   else
     homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy reconciliation."
   fi
