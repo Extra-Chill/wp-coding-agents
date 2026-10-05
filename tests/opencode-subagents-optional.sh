@@ -9,6 +9,37 @@ source "$SCRIPT_DIR/lib/opencode-subagents.sh"
 
 opencode_project_subagents() { return 1; }
 
+# Selecting the WordPress agent/context alone never invokes graph projection.
+AGENT_SLUG=coordinator
+OPENCODE_AGENT_BUNDLE=""
+opencode_project_subagents_optional
+fixture=$(mktemp -d)
+SITE_PATH="$fixture"
+mkdir -p "$fixture/.opencode/agents"
+printf '%s\n' 'existing specialist remains intact' > "$fixture/.opencode/agents/writer.md"
+printf '%s\n' '{"sentinel":"wp-coding-agents-opencode-subagents-v2","agents":["agents/writer.md"],"artifacts":[],"general_agent":{"model":"legacy-chat-model"}}' > "$fixture/.opencode/.wp-coding-agents-subagents.json"
+printf '%s\n' '{"agent":{"general":{"model":"legacy-chat-model"},"custom":{"model":"operator/model"}},"permission":{"task":{"general":"allow"}}}' > "$fixture/opencode.json"
+opencode_project_subagents_optional
+python3 - "$fixture" <<'PY'
+import json, pathlib, sys
+root=pathlib.Path(sys.argv[1])
+config=json.loads((root/'opencode.json').read_text())
+assert config['agent']=={'custom':{'model':'operator/model'}}
+assert config['permission']['task']=={'general':'allow'}
+assert (root/'.opencode/agents/writer.md').read_text().strip()=='existing specialist remains intact'
+manifest=root/'.opencode/.wp-coding-agents-subagents.json'
+data=json.loads(manifest.read_text()); data['general_agent']={'model':'legacy-chat-model'}; manifest.write_text(json.dumps(data))
+config['agent']['general']={'model':'operator/new-model'}; (root/'opencode.json').write_text(json.dumps(config))
+PY
+opencode_project_subagents_optional
+python3 - "$fixture/opencode.json" <<'PY'
+import json,sys
+assert json.load(open(sys.argv[1]))['agent']['general']['model']=='operator/new-model'
+PY
+rm -rf "$fixture"
+unset SITE_PATH
+OPENCODE_AGENT_BUNDLE=coordinator
+
 PENDING_ITEMS=()
 OPENCODE_SUBAGENT_PROJECTION_FAILURE=unregistered_coordinator
 output="$(mktemp)"

@@ -120,9 +120,9 @@ config = json.load(open(sys.argv[2]))
 assert config['model'] == 'preserve' and config['mcp'] == {}
 assert config['permission']['read'] == 'allow'
 assert config['permission']['task'] == {'*': 'deny', 'general': 'allow', 'researcher': 'allow', 'reviewer': 'allow', 'writer': 'allow'}
-# The native child gets the coordinator's explicit model but no agent-local
-# permission map, retaining the managed top-level source and workspace rules.
-assert config['agent']['general'] == {'model': 'openai/gpt-5'}
+assert 'general' not in config.get('agent', {})
+assert manifest['general_agent'] is None
+assert manifest['ownership'] == 'explicit_bundle'
 assert config['permission']['skill']['root-skill'] == 'allow'
 assert config['permission']['skill']['user-skill'] == 'ask'
 assert open(sys.argv[1].replace('.wp-coding-agents-subagents.json', 'skills/root-skill/SKILL.md'), 'rb').read().startswith(b'---\nname: root-skill\n')
@@ -133,10 +133,10 @@ python3 - "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 p = sys.argv[1]
 data = json.load(open(p))
-data['agent']['general'] = {'model': 'user/model'}
+data.setdefault('agent', {})['general'] = {'model': 'user/model'}
 json.dump(data, open(p, 'w'))
 PY
-if opencode_project_subagents; then FAILED=$((FAILED + 1)); fi
+opencode_project_subagents
 assert_python 'user-owned native general model remains intact' "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 assert json.load(open(sys.argv[1]))['agent']['general'] == {'model': 'user/model'}
@@ -163,6 +163,7 @@ if command -v opencode >/dev/null 2>&1; then
 fi
 
 echo '==> reader failure classification'
+OPENCODE_AGENT_BUNDLE="$AGENT_SLUG"
 WP_CMD_MODE=unregistered
 PENDING_ITEMS=()
 if ! opencode_project_subagents_optional; then FAILED=$((FAILED + 1)); fi
@@ -227,16 +228,16 @@ else
   printf '  FAIL a pre-general_agent manifest must upgrade, not abort the projection\n'
   FAILED=$((FAILED + 1))
 fi
-assert_python 'the upgrade adopts the native general subagent it previously lacked' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+assert_python 'explicit graph grants native general dispatch without adopting its model' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1]))
 config = json.load(open(sys.argv[2]))
-assert manifest['general_agent'] == {'model': 'openai/gpt-5'}, manifest.get('general_agent')
-assert config['agent']['general'] == {'model': 'openai/gpt-5'}, config.get('agent')
+assert manifest['general_agent'] is None, manifest.get('general_agent')
+assert 'general' not in config.get('agent', {}), config.get('agent')
 assert config['permission']['task']['general'] == 'allow'
 PY
 
-echo '==> already-equal desired general agent is accepted with legacy null manifest'
+echo '==> operator general agent is preserved with a null ownership manifest'
 python3 - "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 manifest_path, config_path = sys.argv[1:]
@@ -244,16 +245,16 @@ manifest = json.load(open(manifest_path))
 manifest['general_agent'] = None
 json.dump(manifest, open(manifest_path, 'w'))
 config = json.load(open(config_path))
-config['agent']['general'] = {'model': 'openai/gpt-5'}
+config.setdefault('agent', {})['general'] = {'model': 'openai/gpt-5'}
 config['agent']['user-agent'] = {'description': 'keep me'}
 json.dump(config, open(config_path, 'w'))
 PY
 opencode_project_subagents
-assert_python 'real fixture graph accepts equal desired agent and preserves unrelated agent config' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
+assert_python 'explicit graph preserves operator general and unrelated agent config' "$SITE_PATH/.opencode/.wp-coding-agents-subagents.json" "$SITE_PATH/opencode.json" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1]))
 config = json.load(open(sys.argv[2]))
-assert manifest['general_agent'] == {'model': 'openai/gpt-5'}
+assert manifest['general_agent'] is None
 assert config['agent']['general'] == {'model': 'openai/gpt-5'}
 assert config['agent']['user-agent'] == {'description': 'keep me'}
 PY

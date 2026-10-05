@@ -221,6 +221,18 @@ json.dump(value, sys.stdout, separators=(",", ":"))
 # Agents API coordinator must not discard an upgrade summary after earlier
 # phases have applied their changes.
 opencode_project_subagents_optional() {
+  # Agent identity/context selection is independent of installing a runtime
+  # specialist graph. Only the explicit operator option requests projection.
+  if [ -z "${OPENCODE_AGENT_BUNDLE:-}" ]; then
+    [ "${DRY_RUN:-false}" != true ] || return 0
+    [ -n "${SITE_PATH:-}" ] || return 0
+    local project_root
+    project_root="$(runtime_project_root 2>/dev/null || printf '%s' "$SITE_PATH")"
+    [ -f "$project_root/.opencode/.wp-coding-agents-subagents.json" ] || return 0
+    python3 "$SCRIPT_DIR/lib/project-opencode-subagents.py" --retire-coordinator-model "$project_root"
+    return $?
+  fi
+  local AGENT_SLUG="$OPENCODE_AGENT_BUNDLE"
   if opencode_project_subagents; then
     return 0
   fi

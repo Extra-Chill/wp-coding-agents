@@ -102,6 +102,7 @@ WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 SHOW_HELP=false
+OPENCODE_AGENT_BUNDLE=""
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
 OWNED_SOURCES=""
@@ -183,6 +184,7 @@ while [[ $# -gt 0 ]]; do
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
+    --project-agent-bundle) OPENCODE_AGENT_BUNDLE="$2"; shift 2 ;;
     --roadie-unit)   ROADIE_UNIT="$2"; ROADIE_UNIT_EXPLICIT=true; shift 2 ;;
     --roadie-data-dir) ROADIE_DATA_DIR="$2"; ROADIE_DATA_DIR_EXPLICIT=true; shift 2 ;;
     --roadie-lock-port) ROADIE_LOCK_PORT="$2"; ROADIE_LOCK_PORT_EXPLICIT=true; shift 2 ;;
@@ -218,6 +220,9 @@ wp-coding-agents upgrade script
 Safely upgrade a live install without touching user state.
 
 USAGE:
+  ./upgrade.sh --project-agent-bundle <slug>
+                                Explicitly install a portable specialist graph.
+                                Ordinary upgrades preserve operator-owned agents.
   ./upgrade.sh                  Run all phases (auto-detects local vs VPS)
   ./upgrade.sh --dry-run        Preview what would change
   ./upgrade.sh --roadie-only    Only sync the Roadie chat-bridge config
