@@ -28,6 +28,14 @@
 
 ROADIE_RELEASE_URL_TEMPLATE='https://github.com/Extra-Chill/roadie/releases/download/v%s/extrachill-roadie-%s.tgz'
 ROADIE_PACKAGE_NAME='@extrachill/roadie'
+# Floor of last resort for the node that runs the Roadie service: the
+# pinned release uses `await using`, which needs Node >= 24, and on an
+# older node the unit crash-loops with `SyntaxError: Unexpected identifier`
+# while systemd still reports it active (--auto-restart keeps the wrapper
+# up, #692). roadie_min_node_major prefers a simple ">=N" engines.node from
+# the installed package when one appears; today's package has no engines
+# field at all.
+ROADIE_MIN_NODE_MAJOR=24
 
 # ============================================================================
 # Identity
@@ -153,6 +161,9 @@ _roadie_resolve_instance() {
     [ -n "$unit_home" ] || unit_home=$(getent passwd "$unit_user" 2>/dev/null | cut -d: -f6)
     [ -n "$unit_home" ] || { [ "$unit_user" = root ] && unit_home=/root || unit_home="/home/$unit_user"; }
     SERVICE_HOME="$unit_home"
+    # Consumed by the install flow that sources this bridge (infrastructure,
+    # summary), not within this file.
+    # shellcheck disable=SC2034
     [ "$unit_user" = root ] && RUN_AS_ROOT=true || RUN_AS_ROOT=false
   fi
 
@@ -257,6 +268,94 @@ roadie_bin() {
     return 0
   fi
   command -v roadie 2>/dev/null || printf '%s\n' roadie
+}
+
+# ============================================================================
+# Node preflight (the pinned release needs Node >= ROADIE_MIN_NODE_MAJOR)
+# ============================================================================
+
+# Minimum Node major the pinned Roadie release runs on. The installed
+# package's engines.node wins when it carries a simple ">=N" (so a future
+# Roadie that raises its floor is honored without touching this file);
+# today's package declares no engines field, so the constant answers.
+roadie_min_node_major() {
+  local package_json major
+  package_json="$(roadie_package_dir)/package.json"
+  if [ -f "$package_json" ]; then
+    major="$(python3 -c 'import json,re,sys; engines=json.load(open(sys.argv[1])).get("engines",{}).get("node",""); m=re.fullmatch(r">=\s*(\d+)", engines.strip()); print(m.group(1) if m else "")' "$package_json" 2>/dev/null || true)"
+    case "$major" in
+      ''|*[!0-9]*) ;;
+      *) printf '%s\n' "$major"; return 0 ;;
+    esac
+  fi
+  printf '%s\n' "$ROADIE_MIN_NODE_MAJOR"
+}
+
+# The node binary the Roadie service will actually run: the same resolution
+# the rendered service PATH uses (bridges/_dispatch.sh reads it out of the
+# roadie bin's npm shim), falling back to this shell's node.
+_roadie_service_node_bin() {
+  local node_dir
+  node_dir="$(_resolve_node_bin_dir "${ROADIE_BIN:-$(roadie_bin)}")"
+  if [ -n "$node_dir" ] && [ -x "$node_dir/node" ]; then
+    printf '%s/node\n' "$node_dir"
+    return 0
+  fi
+  command -v node 2>/dev/null || return 1
+}
+
+# Why the resolved node cannot run the pinned release, printed with the
+# found version, the required one, and the fix; prints nothing and returns
+# 0 when the node is fine. Callers only choose the tone.
+_roadie_node_preflight_refusal() {
+  local min node_bin node_version major=""
+  min="$(roadie_min_node_major)"
+  if ! node_bin="$(_roadie_service_node_bin)"; then
+    printf 'no node binary found on the service PATH: Roadie %s needs Node >= %s; install Node >= %s (e.g. from NodeSource) and re-run\n' \
+      "$(roadie_pinned_version)" "$min" "$min"
+    return 1
+  fi
+  node_version="$("$node_bin" --version 2>/dev/null || true)"
+  case "$node_version" in
+    v[0-9]*) major="${node_version#v}"; major="${major%%.*}" ;;
+  esac
+  if [ -n "$major" ] && [ "$major" -ge "$min" ]; then
+    return 0
+  fi
+  local found="node at $node_bin reported no version"
+  [ -n "$node_version" ] && found="node $node_version at $node_bin"
+  printf 'unsuitable node (%s): Roadie %s needs Node >= %s; install Node >= %s (e.g. from NodeSource) and re-run\n' \
+    "$found" "$(roadie_pinned_version)" "$min" "$min"
+  return 1
+}
+
+# _roadie_node_preflight <what> <fatal|warn> [<consequence-note>]
+#
+# Gates every path that would leave a Roadie service behind. A refusal is
+# fatal for the Kimaki migration — Kimaki is still running there as the
+# fallback bridge, and error() keeps it that way — and a loud skip for a
+# fresh install: nothing would be lost, but one broken bridge must not
+# abort the whole install, so warn + pending item and the caller leaves the
+# service uninstalled (a re-run after installing Node >= N converges).
+# Dry-run reports the refusal as a dry-run line instead of acting.
+_roadie_node_preflight() {
+  local what="$1" tone="$2" note="${3:-}" refusal
+  if refusal="$(_roadie_node_preflight_refusal)"; then
+    return 0
+  fi
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Refusing $what: $refusal${note:+ $note}"
+    return 1
+  fi
+  if [ "$tone" = fatal ]; then
+    error "Refusing $what: $refusal${note:+ $note}"
+  fi
+  warn "  Refusing $what: $refusal"
+  warn "  Roadie service not installed; install Node >= $(roadie_min_node_major) and re-run"
+  if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+    PENDING_ITEMS+=("Roadie skipped: needs Node >= $(roadie_min_node_major) ($(roadie_pinned_version))")
+  fi
+  return 1
 }
 
 # ============================================================================
@@ -373,7 +472,8 @@ roadie_channels_config_file() {
     printf '%s\n' "$ROADIE_CHANNELS_CONFIG"
     return 0
   fi
-  local file="$(roadie_config_dir)/channels.yaml"
+  local file
+  file="$(roadie_config_dir)/channels.yaml"
   [ -f "$file" ] || return 0
   printf '%s\n' "$file"
 }
@@ -434,6 +534,10 @@ _roadie_sync_assets() {
 #      per model in use (exactly that model; fallbacks are operator policy),
 #      in the Roadie database copy and opencode.json
 #   6. disable the Kimaki unit, keep it and ~/.kimaki untouched as rollback
+# A node too old for the pinned release refuses the whole migration before
+# step 1 (#692). Bridge install then proves the replacement: it starts the
+# unit and waits for a healthy Discord gateway, rolling back to Kimaki when
+# it never comes up (_roadie_verify_migration_health).
 # Roadie's own schema migrations run on first start. Idempotent: a Roadie data
 # dir that already holds a database is never overwritten.
 _roadie_kimaki_unit() {
@@ -476,6 +580,9 @@ _roadie_accounts() {
     args+=(--presets-json "$ROADIE_SUBROUTER_PRESETS_JSON")
   fi
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    # The redirect is deliberate: this (root) shell opens the file, so the
+    # service user needs no read access to the checkout. sudo never sees it.
+    # shellcheck disable=SC2024
     sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" "$node_bin" --input-type=module - "${args[@]}" \
       < "$SCRIPT_DIR/bridges/roadie/accounts.mjs"
   else
@@ -494,15 +601,31 @@ roadie_accounts_rollback_command() {
     "$user_prefix" "$(roadie_config_dir)" "$(_roadie_opencode_data_dir)" "$(roadie_package_dir)"
 }
 
-# A failed migration must not leave the host without a bridge: restart the
-# Kimaki service it stopped.
+# A failed migration must not leave the host without a bridge: re-enable and
+# restart the Kimaki service it stopped. The enable matters when the
+# migration got as far as disabling Kimaki — the post-migration health gate
+# (#692) lands here after a completed cutover.
 _roadie_restore_kimaki() {
   local unit="$1"
   if [ -n "$unit" ]; then
+    systemctl enable "$unit" 2>/dev/null || true
     systemctl start "$unit" 2>/dev/null || true
   elif [ "${PLATFORM:-}" = mac ]; then
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" 2>/dev/null || true
   fi
+}
+
+# Roadie's health endpoint answers on the loopback lock port once its
+# Discord gateway is connected; the default matches the unit template.
+_roadie_health_port() { printf '%s\n' "${ROADIE_LOCK_PORT:-29988}"; }
+
+# Active unit AND a connected Discord gateway. Roadie's --auto-restart
+# wrapper keeps systemd reporting active through a crash loop (#692), so
+# the health probe is what actually proves the bridge works.
+_roadie_is_healthy() {
+  local unit="${1:-${ROADIE_UNIT:-roadie.service}}"
+  systemctl is-active --quiet "$unit" || return 1
+  curl -fsS -m 5 "http://127.0.0.1:$(_roadie_health_port)/health" 2>/dev/null | grep -q '"discordReady":true'
 }
 
 # The state copy carries the database's operational directory bindings
@@ -542,6 +665,9 @@ _roadie_relocate_existing_copy_bindings() {
     --opencode-db "$(_roadie_opencode_data_dir)/opencode.db" --require-target-exists)
   [ "${DRY_RUN:-false}" != true ] || args+=(--dry-run)
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    # Same deliberate redirect as _roadie_accounts: the calling shell opens
+    # the script so the service user needs no read access to the checkout.
+    # shellcheck disable=SC2024
     relocate_out="$(sudo -n -H -u "$SERVICE_USER" python3 - "${args[@]}" \
       < "$SCRIPT_DIR/bridges/roadie/relocate-project-paths.py" 2>&1)" || status=$?
   else
@@ -580,6 +706,10 @@ _roadie_reconcile_existing_project_paths() {
 
 roadie_migrate_from_kimaki() {
   local unit_dir kimaki_unit unit_file kimaki_data
+  # "A migration happened this run" only when the copy + cutover below
+  # actually execute; bridge_install's health gate keys off this.
+  ROADIE_MIGRATED_THIS_RUN=0
+  ROADIE_MIGRATION_KIMAKI_UNIT=""
   unit_dir="$(_roadie_unit_dir)"
 
   if [ "${LOCAL_MODE:-false}" = true ]; then
@@ -621,6 +751,17 @@ roadie_migrate_from_kimaki() {
   [ -f "$source_db" ] || return 0
 
   log "Migrating Kimaki → Roadie: $kimaki_data → $ROADIE_DATA_DIR"
+
+  # Node preflight BEFORE any destructive step: the pinned release does not
+  # even parse on an older node (#692), and cutting over into a crash-looping
+  # unit leaves the host with no bridge at all. A refusal stops, disables,
+  # and copies nothing — Kimaki keeps running as the bridge. Dry-run reports
+  # the refusal in place of the "Would stop" line below; live, error()
+  # exits with Kimaki untouched.
+  if ! _roadie_node_preflight "the Kimaki → Roadie migration" fatal "Kimaki was left running as the bridge."; then
+    return 0
+  fi
+
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would stop ${kimaki_unit:-the Kimaki service}, back up $source_db, copy state, move accounts into subrouter, disable Kimaki"
     return 0
@@ -705,9 +846,48 @@ roadie_migrate_from_kimaki() {
     systemctl disable "$kimaki_unit" 2>/dev/null || true
     log "  Disabled $kimaki_unit (kept as rollback with $kimaki_data)"
   fi
+  ROADIE_MIGRATED_THIS_RUN=1
+  ROADIE_MIGRATION_KIMAKI_UNIT="${kimaki_unit:-}"
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
   UPDATED_ITEMS+=("subscription accounts moved into subrouter; on rollback, first run: $(roadie_accounts_rollback_command)")
   UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with 'subrouter preset' (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
+}
+
+# A migration that leaves Roadie crash-looping behind an --auto-restart
+# wrapper systemd still reports active is the #692 outage. Once a migration
+# actually happened this run, start the unit and require a connected Discord
+# gateway within ~60s; otherwise stop and disable Roadie, re-enable and
+# restart Kimaki, surface the journal tail, and fail — the host keeps a
+# working bridge either way. The Roadie data dir copy is never deleted, so
+# a retry after the real fix converges instead of recopying (#660).
+_roadie_verify_migration_health() {
+  [ "${ROADIE_MIGRATED_THIS_RUN:-0}" = 1 ] || return 0
+  # systemd-only on purpose: launchd's KeepAlive owns restarts on a mac/local
+  # install and there is no journal to tail there, and the external-WordPress
+  # runtime starts Roadie in its own environment this host cannot probe.
+  [ "${LOCAL_MODE:-false}" = true ] && return 0
+  [ "${EXTERNAL_WORDPRESS:-false}" = true ] && return 0
+
+  local unit="${ROADIE_UNIT:-roadie.service}"
+  run_cmd systemctl restart "$unit"
+  # 30 polls x 2s: bounded at ~60s; sleep is stubbed in tests.
+  for _ in $(seq 1 30); do
+    if _roadie_is_healthy "$unit"; then
+      log "  $unit healthy after the migration (discordReady on 127.0.0.1:$(_roadie_health_port))"
+      return 0
+    fi
+    sleep 2
+  done
+
+  systemctl stop "$unit" 2>/dev/null || true
+  systemctl disable "$unit" 2>/dev/null || true
+  _roadie_restore_kimaki "$ROADIE_MIGRATION_KIMAKI_UNIT"
+  log "  Roadie never became healthy; last journal lines for $unit:"
+  journalctl -u "$unit" -n 20 --no-pager 2>/dev/null || true
+  if declare -p PENDING_ITEMS >/dev/null 2>&1; then
+    PENDING_ITEMS+=("$unit never reported discordReady after the Kimaki migration; Kimaki re-enabled as the bridge — inspect with journalctl -u $unit")
+  fi
+  error "Refusing to leave the host on an unhealthy Roadie: $unit never became healthy within 60s; Kimaki re-enabled and restarted (Roadie data kept at ${ROADIE_DATA_DIR:-unknown} for a retry)"
 }
 
 # ============================================================================
@@ -720,6 +900,18 @@ bridge_install() {
   roadie_migrate_from_kimaki
   _roadie_install_secrets
   _roadie_sync_assets
+
+  # Fresh-install Node gate (#692): the same preflight the migration runs,
+  # with a softer tone. This host has no Kimaki fallback, but one broken
+  # bridge must not abort the whole install — so warn + pending item and
+  # leave the service uninstalled (a crash-looping unit is what must not
+  # ship silently); installing Node >= N and re-running converges. A
+  # migration host never reaches this on an old node: its preflight above
+  # hard-failed while Kimaki still runs. External WordPress runs Roadie on
+  # the runtime environment's own node, which this host cannot see.
+  if [ "${EXTERNAL_WORDPRESS:-false}" != true ] && ! _roadie_node_preflight "the Roadie install" warn; then
+    return 0
+  fi
 
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     log "External WordPress profile: Roadie installed. Start it from the runtime environment with:"
@@ -734,6 +926,7 @@ bridge_install() {
   fi
 
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
+  _roadie_verify_migration_health
   _roadie_register_cli_channel
 }
 
@@ -828,7 +1021,8 @@ EOF
 _roadie_append_env_files() {
   local env_block="$1"
   if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
-    local gateway_env_line="EnvironmentFile=-$(ai_gateway_env_file)"
+    local gateway_env_line
+    gateway_env_line="EnvironmentFile=-$(ai_gateway_env_file)"
     grep -qF "$gateway_env_line" <<< "$env_block" || env_block="$env_block
 $gateway_env_line"
   fi
@@ -879,7 +1073,11 @@ bridge_sync_config() {
   _roadie_reconcile_existing_project_paths
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] && _roadie_register_cli_channel
   log "  Done."
+  # Consumed downstream by upgrade.sh and agent-state ownership, which source
+  # this bridge; not referenced within this file.
+  # shellcheck disable=SC2034
   RESOLVED_ROADIE_CONFIG_DIR="$(roadie_config_dir)"
+  # shellcheck disable=SC2034
   RESOLVED_ROADIE_PLUGINS_DIR="$(bridge_managed_plugins_dir)"
 }
 
@@ -897,12 +1095,11 @@ bridge_sync_config() {
 roadie_retire_kimaki_artifacts() {
   [ "${LOCAL_MODE:-false}" = true ] && return 0
   [ "$(_roadie_effective_uid)" -eq 0 ] || return 0
-  local suffix sudoers_dir unit_dir unit port
+  local suffix sudoers_dir unit_dir unit
   suffix="$(_roadie_instance_suffix)"
   sudoers_dir="${KIMAKI_RETIRE_SUDOERS_DIR:-/etc/sudoers.d}"
   unit_dir="$(_roadie_unit_dir)"
   unit="kimaki${suffix}.service"
-  port="${ROADIE_LOCK_PORT:-29988}"
 
   local artifacts=(
     "$sudoers_dir/wp-coding-agents-kimaki${suffix}-dispatch"
@@ -935,8 +1132,7 @@ roadie_retire_kimaki_artifacts() {
 
   # Only retire the rollback once the replacement is proven: Roadie's unit
   # active and its health endpoint answering.
-  if ! systemctl is-active --quiet "$ROADIE_UNIT" \
-     || ! curl -fsS -m 5 "http://127.0.0.1:$port/health" 2>/dev/null | grep -q '"discordReady":true'; then
+  if ! _roadie_is_healthy "$ROADIE_UNIT"; then
     log "  Keeping Kimaki rollback artifacts until $ROADIE_UNIT is healthy"
     return 0
   fi
@@ -1182,7 +1378,8 @@ bridge_restart_cmd() {
   local env="$1"
   case "$env" in
     local-launchd)
-      local domain="gui/$(id -u)" plist
+      local domain plist
+      domain="gui/$(id -u)"
       plist=$(_roadie_shell_quote "$HOME/Library/LaunchAgents/com.wp.roadie.plist")
       # kickstart reuses launchd's loaded environment. Reload the managed
       # plist so changed PATH, plugins and context providers take effect.
