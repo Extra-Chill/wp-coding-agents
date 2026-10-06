@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.5] - 2026-10-06
+
+### Fixed
+- restore opencode.json model choices when the health gate rolls back to Kimaki
+- keep conversation forks reliable across repository scopes
+
 ## [2.0.4] - 2026-10-06
 
 ### Changed
