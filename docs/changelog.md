@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.6] - 2026-10-06
+
+### Changed
+- verify fork ownership against published Homeboy v0.409.0
+
+### Fixed
+- share runtime providers with unregistered fork repositories
+- select fork repositories from active task ownership
+
 ## [2.0.5] - 2026-10-06
 
 ### Fixed
