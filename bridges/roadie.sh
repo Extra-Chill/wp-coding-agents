@@ -821,6 +821,16 @@ roadie_migrate_from_kimaki() {
     [ -n "$entry" ] && log "  subrouter $entry"
   done <<< "$accounts_out"
 
+  # Snapshot opencode.json before its defaults are repointed. The presets it
+  # will name are served by Roadie, so if the post-migration health gate
+  # rolls back to Kimaki, Kimaki's OpenCode would otherwise start with a
+  # default model whose provider no longer exists (#692 follow-up).
+  ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT=""
+  if [ -f "$SITE_PATH/opencode.json" ]; then
+    ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT="$(mktemp)"
+    cat "$SITE_PATH/opencode.json" > "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
+  fi
+
   # Point those choices at the presets, in the Roadie copy of the database
   # (before Roadie first starts) and opencode.json.
   if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
@@ -853,6 +863,20 @@ roadie_migrate_from_kimaki() {
   UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with 'subrouter preset' (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
 }
 
+# Put opencode.json back exactly as the migration found it. Written through
+# the existing file so its owner and mode are kept.
+_roadie_restore_migration_opencode_json() {
+  local snapshot="${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}"
+  [ -n "$snapshot" ] && [ -f "$snapshot" ] || return 0
+  cat "$snapshot" > "$SITE_PATH/opencode.json" || return 1
+  rm -f "$snapshot"
+  log "  Restored opencode.json model choices for Kimaki"
+}
+
+_roadie_discard_migration_opencode_json_snapshot() {
+  [ -z "${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}" ] || rm -f "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
+}
+
 # A migration that leaves Roadie crash-looping behind an --auto-restart
 # wrapper systemd still reports active is the #692 outage. Once a migration
 # actually happened this run, start the unit and require a connected Discord
@@ -874,6 +898,7 @@ _roadie_verify_migration_health() {
   for _ in $(seq 1 30); do
     if _roadie_is_healthy "$unit"; then
       log "  $unit healthy after the migration (discordReady on 127.0.0.1:$(_roadie_health_port))"
+      _roadie_discard_migration_opencode_json_snapshot
       return 0
     fi
     sleep 2
@@ -881,6 +906,12 @@ _roadie_verify_migration_health() {
 
   systemctl stop "$unit" 2>/dev/null || true
   systemctl disable "$unit" 2>/dev/null || true
+  # Kimaki needs its own model choices back before it starts: the subrouter
+  # presets they were repointed to were served by the Roadie just stopped.
+  # Accounts need nothing: the import copied them, and a Roadie that never
+  # came up never refreshed a token, so Kimaki's copies are still current.
+  _roadie_restore_migration_opencode_json \
+    || warn "  Could not restore opencode.json; restore it from opencode.json.before-subrouter-* before using Kimaki"
   _roadie_restore_kimaki "$ROADIE_MIGRATION_KIMAKI_UNIT"
   log "  Roadie never became healthy; last journal lines for $unit:"
   journalctl -u "$unit" -n 20 --no-pager 2>/dev/null || true
@@ -970,6 +1001,23 @@ _roadie_managed_homeboy_dir() {
      && [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ]; then
     dirname "${WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN:-/usr/local/lib/wp-coding-agents/bin/homeboy}"
   fi
+}
+
+# Directory of the installed Homeboy for the local macOS service PATH. The
+# fork-workspace plugin calls execFile('homeboy') with the service PATH, and
+# launchd's PATH carries neither the operator's interactive entries (a cargo
+# install lives outside every default dir) nor the managed bin. Resolve the
+# same binary the rest of the host uses (homeboy_bin: managed service bin
+# first, then the environment) and lead the rendered PATH with its directory,
+# so a legacy ~/.local/bin seed copy cannot shadow it; empty when Homeboy is
+# absent.
+_roadie_launchd_homeboy_dir() {
+  declare -F homeboy_bin >/dev/null 2>&1 || return 0
+  local bin
+  bin="$(homeboy_bin 2>/dev/null || true)"
+  case "$bin" in
+    /*) dirname "$bin" ;;
+  esac
 }
 
 _roadie_path_value() {
@@ -1283,7 +1331,10 @@ bridge_render_launchd() {
   channels_config="$(roadie_channels_config_file)"
   roadie_bin_dir="$(dirname "$ROADIE_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
-  path_value="$(_compose_path_value "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  # The resolved Homeboy dir leads, mirroring _roadie_path_value: a legacy
+  # ~/.local/bin/homeboy seed must not shadow the installed binary that the
+  # fork-workspace plugin execs from this PATH.
+  path_value="$(_compose_path_value "$(_roadie_launchd_homeboy_dir)" "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   datamachine_wp_transport_json=$(xml_escape "$(_roadie_datamachine_wp_transport_json)")
   plist_document <<EOF
     <key>Label</key>

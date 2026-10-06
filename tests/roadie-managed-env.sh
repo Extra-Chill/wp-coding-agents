@@ -15,6 +15,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/grants.sh"
+source "$SCRIPT_DIR/lib/homeboy.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 source "$SCRIPT_DIR/bridges/roadie.sh"
 
@@ -178,6 +179,38 @@ if printf '%s' "$PLIST" | grep -A1 '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>' | 
 else
   check 1 "launchd plist stores the canonical argv JSON"
 fi
+
+echo "==> launchd PATH resolves the installed Homeboy binary"
+
+# The macOS fork-workspace plugin calls execFile('homeboy') with the rendered
+# service PATH. The operator's install lives outside launchd's default dirs
+# (a cargo install, e.g. ~/.cargo/bin), so the renderer must resolve the
+# installed Homeboy the way the host does and bake its directory into the
+# PATH, ahead of a legacy ~/.local/bin seed copy. The fixture binary sits in
+# an isolated directory and is what the rendered PATH must actually execute.
+FIXTURE_BIN_DIR="$TMP/homeboy-fixture-bin"
+mkdir -p "$FIXTURE_BIN_DIR"
+printf '#!/bin/sh\nprintf "fixture-homeboy\\n"\n' > "$FIXTURE_BIN_DIR/homeboy"
+chmod 0755 "$FIXTURE_BIN_DIR/homeboy"
+PLIST_HOMEBOY="$(PATH="$FIXTURE_BIN_DIR:/usr/bin:/bin" SITE_PATH="$TMP/site" LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" ROADIE_BIN=/usr/bin/roadie \
+  bridge_render_launchd com.wp.roadie 2>/dev/null)"
+LAUNCHD_PATH_VALUE="$(printf '%s\n' "$PLIST_HOMEBOY" | sed -n '/<key>PATH<\/key>/{n; s/^ *<string>\(.*\)<\/string>$/\1/p;}')"
+if [ "${LAUNCHD_PATH_VALUE%%:*}" = "$FIXTURE_BIN_DIR" ]; then rc=0; else rc=1; fi
+check "$rc" "resolved Homeboy dir leads the launchd PATH ($LAUNCHD_PATH_VALUE)"
+RESOLVED="$(env PATH="$LAUNCHD_PATH_VALUE" /bin/sh -c 'command -v homeboy')"
+if [ "$RESOLVED" = "$FIXTURE_BIN_DIR/homeboy" ]; then rc=0; else rc=1; fi
+check "$rc" "launchd PATH resolves homeboy to the installed binary"
+if [ "$(env PATH="$LAUNCHD_PATH_VALUE" homeboy)" = "fixture-homeboy" ]; then rc=0; else rc=1; fi
+check "$rc" "executing homeboy under the rendered PATH runs the installed binary"
+# With nothing resolvable at render time, no directory is invented and no
+# empty or relative segment lands in the PATH.
+PLIST_NO_HOMEBOY="$(PATH=/usr/bin:/bin SITE_PATH="$TMP/site" LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" ROADIE_BIN=/usr/bin/roadie \
+  bridge_render_launchd com.wp.roadie 2>/dev/null)"
+NO_HOMEBOY_PATH_VALUE="$(printf '%s\n' "$PLIST_NO_HOMEBOY" | sed -n '/<key>PATH<\/key>/{n; s/^ *<string>\(.*\)<\/string>$/\1/p;}')"
+case ":$NO_HOMEBOY_PATH_VALUE:" in
+  *"::"*|*":.:"*) check 1 "unresolvable Homeboy leaves no empty or relative PATH segment ($NO_HOMEBOY_PATH_VALUE)" ;;
+  *) check 0 "unresolvable Homeboy leaves no empty or relative PATH segment ($NO_HOMEBOY_PATH_VALUE)" ;;
+esac
 
 WP_CLI_TRANSPORT=("/tmp/wp cli" "--flag with spaces")
 PLIST_SPACES="$(SITE_PATH="$TMP/site" LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" ROADIE_BIN=/usr/bin/roadie \
