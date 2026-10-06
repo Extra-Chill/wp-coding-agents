@@ -87,17 +87,22 @@ try {
   const automaticWorkspace = await automaticProvider.provision({ ...siteRequest, requestId: crypto.randomUUID() })
   if (automaticWorkspace instanceof Error) throw automaticWorkspace
   assert.equal(automaticWorkspace.baseRef, activeHead)
-  // Multiple coding repositories are explicit ambiguity, never last-write wins.
+  // Ambiguous multi-repository history in a non-Git conversation defers to
+  // Roadie's ordinary session fork: no arbitrary repository pick, and no
+  // Homeboy allocation or registry discovery runs at all — the sentinel
+  // command would fail discovery loudly if it were ever invoked.
   const other = path.join(root, 'other')
   fs.mkdirSync(other)
   run('git', ['init', '-b', 'main'], other)
+  fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: 'roadie-fixture-absent-homeboy', projects: [{ directory: source, component: 'fork-fixture' }] }))
   const ambiguous = await filters.fork_workspace(null, { sourceDirectory: nonGit, codingPaths: [source, other] })
-  assert.ok(ambiguous instanceof Error)
-  assert.match(ambiguous.message, /multiple repositories/)
+  assert.equal(ambiguous, null)
+  // One unambiguous repository still fails closed when it has no owner.
+  fs.unlinkSync(configPath)
   const unowned = await filters.fork_workspace(null, { sourceDirectory: nonGit, codingPaths: [other] })
   assert.ok(unowned instanceof Error)
   assert.match(unowned.message, /no Homeboy owner/)
-  console.log('PASS: automatic registry ownership and site-root coding scope allocate real isolated worktrees at the active checkout commit, preserve dirty source work, reject ambiguity and retain failure evidence')
+  console.log('PASS: automatic registry ownership and site-root coding scope allocate real isolated worktrees at the active checkout commit, preserve dirty source work, defer ambiguous multi-repository history to ordinary forks, refuse unowned repositories and retain failure evidence')
 } finally {
   process.env = previous
   // All fixtures live under the test-owned temporary root and isolated HOME.
