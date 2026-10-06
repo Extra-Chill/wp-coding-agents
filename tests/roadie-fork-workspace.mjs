@@ -33,9 +33,8 @@ try {
   fs.writeFileSync(path.join(source, 'committed.txt'), 'base\n')
   git('add', '.')
   git('-c', 'user.name=Roadie Fixture', '-c', 'user.email=fixture@example.org', 'commit', '-m', 'fixture')
-  hb('component', 'create', '--local-path', source)
   const configPath = path.join(root, 'fork-workspaces.json')
-  fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: command, projects: [{ directory: source, component: 'fork-fixture' }] }))
+  fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: command }))
   process.env.WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG = configPath
   const filters = {}, actions = {}
   const plugin = await import(pathToFileURL(path.resolve(import.meta.dirname, '../bridges/roadie/roadie-plugins/fork-workspace.mjs')))
@@ -47,6 +46,13 @@ try {
   assert.equal(process.env.OPENCODE_EXPERIMENTAL_WORKSPACES, 'false')
   // Historical locations are deliberately irrelevant to a non-coding fork.
   assert.equal(await filters.fork_workspace(null, { ...request(), codingPaths: [source] }), null)
+  const standalone = request(source)
+  const standaloneProvider = await filters.fork_workspace(null, standalone)
+  if (standaloneProvider instanceof Error) throw standaloneProvider
+  const standaloneBinding = await standaloneProvider.provision(standalone)
+  if (standaloneBinding instanceof Error) throw standaloneBinding
+  assert.equal(fs.existsSync(path.join(source, 'homeboy.json')), false, 'automatic forks must not add configuration to the source checkout')
+  assert.equal(run('git', ['rev-parse', 'HEAD'], standaloneBinding.workingDirectory).trim(), git('rev-parse', 'HEAD').trim())
   fs.writeFileSync(path.join(source, 'dirty-source.txt'), 'uncommitted\n')
   submit('task-A', 'fork-fixture', source)
   const workspaces = []

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
+import { registerRuntimeConfig } from './runtime-config.mjs'
 
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -34,25 +35,6 @@ async function checkoutFor(location) {
   return { directory: fs.realpathSync(root), common: await commonDirectory(root) }
 }
 
-async function projectsFor(config, command, cwd) {
-  if (config) {
-    if (config.version !== 1 || !Array.isArray(config.projects)) throw new Error('Use version 1 and a projects array in fork-workspaces.json')
-    return config.projects.filter((project) => typeof project.directory === 'string' && path.isAbsolute(project.directory) && typeof project.component === 'string' && project.component)
-  }
-  const response = JSON.parse(await run(command, ['component', 'list'], cwd))
-  if (response.success !== true || !Array.isArray(response.data?.entities)) throw new Error('Homeboy component ownership is unavailable; the fork was not started.')
-  // Repository-root components own worktrees. Subdirectory components in a
-  // monorepo do not create a second competing repository owner.
-  const projects = []
-  for (const component of response.data.entities) {
-    if (typeof component.local_path !== 'string' || !fs.existsSync(component.local_path)) continue
-    const checkout = await checkoutFor(component.local_path)
-    if (!checkout || fs.realpathSync(component.local_path) !== checkout.directory) continue
-    projects.push({ directory: checkout.directory, component: component.id })
-  }
-  return projects
-}
-
 async function activeOwner(command, request) {
   if (!request.sourceSessionId) return null
   const context = `roadie:session:${request.sourceSessionId}`
@@ -68,6 +50,7 @@ async function activeOwner(command, request) {
 }
 
 export function register(roadie) {
+  registerRuntimeConfig(roadie)
   // Managed plugins load before Roadie starts its OpenCode backend. Enable
   // the native API our automatic worktree binding uses; explicit host env wins.
   process.env.OPENCODE_EXPERIMENTAL_WORKSPACES ??= 'true'
@@ -82,33 +65,32 @@ export function register(roadie) {
       if (owner) throw new Error('The active coding checkout is unavailable; restore its task workspace before forking.')
       return null
     }
-    // An active task names its repository directly: no registry-wide discovery
-    // is needed for site-root conversations.
-    const projects = config || !owner ? await projectsFor(config, command, request.sourceDirectory) : await (async () => {
-      const response = JSON.parse(await run(command, ['component', 'show', owner.repository], request.sourceDirectory))
-      const component = response.data?.entity
-      if (response.success !== true || typeof component?.local_path !== 'string') throw new Error('The active task repository has no registered Homeboy owner; the fork was not started.')
-      return [{ directory: component.local_path, component: owner.repository }]
-    })()
-    const matches = []
-    for (const project of projects) if (await commonDirectory(project.directory) === checkout.common) matches.push(project)
-    if (!matches.length) throw new Error('The coding repository has no Homeboy owner. Register its repository-root component before forking; no shared-file fork was started.')
-    if (matches.length !== 1) throw new Error('Source repository has multiple host workspace bindings; configure exactly one component')
-    const project = matches[0]
+    // A repository path is already a native lifecycle handle. Component
+    // registration is unnecessary and must not be a user-facing fork step.
+    // Preserve an explicitly configured host allowlist without consulting the
+    // entire component registry or changing the source checkout's files.
+    if (config?.projects !== undefined) {
+      if (config.version !== 1 || !Array.isArray(config.projects)) throw new Error('Invalid fork workspace host configuration')
+      const permitted = await Promise.all(config.projects.map(async (project) => {
+        const allowed = await checkoutFor(project.directory)
+        return allowed?.common === checkout.common
+      }))
+      if (!permitted.some(Boolean)) throw new Error('This repository is outside the host\'s configured fork scope; no workspace was allocated.')
+    }
     return {
       async provision(input) {
         if (!/^[a-f0-9-]{36}$/.test(input.requestId)) return new Error('Invalid fork workspace request identity')
         const base = await run('git', ['rev-parse', 'HEAD'], checkout.directory)
         const branch = `roadie/fork-${input.requestId}`
-        const args = ['worktree', 'create', project.component, '--branch', branch, '--from', base, '--run-id', `roadie-fork-${input.requestId}`, '--cleanup-policy', 'preserve-on-failure']
-        const response = JSON.parse(await run(command, args, project.directory))
+        const args = ['worktree', 'create', checkout.directory, '--branch', branch, '--from', base, '--run-id', `roadie-fork-${input.requestId}`, '--cleanup-policy', 'preserve-on-failure']
+        const response = JSON.parse(await run(command, args, checkout.directory))
         const record = response.data?.record
         if (response.success !== true || !record || typeof record.worktree_path !== 'string' || !path.isAbsolute(record.worktree_path) || typeof record.id !== 'string' || record.branch !== branch) return new Error('Homeboy did not return a verified fork worktree binding')
         // Git is the ground truth for the checkout Homeboy returned. Never
         // copy dirty source files or silently select a different base ref.
         const actual = await run('git', ['rev-parse', 'HEAD'], record.worktree_path)
         if (actual !== base) return new Error('Homeboy fork workspace does not match the requested committed base')
-        return { workingDirectory: record.worktree_path, projectDirectory: project.directory, label: branch, kind: 'git-worktree', workspaceId: record.id, baseRef: base }
+        return { workingDirectory: record.worktree_path, projectDirectory: checkout.directory, label: branch, kind: 'git-worktree', workspaceId: record.id, baseRef: base }
       },
     }
   })().catch((cause) => cause instanceof Error ? cause : new Error('Could not resolve the coding repository; the fork was not started.', { cause })))
