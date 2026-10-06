@@ -41,6 +41,7 @@ try {
 
   // Homeboy's bridge-neutral session contract (homeboy-extensions#2910).
   assert.equal(first.env.HOMEBOY_SESSION_THREAD_ID, "323456789012345678");
+  assert.equal(first.env.HOMEBOY_CALLER_CONTEXT, "roadie:session:one");
   assert.equal(first.env.HOMEBOY_SESSION_SEND_COMMAND, `${roadie} send`);
   assert.equal(duplicate.env.HOMEBOY_SESSION_THREAD_ID, "323456789012345678");
   assert.equal(first.env.DISCORD_BOT_TOKEN, undefined, "the bot token must not reach agent shells");
@@ -49,6 +50,13 @@ try {
   const second = { env: {} };
   await hooks["shell.env"]({ cwd: root, sessionID: "two" }, second);
   assert.equal(second.env.HOMEBOY_SESSION_THREAD_ID, "423456789012345678", "concurrent sessions keep their own thread");
+  assert.equal(second.env.HOMEBOY_CALLER_CONTEXT, "roadie:session:two");
+  const forked = { env: { ROADIE_THREAD_ID: "523456789012345678", HOMEBOY_CALLER_CONTEXT: "roadie:session:parent" } };
+  await hooks["shell.env"]({ cwd: root, sessionID: "forked" }, forked);
+  assert.equal(forked.env.HOMEBOY_CALLER_CONTEXT, "roadie:session:forked");
+  const unknown = { env: { HOMEBOY_CALLER_CONTEXT: "roadie:session:parent" } };
+  await hooks["shell.env"]({ cwd: root }, unknown);
+  assert.equal(unknown.env.HOMEBOY_CALLER_CONTEXT, undefined);
 
   // Roadie's own shell.env attribution (ROADIE_THREAD_ID) is used as-is.
   const native = { env: { ROADIE_THREAD_ID: "523456789012345678", ROADIE_SESSION_ID: "native-session" } };

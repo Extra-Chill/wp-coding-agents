@@ -338,7 +338,7 @@ jobs:
           node-version: 24
       - name: Install verified Homeboy workspace fixture
         if: matrix.test == 'roadie-fork-workspace'
-        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.399.35/homeboy-installer.sh | sh
+        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.409.0/homeboy-installer.sh | sh
       - name: Install supported OpenCode dispatch fixture
         if: matrix.test == 'roadie-command-guard'
         run: npm install --global opencode-ai@1.18.20
