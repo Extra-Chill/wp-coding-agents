@@ -7,7 +7,8 @@ there is no shared/separate selector or default mode.
 ## Repository ownership
 
 For an existing Git-root or worktree-bound conversation, the current checkout
-identifies the source when there is no active task. For a conversation rooted
+identifies the source directly, including when another task is awaiting admission.
+For a conversation rooted
 outside Git (such as a WordPress site home), the provider reads Homeboy's
 indexed active-task ownership by the source session's opaque caller reference.
 Task admission records the controller checkout, and terminal lifecycle state

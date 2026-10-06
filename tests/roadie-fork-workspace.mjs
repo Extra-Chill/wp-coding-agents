@@ -99,6 +99,17 @@ try {
   const pending = await filters.fork_workspace(null, request())
   assert.ok(pending instanceof Error)
   assert.match(pending.message, /not finished allocating/)
+  const boundRequest = request(binding.workingDirectory)
+  const boundProvider = await filters.fork_workspace(null, boundRequest)
+  if (boundProvider instanceof Error) throw boundProvider
+  const boundFork = await boundProvider.provision(boundRequest)
+  if (boundFork instanceof Error) throw boundFork
+  assert.equal(boundFork.baseRef, run('git', ['rev-parse', 'HEAD'], binding.workingDirectory).trim())
+  assert.notEqual(boundFork.workingDirectory, binding.workingDirectory)
+  // A bound checkout is sufficient authority even when task discovery is
+  // unavailable; no pending parent can replace the conversation's directory.
+  fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: 'fixture-absent-controller' }))
+  assert.equal(typeof (await filters.fork_workspace(null, request(binding.workingDirectory))).provision, 'function')
   console.log('PASS: real indexed task admission/switch/completion and Homeboy worktrees; historical activity ignored, ambiguity and pending allocation fail closed')
 } finally {
   process.env = previous

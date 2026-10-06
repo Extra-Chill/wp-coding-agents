@@ -59,8 +59,9 @@ export function register(roadie) {
     if (_provider) return _provider
     const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : null
     const command = config?.homeboyCommand ?? 'homeboy'
-    const owner = await activeOwner(command, request)
-    const checkout = await checkoutFor(owner?.working_directory ?? request.sourceDirectory)
+    const source = await checkoutFor(request.sourceDirectory)
+    const owner = source ? null : await activeOwner(command, request)
+    const checkout = source ?? await checkoutFor(owner?.working_directory)
     if (!checkout) {
       if (owner) throw new Error('The active coding checkout is unavailable; restore its task workspace before forking.')
       return null
