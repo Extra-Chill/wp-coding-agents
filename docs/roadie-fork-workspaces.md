@@ -7,16 +7,23 @@ there is no shared/separate selector or default mode.
 ## Repository ownership
 
 For an existing Git-root or worktree-bound conversation, the current checkout
-identifies the source. For a conversation rooted outside Git (such as a
-WordPress site home), Roadie supplies `codingPaths` from successful persisted
-coding-tool activity. The provider resolves those locations through Git's
-common directory and requires one unique repository. Within that repository,
-the most recent coding location selects the checkout and its exact HEAD.
-Unrelated reads and prose are not scope. Multiple repositories fail with a
-useful explanation; no coding repository retains ordinary conversation forks.
+identifies the source when there is no active task. For a conversation rooted
+outside Git (such as a WordPress site home), the provider reads Homeboy's
+indexed active-task ownership by the source session's opaque caller reference.
+Task admission records the controller checkout, and terminal lifecycle state
+removes its ownership from the active projection. The shell adapter captures
+the actual session ID in `HOMEBOY_CALLER_CONTEXT`; it replaces inherited parent
+ownership on a fork without reading the conversation.
 
-By default ownership is discovered from `homeboy component list` using
-registered repository-root components. Subdirectory components do not compete
+One active checkout is selected and verified through Git's common directory and
+its registered repository owner. Multiple active checkouts or pending allocation
+fail with an explanation. No active task and no Git-bound source retain ordinary
+conversation forks. Historical activity and maintenance commands supply no
+repository candidates. Ownership lookup never scans a transcript or run history.
+
+An active task names its registered repository directly; the host uses
+`homeboy component show` for that owner. Repository-bound conversations without
+an active task use the component registry. Subdirectory components do not compete
 with their owning repository. An unregistered coding repository fails closed.
 An optional operator-owned `roadie-config/fork-workspaces.json` restricts the
 eligible repositories:
@@ -51,7 +58,9 @@ Roadie stores Homeboy's workspace handle in its conversation binding.
 Abandoned setup finalizes that record as failed, retaining evidence; Homeboy
 owns later cleanup. This uses the existing lifecycle.
 
-Requires the automatic coding-scope contract in Roadie PR #116 and OpenCode's
+Requires Homeboy's `agent-task active-scope` indexed ownership contract and the
+source-session fork hook in Roadie. An older controller fails closed instead of
+falling back to conversation scanning. Also requires OpenCode's
 existing experimental workspace APIs (released OpenCode 1.18.31).
 The managed provider enables `OPENCODE_EXPERIMENTAL_WORKSPACES=true` before
 Roadie starts the backend; an explicit host environment value takes precedence.
@@ -63,5 +72,7 @@ discovery or binding fails before a fork task runs.
 `bash tests/roadie-fork-workspace.sh` uses a real Homeboy CLI with isolated
 HOME/config, real Git worktrees and independent writes. It proves dirty-source
 preservation, committed-base parity, retained failure evidence, a non-Git home
-selecting an active checkout at a newer commit, automatic registry ownership,
-nested-fork scope precedence, and ambiguity/unregistered-repository refusal.
+selecting an admitted checkout, task switching and cancellation through separate
+CLI processes, terminal-owner expiry, and ambiguity/pending-allocation refusal.
+Use `HOMEBOY_FORK_TEST_COMMAND` to select the exact candidate controller binary
+when verifying the upstream dependency before its release.

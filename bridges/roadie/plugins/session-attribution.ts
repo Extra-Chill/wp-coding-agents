@@ -27,9 +27,13 @@ const sessionAttribution = (async (_input: PluginInput): Promise<SessionAwareHoo
 
   return {
     "shell.env": async ({ sessionID }, output) => {
+      // This source-session identity is captured by Homeboy at task admission.
+      // Never inherit a parent's owner when an OpenCode session is forked.
+      delete output.env.HOMEBOY_CALLER_CONTEXT;
       if (!sessionID) {
         return;
       }
+      output.env.HOMEBOY_CALLER_CONTEXT = `roadie:session:${sessionID}`;
 
       if (output.env.ROADIE_THREAD_ID) {
         exportHomeboySession(output.env, output.env.ROADIE_THREAD_ID);

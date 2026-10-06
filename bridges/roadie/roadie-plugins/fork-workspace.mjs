@@ -1,6 +1,6 @@
 // Homeboy owns Git worktree allocation, registration and lifecycle. Roadie
 // consumes only the resulting directory binding. A site-root conversation's
-// repository comes from successful coding activity, never conversation prose.
+// repository comes from Homeboy's indexed active-task ownership.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,6 +53,20 @@ async function projectsFor(config, command, cwd) {
   return projects
 }
 
+async function activeOwner(command, request) {
+  if (!request.sourceSessionId) return null
+  const context = `roadie:session:${request.sourceSessionId}`
+  const response = JSON.parse(await run(command, ['agent-task', 'active-scope', '--context', context], request.sourceDirectory))
+  const scope = response.data
+  if (response.success !== true || scope?.schema !== 'homeboy/agent-task-active-scope/v1' || scope.caller_context !== context || !Array.isArray(scope.workspaces) || !Array.isArray(scope.pending_run_ids)) throw new Error('Homeboy active-task ownership is unavailable. Upgrade the controller before forking; no shared-file fork was started.')
+  if (scope.pending_run_ids.length) throw new Error('An active coding task has not finished allocating its checkout. Wait for task admission to complete before forking.')
+  if (!scope.workspaces.length) return null
+  if (scope.workspaces.length !== 1) throw new Error('This conversation owns multiple active coding checkouts. Finish or suspend the extra task before forking; no shared-file fork was started.')
+  const owner = scope.workspaces[0]
+  if (typeof owner.repository !== 'string' || !owner.repository || typeof owner.working_directory !== 'string' || !path.isAbsolute(owner.working_directory) || !Array.isArray(owner.run_ids) || !owner.run_ids.length) throw new Error('Homeboy returned an invalid active task owner; the fork was not started.')
+  return owner
+}
+
 export function register(roadie) {
   // Managed plugins load before Roadie starts its OpenCode backend. Enable
   // the native API our automatic worktree binding uses; explicit host env wins.
@@ -62,15 +76,20 @@ export function register(roadie) {
     if (_provider) return _provider
     const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : null
     const command = config?.homeboyCommand ?? 'homeboy'
-    const source = await checkoutFor(request.sourceDirectory)
-    // Once a fork is bound to a repository, its own checkout wins over paths
-    // inherited in the parent's history. Otherwise inspect concrete writes.
-    const candidates = source ? [source] : (await Promise.all((request.codingPaths ?? []).map(checkoutFor))).filter(Boolean)
-    const commonDirs = new Set(candidates.map((checkout) => checkout.common))
-    if (!commonDirs.size) return null
-    if (commonDirs.size !== 1) throw new Error('This conversation has coding activity in multiple repositories. Continue the task in a repository-bound thread before forking; no shared-file fork was started.')
-    const checkout = candidates.at(-1)
-    const projects = await projectsFor(config, command, request.sourceDirectory)
+    const owner = await activeOwner(command, request)
+    const checkout = await checkoutFor(owner?.working_directory ?? request.sourceDirectory)
+    if (!checkout) {
+      if (owner) throw new Error('The active coding checkout is unavailable; restore its task workspace before forking.')
+      return null
+    }
+    // An active task names its repository directly: no registry-wide discovery
+    // is needed for site-root conversations.
+    const projects = config || !owner ? await projectsFor(config, command, request.sourceDirectory) : await (async () => {
+      const response = JSON.parse(await run(command, ['component', 'show', owner.repository], request.sourceDirectory))
+      const component = response.data?.entity
+      if (response.success !== true || typeof component?.local_path !== 'string') throw new Error('The active task repository has no registered Homeboy owner; the fork was not started.')
+      return [{ directory: component.local_path, component: owner.repository }]
+    })()
     const matches = []
     for (const project of projects) if (await commonDirectory(project.directory) === checkout.common) matches.push(project)
     if (!matches.length) throw new Error('The coding repository has no Homeboy owner. Register its repository-root component before forking; no shared-file fork was started.')
