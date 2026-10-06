@@ -1,0 +1,50 @@
+# Continuous release pipeline.
+#
+# Triggers on every push to main. Homeboy derives the version from the
+# conventional commits since the last tag (fix: -> patch, feat: -> minor,
+# BREAKING CHANGE -> major; chore:/ci:/docs:/test: -> no release), tags,
+# generates docs/changelog.md, and creates the GitHub Release.
+#
+# Until this existed every release was cut by hand, so merged fixes sat
+# unreleased — and hosts that track the latest tag (h44's nightly) never got
+# them.
+#
+# The whole pipeline lives in the reusable workflow — releasable-commit
+# detection, dry-run version prediction, failed-SHA retry protection, and
+# GitHub App token handling are inherited, not re-implemented here.
+
+name: Release
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  # A reusable workflow cannot request more than its caller grants. The shared
+  # release workflow declares id-token: write; without this line the run is
+  # rejected before any job starts, with a bare startup_failure and no log.
+  id-token: write
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview the release without making changes'
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    with:
+      dry-run: ${{ inputs.dry-run || false }}
+      # This repo ships as a git checkout installers clone at a tag; it has no
+      # build artifact. Every release so far had zero assets, so skip the
+      # package/publish steps rather than ask an extension to build nothing.
+      release-skip-publish: true
+    secrets: inherit
