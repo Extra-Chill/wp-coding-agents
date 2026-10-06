@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.7] - 2026-10-06
+
+### Fixed
+- keep bound checkout authority during pending task admission
+
 ## [2.0.6] - 2026-10-06
 
 ### Changed
