@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.8] - 2026-10-06
+
+### Fixed
+- pin published source-attributed fork diagnostics
+
 ## [2.0.7] - 2026-10-06
 
 ### Fixed
