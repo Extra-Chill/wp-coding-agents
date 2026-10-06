@@ -10,10 +10,13 @@ For an existing Git-root or worktree-bound conversation, the current checkout
 identifies the source. For a conversation rooted outside Git (such as a
 WordPress site home), Roadie supplies `codingPaths` from successful persisted
 coding-tool activity. The provider resolves those locations through Git's
-common directory and requires one unique repository. Within that repository,
-the most recent coding location selects the checkout and its exact HEAD.
-Unrelated reads and prose are not scope. Multiple repositories fail with a
-useful explanation; no coding repository retains ordinary conversation forks.
+common directory and allocates automatically for exactly one repository:
+within that repository, the most recent coding location selects the checkout
+and its exact HEAD. Unrelated reads and prose are not scope. History spanning
+multiple repositories is not a refusal and never picks an arbitrary
+repository — the fork falls back to Roadie's ordinary session fork, which
+preserves the conversation's current directory and history. A conversation
+already bound to a repository keeps pinning its own checkout.
 
 By default ownership is discovered from `homeboy component list` using
 registered repository-root components. Subdirectory components do not compete
@@ -64,4 +67,6 @@ discovery or binding fails before a fork task runs.
 HOME/config, real Git worktrees and independent writes. It proves dirty-source
 preservation, committed-base parity, retained failure evidence, a non-Git home
 selecting an active checkout at a newer commit, automatic registry ownership,
-nested-fork scope precedence, and ambiguity/unregistered-repository refusal.
+nested-fork scope precedence, unregistered-repository refusal, and a
+multi-repository conversation falling back to an ordinary fork without any
+Homeboy allocation or registry discovery.

@@ -64,11 +64,12 @@ export function register(roadie) {
     const command = config?.homeboyCommand ?? 'homeboy'
     const source = await checkoutFor(request.sourceDirectory)
     // Once a fork is bound to a repository, its own checkout wins over paths
-    // inherited in the parent's history. Otherwise inspect concrete writes.
+    // inherited in the parent's history. Otherwise inspect concrete writes;
+    // history that is ambiguous across repositories defers to Roadie's
+    // ordinary session fork — never an arbitrary repository pick.
     const candidates = source ? [source] : (await Promise.all((request.codingPaths ?? []).map(checkoutFor))).filter(Boolean)
     const commonDirs = new Set(candidates.map((checkout) => checkout.common))
-    if (!commonDirs.size) return null
-    if (commonDirs.size !== 1) throw new Error('This conversation has coding activity in multiple repositories. Continue the task in a repository-bound thread before forking; no shared-file fork was started.')
+    if (commonDirs.size !== 1) return null
     const checkout = candidates.at(-1)
     const projects = await projectsFor(config, command, request.sourceDirectory)
     const matches = []

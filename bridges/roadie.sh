@@ -972,6 +972,23 @@ _roadie_managed_homeboy_dir() {
   fi
 }
 
+# Directory of the installed Homeboy for the local macOS service PATH. The
+# fork-workspace plugin calls execFile('homeboy') with the service PATH, and
+# launchd's PATH carries neither the operator's interactive entries (a cargo
+# install lives outside every default dir) nor the managed bin. Resolve the
+# same binary the rest of the host uses (homeboy_bin: managed service bin
+# first, then the environment) and lead the rendered PATH with its directory,
+# so a legacy ~/.local/bin seed copy cannot shadow it; empty when Homeboy is
+# absent.
+_roadie_launchd_homeboy_dir() {
+  declare -F homeboy_bin >/dev/null 2>&1 || return 0
+  local bin
+  bin="$(homeboy_bin 2>/dev/null || true)"
+  case "$bin" in
+    /*) dirname "$bin" ;;
+  esac
+}
+
 _roadie_path_value() {
   local roadie_bin_dir node_bin_dir homeboy_bin_dir
   roadie_bin_dir=$(dirname "$ROADIE_BIN")
@@ -1283,7 +1300,10 @@ bridge_render_launchd() {
   channels_config="$(roadie_channels_config_file)"
   roadie_bin_dir="$(dirname "$ROADIE_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
-  path_value="$(_compose_path_value "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  # The resolved Homeboy dir leads, mirroring _roadie_path_value: a legacy
+  # ~/.local/bin/homeboy seed must not shadow the installed binary that the
+  # fork-workspace plugin execs from this PATH.
+  path_value="$(_compose_path_value "$(_roadie_launchd_homeboy_dir)" "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   datamachine_wp_transport_json=$(xml_escape "$(_roadie_datamachine_wp_transport_json)")
   plist_document <<EOF
     <key>Label</key>
