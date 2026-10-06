@@ -6,6 +6,13 @@
 # remaining state, carries the bot token / lock port / agent slug, and disables
 # Kimaki while keeping its unit and data dir untouched as the rollback. A
 # failed backup must restart Kimaki rather than leave the host without a bridge.
+#
+# Two gates keep that guarantee end to end (#692): a node too old for the
+# pinned Roadie release refuses the migration before Kimaki is touched (dry
+# run reports the refusal instead of "Would stop"), and once a migration
+# actually happened, install starts the unit and waits for a healthy Discord
+# gateway — an unhealthy Roadie is stopped and disabled while Kimaki is
+# re-enabled and restarted, and the run fails instead of exiting 0.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,6 +37,17 @@ source "$SCRIPT_DIR/bridges/roadie.sh"
 log() { :; }
 warn() { :; }
 systemctl() { printf '%s\n' "$*" >> "$TMP/systemctl.log"; }
+# The Node preflight resolves the service's node through `command -v node`
+# when no rendered PATH entry exists, so a function stub covers it the same
+# way systemctl is above. NODE_MAJOR=24 lets the main migration proceed;
+# the preflight sections below flip it to model an old host.
+NODE_MAJOR=24
+node() { if [ "${1:-}" = --version ]; then printf 'v%s.0.0\n' "$NODE_MAJOR"; fi; return 0; }
+# One sqlite3 wrapper for the whole file (defined before first use): the
+# failed-backup section flips SQLITE3_READONLY_FAILS to model a database that
+# refuses the online backup, rather than redefining the function mid-file.
+SQLITE3_READONLY_FAILS=0
+sqlite3() { if [ "$SQLITE3_READONLY_FAILS" = 1 ] && [ "${1:-}" = -readonly ]; then return 1; fi; command sqlite3 "$@"; }
 # The account move has its own suite (tests/roadie-accounts.sh); here it is
 # recorded in the same log so its ordering against stop/disable is checked.
 ACCOUNTS_RESULT=0
@@ -208,10 +226,10 @@ rm "$BACKEND_DB"
 echo "==> a failed backup restarts Kimaki"
 rm -rf "$ROADIE_DATA_DIR"
 : > "$TMP/systemctl.log"
-sqlite3() { [ "${1:-}" = -readonly ] && return 1; command sqlite3 "$@"; }
+SQLITE3_READONLY_FAILS=1
 ( roadie_migrate_from_kimaki ) >/dev/null 2>&1
 rc=$?
-unset -f sqlite3
+SQLITE3_READONLY_FAILS=0
 [ "$rc" -ne 0 ]; check $? "migration fails"
 grep -qx "start kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki started again"
 ! grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "Kimaki not disabled"
@@ -234,6 +252,79 @@ mv "$SYSTEMD_UNIT_DIR/kimaki.service" "$TMP/kimaki.service.away"
 : > "$TMP/systemctl.log"
 roadie_migrate_from_kimaki
 [ ! -s "$TMP/systemctl.log" ] && [ ! -e "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "fresh install is untouched"
+
+echo "==> an old node refuses the migration before Kimaki is touched (#692)"
+mv "$TMP/kimaki.service.away" "$SYSTEMD_UNIT_DIR/kimaki.service"
+rm -rf "$ROADIE_DATA_DIR"
+: > "$TMP/systemctl.log"
+DATA_BEFORE_PREFLIGHT="$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort | grep -v 'discord-sessions.db-\(wal\|shm\)')"
+NODE_MAJOR=22
+( roadie_migrate_from_kimaki ) > "$TMP/preflight.out" 2>&1
+rc=$?
+[ "$rc" -ne 0 ]; check $? "migration refused on node 22"
+grep -q "node v22.0.0" "$TMP/preflight.out" && grep -q "needs Node >= 24" "$TMP/preflight.out"
+check $? "refusal names the found version and the required floor"
+grep -q "NodeSource" "$TMP/preflight.out"; check $? "refusal says how to fix it"
+grep -q "Kimaki was left running" "$TMP/preflight.out" || grep -qi "kimaki" "$TMP/preflight.out"
+check $? "refusal notes Kimaki was left running"
+[ ! -s "$TMP/systemctl.log" ]; check $? "Kimaki not stopped or disabled"
+[ ! -e "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "no state copied to the Roadie data dir"
+[ "$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort | grep -v 'discord-sessions.db-\(wal\|shm\)')" = "$DATA_BEFORE_PREFLIGHT" ]
+check $? "Kimaki data dir untouched"
+
+echo "==> dry-run with an old node reports the refusal instead of 'Would stop'"
+rm -rf "$ROADIE_DATA_DIR"
+: > "$TMP/systemctl.log"
+( DRY_RUN=true; roadie_migrate_from_kimaki ) > "$TMP/preflight-dry.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ]; check $? "dry-run reports the refusal and continues"
+grep -qF "Refusing the Kimaki → Roadie migration" "$TMP/preflight-dry.out"; check $? "refusal reported as a dry-run line"
+if grep -qF "Would stop" "$TMP/preflight-dry.out"; then check 1 "no 'Would stop' line on refusal"; else check 0 "no 'Would stop' line on refusal"; fi
+[ ! -s "$TMP/systemctl.log" ]; check $? "nothing stopped in dry-run either"
+NODE_MAJOR=24
+
+echo "==> migration completes but Roadie never gets healthy: roll back to Kimaki"
+rm -rf "$ROADIE_DATA_DIR"
+: > "$TMP/systemctl.log"
+UPDATED_ITEMS=()
+PENDING_ITEMS=()
+curl() { if [ "$CURL_DISCORD_READY" = 1 ]; then printf '%s\n' '{"status":"ok","discordReady":true}'; fi; }
+sleep() { :; }
+journalctl() { printf 'journal %s\n' "$*" >> "$TMP/systemctl.log"; }
+CURL_DISCORD_READY=0
+error() { printf 'ERROR: %s\n' "$*" >> "$TMP/health-fail.out"; printf '%s\n' "${PENDING_ITEMS[@]}" > "$TMP/health-pending.out"; exit 1; }
+( bridge_install ) > /dev/null 2>&1
+rc=$?
+[ "$rc" -ne 0 ]; check $? "bridge_install fails when Roadie never becomes healthy"
+grep -qx "stop kimaki.service" "$TMP/systemctl.log" && grep -qx "disable kimaki.service" "$TMP/systemctl.log"
+check $? "the migration stopped and disabled Kimaki"
+grep -qx "restart roadie.service" "$TMP/systemctl.log"; check $? "Roadie restarted for the health check"
+grep -qx "stop roadie.service" "$TMP/systemctl.log" && grep -qx "disable roadie.service" "$TMP/systemctl.log"
+check $? "unhealthy Roadie stopped and disabled"
+grep -qx "enable kimaki.service" "$TMP/systemctl.log" && grep -qx "start kimaki.service" "$TMP/systemctl.log"
+check $? "Kimaki re-enabled and restarted"
+grep -qx "journal -u roadie.service -n 20 --no-pager" "$TMP/systemctl.log"; check $? "journal tail surfaced"
+[ -f "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "Roadie data dir kept for a retry"
+grep -qF "never reported discordReady" "$TMP/health-pending.out"; check $? "pending item recorded"
+grep -qF "Kimaki re-enabled and restarted" "$TMP/health-fail.out"; check $? "clear error printed"
+
+echo "==> migration completes and Roadie is healthy: Kimaki stays disabled"
+error() { echo -e "${RED}[wp-coding-agents]${NC} $1"; exit 1; }
+CURL_DISCORD_READY=1
+rm -rf "$ROADIE_DATA_DIR"
+: > "$TMP/systemctl.log"
+UPDATED_ITEMS=()
+( bridge_install ) > "$TMP/health-ok.out" 2>&1
+rc=$?
+[ "$rc" -eq 0 ]; check $? "bridge_install succeeds when Roadie is healthy"
+grep -qx "restart roadie.service" "$TMP/systemctl.log"; check $? "Roadie health-checked"
+grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "migration disabled Kimaki"
+if grep -qx "enable kimaki.service" "$TMP/systemctl.log" || grep -qx "start kimaki.service" "$TMP/systemctl.log"; then
+  check 1 "healthy Roadie keeps Kimaki disabled"
+else
+  check 0 "healthy Roadie keeps Kimaki disabled"
+fi
+if grep -qx "stop roadie.service" "$TMP/systemctl.log"; then check 1 "healthy Roadie not torn down"; else check 0 "healthy Roadie not torn down"; fi
 
 echo
 if [ "$FAIL" -gt 0 ]; then
