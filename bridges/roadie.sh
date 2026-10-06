@@ -821,6 +821,16 @@ roadie_migrate_from_kimaki() {
     [ -n "$entry" ] && log "  subrouter $entry"
   done <<< "$accounts_out"
 
+  # Snapshot opencode.json before its defaults are repointed. The presets it
+  # will name are served by Roadie, so if the post-migration health gate
+  # rolls back to Kimaki, Kimaki's OpenCode would otherwise start with a
+  # default model whose provider no longer exists (#692 follow-up).
+  ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT=""
+  if [ -f "$SITE_PATH/opencode.json" ]; then
+    ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT="$(mktemp)"
+    cat "$SITE_PATH/opencode.json" > "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
+  fi
+
   # Point those choices at the presets, in the Roadie copy of the database
   # (before Roadie first starts) and opencode.json.
   if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
@@ -853,6 +863,20 @@ roadie_migrate_from_kimaki() {
   UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with 'subrouter preset' (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
 }
 
+# Put opencode.json back exactly as the migration found it. Written through
+# the existing file so its owner and mode are kept.
+_roadie_restore_migration_opencode_json() {
+  local snapshot="${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}"
+  [ -n "$snapshot" ] && [ -f "$snapshot" ] || return 0
+  cat "$snapshot" > "$SITE_PATH/opencode.json" || return 1
+  rm -f "$snapshot"
+  log "  Restored opencode.json model choices for Kimaki"
+}
+
+_roadie_discard_migration_opencode_json_snapshot() {
+  [ -z "${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}" ] || rm -f "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
+}
+
 # A migration that leaves Roadie crash-looping behind an --auto-restart
 # wrapper systemd still reports active is the #692 outage. Once a migration
 # actually happened this run, start the unit and require a connected Discord
@@ -874,6 +898,7 @@ _roadie_verify_migration_health() {
   for _ in $(seq 1 30); do
     if _roadie_is_healthy "$unit"; then
       log "  $unit healthy after the migration (discordReady on 127.0.0.1:$(_roadie_health_port))"
+      _roadie_discard_migration_opencode_json_snapshot
       return 0
     fi
     sleep 2
@@ -881,6 +906,12 @@ _roadie_verify_migration_health() {
 
   systemctl stop "$unit" 2>/dev/null || true
   systemctl disable "$unit" 2>/dev/null || true
+  # Kimaki needs its own model choices back before it starts: the subrouter
+  # presets they were repointed to were served by the Roadie just stopped.
+  # Accounts need nothing: the import copied them, and a Roadie that never
+  # came up never refreshed a token, so Kimaki's copies are still current.
+  _roadie_restore_migration_opencode_json \
+    || warn "  Could not restore opencode.json; restore it from opencode.json.before-subrouter-* before using Kimaki"
   _roadie_restore_kimaki "$ROADIE_MIGRATION_KIMAKI_UNIT"
   log "  Roadie never became healthy; last journal lines for $unit:"
   journalctl -u "$unit" -n 20 --no-pager 2>/dev/null || true
