@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.4] - 2026-10-06
+
+### Changed
+- release automatically on push to main
+
+### Fixed
+- cook wp-coding-agents
+
 ## [2.0.3] - 2026-10-05
 
 ### Fixed
