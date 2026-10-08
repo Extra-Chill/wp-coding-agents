@@ -492,8 +492,11 @@ detect_environment
 # upgrade converges a managed install instead of silently reverting it to
 # engineering; --posture overrides and re-records.
 source_policy_resolve_mode
-source_policy_materialize_workspace_repositories
-source_policy_validate_workspace_repositories
+if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
+   [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
+  source_policy_materialize_workspace_repositories
+  source_policy_validate_workspace_repositories
+fi
 source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
