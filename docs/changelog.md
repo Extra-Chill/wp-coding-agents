@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.12] - 2026-10-08
+
+### Fixed
+- pin database service identity correction
+
 ## [2.0.11] - 2026-10-08
 
 ### Fixed
