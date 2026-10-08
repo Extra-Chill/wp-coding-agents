@@ -43,10 +43,22 @@ async function activeOwner(command, request) {
   if (response.success !== true || scope?.schema !== 'homeboy/agent-task-active-scope/v1' || scope.caller_context !== context || !Array.isArray(scope.workspaces) || !Array.isArray(scope.pending_run_ids)) throw new Error('Homeboy active-task ownership is unavailable. Upgrade the controller before forking; no shared-file fork was started.')
   if (scope.pending_run_ids.length) throw new Error('An active coding task has not finished allocating its checkout. Wait for task admission to complete before forking.')
   if (!scope.workspaces.length) return null
-  if (scope.workspaces.length !== 1) throw new Error('This conversation owns multiple active coding checkouts. Finish or suspend the extra task before forking; no shared-file fork was started.')
-  const owner = scope.workspaces[0]
-  if (typeof owner.repository !== 'string' || !owner.repository || typeof owner.working_directory !== 'string' || !path.isAbsolute(owner.working_directory) || !Array.isArray(owner.run_ids) || !owner.run_ids.length) throw new Error('Homeboy returned an invalid active task owner; the fork was not started.')
-  return owner
+  for (const owner of scope.workspaces) {
+    if (typeof owner.repository !== 'string' || !owner.repository || typeof owner.working_directory !== 'string' || !path.isAbsolute(owner.working_directory) || !Array.isArray(owner.run_ids) || !owner.run_ids.length) throw new Error('Homeboy returned an invalid active task owner; the fork was not started.')
+  }
+  if (scope.workspaces.length === 1) return scope.workspaces[0]
+  // A coordinator can own several independent branches of one repository.
+  // Its repository snapshot is the primary checkout's committed HEAD, rather
+  // than any one worker branch. Git proves the shared repository identity.
+  const commons = await Promise.all(scope.workspaces.map((owner) => commonDirectory(owner.working_directory)))
+  if (new Set(commons).size !== 1) throw new Error('This conversation owns multiple active repositories with no single repository snapshot to fork.')
+  const primary = await checkoutFor(path.dirname(commons[0]))
+  if (!primary || primary.common !== commons[0]) throw new Error('Could not verify the coordinator repository checkout; the fork was not started.')
+  return {
+    repository: scope.workspaces[0].repository,
+    working_directory: primary.directory,
+    run_ids: scope.workspaces.flatMap((owner) => owner.run_ids),
+  }
 }
 
 export function register(roadie) {
