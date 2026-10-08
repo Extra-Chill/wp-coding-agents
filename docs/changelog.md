@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.9] - 2026-10-08
+
+### Fixed
+- fork same-repository coordinators without stopping workers
+
 ## [2.0.8] - 2026-10-06
 
 ### Fixed
