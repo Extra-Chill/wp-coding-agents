@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.11] - 2026-10-08
+
+### Fixed
+- pin verified IPC authentication runtime
+
 ## [2.0.10] - 2026-10-08
 
 ### Fixed
