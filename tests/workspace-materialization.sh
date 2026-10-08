@@ -2,6 +2,24 @@
 # Primary repository materialization is host setup state, never WordPress state.
 set -eu
 
+ROOT_SCOPE="$(dirname "$(dirname "${BASH_SOURCE[0]}")")"
+scope_phase="$(sed -n '/^source_policy_resolve_mode$/,/^source_policy_resolve_owned_sources$/p' "$ROOT_SCOPE/upgrade.sh")"
+source_policy_resolve_mode() { :; }
+source_policy_resolve_owned_sources() { :; }
+source_policy_materialize_workspace_repositories() { scope_calls="${scope_calls}materialize "; }
+source_policy_validate_workspace_repositories() { scope_calls="${scope_calls}validate "; }
+for selected in ROADIE_ONLY PLUGINS_ONLY SKILLS_ONLY AGENTS_MD_ONLY RECONCILE_SERVICES_ONLY full; do
+  ROADIE_ONLY=false PLUGINS_ONLY=false SKILLS_ONLY=false AGENTS_MD_ONLY=false RECONCILE_SERVICES_ONLY=false
+  if [ "$selected" != full ]; then printf -v "$selected" '%s' true; fi
+  scope_calls=""
+  eval "$scope_phase"
+  if [ "$selected" = full ]; then
+    test "$scope_calls" = 'materialize validate ' || exit 1
+  else
+    test -z "$scope_calls" || { printf 'FAIL: %s crossed into repository provisioning\n' "$selected" >&2; exit 1; }
+  fi
+done
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
