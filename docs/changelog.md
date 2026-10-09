@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.14] - 2026-10-09
+
+### Fixed
+- rename the kimaki Discord role to Roadie on install/upgrade
+
 ## [2.0.13] - 2026-10-09
 
 ### Fixed
