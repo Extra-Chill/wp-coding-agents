@@ -33,6 +33,39 @@ export function actorMapping(config, actor, spaceId) {
   return { userId: entry.userId, capabilities }
 }
 
+// wp-cli shares stdout with PHP's error reporter, so the host's PHP build can
+// emit diagnostics before the resolver's JSON. This mirrors the capture
+// contract lib/common.sh wp_cli_strip_php_diagnostics() established for
+// scalar shell captures (#494, #563): drop recognized leading diagnostic
+// lines, then require the remainder to be the whole payload. Unrecognized
+// output still fails loudly rather than being searched for something JSON-ish.
+const PHP_DIAGNOSTIC = /^(?:PHP )?(?:Deprecated|Warning|Notice|Fatal error|Parse error):\s/
+
+export function stripPhpDiagnostics(stdout) {
+  const lines = String(stdout ?? '').split('\n')
+  while (lines.length && !lines[0].trim()) lines.shift()
+  while (lines.length && PHP_DIAGNOSTIC.test(lines[0].trimStart())) {
+    lines.shift()
+    while (lines.length && !lines[0].trim()) lines.shift()
+  }
+  return lines.join('\n').trim()
+}
+
+export function parseResolverStdout(stdout) {
+  const text = stripPhpDiagnostics(stdout)
+  if (!text) throw new Error('WordPress context returned no output')
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch (cause) {
+    throw new Error('WordPress context returned invalid JSON', { cause })
+  }
+  if (!value || typeof value !== 'object') {
+    throw new Error('WordPress context returned invalid JSON')
+  }
+  return value
+}
+
 function invoke(binding, input) {
   const code = fs.readFileSync(resolver, 'utf8').replace(/^<\?php\s*/, '')
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64')
@@ -43,7 +76,7 @@ function invoke(binding, input) {
   return new Promise((resolve, reject) => {
     execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', php, '--allow-root'], { timeout: 12000, maxBuffer: 256 * 1024 }, (error, stdout) => {
       if (error) { reject(new Error('WordPress context lookup failed', { cause: error })); return }
-      try { resolve(JSON.parse(stdout.trim())) } catch (cause) { reject(new Error('WordPress context returned invalid JSON', { cause })) }
+      try { resolve(parseResolverStdout(stdout)) } catch (cause) { reject(new Error(cause instanceof Error ? cause.message : 'WordPress context returned invalid JSON', { cause })) }
     })
   })
 }
