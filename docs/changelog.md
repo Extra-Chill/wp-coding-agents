@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.15] - 2026-10-09
+
+### Fixed
+- fetch the bot's guild member by id, not members/@me
+
 ## [2.0.14] - 2026-10-09
 
 ### Fixed
