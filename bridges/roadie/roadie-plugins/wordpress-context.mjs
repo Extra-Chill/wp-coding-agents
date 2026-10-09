@@ -33,6 +33,30 @@ export function actorMapping(config, actor, spaceId) {
   return { userId: entry.userId, capabilities }
 }
 
+// wp-cli shares stdout with PHP's error reporter, so a deprecation or warning
+// from the host's PHP build can precede the resolver's JSON. Read the payload
+// as the last complete JSON value on the stream instead of assuming stdout
+// carries nothing else; anything before it is host noise, not a response.
+export function parseResolverStdout(stdout) {
+  const text = String(stdout ?? '').trim()
+  if (!text) throw new Error('WordPress context returned no output')
+  const starts = []
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]
+    if (char === '{' || char === '[') starts.push(i)
+  }
+  for (let i = starts.length - 1; i >= 0; i -= 1) {
+    const candidate = text.slice(starts[i])
+    try {
+      const value = JSON.parse(candidate)
+      if (value && typeof value === 'object') return value
+    } catch {
+      // Not a complete JSON value at this offset; try an earlier one.
+    }
+  }
+  throw new Error('WordPress context returned invalid JSON')
+}
+
 function invoke(binding, input) {
   const code = fs.readFileSync(resolver, 'utf8').replace(/^<\?php\s*/, '')
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64')
@@ -43,7 +67,7 @@ function invoke(binding, input) {
   return new Promise((resolve, reject) => {
     execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', php, '--allow-root'], { timeout: 12000, maxBuffer: 256 * 1024 }, (error, stdout) => {
       if (error) { reject(new Error('WordPress context lookup failed', { cause: error })); return }
-      try { resolve(JSON.parse(stdout.trim())) } catch (cause) { reject(new Error('WordPress context returned invalid JSON', { cause })) }
+      try { resolve(parseResolverStdout(stdout)) } catch (cause) { reject(new Error(cause instanceof Error ? cause.message : 'WordPress context returned invalid JSON', { cause })) }
     })
   })
 }
