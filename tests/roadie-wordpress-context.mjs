@@ -45,12 +45,22 @@ try {
   const requests = fs.readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse)
   assert(requests.every((req) => !('acting_user_id' in req)))
   assert.equal(requests.filter((req) => req.operation === 'context' && req.event === 'turn').length, 2)
-  // The helper itself: noise tolerated, payload preserved, real garbage rejected.
+  // The helper itself: recognized diagnostics dropped, payload preserved,
+  // unrecognized output still rejected rather than scanned for JSON.
   assert.deepEqual(module.parseResolverStdout(PHP_NOTICE + '{"allowed":true}'), { allowed: true })
   assert.deepEqual(module.parseResolverStdout('{"allowed":true}'), { allowed: true })
   assert.deepEqual(module.parseResolverStdout(PHP_NOTICE + '{"sections":[{"id":"a","content":"{nested}"}]}'), { sections: [{ id: 'a', content: '{nested}' }] })
-  assert.throws(() => module.parseResolverStdout(PHP_NOTICE), /invalid JSON/)
+  for (const kind of ['PHP Deprecated', 'Deprecated', 'Warning', 'PHP Warning', 'Notice']) {
+    assert.deepEqual(module.parseResolverStdout(`${kind}:  something in file.php on line 1\n\n{"allowed":true}`), { allowed: true })
+  }
+  // A payload that is itself pretty-printed across lines still parses whole.
+  assert.deepEqual(module.parseResolverStdout(PHP_NOTICE + '{\n  "allowed": true\n}'), { allowed: true })
+  assert.throws(() => module.parseResolverStdout(PHP_NOTICE), /no output/)
   assert.throws(() => module.parseResolverStdout('   '), /no output/)
+  // Unrecognized leading noise is a real failure, not something to scan past.
+  assert.throws(() => module.parseResolverStdout('Xdebug is broken {"allowed":true}'), /invalid JSON/)
+  assert.throws(() => module.parseResolverStdout('"just a string"'), /invalid JSON/)
+  assert.equal(module.stripPhpDiagnostics(PHP_NOTICE + '{"a":1}'), '{"a":1}')
   console.log('PASS: isolated concurrent user context, explicit scoped identity, unmapped and asserted actor rejection, PHP-notice stdout tolerated')
 } finally {
   delete process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG

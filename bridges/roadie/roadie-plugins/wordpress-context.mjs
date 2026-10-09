@@ -33,28 +33,37 @@ export function actorMapping(config, actor, spaceId) {
   return { userId: entry.userId, capabilities }
 }
 
-// wp-cli shares stdout with PHP's error reporter, so a deprecation or warning
-// from the host's PHP build can precede the resolver's JSON. Read the payload
-// as the last complete JSON value on the stream instead of assuming stdout
-// carries nothing else; anything before it is host noise, not a response.
+// wp-cli shares stdout with PHP's error reporter, so the host's PHP build can
+// emit diagnostics before the resolver's JSON. This mirrors the capture
+// contract lib/common.sh wp_cli_strip_php_diagnostics() established for
+// scalar shell captures (#494, #563): drop recognized leading diagnostic
+// lines, then require the remainder to be the whole payload. Unrecognized
+// output still fails loudly rather than being searched for something JSON-ish.
+const PHP_DIAGNOSTIC = /^(?:PHP )?(?:Deprecated|Warning|Notice|Fatal error|Parse error):\s/
+
+export function stripPhpDiagnostics(stdout) {
+  const lines = String(stdout ?? '').split('\n')
+  while (lines.length && !lines[0].trim()) lines.shift()
+  while (lines.length && PHP_DIAGNOSTIC.test(lines[0].trimStart())) {
+    lines.shift()
+    while (lines.length && !lines[0].trim()) lines.shift()
+  }
+  return lines.join('\n').trim()
+}
+
 export function parseResolverStdout(stdout) {
-  const text = String(stdout ?? '').trim()
+  const text = stripPhpDiagnostics(stdout)
   if (!text) throw new Error('WordPress context returned no output')
-  const starts = []
-  for (let i = 0; i < text.length; i += 1) {
-    const char = text[i]
-    if (char === '{' || char === '[') starts.push(i)
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch (cause) {
+    throw new Error('WordPress context returned invalid JSON', { cause })
   }
-  for (let i = starts.length - 1; i >= 0; i -= 1) {
-    const candidate = text.slice(starts[i])
-    try {
-      const value = JSON.parse(candidate)
-      if (value && typeof value === 'object') return value
-    } catch {
-      // Not a complete JSON value at this offset; try an earlier one.
-    }
+  if (!value || typeof value !== 'object') {
+    throw new Error('WordPress context returned invalid JSON')
   }
-  throw new Error('WordPress context returned invalid JSON')
+  return value
 }
 
 function invoke(binding, input) {
