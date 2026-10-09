@@ -306,6 +306,13 @@ curl() {
     */health)
       if [ "$CURL_DISCORD_READY" = 1 ]; then printf '%s\n' '{"status":"ok","discordReady":true}'; fi
       ;;
+    # Real Discord: a bot resolves its own id from /users/@me; the
+    # members/@me alias is OAuth-only and answers bots with 400 (#707), so
+    # it falls through to the failing default below.
+    https://discord.com/api/v10/users/@me)
+      printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
+      printf '%s\n' '{"id":"999","username":"roadie","bot":true}'
+      ;;
     https://discord.com/api/v10/users/@me/guilds)
       printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
       printf '%s\n' '[{"id":"g1","name":"H44 Lacrosse"}]'
@@ -314,7 +321,7 @@ curl() {
       printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
       printf '%s\n' "$DISCORD_GUILD"
       ;;
-    https://discord.com/api/v10/guilds/g1/members/@me)
+    https://discord.com/api/v10/guilds/g1/members/999)
       printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
       printf '%s\n' "$DISCORD_MEMBER"
       ;;

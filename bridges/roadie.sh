@@ -1037,10 +1037,14 @@ PY
 # (the upgrade pass) reports an unverifiable guild in the log only — a
 # summary item there would repeat on every upgrade — while a confirmed
 # kimaki role in need of a manual rename stays loud in both modes.
+# The bot's member object is fetched by its user id: Discord answers a bot's
+# GET /guilds/{id}/members/@me with 400 (that alias is OAuth-only), which made
+# every guild "unknown" on live hosts (#707).
 _roadie_migrate_guild_access_role() {
-  local gid="$1" gname="$2" mode="${3:-loud}" guild_json member_json plan action kid
-  if ! guild_json="$(_roadie_discord_api GET "/guilds/$gid")" \
-     || ! member_json="$(_roadie_discord_api GET "/guilds/$gid/members/@me")"; then
+  local gid="$1" gname="$2" mode="${3:-loud}" bot_id="${4:-}" guild_json member_json plan action kid
+  if [ -z "$bot_id" ] \
+     || ! guild_json="$(_roadie_discord_api GET "/guilds/$gid")" \
+     || ! member_json="$(_roadie_discord_api GET "/guilds/$gid/members/$bot_id")"; then
     plan="unknown"
     action="unknown"
     kid=""
@@ -1086,8 +1090,13 @@ _roadie_migrate_guild_access_role() {
 }
 
 _roadie_migrate_access_roles() {
-  local mode="${1:-loud}" guilds_json gid gname
+  local mode="${1:-loud}" guilds_json gid gname bot_json bot_id=""
   [ -n "$(_roadie_bot_token_for_api 2>/dev/null)" ] || return 0
+  if bot_json="$(_roadie_discord_api GET /users/@me)"; then
+    bot_id="$(BOT_JSON="$bot_json" python3 -c 'import json,os
+try: print(json.loads(os.environ["BOT_JSON"]).get("id",""))
+except Exception: pass' 2>/dev/null)"
+  fi
   if ! guilds_json="$(_roadie_discord_api GET /users/@me/guilds)"; then
     warn "  Could not list Discord guilds with the bot token; skipping the access-role reconciliation (#705)"
     if [ "$mode" = loud ]; then
@@ -1098,7 +1107,7 @@ _roadie_migrate_access_roles() {
   fi
   while IFS=$'\t' read -r gid gname; do
     [ -n "$gid" ] || continue
-    _roadie_migrate_guild_access_role "$gid" "$gname" "$mode"
+    _roadie_migrate_guild_access_role "$gid" "$gname" "$mode" "$bot_id"
   done < <(GUILDS_JSON="$guilds_json" python3 - <<'PY'
 import json, os
 
