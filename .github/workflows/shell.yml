@@ -291,6 +291,7 @@ jobs:
           - homeboy-daemon-service
           - homeboy-verification-guidance
           - roadie-accounts
+          - roadie-access-roles
           - roadie-application-config
           - roadie-command-guard
           - roadie-fork-workspace

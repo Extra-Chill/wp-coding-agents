@@ -537,7 +537,9 @@ _roadie_sync_assets() {
 # A node too old for the pinned release refuses the whole migration before
 # step 1 (#692). Bridge install then proves the replacement: it starts the
 # unit and waits for a healthy Discord gateway, rolling back to Kimaki when
-# it never comes up (_roadie_verify_migration_health).
+# it never comes up (_roadie_verify_migration_health). A healthy gateway is
+# also a proven bot token, so the Discord access roles left behind by the
+# cutover are reconciled there: the kimaki role is renamed to Roadie (#705).
 # Roadie's own schema migrations run on first start. Idempotent: a Roadie data
 # dir that already holds a database is never overwritten.
 _roadie_kimaki_unit() {
@@ -883,7 +885,9 @@ _roadie_discard_migration_opencode_json_snapshot() {
 # gateway within ~60s; otherwise stop and disable Roadie, re-enable and
 # restart Kimaki, surface the journal tail, and fail — the host keeps a
 # working bridge either way. The Roadie data dir copy is never deleted, so
-# a retry after the real fix converges instead of recopying (#660).
+# a retry after the real fix converges instead of recopying (#660). A
+# healthy gateway is also what proves the bot token works, so the Discord
+# access-role reconciliation (#705) runs only here, after it.
 _roadie_verify_migration_health() {
   [ "${ROADIE_MIGRATED_THIS_RUN:-0}" = 1 ] || return 0
   # systemd-only on purpose: launchd's KeepAlive owns restarts on a mac/local
@@ -898,6 +902,7 @@ _roadie_verify_migration_health() {
   for _ in $(seq 1 30); do
     if _roadie_is_healthy "$unit"; then
       log "  $unit healthy after the migration (discordReady on 127.0.0.1:$(_roadie_health_port))"
+      _roadie_migrate_access_roles
       _roadie_discard_migration_opencode_json_snapshot
       return 0
     fi
@@ -919,6 +924,191 @@ _roadie_verify_migration_health() {
     PENDING_ITEMS+=("$unit never reported discordReady after the Kimaki migration; Kimaki re-enabled as the bridge — inspect with journalctl -u $unit")
   fi
   error "Refusing to leave the host on an unhealthy Roadie: $unit never became healthy within 60s; Kimaki re-enabled and restarted (Roadie data kept at ${ROADIE_DATA_DIR:-unknown} for a retry)"
+}
+
+# ============================================================================
+# Discord access roles (#705)
+# ============================================================================
+
+# Roadie grants session access to the guild owner, Administrator, Manage
+# Server, or a role named "roadie" (case-insensitive; cli/src/discord-utils.ts
+# hasRoadieBotPermission). Kimaki-era installs handed users a "kimaki" role,
+# which Roadie stopped reading when it made a clean break from Kimaki install
+# compatibility (roadie#32) — so after a cutover every non-owner user is
+# told to find a Roadie role that does not exist (#705). Once the gateway is
+# healthy (the same proof that the bot token works), rename the kimaki role
+# to Roadie with the bot token. When the bot cannot — no Manage Roles, an
+# integration-managed role, or a Discord error — the exact operator action
+# lands in the upgrade summary instead. Best-effort by design: the state
+# cutover has already succeeded here, so a Discord hiccup warns and never
+# rolls the migration back.
+
+# The bot token for direct Discord REST calls: the carried token, else the
+# token file. Sent only as the Authorization header over stdin, never logged.
+_roadie_bot_token_for_api() {
+  if [ -n "${ROADIE_BOT_TOKEN:-}" ]; then
+    printf '%s\n' "$ROADIE_BOT_TOKEN"
+    return 0
+  fi
+  local file
+  file="$(_roadie_bot_token_file)"
+  [ -s "$file" ] && head -n 1 "$file"
+}
+
+# Minimal Discord REST client for the role reconciliation. -f turns HTTP
+# errors into a non-zero exit with the error body suppressed, so callers
+# branch on success and never parse failure pages.
+_roadie_discord_api() {
+  local method="$1" endpoint="$2" data="${3:-}" token
+  token="$(_roadie_bot_token_for_api)" || return 1
+  # The auth header goes over stdin (-H @-), never argv: a command line is
+  # readable by every local user through ps / /proc for the call's lifetime.
+  local args=(-fsS -m 15 -X "$method" -H @- -H "Content-Type: application/json")
+  [ -z "$data" ] || args+=(-d "$data")
+  printf 'Authorization: Bot %s\n' "$token" | curl "${args[@]}" "https://discord.com/api/v10$endpoint"
+}
+
+_roadie_access_roles_pending() {
+  local message="$1"
+  declare -p PENDING_ITEMS >/dev/null 2>&1 || return 0
+  printf '%s\n' "${PENDING_ITEMS[@]}" | grep -qxF "$message" && return 0
+  PENDING_ITEMS+=("$message")
+}
+
+# Per-guild verdict from the guild object (carries roles and owner_id) and
+# the bot's member object: "none" (no kimaki role), "present" (a Roadie role
+# already exists), "rename <role id>" (the bot may edit roles), "manual"
+# (kimaki users exist but the bot cannot rename), or "unknown" (the API
+# answers could not be parsed). Permission bits: Administrator 0x8, Manage
+# Roles 0x10000000. Discord sends permissions as decimal strings that can
+# exceed 2^53, so the bitmask math runs in python, not the shell.
+_roadie_guild_role_plan() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+
+try:
+    guild, member = (json.loads(arg) for arg in sys.argv[1:3])
+    roles = guild["roles"]
+    owner_id = guild.get("owner_id", "")
+except Exception:
+    print("unknown")
+    raise SystemExit
+
+kimaki = None
+kimaki_managed = False
+roadie_exists = False
+for role in roles:
+    name = str(role.get("name", "")).strip().lower()
+    if name == "kimaki" and kimaki is None:
+        kimaki = role
+        kimaki_managed = bool(role.get("managed", False))
+    if name == "roadie" and not roadie_exists:
+        roadie_exists = True
+
+if kimaki is None:
+    print("present" if roadie_exists else "none")
+    raise SystemExit
+if roadie_exists:
+    # Renaming would duplicate the existing Roadie role; the operator
+    # assigns it instead.
+    print("assign")
+    raise SystemExit
+if kimaki_managed:
+    print("manual")
+    raise SystemExit
+
+perms = 0
+for role in roles:
+    if role.get("id") == guild.get("id") or role.get("id") in member.get("roles", []):
+        try:
+            perms |= int(role.get("permissions", "0"))
+        except ValueError:
+            pass
+is_owner = bool(owner_id) and member.get("user", {}).get("id") == owner_id
+if is_owner or perms & 0x8 or perms & 0x10000000:
+    print("rename", kimaki.get("id", ""))
+else:
+    print("manual")
+PY
+}
+
+# Rename the kimaki role to Roadie where the bot can, else surface the exact
+# action in the upgrade summary. One call per guild the bot is in. Quiet mode
+# (the upgrade pass) reports an unverifiable guild in the log only — a
+# summary item there would repeat on every upgrade — while a confirmed
+# kimaki role in need of a manual rename stays loud in both modes.
+_roadie_migrate_guild_access_role() {
+  local gid="$1" gname="$2" mode="${3:-loud}" guild_json member_json plan action kid
+  if ! guild_json="$(_roadie_discord_api GET "/guilds/$gid")" \
+     || ! member_json="$(_roadie_discord_api GET "/guilds/$gid/members/@me")"; then
+    plan="unknown"
+    action="unknown"
+    kid=""
+  else
+    plan="$(_roadie_guild_role_plan "$guild_json" "$member_json")"
+    action="${plan%% *}"
+    kid="${plan#* }"
+    [ "$kid" = "$plan" ] && kid=""
+  fi
+  case "$action" in
+    none)
+      return 0
+      ;;
+    present)
+      log "  $gname: a Roadie role already exists, the kimaki role is left as is"
+      return 0
+      ;;
+    assign)
+      _roadie_access_roles_pending \
+        "A Roadie role already exists in $gname: assign it to the users holding kimaki so they keep access (#705)"
+      return 0
+      ;;
+    rename)
+      if [ "${DRY_RUN:-false}" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would rename the kimaki role to Roadie in $gname (#705)"
+        return 0
+      fi
+      if _roadie_discord_api PATCH "/guilds/$gid/roles/$kid" '{"name":"Roadie"}'; then
+        log "  Renamed the kimaki role to Roadie in $gname (#705)"
+        if declare -p UPDATED_ITEMS >/dev/null 2>&1; then
+          UPDATED_ITEMS+=("renamed the kimaki Discord role to Roadie in $gname (#705)")
+        fi
+        return 0
+      fi
+      ;;
+  esac
+  if [ "$mode" = quiet ] && [ "$plan" = unknown ]; then
+    log "  $gname: could not verify the Discord access roles (#705)"
+    return 0
+  fi
+  _roadie_access_roles_pending \
+    "Rename the kimaki Discord role to Roadie in $gname: Roadie grants session access to a role named Roadie, and Kimaki-era users hold only kimaki (#705)"
+}
+
+_roadie_migrate_access_roles() {
+  local mode="${1:-loud}" guilds_json gid gname
+  [ -n "$(_roadie_bot_token_for_api 2>/dev/null)" ] || return 0
+  if ! guilds_json="$(_roadie_discord_api GET /users/@me/guilds)"; then
+    warn "  Could not list Discord guilds with the bot token; skipping the access-role reconciliation (#705)"
+    if [ "$mode" = loud ]; then
+      _roadie_access_roles_pending \
+        "Verify the Discord access roles after the Kimaki → Roadie migration: rename the kimaki role to Roadie where users hold it (Roadie grants session access to a role named Roadie) (#705)"
+    fi
+    return 0
+  fi
+  while IFS=$'\t' read -r gid gname; do
+    [ -n "$gid" ] || continue
+    _roadie_migrate_guild_access_role "$gid" "$gname" "$mode"
+  done < <(GUILDS_JSON="$guilds_json" python3 - <<'PY'
+import json, os
+
+try:
+    for guild in json.loads(os.environ["GUILDS_JSON"]):
+        print(f"{guild.get('id', '')}\t{guild.get('name', '')}")
+except Exception:
+    pass
+PY
+)
 }
 
 # ============================================================================
@@ -1250,6 +1440,15 @@ bridge_update_systemd() {
 
   _smart_update_systemd_unit "$unit_file" "$(bridge_render_systemd "$ROADIE_UNIT" "$merged_env")" "$ROADIE_UNIT"
   roadie_retire_kimaki_artifacts
+  # Hosts cut over before #705 never run the migration again, so the upgrade
+  # pass proves the gateway the same way the migration gate does and only
+  # then reconciles the Discord access roles the cutover left behind. Quiet
+  # mode: an install whose bot cannot see roles must not grow a summary item
+  # on every upgrade — only a confirmed kimaki role in need of a manual
+  # rename is loud here.
+  if _roadie_is_healthy "$ROADIE_UNIT"; then
+    _roadie_migrate_access_roles quiet
+  fi
 }
 
 bridge_update_launchd() {

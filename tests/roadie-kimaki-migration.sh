@@ -288,7 +288,43 @@ rm -rf "$ROADIE_DATA_DIR"
 : > "$TMP/systemctl.log"
 UPDATED_ITEMS=()
 PENDING_ITEMS=()
-curl() { if [ "$CURL_DISCORD_READY" = 1 ]; then printf '%s\n' '{"status":"ok","discordReady":true}'; fi; }
+# The Discord access-role fixtures (#705): the bot is in one guild holding a
+# kimaki role, and it has Manage Roles through r1, so a healthy gateway
+# would let the migration rename the role itself.
+ROLE_PATCH_LOG="$TMP/role-patch.log"
+DISCORD_CALLS_LOG="$TMP/discord-calls.log"
+DISCORD_GUILD='{"id":"g1","name":"H44 Lacrosse","owner_id":"111","roles":[{"id":"g1","name":"@everyone","permissions":"104324673","managed":false,"position":0},{"id":"r1","name":"h44-bot","permissions":"372768129","managed":false,"position":3},{"id":"r2","name":"kimaki","permissions":"0","managed":false,"position":2}]}'
+DISCORD_MEMBER='{"user":{"id":"999","username":"roadie","bot":true},"roles":["r1"]}'
+curl() {
+  local url="" data=""
+  for url in "$@"; do :; done
+  while [ $# -gt 0 ]; do
+    if [ "$1" = -d ] && [ $# -gt 1 ]; then data="$2"; shift; fi
+    shift
+  done
+  case "$url" in
+    */health)
+      if [ "$CURL_DISCORD_READY" = 1 ]; then printf '%s\n' '{"status":"ok","discordReady":true}'; fi
+      ;;
+    https://discord.com/api/v10/users/@me/guilds)
+      printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
+      printf '%s\n' '[{"id":"g1","name":"H44 Lacrosse"}]'
+      ;;
+    https://discord.com/api/v10/guilds/g1)
+      printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
+      printf '%s\n' "$DISCORD_GUILD"
+      ;;
+    https://discord.com/api/v10/guilds/g1/members/@me)
+      printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
+      printf '%s\n' "$DISCORD_MEMBER"
+      ;;
+    https://discord.com/api/v10/guilds/g1/roles/*)
+      printf '%s\n' "$url" >> "$DISCORD_CALLS_LOG"
+      [ -n "$data" ] && printf '%s\n' "$data" >> "$ROLE_PATCH_LOG"
+      ;;
+    *) return 1 ;;
+  esac
+}
 sleep() { :; }
 journalctl() { printf 'journal %s\n' "$*" >> "$TMP/systemctl.log"; }
 CURL_DISCORD_READY=0
@@ -313,12 +349,16 @@ grep -qF "Kimaki re-enabled and restarted" "$TMP/health-fail.out"; check $? "cle
 [ "$(cat "$SITE_PATH/opencode.json")" = "$DIRECT_OPENCODE_JSON" ]
 check $? "opencode.json model choices restored for Kimaki (subrouter is served by the stopped Roadie)"
 [ "$(stat -c %a "$SITE_PATH/opencode.json")" = 640 ]; check $? "opencode.json mode kept on restore"
+[ ! -s "$DISCORD_CALLS_LOG" ]; check $? "an unhealthy gateway triggers no Discord access-role calls (#705)"
+[ ! -s "$ROLE_PATCH_LOG" ]; check $? "no role rename on rollback"
 
 echo "==> migration completes and Roadie is healthy: Kimaki stays disabled"
 error() { echo -e "${RED}[wp-coding-agents]${NC} $1"; exit 1; }
 CURL_DISCORD_READY=1
 rm -rf "$ROADIE_DATA_DIR"
 : > "$TMP/systemctl.log"
+: > "$DISCORD_CALLS_LOG"
+: > "$ROLE_PATCH_LOG"
 UPDATED_ITEMS=()
 ( bridge_install ) > "$TMP/health-ok.out" 2>&1
 rc=$?
@@ -333,6 +373,17 @@ else
   check 0 "healthy Roadie keeps Kimaki disabled"
 fi
 if grep -qx "stop roadie.service" "$TMP/systemctl.log"; then check 1 "healthy Roadie not torn down"; else check 0 "healthy Roadie not torn down"; fi
+grep -qx '{"name":"Roadie"}' "$ROLE_PATCH_LOG"; check $? "a healthy gateway renames the kimaki role to Roadie (#705)"
+grep -q "users/@me/guilds" "$DISCORD_CALLS_LOG" && grep -q "guilds/g1/roles/r2" "$DISCORD_CALLS_LOG"
+check $? "the rename follows the guild-role lookup"
+
+echo "==> the warning path: without Manage Roles the summary carries the rename"
+UPDATED_ITEMS=()
+PENDING_ITEMS=()
+DISCORD_MEMBER='{"user":{"id":"999","username":"roadie","bot":true},"roles":[]}'
+_roadie_migrate_access_roles
+printf '%s\n' "${PENDING_ITEMS[@]}" | grep -qF "Rename the kimaki Discord role to Roadie in H44 Lacrosse"
+check $? "the exact operator action lands in the upgrade summary (#705)"
 
 echo
 if [ "$FAIL" -gt 0 ]; then
