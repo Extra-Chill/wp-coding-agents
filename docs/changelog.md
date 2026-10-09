@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.13] - 2026-10-09
+
+### Fixed
+- tolerate PHP diagnostics on the WordPress context resolver's stdout
+
 ## [2.0.12] - 2026-10-08
 
 ### Fixed
