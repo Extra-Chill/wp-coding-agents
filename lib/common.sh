@@ -408,3 +408,11 @@ initialize_roadie_overrides() {
     AGENT_SLUG_EXPLICIT=true
   fi
 }
+
+# Appended to a unit's HOME line: a newline plus the Homeboy data-root
+# Environment= line, or nothing when unset so units without it stay unchanged.
+homeboy_data_dir_systemd_env() {
+  if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
+    printf '\nEnvironment=HOMEBOY_DATA_DIR=%s' "$HOMEBOY_DATA_DIR"
+  fi
+}

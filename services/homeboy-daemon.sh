@@ -43,8 +43,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SERVICE_HOME
-Environment=HOME=$SERVICE_HOME
-${HOMEBOY_DATA_DIR:+Environment=HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR}
+Environment=HOME=$SERVICE_HOME$(homeboy_data_dir_systemd_env)
 Environment=PATH=$(dirname "$bin"):/usr/local/bin:/usr/bin:/bin
 ExecStart=$bin daemon serve
 Restart=always

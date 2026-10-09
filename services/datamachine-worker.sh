@@ -67,8 +67,7 @@ After=network.target
 Type=oneshot
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
-Environment=HOME=$SERVICE_HOME
-${HOMEBOY_DATA_DIR:+Environment=HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR}
+Environment=HOME=$SERVICE_HOME$(homeboy_data_dir_systemd_env)
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/sh -lc '$(_datamachine_worker_command)'
 EOF
