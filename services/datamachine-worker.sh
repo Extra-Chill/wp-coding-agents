@@ -68,6 +68,7 @@ Type=oneshot
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 Environment=HOME=$SERVICE_HOME
+${HOMEBOY_DATA_DIR:+Environment=HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/sh -lc '$(_datamachine_worker_command)'
 EOF

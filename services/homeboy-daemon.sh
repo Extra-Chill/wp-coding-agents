@@ -44,6 +44,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SERVICE_HOME
 Environment=HOME=$SERVICE_HOME
+${HOMEBOY_DATA_DIR:+Environment=HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR}
 Environment=PATH=$(dirname "$bin"):/usr/local/bin:/usr/bin:/bin
 ExecStart=$bin daemon serve
 Restart=always
@@ -146,6 +147,69 @@ homeboy_daemon_converge_binary() {
   else
     warn "  Homeboy daemon: running a replaced binary with jobs in flight; restart homeboy-daemon.service once idle"
   fi
+}
+
+# Move Homeboy's data root from the service user's home onto HOMEBOY_DATA_DIR
+# before any unit renders it (#710). The legacy path is left as a symlink so
+# processes that did not inherit the variable resolve the same store. When the
+# move cannot run safely, HOMEBOY_DATA_DIR is cleared for this run so no unit
+# is pointed at an empty store; the next upgrade retries.
+_homeboy_data_dir_is_root() { [ "${EUID:-$(id -u)}" -eq 0 ]; }
+
+homeboy_data_dir_migrate() {
+  [ -n "${HOMEBOY_DATA_DIR:-}" ] || return 0
+  local legacy="${SERVICE_HOME:-}/.local/share/homeboy" target="$HOMEBOY_DATA_DIR" unit
+  unit="$(homeboy_daemon_unit_name)"
+
+  [ -n "${SERVICE_HOME:-}" ] || return 0
+  if [ -L "$legacy" ] || [ ! -e "$legacy" ]; then
+    return 0
+  fi
+  if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
+    warn "  Homeboy data: both $legacy and $target exist; leaving Homeboy on $legacy"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+  if [ "${DRY_RUN:-false}" = true ]; then
+    log "  Homeboy data: would move $legacy to $target"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+  if ! _homeboy_data_dir_is_root; then
+    warn "  Homeboy data: moving $legacy to $target requires root; deferred"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+  if [ "$(_homeboy_daemon_status_field running)" = true ] && ! homeboy_daemon_idle; then
+    warn "  Homeboy data: daemon has jobs in flight; moving $legacy to $target deferred"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+
+  systemctl stop "$unit" >/dev/null 2>&1 || true
+  if [ -e "$legacy/homeboy.sqlite" ] && fuser "$legacy/homeboy.sqlite" >/dev/null 2>&1; then
+    warn "  Homeboy data: $legacy/homeboy.sqlite is still open; move deferred"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+
+  mkdir -p "$target"
+  if ! rsync -aHAX "$legacy/" "$target/"; then
+    warn "  Homeboy data: copy to $target failed; leaving Homeboy on $legacy"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+  if [ -e "$target/homeboy.sqlite" ] && \
+     [ "$(sqlite3 "$target/homeboy.sqlite" 'PRAGMA integrity_check;' 2>/dev/null)" != ok ]; then
+    warn "  Homeboy data: copied store failed integrity_check; leaving Homeboy on $legacy"
+    HOMEBOY_DATA_DIR=""
+    return 0
+  fi
+  chown -R "$SERVICE_USER:$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")" "$target" 2>/dev/null || true
+  rm -rf "$legacy"
+  ln -s "$target" "$legacy"
+  chown -h "$SERVICE_USER" "$legacy" 2>/dev/null || true
+  log "  Homeboy data: moved $legacy to $target"
 }
 
 homeboy_daemon_service_reconcile() {

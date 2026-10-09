@@ -947,6 +947,15 @@ source_policy_resolve_workspace_dir() {
   DM_WORKSPACE_DIR="$(source_policy_workspace_repositories | awk 'NR == 1 { print; exit }')"
 }
 
+# Homeboy's durable state follows an explicitly configured repository workspace.
+source_policy_resolve_homeboy_data_dir() {
+  [ -n "${HOMEBOY_DATA_DIR:-}" ] && return 0
+  if [ -n "${DM_WORKSPACE_DIR:-}" ]; then
+    HOMEBOY_DATA_DIR="$DM_WORKSPACE_DIR/.homeboy"
+  fi
+  return 0
+}
+
 # The ordered edit ruleset for the active source mode, as tab-separated
 # `<path>\t<deny|allow>` lines.
 #
