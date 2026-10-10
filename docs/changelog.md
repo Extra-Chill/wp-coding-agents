@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.17] - 2026-10-10
+
+### Changed
+- move the bridge off subrouter onto Roadie credential pools
+
+### Fixed
+- give the daemon the bridge session sender so cook notifications deliver
+
 ## [2.0.16] - 2026-10-10
 
 ### Fixed
