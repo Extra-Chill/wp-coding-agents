@@ -28,6 +28,7 @@
 #     bridge_start_hint <env>
 #     bridge_stop_hint <env>
 #     bridge_is_ready           — return 0 when the bridge has its credentials
+#     bridge_session_sender_command — optional command for Homeboy session sends
 #
 #   Optional:
 #     bridge_update_launchd     — local launchd refresh (mac launchd-using

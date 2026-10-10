@@ -36,7 +36,16 @@ WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/prefix/wp-coding-agents/bin/homeboy"
 mkdir -p "$SERVICE_HOME" "$HOMEBOY_DAEMON_SYSTEMD_DIR" "$(dirname "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN")"
 
 # --- Rendering ---------------------------------------------------------------
+bridge_load roadie
+ROADIE_SYSTEM_PREFIX="$TMP/roadie-prefix"
+ROADIE_LOCK_PORT=29988
 unit="$(homeboy_daemon_render_systemd_service)"
+grep -qx "Environment=HOMEBOY_SESSION_SEND_COMMAND=$ROADIE_SYSTEM_PREFIX/bin/roadie send" <<< "$unit" || fail "unit does not carry the bridge session sender"
+grep -qx "Environment=ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token" <<< "$unit" || fail "unit does not carry sender authentication"
+grep -q "PATH=.*$ROADIE_SYSTEM_PREFIX/bin" <<< "$unit" || fail "sender binary directory is not on PATH"
+unset -f bridge_session_sender_command bridge_session_sender_env
+unit="$(homeboy_daemon_render_systemd_service)"
+! grep -q '^Environment=HOMEBOY_SESSION_SEND_COMMAND=' <<< "$unit" || fail "unit sets a sender without a bridge"
 grep -qx "User=wpagent" <<< "$unit" || fail "unit does not run as the service user"
 grep -qx "Environment=HOME=$SERVICE_HOME" <<< "$unit" || fail "unit HOME is not the service home"
 grep -qx "ExecStart=$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN daemon serve" <<< "$unit" || fail "unit does not serve the managed binary in the foreground"
