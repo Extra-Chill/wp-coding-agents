@@ -496,7 +496,7 @@ _roadie_sync_assets() {
 
   run_cmd mkdir -p "$(roadie_plugins_dir)"
   for src in "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
-              "$SCRIPT_DIR/bridges/roadie/accounts.mjs" "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.php; do
+              "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.php; do
     [ -f "$src" ] || continue
     local name dest
     name="$(basename "$src")"
@@ -516,6 +516,19 @@ _roadie_sync_assets() {
     log "  Updated $dest"
     UPDATED_ITEMS+=("roadie-config/${dest#"$config_dir"/}")
   done
+
+  # accounts.mjs was the subrouter account mover; Roadie's own
+  # `credentials import-opencode|export-opencode` replaced it, and the
+  # subrouter package it loaded is leaving the Roadie package (#709).
+  if [ -f "$config_dir/accounts.mjs" ]; then
+    if [ "${DRY_RUN:-false}" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove retired $config_dir/accounts.mjs"
+    else
+      rm -f "$config_dir/accounts.mjs"
+      log "  Removed retired $config_dir/accounts.mjs"
+      UPDATED_ITEMS+=("roadie-config/accounts.mjs removed (use roadie credentials import-opencode|export-opencode)")
+    fi
+  fi
 }
 
 # ============================================================================
@@ -528,11 +541,11 @@ _roadie_sync_assets() {
 #      (a plain copy can catch the WAL mid-write); copy the remaining state
 #   3. carry KIMAKI_BOT_TOKEN / KIMAKI_LOCK_PORT / DATAMACHINE_* over
 #   4. move the subscription accounts (OpenCode's rotation pools) into
-#      subrouter, which Roadie routes through. Only while Kimaki is stopped:
+#      Roadie's shared credential pool. Only while Kimaki is stopped:
 #      refresh tokens rotate on use, so two live copies invalidate each other.
-#   5. route model choices on those providers through subrouter: one preset
-#      per model in use (exactly that model; fallbacks are operator policy),
-#      in the Roadie database copy and opencode.json
+#   5. route model choices on those providers through Roadie rotations: one
+#      rotation per model in use (exactly that model; fallbacks are operator
+#      policy), in the Roadie database copy and opencode.json
 #   6. disable the Kimaki unit, keep it and ~/.kimaki untouched as rollback
 # A node too old for the pinned release refuses the whole migration before
 # step 1 (#692). Bridge install then proves the replacement: it starts the
@@ -553,15 +566,6 @@ _roadie_kimaki_unit() {
   [ -f "$unit_dir/$unit" ] && printf '%s\n' "$unit"
 }
 
-# The installed Roadie package; its bundled @subrouter/cli owns the account store.
-roadie_package_dir() {
-  if _roadie_uses_system_prefix; then
-    printf '%s/lib/node_modules/%s\n' "$(_roadie_system_prefix)" "$ROADIE_PACKAGE_NAME"
-  else
-    printf '%s/%s\n' "$(npm root -g 2>/dev/null)" "$ROADIE_PACKAGE_NAME"
-  fi
-}
-
 # OpenCode's data dir for the service user (auth.json and the account pools).
 _roadie_opencode_data_dir() {
   if [ "${LOCAL_MODE:-false}" = true ]; then
@@ -571,36 +575,64 @@ _roadie_opencode_data_dir() {
   fi
 }
 
-# Run bridges/roadie/accounts.mjs as the service user, so subrouter's store is
-# created under (and owned by) the service home. The script goes over stdin:
-# the wp-coding-agents checkout need not be readable by the service user.
-_roadie_accounts() {
-  local mode="$1" node_bin
-  node_bin="$(command -v node 2>/dev/null)" || { warn "  node not found; cannot move accounts"; return 1; }
-  local args=("$mode" --opencode-data "$(_roadie_opencode_data_dir)" --roadie-package "$(roadie_package_dir)")
-  if [ "$mode" = import ] && [ -n "${ROADIE_SUBROUTER_PRESETS_JSON:-}" ]; then
-    args+=(--presets-json "$ROADIE_SUBROUTER_PRESETS_JSON")
-  fi
+# Run `roadie credentials ...` as the service user against the bridge's data
+# dir, so the pool is created under (and owned by) the service home. Called
+# from upgrade/migration shells, never an agent tool shell, so the agent-mode
+# markers are stripped rather than trusted.
+_roadie_credentials() {
+  local bin
+  bin="${ROADIE_BIN:-$(roadie_bin)}"
+  local envs=(-u ROADIE_OPENCODE_PROCESS -u ROADIE_AGENT_TOKEN ROADIE_DATA_DIR="$ROADIE_DATA_DIR")
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
-    # The redirect is deliberate: this (root) shell opens the file, so the
-    # service user needs no read access to the checkout. sudo never sees it.
-    # shellcheck disable=SC2024
-    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" "$node_bin" --input-type=module - "${args[@]}" \
-      < "$SCRIPT_DIR/bridges/roadie/accounts.mjs"
+    sudo -n -H -u "$SERVICE_USER" env "${envs[@]}" HOME="$SERVICE_HOME" "$bin" credentials "$@"
   else
-    "$node_bin" --input-type=module - "${args[@]}" < "$SCRIPT_DIR/bridges/roadie/accounts.mjs"
+    env "${envs[@]}" "$bin" credentials "$@"
   fi
 }
 
-# Printed after a migration: the rollback's account step, using the installed
-# copy of accounts.mjs.
+# Move OpenCode's subscription accounts into (import) or back out of (export)
+# Roadie's shared credential pool.
+_roadie_accounts() {
+  _roadie_credentials "${1}-opencode" --opencode-data "$(_roadie_opencode_data_dir)" --pool shared
+}
+
+# The shared pool's rotation file (name -> ordered provider/model list).
+_roadie_rotation_file() {
+  printf '%s/credentials/shared/rotation.json
+' "$ROADIE_DATA_DIR"
+}
+
+# Create a single-model rotation for each entry of a {name: [provider/model]}
+# JSON object. A rotation the pool already has is kept as it is, so operator
+# edits (cross-provider fallbacks) survive upgrades.
+_roadie_ensure_rotations() {
+  local wanted="$1" rotation_file name models
+  rotation_file="$(_roadie_rotation_file)"
+  while IFS=$'\t' read -r name models; do
+    [ -n "$name" ] || continue
+    if python3 -c 'import json,sys
+try: rotations=json.load(open(sys.argv[1]))
+except (OSError, ValueError): rotations={}
+sys.exit(0 if isinstance(rotations, dict) and sys.argv[2] in rotations else 1)' "$rotation_file" "$name" 2>/dev/null; then
+      printf 'rotation %s: kept existing\n' "$name"
+      continue
+    fi
+    # shellcheck disable=SC2086  # models is a space-separated provider/model list
+    _roadie_credentials rotation set "$name" $models --pool shared >/dev/null || return 1
+    printf 'rotation %s: %s\n' "$name" "$models"
+  done < <(printf '%s' "$wanted" | python3 -c 'import json,sys
+for name, models in sorted(json.load(sys.stdin).items()):
+    print(name + "\t" + " ".join(models))')
+}
+
+# Printed after a migration: the rollback's account export step.
 roadie_accounts_rollback_command() {
   local user_prefix=""
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ]; then
     user_prefix="sudo -u $SERVICE_USER -H "
   fi
-  printf '%snode %s/accounts.mjs export --opencode-data %s --roadie-package %s\n' \
-    "$user_prefix" "$(roadie_config_dir)" "$(_roadie_opencode_data_dir)" "$(roadie_package_dir)"
+  printf '%sROADIE_DATA_DIR=%s %s credentials export-opencode --opencode-data %s --pool shared\n' \
+    "$user_prefix" "$ROADIE_DATA_DIR" "${ROADIE_BIN:-$(roadie_bin)}" "$(_roadie_opencode_data_dir)"
 }
 
 # A failed migration must not leave the host without a bridge: re-enable and
@@ -765,7 +797,7 @@ roadie_migrate_from_kimaki() {
   fi
 
   if [ "${DRY_RUN:-false}" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would stop ${kimaki_unit:-the Kimaki service}, back up $source_db, copy state, move accounts into subrouter, disable Kimaki"
+    echo -e "${BLUE}[dry-run]${NC} Would stop ${kimaki_unit:-the Kimaki service}, back up $source_db, copy state, move accounts into the Roadie credential pool, disable Kimaki"
     return 0
   fi
 
@@ -802,13 +834,13 @@ roadie_migrate_from_kimaki() {
     error "Relocating copied project paths failed; Kimaki state left untouched and Kimaki restarted"
   }
 
-  # Accounts, and a subrouter preset for each direct model the stored choices
+  # Accounts, and a Roadie rotation for each direct model the stored choices
   # use (derived from them, no routing policy). Without them Roadie cannot
   # reach a model, so a failure rolls the whole migration back.
-  local accounts_out models_out
-  if ! ROADIE_SUBROUTER_PRESETS_JSON="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" presets \
+  local accounts_out models_out rotations_json rotations_out
+  if ! rotations_json="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" rotations \
          --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
-    printf '%s\n' "$ROADIE_SUBROUTER_PRESETS_JSON" >&2
+    printf '%s\n' "$rotations_json" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
     error "Reading stored model choices failed; Kimaki state left untouched and Kimaki restarted"
@@ -817,13 +849,22 @@ roadie_migrate_from_kimaki() {
     printf '%s\n' "$accounts_out" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
-    error "Moving subscription accounts into subrouter failed; Kimaki state left untouched and Kimaki restarted"
+    error "Moving subscription accounts into the Roadie credential pool failed; Kimaki state left untouched and Kimaki restarted"
   fi
   while IFS= read -r entry; do
-    [ -n "$entry" ] && log "  subrouter $entry"
+    [ -n "$entry" ] && log "  pool: $entry"
   done <<< "$accounts_out"
+  if ! rotations_out="$(_roadie_ensure_rotations "$rotations_json" 2>&1)"; then
+    printf '%s\n' "$rotations_out" >&2
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Creating Roadie rotations failed; Kimaki state left untouched and Kimaki restarted"
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && log "  $entry"
+  done <<< "$rotations_out"
 
-  # Snapshot opencode.json before its defaults are repointed. The presets it
+  # Snapshot opencode.json before its defaults are repointed. The rotations it
   # will name are served by Roadie, so if the post-migration health gate
   # rolls back to Kimaki, Kimaki's OpenCode would otherwise start with a
   # default model whose provider no longer exists (#692 follow-up).
@@ -833,14 +874,14 @@ roadie_migrate_from_kimaki() {
     cat "$SITE_PATH/opencode.json" > "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
   fi
 
-  # Point those choices at the presets, in the Roadie copy of the database
+  # Point those choices at the rotations, in the Roadie copy of the database
   # (before Roadie first starts) and opencode.json.
   if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
          --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
     printf '%s\n' "$models_out" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
-    error "Moving model choices to subrouter presets failed; Kimaki state left untouched and Kimaki restarted"
+    error "Moving model choices to Roadie rotations failed; Kimaki state left untouched and Kimaki restarted"
   fi
   while IFS= read -r entry; do
     [ -n "$entry" ] && log "  $entry"
@@ -861,8 +902,8 @@ roadie_migrate_from_kimaki() {
   ROADIE_MIGRATED_THIS_RUN=1
   ROADIE_MIGRATION_KIMAKI_UNIT="${kimaki_unit:-}"
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
-  UPDATED_ITEMS+=("subscription accounts moved into subrouter; on rollback, first run: $(roadie_accounts_rollback_command)")
-  UPDATED_ITEMS+=("model choices routed through subrouter presets; add fallbacks with 'subrouter preset' (opencode.json backed up as opencode.json.before-subrouter-*; restore it on rollback)")
+  UPDATED_ITEMS+=("subscription accounts moved into the Roadie credential pool; on rollback, first run: $(roadie_accounts_rollback_command)")
+  UPDATED_ITEMS+=("model choices routed through Roadie rotations; add fallbacks with 'roadie credentials rotation set' (opencode.json backed up as opencode.json.before-roadie-*; restore it on rollback)")
 }
 
 # Put opencode.json back exactly as the migration found it. Written through
@@ -911,12 +952,12 @@ _roadie_verify_migration_health() {
 
   systemctl stop "$unit" 2>/dev/null || true
   systemctl disable "$unit" 2>/dev/null || true
-  # Kimaki needs its own model choices back before it starts: the subrouter
-  # presets they were repointed to were served by the Roadie just stopped.
+  # Kimaki needs its own model choices back before it starts: the Roadie
+  # rotations they were repointed to were served by the Roadie just stopped.
   # Accounts need nothing: the import copied them, and a Roadie that never
   # came up never refreshed a token, so Kimaki's copies are still current.
   _roadie_restore_migration_opencode_json \
-    || warn "  Could not restore opencode.json; restore it from opencode.json.before-subrouter-* before using Kimaki"
+    || warn "  Could not restore opencode.json; restore it from opencode.json.before-roadie-* before using Kimaki"
   _roadie_restore_kimaki "$ROADIE_MIGRATION_KIMAKI_UNIT"
   log "  Roadie never became healthy; last journal lines for $unit:"
   journalctl -u "$unit" -n 20 --no-pager 2>/dev/null || true

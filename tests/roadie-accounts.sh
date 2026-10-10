@@ -1,16 +1,17 @@
 #!/bin/bash
-# tests/roadie-accounts.sh — subscription accounts move between OpenCode and
-# subrouter without loss, using the real @subrouter/cli store.
+# tests/roadie-accounts.sh — the bridge moves subscription accounts and model
+# rotations through Roadie's own credential commands (#709).
 #
-# The subrouter version is the one the pinned Roadie release depends on, read
-# from Roadie's package.json at that tag. ROADIE_TEST_PACKAGE_DIR may point at
-# an installed Roadie package instead (offline runs). Tokens are fixtures.
+# Account import/export semantics (order, active account, dedupe, 0600 files)
+# belong to `roadie credentials import-opencode|export-opencode` and are tested
+# in Roadie. This test pins the bridge's side of that contract with a stub
+# `roadie` that records its argv and environment and keeps a real
+# rotation.json, so it needs neither real accounts nor any subrouter package.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-chmod 700 "$TMP"
 
 FAIL=0
 PASS=0
@@ -18,116 +19,99 @@ check() {
   if [ "$1" -eq 0 ]; then echo "  ok   $2"; PASS=$((PASS + 1)); else echo "  FAIL $2"; FAIL=$((FAIL + 1)); fi
 }
 
-PIN="$(tr -d '[:space:]' < "$SCRIPT_DIR/bridges/roadie/roadie-version")"
-if [ -n "${ROADIE_TEST_PACKAGE_DIR:-}" ]; then
-  PKG="$ROADIE_TEST_PACKAGE_DIR"
-else
-  SUBROUTER_VERSION="$(curl -fsSL "https://raw.githubusercontent.com/Extra-Chill/roadie/v$PIN/cli/package.json" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["dependencies"]["@subrouter/cli"])')" \
-    || { echo "FAIL: could not read Roadie v$PIN's @subrouter/cli version"; exit 1; }
-  PKG="$TMP/roadie-package"
-  mkdir -p "$PKG"
-  printf '{"name":"roadie-fixture","private":true}\n' > "$PKG/package.json"
-  npm install --silent --no-audit --no-fund --prefix "$PKG" "@subrouter/cli@$SUBROUTER_VERSION" >/dev/null \
-    || { echo "FAIL: npm install @subrouter/cli@$SUBROUTER_VERSION"; exit 1; }
-  echo "using @subrouter/cli@$SUBROUTER_VERSION (Roadie v$PIN)"
+STUB="$TMP/bin/roadie"
+CALLS="$TMP/calls"
+mkdir -p "$TMP/bin"
+cat > "$STUB" <<'SH'
+#!/bin/bash
+# Records argv plus the env the bridge must set or strip; implements just
+# enough of `credentials rotation set` to keep a real rotation.json.
+{
+  printf 'argv:'; printf ' %s' "$@"; printf '\n'
+  printf 'env: ROADIE_DATA_DIR=%s OPENCODE_PROCESS=%s AGENT_TOKEN=%s\n' \
+    "${ROADIE_DATA_DIR:-}" "${ROADIE_OPENCODE_PROCESS:-unset}" "${ROADIE_AGENT_TOKEN:-unset}"
+} >> "$ROADIE_STUB_CALLS"
+if [ "${ROADIE_STUB_FAIL:-}" = "$2" ]; then echo "stub failure for $2" >&2; exit 3; fi
+if [ "$1 $2 $3" = "credentials rotation set" ]; then
+  name="$4"; shift 4
+  models=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --pool) shift 2 ;; *) models+=("$1"); shift ;; esac
+  done
+  mkdir -p "$ROADIE_DATA_DIR/credentials/shared"
+  python3 - "$ROADIE_DATA_DIR/credentials/shared/rotation.json" "$name" "${models[@]}" <<'PY'
+import json, os, sys
+path, name, models = sys.argv[1], sys.argv[2], sys.argv[3:]
+data = json.load(open(path)) if os.path.exists(path) else {}
+data[name] = models
+json.dump(data, open(path, "w"))
+PY
 fi
+echo "${2} ok"
+SH
+chmod +x "$STUB"
 
-OC="$TMP/opencode"
-export SUBROUTER_HOME="$TMP/subrouter"
-mkdir -p "$OC"
-FAR=4102444800000   # 2100-01-01
-python3 - "$OC" "$FAR" <<'PY'
-import json, sys, os
-oc, far = sys.argv[1], int(sys.argv[2])
-def acct(n, email=None, aid=None, expires=1000):
-    a = {"type": "oauth", "refresh": f"refresh-{n}", "access": f"access-{n}", "expires": expires, "addedAt": 1, "lastUsed": 2}
-    if email: a["email"] = email
-    if aid: a["accountId"] = aid
-    return a
-pools = {
-  "anthropic": {"version": 1, "activeIndex": 1, "accounts": [acct("a1", "one@example.com"), acct("a2", "two@example.com"), acct("a3", "three@example.com")]},
-  "openai": {"version": 1, "activeIndex": 0, "accounts": [acct("o1", aid="org-1"), acct("o2", aid="org-2")]},
-}
-for name, pool in pools.items():
-    json.dump(pool, open(f"{oc}/{name}-oauth-accounts.json", "w"))
-auth = {
-  # active anthropic account, refreshed later than the pool copy
-  "anthropic": {"type": "oauth", "refresh": "refresh-a2-new", "access": "access-a2-new", "expires": far, "email": "two@example.com"},
-  "openai": {"type": "oauth", "refresh": "refresh-o1", "access": "access-o1", "expires": 1000},
-  "zai-coding-plan": {"type": "api", "key": "zai-key"},
-  "opencode-go": {"type": "api", "key": "go-key"},
-  "unknown-provider": {"type": "api", "key": "ignored"},
-}
-json.dump(auth, open(f"{oc}/auth.json", "w"))
-PY
-
-run() { node "$SCRIPT_DIR/bridges/roadie/accounts.mjs" "$@" --opencode-data "$OC" --roadie-package "$PKG"; }
-store() { python3 -c "import json,sys; d=json.load(open('$SUBROUTER_HOME/auth.json'))['providers']; print(eval(sys.argv[1]))" "$1"; }
-
-echo "==> import"
-OUT="$(run import)"; check $? "import succeeds"
-[ "$(store "len(d['anthropic']['accounts'])")" = 3 ]; check $? "anthropic pool: all 3 accounts"
-[ "$(store "[a['email'] for a in d['anthropic']['accounts']]")" = "['one@example.com', 'two@example.com', 'three@example.com']" ]; check $? "anthropic order preserved"
-[ "$(store "d['anthropic']['activeIndex']")" = 1 ]; check $? "anthropic active account preserved"
-[ "$(store "d['anthropic']['accounts'][1]['refresh']")" = refresh-a2-new ]; check $? "fresher auth.json copy of the active account wins"
-[ "$(store "len(d['openai']['accounts'])")" = 2 ]; check $? "openai pool: auth.json duplicate not added twice"
-[ "$(store "d['zai']['accounts'][0]['key']")" = zai-key ]; check $? "zai-coding-plan maps to subrouter zai"
-[ "$(store "d['opencode-go']['accounts'][0]['type']")" = api ]; check $? "opencode-go api key imported"
-[ "$(store "'unknown-provider' in d")" = False ]; check $? "unsupported providers skipped"
-[ "$(stat -c %a "$SUBROUTER_HOME/auth.json" 2>/dev/null || stat -f %Lp "$SUBROUTER_HOME/auth.json")" = 600 ]; check $? "subrouter store is 0600"
-case "$OUT" in *refresh-*|*access-*|*-key*) check 1 "output contains no secrets" ;; *) check 0 "output contains no secrets" ;; esac
-
-echo "==> presets"
-cfg() { python3 -c "import json,sys; d=json.load(open('$SUBROUTER_HOME/config.json'))['presets']; print(eval(sys.argv[1]))" "$1"; }
-run import --presets-json '{"anthropic-claude-x":["anthropic/claude-x"]}' >/dev/null; check $? "import with presets succeeds"
-[ "$(cfg "d['anthropic-claude-x']")" = "['anthropic/claude-x']" ]; check $? "preset created"
-run import --presets-json '{"anthropic-claude-x":["anthropic/other"]}' | grep -q "kept existing"; check $? "existing preset reported as kept"
-[ "$(cfg "d['anthropic-claude-x']")" = "['anthropic/claude-x']" ]; check $? "operator-edited preset not overwritten"
-run import --presets-json '{"bad":["no-slash"]}' >/dev/null 2>&1; [ $? -ne 0 ]; check $? "malformed preset rejected"
-
-echo "==> re-import never overwrites what subrouter holds"
-python3 - "$SUBROUTER_HOME/auth.json" <<'PY'
-import json, sys
-f = sys.argv[1]; d = json.load(open(f))
-d['providers']['anthropic']['accounts'][1]['refresh'] = 'refresh-a2-rotated-by-subrouter'
-json.dump(d, open(f, 'w'))
-PY
-run import >/dev/null; check $? "re-import succeeds"
-[ "$(store "d['anthropic']['accounts'][1]['refresh']")" = refresh-a2-rotated-by-subrouter ]; check $? "subrouter's rotated token kept"
-
-echo "==> export (rollback) writes subrouter's current tokens back"
-run export >/dev/null; check $? "export succeeds"
-python3 - "$OC" <<'PY'
-import json, sys
-oc = sys.argv[1]
-pool = json.load(open(f"{oc}/anthropic-oauth-accounts.json"))
-auth = json.load(open(f"{oc}/auth.json"))
-assert [a["email"] for a in pool["accounts"]] == ["one@example.com", "two@example.com", "three@example.com"], pool
-assert pool["activeIndex"] == 1 and pool["version"] == 1
-assert pool["accounts"][1]["refresh"] == "refresh-a2-rotated-by-subrouter"
-assert auth["anthropic"]["refresh"] == "refresh-a2-rotated-by-subrouter"
-assert auth["zai-coding-plan"] == {"type": "api", "key": "zai-key"}
-assert auth["unknown-provider"]["key"] == "ignored", "unrelated logins kept"
-PY
-check $? "pools and auth.json carry subrouter's tokens; unrelated logins kept"
-[ -f "$OC/auth.json.before-roadie-rollback" ]; check $? "previous auth.json backed up"
-[ "$(stat -c %a "$OC/auth.json" 2>/dev/null || stat -f %Lp "$OC/auth.json")" = 600 ]; check $? "exported auth.json is 0600"
-
-echo "==> installer path (stdin, as the current user)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/roadie.sh"
-rm -rf "$SUBROUTER_HOME"
-roadie_package_dir() { printf '%s\n' "$PKG"; }
-_roadie_opencode_data_dir() { printf '%s\n' "$OC"; }
-LOCAL_MODE=true _roadie_accounts import >/dev/null; check $? "_roadie_accounts import runs the script over stdin"
-[ "$(store "len(d['anthropic']['accounts'])")" = 3 ]; check $? "installer path stored the pool"
 
-echo "==> a missing Roadie package fails loudly"
-node "$SCRIPT_DIR/bridges/roadie/accounts.mjs" import --opencode-data "$OC" --roadie-package "$TMP/nope" 2>/dev/null
-[ $? -ne 0 ]; check $? "non-zero exit without @subrouter/cli"
+export ROADIE_STUB_CALLS="$CALLS"
+ROADIE_BIN="$STUB"
+ROADIE_DATA_DIR="$TMP/roadie-data"
+LOCAL_MODE=true
+OC="$TMP/opencode"
+_roadie_opencode_data_dir() { printf '%s\n' "$OC"; }
+
+echo "==> account import/export use roadie credentials"
+: > "$CALLS"
+# The agent-mode markers of a Roadie tool shell must not leak into the call:
+# Roadie refuses operator-only credential commands in agent mode.
+ROADIE_OPENCODE_PROCESS=1 ROADIE_AGENT_TOKEN=tok _roadie_accounts import >/dev/null
+check $? "_roadie_accounts import succeeds"
+grep -qx "argv: credentials import-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-opencode on the shared pool"
+grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR OPENCODE_PROCESS=unset AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
+: > "$CALLS"
+_roadie_accounts export >/dev/null; check $? "_roadie_accounts export succeeds"
+grep -qx "argv: credentials export-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "export runs credentials export-opencode"
+ROADIE_STUB_FAIL=import-opencode _roadie_accounts import >/dev/null 2>&1
+[ $? -ne 0 ]; check $? "a failing import is reported as failure"
+
+echo "==> rollback command"
+ROLLBACK="$(roadie_accounts_rollback_command)"
+[ "$ROLLBACK" = "ROADIE_DATA_DIR=$ROADIE_DATA_DIR $STUB credentials export-opencode --opencode-data $OC --pool shared" ]
+check $? "rollback names export-opencode with the data dir and binary"
+case "$ROLLBACK" in *accounts.mjs*|*subrouter*) check 1 "rollback has no subrouter path" ;; *) check 0 "rollback has no subrouter path" ;; esac
+
+echo "==> rotations: one per stored direct model, existing ones kept"
+: > "$CALLS"
+OUT="$(_roadie_ensure_rotations '{"anthropic-claude-x":["anthropic/claude-x"],"openai-gpt-y":["openai/gpt-y"]}')"
+check $? "_roadie_ensure_rotations succeeds"
+ROT="$ROADIE_DATA_DIR/credentials/shared/rotation.json"
+[ "$(python3 -c "import json; print(json.load(open('$ROT')))")" = "{'anthropic-claude-x': ['anthropic/claude-x'], 'openai-gpt-y': ['openai/gpt-y']}" ]
+check $? "rotations created with exactly their model"
+grep -qx "argv: credentials rotation set anthropic-claude-x anthropic/claude-x --pool shared" "$CALLS"; check $? "uses roadie credentials rotation set"
+printf '%s\n' "$OUT" | grep -qx "rotation openai-gpt-y: openai/gpt-y"; check $? "reports each created rotation"
+python3 - "$ROT" <<'PY'
+import json, sys
+f = sys.argv[1]; d = json.load(open(f))
+d["anthropic-claude-x"] = ["anthropic/claude-x", "openai/gpt-y"]   # operator fallback
+json.dump(d, open(f, "w"))
+PY
+: > "$CALLS"
+OUT="$(_roadie_ensure_rotations '{"anthropic-claude-x":["anthropic/claude-x"]}')"
+printf '%s\n' "$OUT" | grep -qx "rotation anthropic-claude-x: kept existing"; check $? "existing rotation reported as kept"
+[ ! -s "$CALLS" ]; check $? "existing rotation not rewritten"
+[ "$(python3 -c "import json; print(json.load(open('$ROT'))['anthropic-claude-x'])")" = "['anthropic/claude-x', 'openai/gpt-y']" ]
+check $? "operator-edited rotation survives"
+_roadie_ensure_rotations '{}' >/dev/null; check $? "no rotations needed is a no-op"
+ROADIE_STUB_FAIL=rotation _roadie_ensure_rotations '{"xai-grok":["xai/grok"]}' >/dev/null 2>&1
+[ $? -ne 0 ]; check $? "a failing rotation set is reported as failure"
+
+echo "==> no subrouter dependency"
+! grep -rn "@subrouter" "$SCRIPT_DIR/bridges" "$SCRIPT_DIR/lib" "$SCRIPT_DIR/upgrade.sh" "$SCRIPT_DIR/setup.sh" >/dev/null
+check $? "bridge, lib and installers never load @subrouter/*"
+[ ! -e "$SCRIPT_DIR/bridges/roadie/accounts.mjs" ]; check $? "accounts.mjs is retired"
 
 echo
 if [ "$FAIL" -gt 0 ]; then
