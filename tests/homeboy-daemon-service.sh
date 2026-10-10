@@ -23,6 +23,7 @@ log() { LOGGED="$LOGGED$1
 warn() { LOGGED="$LOGGED$1
 "; }
 
+unset HOMEBOY_DATA_DIR
 SERVICE_USER=wpagent
 SERVICE_HOME="$TMP/home"
 LOCAL_MODE=false
@@ -43,6 +44,9 @@ grep -qx "Restart=always" <<< "$unit" || fail "unit is not always restarted"
 grep -qx "StartLimitIntervalSec=0" <<< "$unit" || fail "unit can give up while another daemon owns the lock"
 grep -qx "WantedBy=multi-user.target" <<< "$unit" || fail "unit is not enabled at boot"
 case "$unit" in *roadie*|*kimaki*) fail "daemon unit names a chat bridge" ;; esac
+grep -q "HOMEBOY_DATA_DIR" <<< "$unit" && fail "unit sets HOMEBOY_DATA_DIR without a workspace root"
+unit="$(HOMEBOY_DATA_DIR=/srv/workspace/.homeboy homeboy_daemon_render_systemd_service)"
+grep -qx "Environment=HOMEBOY_DATA_DIR=/srv/workspace/.homeboy" <<< "$unit" || fail "unit does not carry the workspace Homeboy data root"
 
 # --- Applicability -------------------------------------------------------------
 homeboy_daemon_service_applicable && fail "unit applies before the managed binary exists"
@@ -133,5 +137,79 @@ case "$LOGGED" in *"jobs in flight"*) : ;; *) fail "deferred restart was not rep
 reset
 _homeboy_daemon_status_json() { return 1; }
 homeboy_daemon_idle && fail "unknown daemon status was treated as idle"
+
+
+# --- Homeboy data root migration (#710) -----------------------------------------
+_homeboy_daemon_status_json() {
+  python3 - <<'PY'
+import json, os
+jobs = [{"job_id": str(i)} for i in range(int(os.environ.get("FAKE_JOBS", "0")))]
+print(json.dumps({"data": {"active_jobs": jobs, "running": os.environ.get("FAKE_RUNNING", "true") == "true", "fresh": True, "daemon": {"pid": 0}}}))
+PY
+}
+legacy="$SERVICE_HOME/.local/share/homeboy"
+new_root="$TMP/workspace/.homeboy"
+seed_legacy() {
+  rm -rf "$legacy" "$TMP/workspace"; mkdir -p "$legacy/runtime"
+  sqlite3 "$legacy/homeboy.sqlite" 'CREATE TABLE t (x); INSERT INTO t VALUES (1);'
+  echo kept > "$legacy/runtime/marker"
+}
+
+# No variable: nothing happens.
+seed_legacy; reset; HOMEBOY_DATA_DIR=""
+homeboy_data_dir_migrate
+[ -d "$legacy" ] && [ ! -L "$legacy" ] || fail "migration ran without HOMEBOY_DATA_DIR"
+
+# Non-root: deferred and the variable cleared so no unit points at an empty store.
+seed_legacy; reset; HOMEBOY_DATA_DIR="$new_root"
+_homeboy_data_dir_is_root() { return 1; }
+homeboy_data_dir_migrate
+[ -z "$HOMEBOY_DATA_DIR" ] || fail "deferred migration left HOMEBOY_DATA_DIR set"
+[ ! -L "$legacy" ] || fail "non-root migration moved the store"
+
+# Dry run: reported, nothing moved, variable cleared.
+seed_legacy; reset; HOMEBOY_DATA_DIR="$new_root"
+_homeboy_data_dir_is_root() { return 0; }
+DRY_RUN=true homeboy_data_dir_migrate
+[ -z "$HOMEBOY_DATA_DIR" ] && [ ! -L "$legacy" ] || fail "dry run moved the store or kept the variable"
+
+# Busy daemon: deferred.
+seed_legacy; reset; HOMEBOY_DATA_DIR="$new_root"; FAKE_RUNNING=true FAKE_JOBS=1
+homeboy_data_dir_migrate
+[ -z "$HOMEBOY_DATA_DIR" ] && [ ! -L "$legacy" ] || fail "migration ran under in-flight daemon work"
+
+# Root, idle: store moved, legacy path becomes a symlink, data intact.
+seed_legacy; reset; HOMEBOY_DATA_DIR="$new_root"
+fuser() { return 1; }
+homeboy_data_dir_migrate
+[ "$HOMEBOY_DATA_DIR" = "$new_root" ] || fail "successful migration cleared HOMEBOY_DATA_DIR"
+[ -L "$legacy" ] && [ "$(readlink "$legacy")" = "$new_root" ] || fail "legacy path is not a symlink to the new root"
+[ "$(cat "$new_root/runtime/marker")" = kept ] || fail "store contents were not carried over"
+[ "$(sqlite3 "$new_root/homeboy.sqlite" 'SELECT x FROM t;')" = 1 ] || fail "sqlite store was not carried over"
+grep -qx "stop homeboy-daemon.service" "$SYSTEMCTL_LOG" || fail "daemon was not stopped before the move"
+
+# Already migrated: idempotent no-op.
+reset; HOMEBOY_DATA_DIR="$new_root"
+homeboy_data_dir_migrate
+[ "$HOMEBOY_DATA_DIR" = "$new_root" ] && [ -L "$legacy" ] || fail "rerun on a migrated host was not a no-op"
+grep -q "^stop" "$SYSTEMCTL_LOG" && fail "rerun on a migrated host stopped the daemon"
+
+# Both locations populated: never clobber, stay on legacy.
+seed_legacy; mkdir -p "$new_root"; echo other > "$new_root/x"; reset; HOMEBOY_DATA_DIR="$new_root"
+homeboy_data_dir_migrate
+[ -z "$HOMEBOY_DATA_DIR" ] && [ ! -L "$legacy" ] && [ -f "$new_root/x" ] || fail "migration clobbered an existing target"
+
+# --- Data root resolution follows the configured workspace (#710) --------------
+# shellcheck disable=SC1091
+source "$ROOT_DIR/lib/source-policy.sh"
+HOMEBOY_DATA_DIR="" DM_WORKSPACE_DIR=""
+source_policy_resolve_homeboy_data_dir
+[ -z "$HOMEBOY_DATA_DIR" ] || fail "data root resolved without a workspace"
+HOMEBOY_DATA_DIR="" DM_WORKSPACE_DIR=/srv/ws
+source_policy_resolve_homeboy_data_dir
+[ "$HOMEBOY_DATA_DIR" = /srv/ws/.homeboy ] || fail "data root does not follow the workspace"
+HOMEBOY_DATA_DIR=/data/hb DM_WORKSPACE_DIR=/srv/ws
+source_policy_resolve_homeboy_data_dir
+[ "$HOMEBOY_DATA_DIR" = /data/hb ] || fail "operator-set data root was overridden"
 
 echo "PASS: tests/homeboy-daemon-service.sh"

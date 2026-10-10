@@ -1251,6 +1251,9 @@ Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_roadie_datamachine_wp_transport_systemd_env)
 EOF
+  if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
+    printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
+  fi
   if [ -n "$channels_config" ]; then
     printf 'Environment=ROADIE_CHANNELS_CONFIG="%s"\n' "$channels_config"
   fi

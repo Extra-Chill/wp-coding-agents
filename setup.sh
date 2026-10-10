@@ -628,6 +628,7 @@ source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
+source_policy_resolve_homeboy_data_dir
 source_policy_assert_runtime_supports_mode
 
 # Owned mode defaults to a non-root service user (#327). Must run after the mode
@@ -686,6 +687,8 @@ CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
 CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"
 [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
 [ "$RUNTIME_ONLY" != true ] || CONVERGENCE_SCOPE=runtime
+# Move an existing Homeboy data root before any unit renders HOMEBOY_DATA_DIR (#710).
+homeboy_data_dir_migrate
 if convergence_run "$INSTALLATION_OPERATION_SETUP"; then :; else
   CONVERGENCE_EXIT_STATUS=$?
   reconciler_print_partial_evidence

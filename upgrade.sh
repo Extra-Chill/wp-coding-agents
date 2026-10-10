@@ -501,6 +501,7 @@ source_policy_resolve_owned_sources
 source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
+source_policy_resolve_homeboy_data_dir
 source_policy_assert_runtime_supports_mode
 if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
@@ -637,6 +638,10 @@ PENDING_ITEMS=()
 PLUGIN_UPDATE_FAILURES=()
 # Managed units found in a bad runtime state. Reported, never acted on.
 HEALTH_WARNINGS=()
+
+# Service identity is final here; move Homeboy's data root before any unit
+# renders HOMEBOY_DATA_DIR (#710).
+homeboy_data_dir_migrate
 
 if [ "${SYSTEMS_CAPABILITIES_ONLY:-false}" = true ]; then
   [ -n "${SYSTEMS_CAPABILITIES_PROFILE:-}" ] || error "--systems-capabilities-only requires --systems-capabilities <profile>"

@@ -17,6 +17,9 @@
 #   tests/bridge-render.sh --verbose    # print each rendered file before diff
 set -eu
 
+# Snapshots describe a host without a workspace data root; the operator shell may set one.
+unset HOMEBOY_DATA_DIR
+
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 source "$SCRIPT_DIR/lib/common.sh"
