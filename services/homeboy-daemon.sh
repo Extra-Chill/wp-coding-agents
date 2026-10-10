@@ -29,8 +29,19 @@ homeboy_daemon_service_applicable() {
 }
 
 homeboy_daemon_render_systemd_service() {
-  local bin
+  local bin sender sender_env sender_dir path
   bin="$(homeboy_service_bin)"
+  sender=""
+  sender_env=""
+  sender_dir=""
+  if declare -F bridge_session_sender_command >/dev/null 2>&1; then
+    sender="$(bridge_session_sender_command)"
+    if [ -n "$sender" ]; then
+      sender_dir="$(dirname "${sender%% *}")"
+      declare -F bridge_session_sender_env >/dev/null 2>&1 && sender_env="$(bridge_session_sender_env)"
+    fi
+  fi
+  path="$(dirname "$bin")${sender_dir:+:$sender_dir}:/usr/local/bin:/usr/bin:/bin"
   cat <<EOF
 [Unit]
 Description=Homeboy daemon (wp-coding-agents)
@@ -44,7 +55,10 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SERVICE_HOME
 Environment=HOME=$SERVICE_HOME$(homeboy_data_dir_systemd_env)
-Environment=PATH=$(dirname "$bin"):/usr/local/bin:/usr/bin:/bin
+Environment=PATH=$path
+${sender:+Environment=HOMEBOY_SESSION_SEND_COMMAND=$sender
+}${sender_env:+$sender_env
+}
 ExecStart=$bin daemon serve
 Restart=always
 RestartSec=10
@@ -213,7 +227,7 @@ homeboy_data_dir_migrate() {
 
 homeboy_daemon_service_reconcile() {
   homeboy_daemon_service_applicable || return 0
-  local unit unit_path
+  local unit unit_path rendered changed=false
   unit="$(homeboy_daemon_unit_name)"
   unit_path="$(homeboy_daemon_unit_path)"
 
@@ -227,12 +241,23 @@ homeboy_daemon_service_reconcile() {
     return 0
   fi
 
-  _smart_update_systemd_unit "$unit_path" "$(homeboy_daemon_render_systemd_service)" "$unit"
+  rendered="$(homeboy_daemon_render_systemd_service)"
+  cmp -s <(printf '%s\n' "$rendered") "$unit_path" || changed=true
+  _smart_update_systemd_unit "$unit_path" "$rendered" "$unit"
   [ "${DRY_RUN:-false}" = true ] && return 0
   systemctl enable "$unit" >/dev/null 2>&1 || true
   if ! systemctl is-active --quiet "$unit"; then
     homeboy_daemon_adopt_unsupervised
     systemctl start "$unit"
+    return 0
+  fi
+  if [ "$changed" = true ]; then
+    if homeboy_daemon_idle; then
+      log "  Homeboy daemon: restarting idle daemon onto the updated unit"
+      systemctl restart "$unit"
+    else
+      warn "  Homeboy daemon: updated unit will take effect after restart; daemon has jobs in flight"
+    fi
     return 0
   fi
   homeboy_daemon_converge_binary
