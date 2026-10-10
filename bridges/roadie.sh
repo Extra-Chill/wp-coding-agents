@@ -270,6 +270,13 @@ roadie_bin() {
   command -v roadie 2>/dev/null || printf '%s\n' roadie
 }
 
+bridge_session_sender_command() { printf '%s send\n' "$(roadie_bin)"; }
+
+bridge_session_sender_env() {
+  printf 'Environment=ROADIE_SERVICE_TOKEN_FILE=%s\n' "$(_roadie_send_token_file)"
+  [ -z "${ROADIE_LOCK_PORT:-}" ] || printf 'Environment=ROADIE_LOCK_PORT=%s\n' "$ROADIE_LOCK_PORT"
+}
+
 # ============================================================================
 # Node preflight (the pinned release needs Node >= ROADIE_MIN_NODE_MAJOR)
 # ============================================================================
