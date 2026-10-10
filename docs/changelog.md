@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.16] - 2026-10-10
+
+### Fixed
+- keep Homeboy's data root on the workspace volume
+
 ## [2.0.15] - 2026-10-09
 
 ### Fixed
