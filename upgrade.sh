@@ -393,8 +393,8 @@ OPT-IN TOUCHES:
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
     authenticate with Claude Pro/Max OAuth. Inside Roadie sessions account
-    rotation belongs to subrouter, so the plugin only serves direct OpenCode
-    runs. Use --no-claude-code-auth to skip.
+    rotation belongs to Roadie's credential pools, so the plugin only serves
+    direct OpenCode runs. Use --no-claude-code-auth to skip.
 HELP
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
   exit 0
@@ -948,6 +948,11 @@ check_opencode_json_drift() {
     CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
+  # Under Roadie, model/small_model values still naming subrouter/<preset>
+  # move to roadie/<preset> when Roadie's shared pool has that rotation (#709).
+  if [ "$BRIDGE_ARG" = roadie ] && [ -n "${ROADIE_DATA_DIR:-}" ]; then
+    claude_code_auth_args+=(--roadie-rotations-file "$ROADIE_DATA_DIR/credentials/shared/rotation.json")
+  fi
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
   # exists. The primary RUNTIME may be `claude-code`, but the presence of
@@ -1007,11 +1012,7 @@ for item in data:
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
       owned_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
     fi
-    local claude_auth_arg_display=""
-    if [ -n "$CLAUDE_CODE_AUTH_PLUGIN" ]; then
-      claude_auth_arg_display=" --claude-code-auth-plugin $CLAUDE_CODE_AUTH_PLUGIN"
-    fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --roadie-plugins-dir $PLUGINS_DIR$claude_auth_arg_display$owned_arg_display $MODE_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --roadie-plugins-dir $PLUGINS_DIR${claude_code_auth_args[*]:+ ${claude_code_auth_args[*]}}$owned_arg_display $MODE_FLAG"
     local dry_out
     local managed_args=()
     if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then

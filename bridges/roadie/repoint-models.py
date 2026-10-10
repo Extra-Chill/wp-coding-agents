@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Route stored model choices through subrouter after the Kimaki migration.
+"""Route stored model choices through Roadie credential rotations.
 
-Subrouter now holds the subscription accounts for the OAuth providers below. A
+Roadie's shared pool holds the subscription accounts for the OAuth providers below. A
 model still addressed directly (anthropic/..., openai/...) would either have no
 login under Roadie or refresh a second copy of the same rotating token. Each
-such model gets a subrouter preset of exactly that model, and every choice of
+such model gets a Roadie rotation of exactly that model, and every choice of
 it is pointed at the preset:
 
-  anthropic/claude-opus-5-5  ->  subrouter/anthropic-claude-opus-5-5
+  anthropic/claude-opus-5-5  ->  roadie/anthropic-claude-opus-5-5
                                  = ["anthropic/claude-opus-5-5"]
 
 Same model, now rotating across that provider's accounts. No routing policy is
-decided here: cross-provider fallbacks are the operator's to add to a preset
-(`subrouter preset`). API-key providers are left alone; keys do not rotate.
+decided here: cross-provider fallbacks are the operator's to add to a rotation.
+API-key providers are left alone; keys do not rotate.
 
-  repoint-models.py presets --db <db> [--opencode-json <path>]
-      print the presets the stored choices need, as JSON (read-only)
+  repoint-models.py rotations --db <db> [--opencode-json <path>]
+      print the rotations the stored choices need, as JSON (read-only)
   repoint-models.py apply --db <db> [--opencode-json <path>]
       rewrite the choices; counts only on stdout
 
@@ -36,7 +36,7 @@ OPENCODE_KEYS = ("model", "small_model")
 
 
 def preset_name(model_id):
-    """Preset name for a direct OAuth-provider model, or None to leave it."""
+    """Rotation name for a direct OAuth-provider model, or None to leave it."""
     if not isinstance(model_id, str) or "/" not in model_id:
         return None
     provider, name = model_id.split("/", 1)
@@ -66,7 +66,7 @@ def opencode_models(path):
     return {key: data[key] for key in OPENCODE_KEYS if isinstance(data.get(key), str)}
 
 
-def presets(args):
+def rotations(args):
     wanted = {}
     for model_id in stored_models(args.db) | set(opencode_models(args.opencode_json).values()):
         name = preset_name(model_id)
@@ -89,10 +89,10 @@ def apply(args):
                     if name:
                         connection.execute(
                             f"UPDATE {table} SET model_id = ?, variant = NULL WHERE {key} = ?",
-                            (f"subrouter/{name}", row_key),
+                            (f"roadie/{name}", row_key),
                         )
                         changed += 1
-                print(f"{table}: {changed} model choice(s) routed through subrouter")
+                print(f"{table}: {changed} model choice(s) routed through Roadie")
     finally:
         connection.close()
 
@@ -105,12 +105,12 @@ def apply(args):
     for key in OPENCODE_KEYS:
         name = preset_name(data.get(key))
         if name:
-            data[key] = f"subrouter/{name}"
+            data[key] = f"roadie/{name}"
             changed.append(key)
     if not changed:
         print("opencode.json: unchanged")
         return
-    shutil.copy2(path, f"{path}.before-subrouter-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(path, f"{path}.before-roadie-{time.strftime('%Y%m%d-%H%M%S')}")
     temp = f"{path}.tmp-{os.getpid()}"
     with open(temp, "w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=2)
@@ -122,16 +122,18 @@ def apply(args):
     except PermissionError:
         pass
     os.replace(temp, path)
-    print(f"opencode.json: {', '.join(changed)} routed through subrouter")
+    print(f"opencode.json: {', '.join(changed)} routed through Roadie")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["presets", "apply"])
+    # `presets` is the pre-pool spelling of `rotations`, kept for callers of the
+    # previous release's bridge.
+    parser.add_argument("mode", choices=["rotations", "presets", "apply"])
     parser.add_argument("--db", required=True)
     parser.add_argument("--opencode-json")
     args = parser.parse_args()
-    (presets if args.mode == "presets" else apply)(args)
+    (apply if args.mode == "apply" else rotations)(args)
 
 
 if __name__ == "__main__":

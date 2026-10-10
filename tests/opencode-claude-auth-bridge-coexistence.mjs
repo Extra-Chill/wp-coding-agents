@@ -144,7 +144,7 @@ const loaderFetch = async () => {
 };
 
 try {
-  // 1. Bridge gates: Roadie (subrouter auth) and a kept Kimaki rollback unit.
+  // 1. Bridge gates: Roadie (credential-pool auth) and a kept Kimaki rollback unit.
   for (const marker of ['ROADIE', 'KIMAKI']) {
     process.env[marker] = '1';
     const gated = await claudeCodeAuthPlugin({});

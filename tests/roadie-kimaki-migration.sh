@@ -51,7 +51,10 @@ sqlite3() { if [ "$SQLITE3_READONLY_FAILS" = 1 ] && [ "${1:-}" = -readonly ]; th
 # The account move has its own suite (tests/roadie-accounts.sh); here it is
 # recorded in the same log so its ordering against stop/disable is checked.
 ACCOUNTS_RESULT=0
-_roadie_accounts() { printf 'accounts %s\n' "$1" >> "$TMP/systemctl.log"; printf '%s\n' "${ROADIE_SUBROUTER_PRESETS_JSON:-}" > "$TMP/presets.json"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
+_roadie_accounts() { printf 'accounts %s\n' "$1" >> "$TMP/systemctl.log"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
+# Rotation creation also has its own coverage there; here the wanted set the
+# migration derives is captured, and it runs after the accounts are in.
+_roadie_ensure_rotations() { printf 'rotations\n' >> "$TMP/systemctl.log"; printf '%s\n' "$1" > "$TMP/rotations.json"; }
 DRY_RUN=false
 UPDATED_ITEMS=()
 PENDING_ITEMS=()
@@ -126,17 +129,18 @@ check $? "Kimaki data dir kept unchanged (rollback)"
 printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "kept as rollback"; check $? "summary reports the kept rollback"
 line() { grep -nx "$1" "$TMP/systemctl.log" | head -1 | cut -d: -f1; }
 [ -n "$(line 'accounts import')" ] && [ "$(line 'stop kimaki.service')" -lt "$(line 'accounts import')" ] && [ "$(line 'accounts import')" -lt "$(line 'disable kimaki.service')" ]
-check $? "accounts move into subrouter while Kimaki is stopped, before it is disabled"
-printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "accounts.mjs export"; check $? "summary gives the account rollback command"
+check $? "accounts move into the Roadie pool while Kimaki is stopped, before it is disabled"
+[ "$(line 'accounts import')" -lt "$(line 'rotations')" ]; check $? "rotations are created after the accounts are imported"
+printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "credentials export-opencode"; check $? "summary gives the account rollback command"
 NEW_DB="$ROADIE_DATA_DIR/discord-sessions.db"
-[ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "subrouter/anthropic-claude-opus-5-5| subrouter/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
-check $? "OAuth model choices routed through per-model presets; API-key model kept"
+[ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "roadie/anthropic-claude-opus-5-5| roadie/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
+check $? "OAuth model choices routed through per-model rotations; API-key model kept"
 [ "$(sqlite3 "$DB" "SELECT model_id FROM session_models WHERE session_id='s1'")" = anthropic/claude-opus-5-5 ]; check $? "Kimaki database keeps its model choices (rollback)"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'anthropic-claude-sonnet-5-5':['anthropic/claude-sonnet-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/presets.json"
-check $? "presets derived from stored choices and opencode.json, one model each"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert (d['model'],d['small_model'],d['plugin'])==('subrouter/anthropic-claude-opus-5-5','subrouter/anthropic-claude-sonnet-5-5',['x']), d" "$SITE_PATH/opencode.json"
-check $? "opencode.json defaults routed through subrouter, other keys kept"
-ls "$SITE_PATH"/opencode.json.before-subrouter-* >/dev/null 2>&1; check $? "opencode.json backed up"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'anthropic-claude-sonnet-5-5':['anthropic/claude-sonnet-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/rotations.json"
+check $? "rotations derived from stored choices and opencode.json, one model each"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert (d['model'],d['small_model'],d['plugin'])==('roadie/anthropic-claude-opus-5-5','roadie/anthropic-claude-sonnet-5-5',['x']), d" "$SITE_PATH/opencode.json"
+check $? "opencode.json defaults routed through Roadie rotations, other keys kept"
+ls "$SITE_PATH"/opencode.json.before-roadie-* >/dev/null 2>&1; check $? "opencode.json backed up"
 
 # #660: the copy carries the database's operational directory bindings, so the
 # migration must relocate exactly the references into the copied projects root
@@ -354,7 +358,7 @@ grep -qx "journal -u roadie.service -n 20 --no-pager" "$TMP/systemctl.log"; chec
 grep -qF "never reported discordReady" "$TMP/health-pending.out"; check $? "pending item recorded"
 grep -qF "Kimaki re-enabled and restarted" "$TMP/health-fail.out"; check $? "clear error printed"
 [ "$(cat "$SITE_PATH/opencode.json")" = "$DIRECT_OPENCODE_JSON" ]
-check $? "opencode.json model choices restored for Kimaki (subrouter is served by the stopped Roadie)"
+check $? "opencode.json model choices restored for Kimaki (the rotations are served by the stopped Roadie)"
 [ "$(stat -c %a "$SITE_PATH/opencode.json")" = 640 ]; check $? "opencode.json mode kept on restore"
 [ ! -s "$DISCORD_CALLS_LOG" ]; check $? "an unhealthy gateway triggers no Discord access-role calls (#705)"
 [ ! -s "$ROLE_PATCH_LOG" ]; check $? "no role rename on rollback"
@@ -371,8 +375,8 @@ UPDATED_ITEMS=()
 rc=$?
 [ "$rc" -eq 0 ]; check $? "bridge_install succeeds when Roadie is healthy"
 grep -qx "restart roadie.service" "$TMP/systemctl.log"; check $? "Roadie health-checked"
-python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['model']=='subrouter/anthropic-claude-opus-5-5'" "$SITE_PATH/opencode.json"
-check $? "healthy Roadie keeps opencode.json on subrouter"
+python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['model']=='roadie/anthropic-claude-opus-5-5'" "$SITE_PATH/opencode.json"
+check $? "healthy Roadie keeps opencode.json on its rotations"
 grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "migration disabled Kimaki"
 if grep -qx "enable kimaki.service" "$TMP/systemctl.log" || grep -qx "start kimaki.service" "$TMP/systemctl.log"; then
   check 1 "healthy Roadie keeps Kimaki disabled"

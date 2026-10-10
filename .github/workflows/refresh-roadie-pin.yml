@@ -54,7 +54,6 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/roadie-provision.sh
-          bash tests/roadie-accounts.sh
 
       - name: Commit the new pin
         if: steps.pin.outputs.before != steps.pin.outputs.after

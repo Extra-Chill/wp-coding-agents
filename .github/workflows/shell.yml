@@ -334,7 +334,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-accounts' || matrix.test == 'roadie-fork-workspace'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-fork-workspace'
         with:
           node-version: 24
       - name: Install verified Homeboy workspace fixture

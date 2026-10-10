@@ -595,6 +595,49 @@ def apply_edit_permission(
     data["permission"] = permission
 
 
+# --- subrouter/<preset> -> roadie/<rotation> (#709) -------------------------
+
+MODEL_ROUTE_KEYS = ("model", "small_model")
+
+
+def read_roadie_rotations(path: str) -> dict:
+    """Rotation names in Roadie's shared pool, or {} when unknown."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            rotations = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return rotations if isinstance(rotations, dict) else {}
+
+
+def check_model_route(data: dict, chat_bridge: str, rotations: dict) -> dict:
+    """Plan `subrouter/<preset>` -> `roadie/<preset>` rewrites.
+
+    Only a preset whose same-named rotation exists in Roadie's shared pool is
+    rewritten. Anything else stays: Roadie serves `subrouter/<preset>` from
+    its pool under an alias after the subrouter handoff, so an unmatched value
+    keeps working and must not be guessed at.
+    """
+    if chat_bridge != "roadie" or not rotations:
+        return {"status": "ok", "rewrites": {}}
+    rewrites = {}
+    for key in MODEL_ROUTE_KEYS:
+        value = data.get(key)
+        if not isinstance(value, str) or not value.startswith("subrouter/"):
+            continue
+        preset = value[len("subrouter/"):]
+        if preset and preset in rotations:
+            rewrites[key] = {"from": value, "to": f"roadie/{preset}"}
+    return {"status": "needed" if rewrites else "ok", "rewrites": rewrites}
+
+
+def apply_model_route(data: dict, rewrites: dict) -> None:
+    for key, change in rewrites.items():
+        data[key] = change["to"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--speaker-context', action='store_true', help='Resolve user/principal memory through the configured Roadie context provider')
@@ -647,6 +690,15 @@ def main() -> int:
         "--roadie-plugins-dir",
         default="/opt/roadie-config/plugins",
         help="Directory where DM plugins live (VPS default: /opt/roadie-config/plugins)",
+    )
+    parser.add_argument(
+        "--roadie-rotations-file",
+        default="",
+        help=(
+            "Roadie shared-pool rotation.json. When given, model/small_model "
+            "values of the form subrouter/<preset> are rewritten to "
+            "roadie/<preset> for presets that exist as rotations there."
+        ),
     )
     parser.add_argument(
         "--claude-code-auth-plugin",
@@ -726,6 +778,9 @@ def main() -> int:
     instruction_sync_result = check_instruction_sync(data, managed_instructions)
     edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
     external_directory_result = check_external_directory(data, args.runtime, args.workspace_dirs, args.log_paths)
+    model_route_result = check_model_route(
+        data, args.chat_bridge, read_roadie_rotations(args.roadie_rotations_file)
+    )
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -768,6 +823,7 @@ def main() -> int:
     has_instruction_drift = instruction_sync_result["status"] == "needed"
     has_edit_permission_drift = edit_permission_result["status"] == "needed"
     has_external_directory_drift = external_directory_result["status"] == "needed"
+    has_model_route_drift = model_route_result["status"] == "needed"
     has_any_drift = (
         has_plugin_drift
         or has_prompt_drift
@@ -775,6 +831,7 @@ def main() -> int:
         or has_instruction_drift
         or has_edit_permission_drift
         or has_external_directory_drift
+        or has_model_route_drift
     )
 
     if not has_any_drift:
@@ -786,6 +843,7 @@ def main() -> int:
             "instruction_sync": "ok",
             "edit_permission": "ok",
             "external_directory": "ok",
+            "model_route": "ok",
         }
         if plugin_skipped:
             result["plugins_skipped"] = (
@@ -805,7 +863,10 @@ def main() -> int:
             "instruction_sync": instruction_sync_result["status"],
             "edit_permission": edit_permission_result["status"],
             "external_directory": external_directory_result["status"],
+            "model_route": model_route_result["status"],
         }
+        if has_model_route_drift:
+            result["model_route_rewrites"] = model_route_result["rewrites"]
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
         if has_plugin_drift:
@@ -870,6 +931,10 @@ def main() -> int:
     if has_external_directory_drift:
         apply_external_directory(data, args.workspace_dirs, args.log_paths)
         external_directory_status = "synced"
+    model_route_status = "ok"
+    if has_model_route_drift:
+        apply_model_route(data, model_route_result["rewrites"])
+        model_route_status = "rewritten"
 
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
@@ -896,6 +961,9 @@ def main() -> int:
         "external_directory": external_directory_status,
             "external_directory": external_directory_status,
         }
+        result["model_route"] = model_route_status
+        if has_model_route_drift:
+            result["model_route_rewrites"] = model_route_result["rewrites"]
         if plugin_rewrites:
             result["rewritten"] = plugin_rewrites
         if removed_agent_blocks:
@@ -916,7 +984,10 @@ def main() -> int:
         "agent_cleanup": "removed" if removed_agent_blocks else "ok",
         "instruction_sync": instruction_sync_status,
         "edit_permission": edit_permission_status,
+        "model_route": model_route_status,
     }
+    if has_model_route_drift:
+        result["model_route_rewrites"] = model_route_result["rewrites"]
     if plugin_rewrites:
         result["rewritten"] = plugin_rewrites
     if removed_agent_blocks:
