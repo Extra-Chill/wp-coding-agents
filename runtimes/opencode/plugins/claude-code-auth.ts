@@ -5,8 +5,9 @@
 // plugins, and shares Kimaki's on-disk state contract (same lock directory,
 // identity-preserving account records) so the two can coexist on one host.
 // Inside a chat bridge's own OpenCode server (ROADIE set, or KIMAKI on a kept
-// Kimaki rollback unit) this plugin registers nothing: Roadie routes Anthropic
-// auth through subrouter, Kimaki through its built-in plugin (#626).
+// Kimaki rollback unit) this plugin registers nothing: Roadie serves Anthropic
+// subscription auth from its credential pools (the `roadie` provider), Kimaki
+// through its built-in plugin (#626, #709).
 
 import type { Plugin } from "@opencode-ai/plugin";
 import { spawn } from "node:child_process";
@@ -822,8 +823,8 @@ async function getFreshOAuthOrRotate(getAuth: () => Promise<OAuthStored | { type
 
 const claudeCodeAuthPlugin: Plugin = async (input) => {
   // Bridge-managed OpenCode servers load their own Anthropic auth (Roadie:
-  // subrouter, ROADIE set; a Kimaki rollback unit: its built-in plugin, KIMAKI
-  // set). Registering both would deep-merge two loaders for auth.provider
+  // credential pools, ROADIE set; a Kimaki rollback unit: its built-in plugin,
+  // KIMAKI set). Registering both would deep-merge two loaders for auth.provider
   // "anthropic" — the last fetch silently wins and the bridge's account
   // rotation goes inert — so defer entirely. Direct `opencode` runs on the
   // same host leave both unset and keep this plugin.

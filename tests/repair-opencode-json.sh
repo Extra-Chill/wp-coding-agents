@@ -384,4 +384,68 @@ if data.get("plugin") != expected:
 PY
 grep -q '"status": "additive_repaired"' "$TMP/claude-code-auth-plugin.out"
 
+# --- subrouter/<preset> -> roadie/<preset> (#709) --------------------------
+# The plugin array is already managed so the only drift is the model route.
+ROADIE_PLUGINS='["/opt/roadie-config/plugins/dm-agent-sync.ts", "/opt/roadie-config/plugins/roadie-command-guard.ts", "/opt/roadie-config/plugins/session-attribution.ts"]'
+mkdir -p "$TMP/roadie-data/credentials/shared"
+ROTATIONS="$TMP/roadie-data/credentials/shared/rotation.json"
+printf '{"anthropic-claude-opus-5-5":["anthropic/claude-opus-5-5"],"opus":["anthropic/claude-opus-5-5"]}\n' > "$ROTATIONS"
+
+write_route_fixture() {
+  cat > "$1" <<JSON
+{
+  "model": "subrouter/opus",
+  "small_model": "subrouter/anthropic-claude-haiku-5-5",
+  "plugin": $ROADIE_PLUGINS
+}
+JSON
+}
+
+route() {
+  python3 "$REPAIR" --file "$1" --runtime opencode --chat-bridge roadie \
+    --roadie-plugins-dir /opt/roadie-config/plugins \
+    --roadie-rotations-file "$ROTATIONS" "${@:2}"
+}
+
+model_pair() {
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["model"], d["small_model"])' "$1"
+}
+
+# Diagnostic run (what upgrade --dry-run shows): reports, never writes.
+write_route_fixture "$TMP/route.json"
+cp "$TMP/route.json" "$TMP/route.orig.json"
+set +e
+route "$TMP/route.json" > "$TMP/route-dry.out"
+dry_rc=$?
+set -e
+[ "$dry_rc" -eq 1 ] || { echo "FAIL: diagnostic should report drift (rc=$dry_rc)"; exit 1; }
+grep -q '"model_route": "needed"' "$TMP/route-dry.out" || { echo "FAIL: diagnostic does not report the model route"; cat "$TMP/route-dry.out"; exit 1; }
+grep -q '"to": "roadie/opus"' "$TMP/route-dry.out" || { echo "FAIL: diagnostic does not show the planned rewrite"; exit 1; }
+cmp -s "$TMP/route.json" "$TMP/route.orig.json" || { echo "FAIL: diagnostic wrote opencode.json"; exit 1; }
+
+# Additive repair: a preset that is a pool rotation moves; one that is not
+# stays, because Roadie still serves subrouter/<preset> from its pool alias.
+route "$TMP/route.json" --additive --backup-dir "$TMP/route-backups" > "$TMP/route-apply.out"
+[ "$(model_pair "$TMP/route.json")" = "roadie/opus subrouter/anthropic-claude-haiku-5-5" ] \
+  || { echo "FAIL: model route rewrite: $(model_pair "$TMP/route.json")"; exit 1; }
+grep -q '"model_route": "rewritten"' "$TMP/route-apply.out" || { echo "FAIL: write result lacks model_route"; cat "$TMP/route-apply.out"; exit 1; }
+ls "$TMP/route-backups"/route.json.backup.* >/dev/null 2>&1 || { echo "FAIL: no backup written before the rewrite"; exit 1; }
+cmp -s "$(ls "$TMP/route-backups"/route.json.backup.* | head -1)" "$TMP/route.orig.json" || { echo "FAIL: backup is not the pre-rewrite file"; exit 1; }
+
+# Idempotent: the second run has nothing to do.
+cp "$TMP/route.json" "$TMP/route.after.json"
+route "$TMP/route.json" --additive > "$TMP/route-again.out"
+grep -q '"model_route": "ok"' "$TMP/route-again.out" || { echo "FAIL: second run is not a no-op"; cat "$TMP/route-again.out"; exit 1; }
+cmp -s "$TMP/route.json" "$TMP/route.after.json" || { echo "FAIL: second run changed opencode.json"; exit 1; }
+
+# No rotation file (pool not created yet) or a non-Roadie bridge: untouched.
+write_route_fixture "$TMP/route-nopool.json"
+python3 "$REPAIR" --file "$TMP/route-nopool.json" --runtime opencode --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
+  --roadie-rotations-file "$TMP/missing/rotation.json" --additive > /dev/null
+[ "$(model_pair "$TMP/route-nopool.json")" = "subrouter/opus subrouter/anthropic-claude-haiku-5-5" ] \
+  || { echo "FAIL: rewrote without a rotation file"; exit 1; }
+
+echo "OK: repair-opencode-json moves subrouter/<preset> to existing roadie rotations"
+
 echo "OK: repair-opencode-json removes managed agent shells and repairs local plugin paths"
