@@ -296,7 +296,9 @@ jobs:
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
+          - roadie-pi-backend
           - refresh-roadie-pin
+          - refresh-pi-pin
           - roadie-retire-kimaki
           - self-upgrade
           - installation-profile
