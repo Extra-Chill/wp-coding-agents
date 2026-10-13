@@ -1266,6 +1266,12 @@ PY
     '["send","--channel","{recipient}","--prompt","{message}"]' \
     "600" \
     "$env_json"
+  cli_channel_register \
+    "roadie-notify" \
+    "$(roadie_bin)" \
+    '["send","--channel","{recipient}","--prompt","{message}","--notify-only"]' \
+    "600" \
+    "$env_json"
 }
 
 # Directory of the service-owned Homeboy on managed non-root installs, empty
