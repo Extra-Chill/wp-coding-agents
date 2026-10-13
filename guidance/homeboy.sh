@@ -337,7 +337,7 @@ Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, re
 - Multiple independent changes: `homeboy agent-task fanout cook-batch`
 - Review a candidate: `homeboy review`
 - Inspect runs and evidence: `homeboy runs`
-- Repeating workflows: `homeboy agent-task loop`; explicitly stateful workflows: `homeboy agent-task controller`
+- Multi-step, gated, or repeating workflows: `homeboy workflow`
 - Component and runner health: `homeboy status` and `homeboy runner status`
 
 **Operator boundary**
