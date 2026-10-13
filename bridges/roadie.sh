@@ -36,10 +36,14 @@ ROADIE_PACKAGE_NAME='@extrachill/roadie'
 # the installed package when one appears; today's package has no engines
 # field at all.
 ROADIE_MIN_NODE_MAJOR=24
-# The agent backend this installer provisions. Roadie's built-in default
-# moved to Pi in v0.60.0; a managed service that leaves it implicit exits
-# 64 on `pi --version` and crash-loops. Declare the backend we install.
+# The agent backend Roadie runs: `pi` once the pinned Pi package is installed
+# and passes Roadie's own version gate as the service user, else `opencode`.
+# Roadie's built-in default is Pi (v0.59.0); a unit that leaves it implicit
+# without a working `pi` exits 64 and crash-loops, so it is always rendered.
 ROADIE_AGENT_BACKEND=opencode
+ROADIE_PI_PACKAGE_NAME='@earendil-works/pi-coding-agent'
+# Roadie refuses Pi below this major (agent-backend/registry.ts MIN_PI_MAJOR).
+ROADIE_PI_MIN_MAJOR=1
 
 # ============================================================================
 # Identity
@@ -263,6 +267,127 @@ _roadie_provision_package() {
     chmod -R a+rX "$prefix"
     log "Roadie ${have:+$have → }$want installed in $prefix"
     UPDATED_ITEMS+=("Roadie $want")
+  fi
+}
+
+# ============================================================================
+# Pi agent backend (pinned npm package)
+# ============================================================================
+
+roadie_pi_pinned_version() {
+  local file="$SCRIPT_DIR/bridges/roadie/pi-version" version
+  version="$(tr -d '[:space:]' < "$file" 2>/dev/null || true)"
+  [ -n "$version" ] || error "Pi release pin is missing: $file"
+  printf '%s\n' "$version"
+}
+
+# Root-owned and world-readable beside the Roadie prefix, like Roadie itself.
+_roadie_pi_system_prefix() {
+  printf '%s\n' "${ROADIE_PI_SYSTEM_PREFIX:-/usr/local/lib/wp-coding-agents/pi}"
+}
+
+_roadie_pi_prefix() {
+  if _roadie_uses_system_prefix; then
+    _roadie_pi_system_prefix
+  else
+    npm prefix -g 2>/dev/null
+  fi
+}
+
+_roadie_pi_bin() {
+  printf '%s/bin/pi\n' "$(_roadie_pi_prefix)"
+}
+
+_roadie_pi_installed_version() {
+  local package_json
+  package_json="$(_roadie_pi_prefix)/lib/node_modules/$ROADIE_PI_PACKAGE_NAME/package.json"
+  [ -f "$package_json" ] || return 0
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$package_json" 2>/dev/null || true
+}
+
+# Install the pinned Pi. Returns non-zero when it is not installed afterwards.
+_roadie_provision_pi() {
+  local want have prefix
+  want="$(roadie_pi_pinned_version)"
+  have="$(_roadie_pi_installed_version)"
+  [ "$have" != "$want" ] || return 0
+  if ! _roadie_uses_system_prefix; then
+    run_cmd npm install -g "$ROADIE_PI_PACKAGE_NAME@$want"
+    return
+  fi
+  prefix="$(_roadie_pi_system_prefix)"
+  if [ "$(_roadie_effective_uid)" -ne 0 ] && [ "${DRY_RUN:-false}" != true ]; then
+    warn "  Pi ${have:-(not installed)} needs $want; installing into $prefix requires root."
+    warn "  Root repair required: $(_roadie_root_repair_command)"
+    PENDING_ITEMS+=("Pi $want install (root)")
+    return 1
+  fi
+  run_cmd mkdir -p "$prefix" || return 1
+  run_cmd npm install -g --prefix "$prefix" "$ROADIE_PI_PACKAGE_NAME@$want" || return 1
+  if [ "${DRY_RUN:-false}" != true ]; then
+    chmod -R a+rX "$prefix"
+    log "Pi ${have:+$have → }$want installed in $prefix"
+    UPDATED_ITEMS+=("Pi $want")
+  fi
+}
+
+# `pi --version` as the identity the service runs under, through the node the
+# Roadie service uses. Prints the version on success.
+_roadie_pi_service_version() {
+  local bin="$1" output node_dir
+  node_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
+  if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    output="$(sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$node_dir:/usr/local/bin:/usr/bin:/bin" "$bin" --version 2>&1)" || return 1
+  else
+    output="$(PATH="$node_dir:$PATH" "$bin" --version 2>&1)" || return 1
+  fi
+  printf '%s\n' "$output" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
+}
+
+# The site's configured agent model. Pi reads the same Roadie credential pool
+# catalog OpenCode does (provider `roadie`, same rotation ids), so the model
+# carries across unchanged.
+_roadie_site_model() {
+  local config="$SITE_PATH/opencode.json"
+  [ -f "$config" ] || { printf '%s\n' "${OPENCODE_MODEL:-}"; return 0; }
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model") or "")' "$config" 2>/dev/null \
+    || printf '%s\n' "${OPENCODE_MODEL:-}"
+}
+
+# Install and verify Pi once per run (every instance on a host shares the one
+# install). Sets ROADIE_PI_VERIFIED to the verified binary, or `none`.
+_roadie_verify_pi() {
+  [ -z "${ROADIE_PI_VERIFIED:-}" ] || return 0
+  ROADIE_PI_VERIFIED=none
+  local bin version
+  if ! _roadie_provision_pi; then
+    warn "  Pi is not installed; Roadie stays on ROADIE_BACKEND=opencode."
+    return 0
+  fi
+  [ "${DRY_RUN:-false}" != true ] || return 0
+  bin="$(_roadie_pi_bin)"
+  version="$(_roadie_pi_service_version "$bin" || true)"
+  if [ -n "$version" ] && [ "${version%%.*}" -ge "$ROADIE_PI_MIN_MAJOR" ]; then
+    ROADIE_PI_VERIFIED="$bin"
+    log "Roadie agent backend: Pi $version ($bin)"
+  else
+    warn "  $bin --version failed or is below ${ROADIE_PI_MIN_MAJOR}.x as ${SERVICE_USER:-$(id -un)} (${version:-no version}); Roadie stays on ROADIE_BACKEND=opencode."
+  fi
+}
+
+# Select the backend for the instance being rendered: Pi when the pinned
+# package installs and passes Roadie's version gate as the service user,
+# otherwise OpenCode, so a failed Pi install never leaves a crash-looping unit.
+_roadie_select_backend() {
+  _roadie_verify_pi
+  if [ "$ROADIE_PI_VERIFIED" != none ]; then
+    ROADIE_AGENT_BACKEND=pi
+    ROADIE_PI_BIN="$ROADIE_PI_VERIFIED"
+    ROADIE_PI_MODEL="$(_roadie_site_model)"
+  else
+    ROADIE_AGENT_BACKEND=opencode
+    ROADIE_PI_BIN=""
+    ROADIE_PI_MODEL=""
   fi
 }
 
@@ -1226,6 +1351,7 @@ PY
 bridge_install() {
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
+  _roadie_select_backend
   roadie_migrate_from_kimaki
   _roadie_install_secrets
   _roadie_sync_assets
@@ -1260,8 +1386,10 @@ bridge_install() {
 }
 
 _roadie_manual_command() {
-  printf 'ROADIE_MANAGED=1 ROADIE_BACKEND=%s ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
-    "$ROADIE_AGENT_BACKEND" \
+  printf 'ROADIE_MANAGED=1 ROADIE_BACKEND=%s' "$ROADIE_AGENT_BACKEND"
+  [ -z "${ROADIE_PI_BIN:-}" ] || printf ' ROADIE_PI_BIN=%s' "$(_roadie_shell_quote "$ROADIE_PI_BIN")"
+  [ -z "${ROADIE_PI_MODEL:-}" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_MODEL")"
+  printf ' ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
     "$(_roadie_shell_quote "$(roadie_prompt_config_file)")" \
     "$(_roadie_shell_quote "$(_roadie_send_token_file)")" \
     "$(_roadie_shell_quote "$ROADIE_DATA_DIR")"
@@ -1359,6 +1487,12 @@ Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_roadie_datamachine_wp_transport_systemd_env)
 $(_roadie_shell_env_systemd_env)
 EOF
+  if [ -n "${ROADIE_PI_BIN:-}" ]; then
+    printf 'Environment=ROADIE_PI_BIN=%s\n' "$ROADIE_PI_BIN"
+  fi
+  if [ -n "${ROADIE_PI_MODEL:-}" ]; then
+    printf 'Environment=ROADIE_PI_MODEL=%s\n' "$ROADIE_PI_MODEL"
+  fi
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
   fi
@@ -1426,6 +1560,7 @@ bridge_sync_config() {
   log "Phase 2: Syncing Roadie config ($(roadie_config_dir))..."
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
+  _roadie_select_backend
   _roadie_install_secrets
   _roadie_sync_assets
   _roadie_reconcile_existing_project_paths
@@ -1527,13 +1662,17 @@ bridge_update_systemd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
+  _roadie_select_backend
   local path_value current_env merged_env
   path_value="$(_roadie_path_value)"
   current_env=$(grep '^Environment=' "$unit_file" || true)
   local key
   local installed_plugins
   installed_plugins=$(printf '%s\n' "$current_env" | sed -n 's/^Environment=ROADIE_PLUGINS=//p' | tail -n 1 | tr -d '"')
-  for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN; do
+  # Backend keys are installer-owned: re-selected every run, never preserved
+  # from the installed unit, so a host moves to Pi once Pi verifies.
+  for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
+    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
   # Installer-owned plugin list: managed set plus operator extras (#724),
@@ -1594,6 +1733,7 @@ bridge_update_launchd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
+  _roadie_select_backend
   local new_plist
   new_plist=$(bridge_render_launchd com.wp.roadie)
   if echo "$new_plist" | cmp -s - "$plist"; then
@@ -1694,7 +1834,7 @@ bridge_render_launchd() {
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
         <string>1</string>
         <key>ROADIE_BACKEND</key>
-        <string>$ROADIE_AGENT_BACKEND</string>
+        <string>$ROADIE_AGENT_BACKEND</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>
