@@ -483,7 +483,9 @@ OPTIONS:
                       .opencode/wp-ai-gateway.env value
   --no-claude-code-auth
                       Skip the managed direct OpenCode Claude Pro/Max OAuth
-                      auth plugin. Installed by default for OpenCode runtimes.
+                      auth plugin. Installed by default for direct OpenCode
+                      runtimes; never under the Roadie bridge, where Roadie's
+                      credential pools serve Anthropic.
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)

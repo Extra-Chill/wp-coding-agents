@@ -6,14 +6,18 @@ for the detected (RUNTIME, CHAT_BRIDGE). Data Machine is always installed.
 
 Checks two independent drift vectors:
   1. `plugin` array — matches what setup would produce for the detected
-     (RUNTIME, CHAT_BRIDGE) combo.
+      (RUNTIME, CHAT_BRIDGE) combo. A Roadie install ships no OpenCode
+      plugins (#718): retired managed entries are dropped even in --additive
+      mode.
   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that breaks
       Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated to a
       top-level `instructions` array that preserves the canonical system prompt
       opening.
   3. Data Machine managed instruction paths — when supplied by upgrade/setup,
       keep top-level `instructions` aligned to Data Machine's injectable memory
-      files while preserving non-Data-Machine user entries.
+      files while preserving non-Data-Machine user entries. Under Roadie no
+      memory files are synced (the wordpress-context plugin supplies memory
+      per session/speaker), and stale managed entries are removed.
   4. OpenCode edit permissions — preserve user rules and append managed denies
       for installed WordPress source paths.
 
@@ -53,11 +57,17 @@ CLI usage:
 Without --additive or --apply the tool is a pure diagnostic.
 
 --additive is the default mode called from setup.sh and upgrade.sh: it
-installs managed plugin entries the user is missing (the Roadie bridge's
-managed plugins), removes retired managed plugin
-entries, and migrates legacy agent prompts to the top-level `instructions`
-array (fixes Anthropic Claude Max OAuth, see wp-coding-agents#60). It never
-removes user-added plugin entries.
+installs managed plugin entries the user is missing, removes retired managed
+plugin entries, and migrates legacy agent prompts to the top-level
+`instructions` array (fixes Anthropic Claude Max OAuth, see
+wp-coding-agents#60). It never removes user-added plugin entries.
+
+Under the Roadie bridge no OpenCode plugin is managed anymore
+(wp-coding-agents#718): the four plugins wp-coding-agents used to install are
+retired in favor of Roadie-native primitives, so existing entries are dropped
+even in --additive mode, and Data Machine memory file references leave the
+`instructions` array (Roadie's wordpress-context plugin / --context-provider
+supplies memory per session/speaker).
 
 --apply is the opt-in full reconciliation, used by
 `upgrade.sh --repair-opencode-json`. It removes unexpected plugin
@@ -73,13 +83,27 @@ import sys
 from typing import List, Tuple
 
 
-MANAGED_ROADIE_PLUGIN_NAMES = ("dm-agent-sync.ts", "roadie-command-guard.ts", "session-attribution.ts")
 # Kimaki-era managed plugins. Roadie's prompt config replaces dm-context-filter
 # and its own shell attribution replaces kimaki-session-attribution.
 OBSOLETE_MANAGED_PLUGIN_NAMES = {
     "dm-context-filter.ts",
     "kimaki-session-attribution.ts",
     "homeboy-notification-context.ts",
+}
+# Roadie-bridge plugins retired with their Roadie-native replacements
+# (wp-coding-agents#718): dm-agent-sync by the wordpress-context Roadie
+# plugin / --context-provider, roadie-command-guard by project-channel
+# removal (roadie#187 — channels come from ROADIE_CHANNELS_CONFIG only),
+# session-attribution by --shell-env / ROADIE_SHELL_ENV templates
+# (roadie#186). claude-code-auth registers nothing under Roadie (credential
+# pools serve Anthropic), but stays managed for direct non-Roadie OpenCode
+# installs. Only consulted on the Roadie normalization path, so the
+# claude-code-auth entry never affects direct installs.
+RETIRED_ROADIE_PLUGIN_NAMES = OBSOLETE_MANAGED_PLUGIN_NAMES | {
+    "dm-agent-sync.ts",
+    "roadie-command-guard.ts",
+    "session-attribution.ts",
+    "claude-code-auth.ts",
 }
 DM_MEMORY_MARKER = "/datamachine-files/"
 PROJECTED_MEMORY_MARKER = "/.wp-coding-agents/context/"
@@ -127,6 +151,9 @@ def expected_plugins(
 
     Mirrors the logic in runtimes/opencode.sh. Keep in sync when that file
     changes. Order matters — setup.sh writes them in this order.
+
+    The Roadie bridge manages no plugin entries (#718): a Roadie install
+    ships no OpenCode plugins.
     """
     plugins: List[str] = []
 
@@ -135,11 +162,6 @@ def expected_plugins(
         # Claude Code has its own config. Return empty so
         # "drift" comparisons on those runtimes are no-ops.
         return plugins
-
-    # Managed plugins only on the Roadie bridge: Data Machine memory sync, the
-    # managed-runtime command guard, and Homeboy session attribution.
-    if chat_bridge == "roadie":
-        plugins.extend(f"{roadie_plugins_dir}/{name}" for name in MANAGED_ROADIE_PLUGIN_NAMES)
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)
@@ -167,33 +189,27 @@ def diff_plugins(current: List[str], expected: List[str]) -> dict:
 def normalize_managed_plugin_paths(
     current: List[str], roadie_plugins_dir: str
 ) -> Tuple[List[str], List[dict]]:
-    """Rewrite managed plugin paths to the durable configured dir.
+    """Drop retired managed entries; keep user plugins verbatim.
 
     Kimaki installs pointed opencode.json at /opt/kimaki-config/plugins (or
-    npm package-local copies). Any managed plugin basename outside the Roadie
-    config dir is a stale wp-coding-agents-owned entry and is rewritten in
-    place; retired Kimaki-era plugins are dropped. User plugins are kept.
+    npm package-local copies); those managed names are dropped. Every
+    Roadie-bridge plugin retired by #718 is dropped too — the Roadie bridge
+    installs no OpenCode plugins anymore. User plugins are kept as they are,
+    wherever they live. Only called for (opencode, roadie).
     """
     normalized: List[str] = []
     rewrites: List[dict] = []
     seen = set()
-    plugins_dir = roadie_plugins_dir.rstrip("/")
 
     for plugin in current:
         basename = os.path.basename(plugin)
-        if basename in OBSOLETE_MANAGED_PLUGIN_NAMES:
+        if basename in RETIRED_ROADIE_PLUGIN_NAMES:
             rewrites.append({"from": plugin, "to": None})
             continue
-        replacement = plugin
-        if basename in MANAGED_ROADIE_PLUGIN_NAMES:
-            expected = f"{plugins_dir}/{basename}"
-            if os.path.dirname(plugin).rstrip("/") != plugins_dir:
-                replacement = expected
-                rewrites.append({"from": plugin, "to": replacement})
 
-        if replacement not in seen:
-            normalized.append(replacement)
-            seen.add(replacement)
+        if plugin not in seen:
+            normalized.append(plugin)
+            seen.add(plugin)
 
     return normalized, rewrites
 
@@ -359,12 +375,12 @@ def is_dm_managed_instruction(value: object) -> bool:
     return DM_MEMORY_MARKER in normalized or PROJECTED_MEMORY_MARKER in normalized
 
 
-def check_instruction_sync(data: dict, desired: List[str]) -> dict:
+def check_instruction_sync(data: dict, desired: List[str], chat_bridge: str = "none") -> dict:
+    current = list(data.get("instructions", []))
+    current_managed = [item for item in current if is_dm_managed_instruction(item)]
     if not desired:
         return {"status": "ok", "desired": []}
 
-    current = list(data.get("instructions", []))
-    current_managed = [item for item in current if is_dm_managed_instruction(item)]
     status = "ok" if current_managed == desired else "needed"
     return {
         "status": status,
@@ -373,8 +389,8 @@ def check_instruction_sync(data: dict, desired: List[str]) -> dict:
     }
 
 
-def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
-    result = check_instruction_sync(data, desired)
+def apply_instruction_sync(data: dict, desired: List[str], chat_bridge: str = "none") -> dict:
+    result = check_instruction_sync(data, desired, chat_bridge)
     if result["status"] != "needed":
         return result
 
@@ -383,11 +399,16 @@ def apply_instruction_sync(data: dict, desired: List[str]) -> dict:
         for item in list(data.get("instructions", []))
         if not is_dm_managed_instruction(item)
     ]
-    merged: List[str] = []
-    for item in [*desired, *preserved]:
-        if item not in merged:
-            merged.append(item)
-    data["instructions"] = merged
+    if desired:
+        merged: List[str] = []
+        for item in [*desired, *preserved]:
+            if item not in merged:
+                merged.append(item)
+        data["instructions"] = merged
+    elif preserved:
+        data["instructions"] = preserved
+    else:
+        data.pop("instructions", None)
     return result
 
 
@@ -689,7 +710,7 @@ def main() -> int:
     parser.add_argument(
         "--roadie-plugins-dir",
         default="/opt/roadie-config/plugins",
-        help="Directory where DM plugins live (VPS default: /opt/roadie-config/plugins)",
+        help="Directory where the Roadie bridge's retired OpenCode plugins used to live (VPS default: /opt/roadie-config/plugins); stale managed entries are dropped, not rewritten",
     )
     parser.add_argument(
         "--roadie-rotations-file",
@@ -775,7 +796,7 @@ def main() -> int:
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
     if args.speaker_context:
         managed_instructions = [item for item in managed_instructions if not (is_dm_managed_instruction(item) and '/users/' in item.replace('\\', '/'))]
-    instruction_sync_result = check_instruction_sync(data, managed_instructions)
+    instruction_sync_result = check_instruction_sync(data, managed_instructions, args.chat_bridge)
     edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
     external_directory_result = check_external_directory(data, args.runtime, args.workspace_dirs, args.log_paths)
     model_route_result = check_model_route(
@@ -920,7 +941,7 @@ def main() -> int:
 
     instruction_sync_status = "ok"
     if has_instruction_drift:
-        apply_instruction_sync(data, managed_instructions)
+        apply_instruction_sync(data, managed_instructions, args.chat_bridge)
         instruction_sync_status = "synced"
 
     edit_permission_status = "ok"

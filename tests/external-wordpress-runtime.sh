@@ -151,7 +151,7 @@ opencode_project_subagents
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/shared/SITE.md")" = "site context" ] || { echo "FAIL: site context not projected"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/agent/SOUL.md")" = "agent context" ] || { echo "FAIL: agent context not projected"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents" ] || { echo "FAIL: retired upgrade skill was not removed below runtime root"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: Roadie config was not installed below runtime root"; exit 1; }
+[ ! -e "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: retired OpenCode plugin was installed below runtime root"; exit 1; }
 [ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/roadie" ] || { echo "FAIL: managed Roadie launcher was not installed"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }
 [ -L "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context" ] || { echo "FAIL: projected context is not atomically activated"; exit 1; }
@@ -172,9 +172,9 @@ data = json.load(open(config))
 expected = ["./.wp-coding-agents/context/shared/SITE.md", "./.wp-coding-agents/context/agent/SOUL.md"]
 if data.get("instructions") != expected:
     raise SystemExit(f"projected instructions differ: {data.get('instructions')}")
-for plugin in data.get("plugin", []):
-    if not plugin.startswith(root + "/"):
-        raise SystemExit(f"plugin escaped runtime root: {plugin}")
+# #718: a Roadie install ships no OpenCode plugins.
+if "plugin" in data:
+    raise SystemExit(f"Roadie install grew an OpenCode plugin array: {data.get('plugin')}")
 provider = data.get("provider", {}).get("wp-ai-gateway", {})
 if provider.get("options", {}).get("baseURL") != "{env:OPENAI_BASE_URL}":
     raise SystemExit("gateway provider does not use the runtime base URL placeholder")

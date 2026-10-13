@@ -111,16 +111,14 @@ jobs:
       - name: Run tests/retired-skills.sh
         run: ./tests/retired-skills.sh
 
-  dm-agent-sync:
-    name: Data Machine agent sync plugin
+  setup-profile-compiler:
+    name: setup profile compiler
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Run tests/dm-agent-sync.mjs
-        run: bun tests/dm-agent-sync.mjs
-      - name: Run tests/session-attribution.mjs
-        run: bun tests/session-attribution.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Run tests/setup-profile-compiler.mjs
         run: node tests/setup-profile-compiler.mjs
 
@@ -293,7 +291,6 @@ jobs:
           - roadie-accounts
           - roadie-access-roles
           - roadie-application-config
-          - roadie-command-guard
           - roadie-fork-workspace
           - roadie-wordpress-context
           - roadie-kimaki-migration
@@ -334,15 +331,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-command-guard' || matrix.test == 'roadie-fork-workspace'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace'
         with:
           node-version: 24
       - name: Install verified Homeboy workspace fixture
         if: matrix.test == 'roadie-fork-workspace'
         run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.409.0/homeboy-installer.sh | sh
-      - name: Install supported OpenCode dispatch fixture
-        if: matrix.test == 'roadie-command-guard'
-        run: npm install --global opencode-ai@1.18.20
       - name: Install sqlite3 for the Kimaki migration test
         if: matrix.test == 'roadie-kimaki-migration'
         run: command -v sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)

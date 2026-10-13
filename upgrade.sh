@@ -36,11 +36,12 @@
 #   configured repository checkouts, agent memory files, or the running
 #   chat-bridge service.
 #
-#   opencode.json is touched by default in additive mode: managed plugin
-#   entries the user is missing get added (the managed Roadie plugins), and legacy
-#   `agent.build.prompt`/`agent.plan.prompt` keys get migrated to a top-level
-#   `instructions` array (fixes Anthropic Claude Max OAuth, see
-#   wp-coding-agents#60). User-added plugin entries are left alone.
+#   opencode.json is touched by default in additive mode: retired managed
+#   plugin entries get dropped (a Roadie install ships no OpenCode plugins,
+#   wp-coding-agents#718), and legacy `agent.build.prompt`/`agent.plan.prompt`
+#   keys get migrated to a top-level `instructions` array (fixes Anthropic
+#   Claude Max OAuth, see wp-coding-agents#60). User-added plugin entries are
+#   left alone.
 #
 #   --repair-opencode-json upgrades the repair to full reconciliation:
 #   the `plugin` array is replaced with exactly what setup would produce
@@ -370,8 +371,8 @@ DEFAULT TOUCHES:
   - Carried provider plugins, Homeboy provider configuration, chat-bridge
     configuration, and service templates are reconciled during a full upgrade
     or explicitly with --reconcile-services.
-  - opencode.json — additive repair. Adds managed plugin entries the
-    user is missing (the managed Roadie plugins) and migrates "agent.build.prompt" to top-level "instructions"
+  - opencode.json — additive repair. Drops the retired Roadie plugin
+    entries (a Roadie install ships no OpenCode plugins, #718) and migrates "agent.build.prompt" to top-level "instructions"
     (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
     Preserves all other keys. Writes a .backup.<ts> under
     .wp-coding-agents/backups/, outside the served tree.
@@ -392,9 +393,11 @@ OPT-IN TOUCHES:
     --rotate-ai-gateway-token is also passed.
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
-    authenticate with Claude Pro/Max OAuth. Inside Roadie sessions account
-    rotation belongs to Roadie's credential pools, so the plugin only serves
-    direct OpenCode runs. Use --no-claude-code-auth to skip.
+    authenticate with Claude Pro/Max OAuth. Roadie installs never carry it:
+    account rotation belongs to Roadie's credential pools there, so the
+    plugin only serves direct non-Roadie OpenCode runs, and a Roadie upgrade
+    removes the retired file and its opencode.json entry (#718). Use
+    --no-claude-code-auth to skip.
 HELP
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
   exit 0
@@ -849,7 +852,29 @@ upgrade_opencode_claude_code_auth_plugin_path() {
   printf '%s/.opencode/plugins/claude-code-auth.ts' "$SITE_PATH"
 }
 
+# The auth plugin registers nothing under Roadie — Roadie serves Anthropic
+# from its own credential pools (#718) — so it is a direct non-Roadie
+# OpenCode install opt-in only, and a Roadie install sheds both the file and
+# its opencode.json entry.
+upgrade_claude_code_auth_retired_for_bridge() {
+  [ "${CHAT_BRIDGE:-none}" = roadie ]
+}
+
 upgrade_install_opencode_claude_code_auth_plugin() {
+  if upgrade_claude_code_auth_retired_for_bridge; then
+    local retired_plugin
+    retired_plugin="$(upgrade_opencode_claude_code_auth_plugin_path)"
+    if [ -e "$retired_plugin" ]; then
+      if [ "${DRY_RUN:-false}" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would remove retired $retired_plugin (registers nothing under Roadie, #718)"
+      else
+        rm -f "$retired_plugin"
+        log "  Removed retired $retired_plugin (registers nothing under Roadie; opencode.json entry dropped by the drift repair)"
+        UPDATED_ITEMS+=("retired .opencode/plugins/claude-code-auth.ts (Roadie credential pools serve Anthropic, #718)")
+      fi
+    fi
+    return 0
+  fi
   [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 0
 
   local plugin_path source_path
@@ -944,7 +969,7 @@ check_opencode_json_drift() {
   upgrade_install_opencode_claude_code_auth_plugin
   local CLAUDE_CODE_AUTH_PLUGIN=""
   local claude_code_auth_args=()
-  if [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ]; then
+  if ! upgrade_claude_code_auth_retired_for_bridge && [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ]; then
     CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi

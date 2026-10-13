@@ -34,7 +34,7 @@ fail() { echo "  FAIL $1" >&2; FAILED=1; }
 SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH/.opencode/skills" "$SITE_PATH/.claude/hooks" "$SITE_PATH/.wp-coding-agents" "$TMP/roadie-config/plugins"
 printf 'x\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
-printf 'x\n' > "$TMP/roadie-config/plugins/dm-agent-sync.ts"
+printf 'x\n' > "$TMP/roadie-config/plugins/keep-owned.ts"
 ln -s "$TMP/elsewhere" "$SITE_PATH/.codex"
 RESOLVED_ROADIE_CONFIG_DIR="$TMP/roadie-config"
 LOCAL_MODE=false
@@ -79,7 +79,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # Re-run in-process so the state arrays are populated for the maintainability check.
   agent_state_ownership_audit >/dev/null 2>&1
   unset AGENT_STATE_OWNERSHIP_UID
-  ! agent_state_ownership_can_maintain "$TMP/roadie-config/plugins/dm-agent-sync.ts" && ok "descendant of unmaintainable root is skipped" || fail "descendant still reported maintainable"
+  ! agent_state_ownership_can_maintain "$TMP/roadie-config/plugins/keep-owned.ts" && ok "descendant of unmaintainable root is skipped" || fail "descendant still reported maintainable"
   [ "$(printf '%s\n' "$audit_out" | grep -c 'root_repair_required')" -eq 1 ] && ok "exactly one record for all roots" || fail "record emitted per root"
   [ "$(file_mode "$TMP/roadie-config/plugins")" = 555 ] && ok "audit did not mutate" || fail "audit mutated permissions"
   chmod 755 "$TMP/roadie-config/plugins"
@@ -93,7 +93,7 @@ else
   chown -R root:root "$TMP/roadie-config" "$SITE_PATH"
   chgrp "$(id -gn "$target")" "$SITE_PATH"
   SERVICE_USER="$target" agent_state_ownership_reconcile >"$TMP/rec.out" 2>&1
-  [ "$(file_owner "$TMP/roadie-config/plugins/dm-agent-sync.ts")" = "$target" ] && ok "persistent config reassigned" || fail "roadie-config still $(file_owner "$TMP/roadie-config/plugins/dm-agent-sync.ts")"
+  [ "$(file_owner "$TMP/roadie-config/plugins/keep-owned.ts")" = "$target" ] && ok "persistent config reassigned" || fail "roadie-config still $(file_owner "$TMP/roadie-config/plugins/keep-owned.ts")"
   [ "$(file_owner "$SITE_PATH/.wp-coding-agents/installation-profile")" = "$target" ] && ok "installation profile reassigned" || fail "profile not reassigned"
   [ "$(file_group "$SITE_PATH/.opencode")" = "$(file_group "$SITE_PATH")" ] && ok "site roots keep the site group" || fail "site group not preserved"
   [ -L "$SITE_PATH/.codex" ] && [ ! -e "$TMP/elsewhere" ] && ok "symlinked root untouched" || fail "symlink followed"

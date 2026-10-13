@@ -17,7 +17,7 @@
 # Install layout:
 #   VPS:   Roadie package  /usr/local/lib/wp-coding-agents/roadie  (root-owned,
 #                          world-readable so www-data can run `roadie send`)
-#          Config          /opt/roadie-config/{plugins,prompt-config.yaml}
+#          Config          /opt/roadie-config/{roadie-plugins,prompt-config.yaml}
 #          Secrets         /etc/wp-coding-agents/roadie<suffix>/{bot-token,send-token}
 #          Unit            /etc/systemd/system/roadie[-<name>].service
 #   Local: npm global install of the pinned tarball; config under
@@ -451,11 +451,12 @@ roadie_config_dir() {
   fi
 }
 
+# OpenCode plugin dir the Roadie bridge used to install into. All four
+# retired (#718); upgrade keeps resolving it only to remove stale files.
 bridge_managed_plugins_dir() {
   printf '%s/plugins\n' "$(roadie_config_dir)"
 }
 
-# Roadie plugins (ROADIE_PLUGINS), as opposed to the OpenCode plugins above.
 roadie_plugins_dir() {
   printf '%s/roadie-plugins\n' "$(roadie_config_dir)"
 }
@@ -485,8 +486,21 @@ roadie_channels_config_file() {
   printf '%s\n' "$file"
 }
 
-# Copy the wp-coding-agents-owned assets (OpenCode plugins, Roadie prompt
-# config) into the durable config dir. Idempotent; reports what changed.
+# OpenCode plugins the Roadie bridge used to install into the config dir and
+# wire into opencode.json. All retired in favor of Roadie-native primitives
+# (wp-coding-agents#718): memory flows through the wordpress-context Roadie
+# plugin / --context-provider, project channels came from
+# ROADIE_CHANNELS_CONFIG only (roadie#187), shell attribution comes from
+# --shell-env / ROADIE_SHELL_ENV templates (roadie#186), and claude-code-auth
+# registers nothing under Roadie (credential pools serve Anthropic).
+RETIRED_ROADIE_OPENCODE_PLUGINS=(
+  dm-agent-sync.ts
+  roadie-command-guard.ts
+  session-attribution.ts
+)
+
+# Copy the wp-coding-agents-owned assets (Roadie prompt config and plugins)
+# into the durable config dir. Idempotent; reports what changed.
 _roadie_sync_assets() {
   local config_dir plugins_dir src
   config_dir="$(roadie_config_dir)"
@@ -502,14 +516,13 @@ _roadie_sync_assets() {
   run_cmd mkdir -p "$plugins_dir"
 
   run_cmd mkdir -p "$(roadie_plugins_dir)"
-  for src in "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
+  for src in "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
               "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.php; do
     [ -f "$src" ] || continue
     local name dest
     name="$(basename "$src")"
     case "$src" in
       */roadie-plugins/*) dest="$(roadie_plugins_dir)/$name" ;;
-      *.ts) dest="$plugins_dir/$name" ;;
       *)    dest="$config_dir/$name" ;;
     esac
     if cmp -s "$src" "$dest" 2>/dev/null; then
@@ -536,6 +549,21 @@ _roadie_sync_assets() {
       UPDATED_ITEMS+=("roadie-config/accounts.mjs removed (use roadie credentials import-opencode|export-opencode)")
     fi
   fi
+
+  # The retired OpenCode plugins leave the config dir too; opencode.json
+  # entries are dropped by lib/repair-opencode-json.py, which agrees with
+  # this list.
+  local retired
+  for retired in "${RETIRED_ROADIE_OPENCODE_PLUGINS[@]}"; do
+    [ -e "$plugins_dir/$retired" ] || continue
+    if [ "${DRY_RUN:-false}" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove retired $plugins_dir/$retired"
+      continue
+    fi
+    rm -f "$plugins_dir/$retired"
+    log "  Removed retired $plugins_dir/$retired"
+    UPDATED_ITEMS+=("roadie-config/plugins/$retired removed (Roadie-native replacement, #718)")
+  done
 }
 
 # ============================================================================
@@ -1298,6 +1326,7 @@ Environment=ROADIE_PLUGINS=$(roadie_plugins_value)
 Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
 Environment=DATAMACHINE_SITE_PATH=$SITE_PATH
 $(_roadie_datamachine_wp_transport_systemd_env)
+$(_roadie_shell_env_systemd_env)
 EOF
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
@@ -1595,6 +1624,7 @@ bridge_render_launchd() {
   # fork-workspace plugin execs from this PATH.
   path_value="$(_compose_path_value "$(_roadie_launchd_homeboy_dir)" "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   datamachine_wp_transport_json=$(xml_escape "$(_roadie_datamachine_wp_transport_json)")
+  shell_env_json=$(xml_escape "$(_roadie_shell_env_value)")
   plist_document <<EOF
     <key>Label</key>
     <string>$(xml_escape "$label")</string>
@@ -1632,7 +1662,9 @@ bridge_render_launchd() {
         <key>DATAMACHINE_SITE_PATH</key>
         <string>$(xml_escape "$SITE_PATH")</string>
         <key>DATAMACHINE_WP_TRANSPORT_JSON</key>
-        <string>$datamachine_wp_transport_json</string>$(if [ -s "$(_roadie_bot_token_file)" ] || [ -n "${ROADIE_BOT_TOKEN:-}" ]; then echo "
+        <string>$datamachine_wp_transport_json</string>
+        <key>ROADIE_SHELL_ENV</key>
+        <string>$shell_env_json</string>$(if [ -s "$(_roadie_bot_token_file)" ] || [ -n "${ROADIE_BOT_TOKEN:-}" ]; then echo "
         <key>ROADIE_BOT_TOKEN_FILE</key>
         <string>$(xml_escape "$(_roadie_bot_token_file)")</string>"; fi)$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
         <key>DATAMACHINE_AGENT_SLUG</key>
@@ -1650,6 +1682,51 @@ PY
     return 0
   fi
   wp_cli_transport_json
+}
+
+# Session attribution for agent shells: Roadie's --shell-env / ROADIE_SHELL_ENV
+# templates (roadie#186) replace the retired session-attribution.ts OpenCode
+# plugin (wp-coding-agents#718). The mapping keeps Homeboy's bridge-neutral
+# contract (Extra-Chill/homeboy-extensions#2910):
+#
+#   HOMEBOY_CALLER_CONTEXT        roadie:session:{session_id}
+#   HOMEBOY_SESSION_THREAD_ID     {thread_id}
+#   HOMEBOY_SESSION_SEND_COMMAND  <roadie bin> send (static template)
+#
+# Roadie substitutes the session fields itself wherever it builds an agent
+# shell environment, falling back to the session's thread binding the way the
+# plugin's `roadie session discord-url` lookup did; a field with no value for
+# a turn leaves its variable unset, which also preserves the plugin's
+# fork rule (an agent shell never inherits a parent's caller context). The
+# bot token is still never exported. Unlike the plugin, a configured template
+# wins over an inherited value: operators who set HOMEBOY_SESSION_SEND_COMMAND
+# or HOMEBOY_SESSION_SEND_URL themselves must drop the entry from this
+# mapping (documented in docs/roadie-managed-context.md).
+_roadie_shell_env_value() {
+  local bin="${ROADIE_BIN:-$(roadie_bin)}"
+  python3 - "$bin" <<'PY'
+import json, sys
+
+bin_path = sys.argv[1]
+shell_env = {
+    "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
+    "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
+}
+# Mirror the retired plugin's guard: a binary path containing whitespace
+# cannot be expressed in the whitespace-split send command, so it is left
+# unset and delivery falls back to REST.
+if not any(character.isspace() for character in bin_path):
+    shell_env["HOMEBOY_SESSION_SEND_COMMAND"] = f"{bin_path} send"
+print(json.dumps(shell_env, separators=(",", ":")))
+PY
+}
+
+_roadie_shell_env_systemd_env() {
+  local value
+  value=$(_roadie_shell_env_value) || return 0
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf 'Environment=ROADIE_SHELL_ENV="%s"\n' "$value"
 }
 
 _roadie_datamachine_wp_transport_systemd_env() {
@@ -1770,8 +1847,7 @@ bridge_vps_start_preamble() {
 }
 
 bridge_verify_extra() {
-  local plugins_dir
-  plugins_dir="$(bridge_managed_plugins_dir)"
-  echo "test -f $plugins_dir/dm-agent-sync.ts && test -f $(roadie_prompt_config_file)   # managed config installed"
+  echo "test -f $(roadie_prompt_config_file)   # managed prompt config installed"
+  echo "systemctl show ${ROADIE_UNIT:-roadie.service} --property=Environment | grep -Fq ROADIE_SHELL_ENV   # session attribution templates installed"
   echo "test -x $(roadie_bin)   # Roadie $(roadie_pinned_version) installed"
 }
