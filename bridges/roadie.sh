@@ -36,6 +36,10 @@ ROADIE_PACKAGE_NAME='@extrachill/roadie'
 # the installed package when one appears; today's package has no engines
 # field at all.
 ROADIE_MIN_NODE_MAJOR=24
+# The agent backend this installer provisions. Roadie's built-in default
+# moved to Pi in v0.60.0; a managed service that leaves it implicit exits
+# 64 on `pi --version` and crash-loops. Declare the backend we install.
+ROADIE_AGENT_BACKEND=opencode
 
 # ============================================================================
 # Identity
@@ -1237,7 +1241,8 @@ bridge_install() {
 }
 
 _roadie_manual_command() {
-  printf 'ROADIE_MANAGED=1 ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
+  printf 'ROADIE_MANAGED=1 ROADIE_BACKEND=%s ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
+    "$ROADIE_AGENT_BACKEND" \
     "$(_roadie_shell_quote "$(roadie_prompt_config_file)")" \
     "$(_roadie_shell_quote "$(_roadie_send_token_file)")" \
     "$(_roadie_shell_quote "$ROADIE_DATA_DIR")"
@@ -1327,6 +1332,7 @@ Environment=PATH=$path_value
 Environment=ROADIE_DATA_DIR=$ROADIE_DATA_DIR
 Environment=ROADIE_MANAGED=1
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
+Environment=ROADIE_BACKEND=$ROADIE_AGENT_BACKEND
 Environment=ROADIE_PROMPT_CONFIG=$(roadie_prompt_config_file)
 Environment=ROADIE_PLUGINS=$(roadie_plugins_value)
 Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
@@ -1659,6 +1665,8 @@ bridge_render_launchd() {
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
         <string>1</string>
+        <key>ROADIE_BACKEND</key>
+        <string>$ROADIE_AGENT_BACKEND</string>
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>
