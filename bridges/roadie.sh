@@ -465,6 +465,25 @@ roadie_plugins_value() {
   printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs,%s/fork-workspace.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
 }
 
+# ROADIE_PLUGINS is installer-owned: its value is the managed plugin set this
+# installer ships. An existing unit keeps any extra plugin an operator added,
+# but never loses a managed one (#724). Managed entries come first, in the
+# order roadie_plugins_value renders them; extras follow in installed order.
+roadie_merged_plugins_value() {
+  local installed="$1" managed entry merged
+  managed="$(roadie_plugins_value)"
+  merged="$managed"
+  local IFS=','
+  for entry in $installed; do
+    [ -n "$entry" ] || continue
+    case ",$merged," in
+      *",$entry,"*) ;;
+      *) merged="$merged,$entry" ;;
+    esac
+  done
+  printf '%s\n' "$merged"
+}
+
 roadie_speaker_context_enabled() {
   [ "${CHAT_BRIDGE:-}" = roadie ] && [ -f "$(roadie_config_dir)/wordpress-context.json" ]
 }
@@ -1506,9 +1525,18 @@ bridge_update_systemd() {
   path_value="$(_roadie_path_value)"
   current_env=$(grep '^Environment=' "$unit_file" || true)
   local key
+  local installed_plugins
+  installed_plugins=$(printf '%s\n' "$current_env" | sed -n 's/^Environment=ROADIE_PLUGINS=//p' | tail -n 1 | tr -d '"')
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
+  # Installer-owned plugin list: managed set plus operator extras (#724),
+  # rewritten in place so repeated upgrades leave the unit byte-identical.
+  if [ -n "$installed_plugins" ]; then
+    current_env=$(PLUGINS="$(roadie_merged_plugins_value "$installed_plugins")" \
+      awk '/^Environment=ROADIE_PLUGINS=/ { if (!done) print "Environment=ROADIE_PLUGINS=" ENVIRON["PLUGINS"]; done = 1; next } { print }' \
+      <<< "$current_env")
+  fi
   [ "${ROADIE_DATA_DIR_EXPLICIT:-false}" != true ] || current_env=$(_roadie_remove_systemd_env_key "$current_env" ROADIE_DATA_DIR)
   [ "${ROADIE_LOCK_PORT_EXPLICIT:-false}" != true ] || current_env=$(_roadie_remove_systemd_env_key "$current_env" ROADIE_LOCK_PORT)
   [ "${AGENT_SLUG_EXPLICIT:-false}" != true ] || current_env=$(_roadie_remove_systemd_env_key "$current_env" DATAMACHINE_AGENT_SLUG)
