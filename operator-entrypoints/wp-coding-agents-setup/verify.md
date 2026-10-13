@@ -127,21 +127,26 @@ tail -n 100 "$HOME/.roadie/roadie.stderr.log"
 
 ### `verify-bridge-roadie-opencode-plugins`
 
-Local Roadie plugin paths:
+A Roadie install ships no OpenCode plugins (#718). Verify the retired files
+are gone and the session-attribution templates are installed:
+
+Local Roadie (retired plugin files must be absent):
 
 ```bash
 ROADIE_PLUGINS_DIR="${ROADIE_DATA_DIR:-$HOME/.roadie}/roadie-config/plugins"
-for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test -f "$ROADIE_PLUGINS_DIR/$plugin" || echo "missing $plugin"; done
+for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test ! -e "$ROADIE_PLUGINS_DIR/$plugin" || echo "stale $plugin — rerun upgrade to remove"; done
 ```
 
-VPS Roadie plugin paths:
+VPS Roadie:
 
 ```bash
-for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test -f "/opt/roadie-config/plugins/$plugin" || echo "missing $plugin"; done
+for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test ! -e "/opt/roadie-config/plugins/$plugin" || echo "stale $plugin — rerun upgrade to remove"; done
 test -f /opt/roadie-config/prompt-config.yaml || echo "missing prompt-config.yaml"
+systemctl cat roadie | grep -Fq ROADIE_SHELL_ENV || echo "missing ROADIE_SHELL_ENV session attribution"
 ```
 
-If any file is missing, rerun setup or upgrade before trusting a new OpenCode session. OpenCode silently skips missing plugin files.
+If `prompt-config.yaml` is missing or `ROADIE_SHELL_ENV` is absent from the
+service env, rerun setup or upgrade before trusting a new OpenCode session.
 
 ### `verify-bridge-none`
 
@@ -286,7 +291,7 @@ verification:
   verify-bridge-roadie-opencode-plugins: failed
 failures:
   - overlay: verify-bridge-roadie-opencode-plugins
-    evidence: "roadie-command-guard.ts missing from configured Roadie plugin path"
+    evidence: "ROADIE_SHELL_ENV missing from the roadie service environment"
     next_step: "rerun setup or upgrade before starting a new OpenCode session"
 ```
 

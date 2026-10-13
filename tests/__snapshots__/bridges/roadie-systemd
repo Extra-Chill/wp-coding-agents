@@ -16,6 +16,7 @@ Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/o
 Environment=ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token
 Environment=DATAMACHINE_SITE_PATH=/var/www/site
 Environment=DATAMACHINE_WP_TRANSPORT_JSON="[\"wp\"]"
+Environment=ROADIE_SHELL_ENV="{\"HOMEBOY_CALLER_CONTEXT\":\"roadie:session:{session_id}\",\"HOMEBOY_SESSION_THREAD_ID\":\"{thread_id}\",\"HOMEBOY_SESSION_SEND_COMMAND\":\"/usr/local/lib/wp-coding-agents/roadie/bin/roadie send\"}"
 Environment=DATAMACHINE_AGENT_SLUG=intelligence-chubes4
 # Roadie stops its own orphaned agent server on start, resumes runs a restart
 # interrupted, and never upgrades itself (ROADIE_MANAGED=1). SIGTERM stops it

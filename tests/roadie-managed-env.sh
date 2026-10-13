@@ -106,9 +106,55 @@ else
   check 1 "operator-owned env survives the merge"
 fi
 
+echo "==> session attribution travels as ROADIE_SHELL_ENV templates"
+
+# The retired session-attribution.ts OpenCode plugin is replaced by Roadie's
+# --shell-env / ROADIE_SHELL_ENV templates (roadie#186, wp-coding-agents#718).
+# The managed service env must map the HOMEBOY_* contract names onto Roadie's
+# session fields in both render sites.
+SHELL_ENV_LINE="$(grep '^Environment=ROADIE_SHELL_ENV=' "$UNIT" | head -1)"
+SHELL_ENV_JSON="$(printf '%s' "$SHELL_ENV_LINE" | sed 's/^Environment=ROADIE_SHELL_ENV="//; s/"$//; s/\\"/"/g')"
+EXPECTED_SHELL_ENV_JSON="$(_roadie_shell_env_value)"
+if [ -n "$SHELL_ENV_LINE" ]; then
+  check 0 "upgraded unit carries ROADIE_SHELL_ENV"
+else
+  check 1 "upgraded unit carries ROADIE_SHELL_ENV"
+fi
+if [ "$SHELL_ENV_JSON" = "$EXPECTED_SHELL_ENV_JSON" ]; then
+  check 0 "unit ROADIE_SHELL_ENV matches the template builder"
+else
+  check 1 "unit ROADIE_SHELL_ENV matches the template builder ($SHELL_ENV_JSON)"
+fi
+ROADIE_BIN_UNDER_TEST="$(roadie_bin)"
+SHELL_ENV_JSON="$SHELL_ENV_JSON" ROADIE_BIN_UNDER_TEST="$ROADIE_BIN_UNDER_TEST" python3 - <<'PY'
+import json
+import os
+import sys
+
+expected = {
+    "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
+    "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
+    "HOMEBOY_SESSION_SEND_COMMAND": f"{os.environ['ROADIE_BIN_UNDER_TEST']} send",
+}
+actual = json.loads(os.environ["SHELL_ENV_JSON"])
+if actual != expected:
+    sys.exit(f"unexpected ROADIE_SHELL_ENV mapping: {actual}")
+PY
+check $? "ROADIE_SHELL_ENV maps HOMEBOY_SESSION_* onto the Roadie session fields"
+if [ "$(grep -c '^Environment=ROADIE_SHELL_ENV=' "$UNIT")" -eq 1 ]; then
+  check 0 "ROADIE_SHELL_ENV appears exactly once"
+else
+  check 1 "ROADIE_SHELL_ENV appears exactly once"
+fi
+
 # Re-running must not accumulate duplicates.
 bridge_update_systemd
 check_managed_once "re-run keeps"
+if [ "$(grep -c '^Environment=ROADIE_SHELL_ENV=' "$UNIT")" -eq 1 ]; then
+  check 0 "re-run keeps ROADIE_SHELL_ENV exactly once"
+else
+  check 1 "re-run keeps ROADIE_SHELL_ENV exactly once"
+fi
 
 echo "==> upgrade keeps managed Homeboy ahead of user-tool dirs"
 
@@ -169,6 +215,15 @@ for key in ROADIE_PROMPT_CONFIG ROADIE_SERVICE_TOKEN_FILE; do
     check 1 "launchd plist declares $key"
   fi
 done
+PLIST_SHELL_ENV="$(printf '%s\n' "$PLIST" | sed -n '/<key>ROADIE_SHELL_ENV<\/key>/{n; s/^ *<string>\(.*\)<\/string>$/\1/p;}')"
+# The launchd render runs with ROADIE_BIN=/usr/bin/roadie, so the send-command
+# template names that binary.
+EXPECTED_PLIST_SHELL_ENV_JSON="$(ROADIE_BIN=/usr/bin/roadie _roadie_shell_env_value)"
+if [ "$PLIST_SHELL_ENV" = "$EXPECTED_PLIST_SHELL_ENV_JSON" ]; then
+  check 0 "launchd plist carries the same ROADIE_SHELL_ENV template mapping"
+else
+  check 1 "launchd plist carries the same ROADIE_SHELL_ENV template mapping ($PLIST_SHELL_ENV)"
+fi
 if printf '%s' "$PLIST" | grep -q '<key>DATAMACHINE_WP_TRANSPORT_JSON</key>'; then
   check 0 "launchd plist declares argv-native WordPress transport"
 else

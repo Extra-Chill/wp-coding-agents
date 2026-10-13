@@ -39,6 +39,10 @@ PY
 }
 
 opencode_claude_code_auth_enabled() {
+  # The plugin registers nothing under Roadie: Roadie serves Anthropic from
+  # its own credential pools (wp-coding-agents#718), so it is a direct
+  # non-Roadie OpenCode install opt-in only.
+  [ "${CHAT_BRIDGE:-}" = roadie ] && return 1
   [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 1
   [ "${RUNTIME:-}" = "opencode" ] && return 0
 
@@ -130,17 +134,14 @@ wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
 }
 
 runtime_generate_config() {
-  # Resolve the Roadie managed-plugin dir and copy the plugins FIRST,
-  # unconditionally, so a fresh install and an existing opencode.json both end
-  # up with the current managed plugins on disk (#67).
+  # Resolve the Roadie managed-plugin dir for the repair helper. The plugins
+  # themselves are retired (#718): the helper uses the dir only to rewrite
+  # stale managed entries from older installs onto the durable path before
+  # dropping them.
   ROADIE_PLUGINS_DIR=""
   if [ "$CHAT_BRIDGE" = "roadie" ]; then
     if [ "$LOCAL_MODE" = true ]; then
       ROADIE_PLUGINS_DIR="${ROADIE_DATA_DIR:-$(runtime_project_root)/.roadie}/roadie-config/plugins"
-      if [ "$DRY_RUN" = false ] && [ -n "$ROADIE_PLUGINS_DIR" ]; then
-        mkdir -p "$ROADIE_PLUGINS_DIR"
-        cp "$SCRIPT_DIR"/bridges/roadie/plugins/*.ts "$ROADIE_PLUGINS_DIR/" 2>/dev/null || true
-      fi
     else
       ROADIE_PLUGINS_DIR="/opt/roadie-config/plugins"
     fi
@@ -170,16 +171,12 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
   fi
 
-  # OpenCode plugins. The Roadie bridge manages the Data Machine memory sync,
-  # the managed-runtime command guard and Homeboy session attribution. Claude
-  # Code OAuth auth is an explicit OpenCode runtime opt-in.
+  # OpenCode plugins. Roadie installs ship none (#718): Data Machine memory
+  # flows through Roadie's wordpress-context plugin / --context-provider,
+  # channels come from ROADIE_CHANNELS_CONFIG only (roadie#187), and session
+  # attribution comes from ROADIE_SHELL_ENV templates (roadie#186). Claude
+  # Code OAuth auth is an explicit direct-OpenCode runtime opt-in.
   OPENCODE_PLUGINS=""
-  if [ "$CHAT_BRIDGE" = "roadie" ]; then
-    local managed_plugin
-    for managed_plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do
-      OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${ROADIE_PLUGINS_DIR}/${managed_plugin}\","
-    done
-  fi
   if opencode_claude_code_auth_enabled; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"$(opencode_claude_code_auth_plugin_path)\","
   fi
@@ -359,9 +356,6 @@ _runtime_repair_opencode_json_additive() {
       esac
     done <<< "$DM_AGENT_FILES" > "$MANAGED_INSTRUCTIONS_FILE"
       managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
-    if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
-      managed_args+=(--speaker-context)
-    fi
   fi
   if opencode_claude_code_auth_enabled; then
     CLAUDE_CODE_AUTH_PLUGIN="$(opencode_claude_code_auth_plugin_path)"

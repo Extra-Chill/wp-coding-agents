@@ -133,18 +133,85 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 
-# Kimaki-era entries: dm-agent-sync is rewritten into the Roadie config dir,
-# the retired Kimaki plugins are dropped, and Roadie's new plugins are added.
-expected = [
-    "/Users/example/.roadie/roadie-config/plugins/dm-agent-sync.ts",
-    "/Users/example/.roadie/roadie-config/plugins/roadie-command-guard.ts",
-    "/Users/example/.roadie/roadie-config/plugins/session-attribution.ts",
-]
-if data.get("plugin") != expected:
+# Kimaki-era entries are all retired: the Roadie bridge installs no OpenCode
+# plugins (wp-coding-agents#718), so nothing is rewritten or re-added.
+if data.get("plugin") != []:
     raise SystemExit(f"unexpected plugin paths: {data.get('plugin')}")
 PY
 grep -q '"status": "additive_repaired"' "$TMP/local-plugin-path.out"
 grep -q '"rewritten"' "$TMP/local-plugin-path.out"
+
+# --- #718: a Roadie install sheds every retired OpenCode plugin -------------
+# Existing installs carry the three managed Roadie plugins plus (opt-in)
+# claude-code-auth. The plugins are retired and leave the array; memory in
+# `instructions` is untouched (no managed list given, nothing to reconcile).
+cat > "$TMP/retired-roadie-plugins.json" <<'JSON'
+{
+  "model": "roadie/opus",
+  "plugin": [
+    "/opt/roadie-config/plugins/dm-agent-sync.ts",
+    "/opt/roadie-config/plugins/roadie-command-guard.ts",
+    "/opt/roadie-config/plugins/session-attribution.ts",
+    "/srv/site/.opencode/plugins/claude-code-auth.ts"
+  ],
+  "instructions": [
+    "./wp-content/uploads/datamachine-files/shared/SITE.md",
+    "./wp-content/uploads/datamachine-files/agents/alpha/MEMORY.md",
+    "./docs/custom.md"
+  ]
+}
+JSON
+
+python3 "$REPAIR" \
+  --file "$TMP/retired-roadie-plugins.json" \
+  --runtime opencode \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
+  --additive --backup-dir "$TMP/retire-backups" --backup-suffix t718 \
+  > "$TMP/retired-roadie-plugins.out"
+
+python3 - "$TMP/retired-roadie-plugins.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+if data.get("plugin") != []:
+    raise SystemExit(f"retired plugins were not dropped: {data.get('plugin')}")
+if data.get("instructions") != [
+    "./wp-content/uploads/datamachine-files/shared/SITE.md",
+    "./wp-content/uploads/datamachine-files/agents/alpha/MEMORY.md",
+    "./docs/custom.md",
+]:
+    raise SystemExit(f"memory instructions changed: {data.get('instructions')}")
+PY
+grep -q '"status": "additive_repaired"' "$TMP/retired-roadie-plugins.out"
+ls "$TMP/retire-backups"/retired-roadie-plugins.json.backup.t718 >/dev/null
+
+# A direct non-Roadie OpenCode install keeps claude-code-auth managed: the
+# retirement is Roadie-conditional, and user plugins stay untouched.
+cat > "$TMP/direct-auth-kept.json" <<'JSON'
+{
+  "plugin": ["/srv/site/.opencode/plugins/claude-code-auth.ts"]
+}
+JSON
+python3 "$REPAIR" \
+  --file "$TMP/direct-auth-kept.json" \
+  --runtime opencode \
+  --chat-bridge none \
+  --claude-code-auth-plugin /srv/site/.opencode/plugins/claude-code-auth.ts \
+  --additive > "$TMP/direct-auth-kept.out"
+python3 - "$TMP/direct-auth-kept.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+
+if data.get("plugin") != ["/srv/site/.opencode/plugins/claude-code-auth.ts"]:
+    raise SystemExit(f"direct-install claude-code-auth was not kept: {data.get('plugin')}")
+PY
 
 cat > "$TMP/managed-instructions.json" <<'JSON'
 {
@@ -385,8 +452,9 @@ PY
 grep -q '"status": "additive_repaired"' "$TMP/claude-code-auth-plugin.out"
 
 # --- subrouter/<preset> -> roadie/<preset> (#709) --------------------------
-# The plugin array is already managed so the only drift is the model route.
-ROADIE_PLUGINS='["/opt/roadie-config/plugins/dm-agent-sync.ts", "/opt/roadie-config/plugins/roadie-command-guard.ts", "/opt/roadie-config/plugins/session-attribution.ts"]'
+# The plugin array is already clean (a Roadie install ships none, #718) so the
+# only drift is the model route.
+ROADIE_PLUGINS='[]'
 mkdir -p "$TMP/roadie-data/credentials/shared"
 ROTATIONS="$TMP/roadie-data/credentials/shared/rotation.json"
 printf '{"anthropic-claude-opus-5-5":["anthropic/claude-opus-5-5"],"opus":["anthropic/claude-opus-5-5"]}\n' > "$ROTATIONS"

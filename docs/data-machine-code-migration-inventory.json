@@ -582,7 +582,7 @@
       "id": "wca-kimaki-signature",
       "subsystem": null,
       "surface": "Roadie session/thread attribution mapped onto Homeboy's session contract, and legacy dispatch diagnostic",
-      "source": { "repository": "wp-coding-agents", "path": "bridges/roadie/plugins/session-attribution.ts", "symbol_or_command": "shell.env HOMEBOY_SESSION_*; datamachine_code_cli_dispatch_spawn_failed" },
+      "source": { "repository": "wp-coding-agents", "path": "bridges/roadie/plugins/session-attribution.ts (retired by #718; replaced by Roadie's --shell-env / ROADIE_SHELL_ENV templates, roadie#186)", "symbol_or_command": "shell.env HOMEBOY_SESSION_*; datamachine_code_cli_dispatch_spawn_failed" },
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_cli_dispatch_spawn_failed"],
       "current_owner": "wp-coding-agents",
@@ -591,7 +591,7 @@
       "target_owner": "Homeboy",
       "disposition": "replace",
       "migration_issue": "#528",
-      "verification_gate": "Concurrent session attribution test (tests/session-attribution.mjs) passes using only owning-layer names"
+      "verification_gate": "tests/roadie-managed-env.sh asserts ROADIE_SHELL_ENV with the HOMEBOY_SESSION_* mapping in every rendered service env"
     },
     {
       "id": "wca-cli-channel-legacy",

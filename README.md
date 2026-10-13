@@ -579,7 +579,7 @@ Inbound events queue independently of a runtime. The queue intentionally has no 
 The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists.
 
 ```bash
-bash tests/roadie-command-guard.sh
+bash tests/roadie-managed-env.sh
 bash tests/roadie-kimaki-migration.sh
 ```
 
@@ -595,7 +595,7 @@ Data Machine manages the agent's persistent files:
 | `MEMORY.md` | Agent | Persistent project knowledge |
 | `USER.md` | User | Human profile and preferences |
 
-The selected runtime reads this memory at session start. OpenCode references the files from `opencode.json`, Claude Code uses generated `@` includes, and Codex receives the same file contents through a generated site-root `AGENTS.override.md`. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
+The selected runtime reads this memory at session start. Direct OpenCode installs reference the files from `opencode.json`, Claude Code uses generated `@` includes, and Codex receives the same file contents through a generated site-root `AGENTS.override.md`. Under the Roadie bridge no static file references are synced: Roadie's `wordpress-context` plugin supplies the memory per session and speaker (`docs/roadie-user-context.md`), so OpenCode sessions get current context without file wiring. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
 
 ## Abilities And Dispatch
 
@@ -610,7 +610,7 @@ Useful local checks:
 ```bash
 bash tests/agents-md-guidance.sh
 bash tests/homeboy-agents-md.sh
-bash tests/roadie-command-guard.sh
+bash tests/roadie-managed-env.sh
 bash tests/roadie-kimaki-migration.sh
 ```
 
