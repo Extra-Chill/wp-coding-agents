@@ -46,6 +46,7 @@ Environment=ROADIE_DATA_DIR=/root/.roadie
 Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
 Environment=HOST_CUSTOM=preserved
+Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/srv/operator/extra.mjs
 ExecStart=/usr/bin/roadie --data-dir /root/.roadie --auto-restart
 EOF
 
@@ -104,6 +105,29 @@ if grep -q '^Environment=HOST_CUSTOM=preserved$' "$UNIT"; then
   check 0 "operator-owned env survives the merge"
 else
   check 1 "operator-owned env survives the merge"
+fi
+
+echo "==> upgrade refreshes the installer-owned plugin list (#724)"
+
+# A unit rendered before wordpress-context/fork-workspace shipped must gain
+# them on upgrade, keep the operator's extra plugin, and carry one line.
+EXPECTED_PLUGINS="$(roadie_plugins_value),/srv/operator/extra.mjs"
+if [ "$(grep -c '^Environment=ROADIE_PLUGINS=' "$UNIT")" -eq 1 ]; then
+  check 0 "ROADIE_PLUGINS appears exactly once"
+else
+  check 1 "ROADIE_PLUGINS appears exactly once"
+fi
+if grep -qFx "Environment=ROADIE_PLUGINS=$EXPECTED_PLUGINS" "$UNIT"; then
+  check 0 "managed plugins added, operator extra kept"
+else
+  check 1 "managed plugins added, operator extra kept ($(grep '^Environment=ROADIE_PLUGINS=' "$UNIT"))"
+fi
+bridge_update_systemd
+if [ "$(grep -c '^Environment=ROADIE_PLUGINS=' "$UNIT")" -eq 1 ] &&
+  grep -qFx "Environment=ROADIE_PLUGINS=$EXPECTED_PLUGINS" "$UNIT"; then
+  check 0 "a second upgrade leaves the plugin list unchanged"
+else
+  check 1 "a second upgrade leaves the plugin list unchanged ($(grep '^Environment=ROADIE_PLUGINS=' "$UNIT"))"
 fi
 
 echo "==> session attribution travels as ROADIE_SHELL_ENV templates"
