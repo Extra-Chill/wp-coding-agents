@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.2] - 2026-10-13
+
+### Fixed
+- upgrade refreshes the installer-owned ROADIE_PLUGINS list
+
 ## [2.1.1] - 2026-10-13
 
 ### Fixed
