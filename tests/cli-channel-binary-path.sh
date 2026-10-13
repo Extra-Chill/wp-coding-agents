@@ -26,7 +26,7 @@ trap 'rm -rf "$TMP"' EXIT
 log() { :; }
 warn() { printf 'WARN: %s\n' "$1" >&2; }
 cli_channel_register() {
-  printf '%s\0' "$@" > "$TMP/cli-channel.args"
+  printf '%s\0' "$@" > "$TMP/cli-channel.$1.args"
 }
 
 DRY_RUN=false
@@ -43,7 +43,7 @@ ok()   { echo "  ok   $1"; }
 
 # Print one registered argument: name, command, args, timeout, env.
 registered() {
-  python3 - "$TMP/cli-channel.args" "$1" <<'PY'
+  python3 - "$TMP/cli-channel.${1:-roadie}.args" "${2:-name}" <<'PY'
 import sys
 with open(sys.argv[1], 'rb') as handle:
     parts = [p.decode() for p in handle.read().split(b'\0') if p]
@@ -53,41 +53,47 @@ PY
 }
 
 env_value() {
-  python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$(registered env)" "$1"
+  python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$(registered "$2" env)" "$1"
 }
 
 echo "==> VPS install registers the system-prefix binary with send-token env"
-rm -f "$TMP/cli-channel.args"
+rm -f "$TMP/cli-channel."*.args
 LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
   ROADIE_DATA_DIR=/home/opencode/.roadie ROADIE_LOCK_PORT=29988 \
   ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
   ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
   _roadie_register_cli_channel
 
-[ "$(registered name)" = roadie ] && ok "channel name is roadie" || fail "channel name: '$(registered name)'"
-got="$(registered command)"
+[ "$(registered roadie name)" = roadie ] && ok "channel name is roadie" || fail "channel name: '$(registered roadie name)'"
+got="$(registered roadie command)"
 [ "$got" = /usr/local/lib/wp-coding-agents/roadie/bin/roadie ] \
   && ok "registers the system-prefix binary" || fail "expected system-prefix binary, got '$got'"
 case "$got" in
   /root/*|/home/*) fail "registered command is under a private home: $got" ;;
   *) ok "registered command is outside private homes" ;;
 esac
-[ "$(registered args)" = '["send","--channel","{recipient}","--prompt","{message}"]' ] \
-  && ok "send argv" || fail "argv: $(registered args)"
-[ "$(env_value ROADIE_SERVICE_TOKEN_FILE)" = /etc/wp-coding-agents/roadie/send-token ] \
-  && ok "send token file passed" || fail "token file: '$(env_value ROADIE_SERVICE_TOKEN_FILE)'"
-[ "$(env_value ROADIE_DATA_DIR)" = /home/opencode/.roadie ] \
+[ "$(registered roadie args)" = '["send","--channel","{recipient}","--prompt","{message}"]' ] \
+  && ok "send argv" || fail "argv: $(registered roadie args)"
+[ "$(registered roadie-notify name)" = roadie-notify ] && ok "notify channel name" || fail "notify channel name: '$(registered roadie-notify name)'"
+[ "$(registered roadie-notify command)" = "$got" ] && ok "notify uses same binary" || fail "notify command: '$(registered roadie-notify command)'"
+[ "$(registered roadie-notify args)" = '["send","--channel","{recipient}","--prompt","{message}","--notify-only"]' ] \
+  && ok "notify-only argv" || fail "notify argv: $(registered roadie-notify args)"
+[ "$(registered roadie-notify timeout)" = "$(registered roadie timeout)" ] && ok "notify uses same timeout" || fail "notify timeout differs"
+[ "$(registered roadie-notify env)" = "$(registered roadie env)" ] && ok "notify uses same env" || fail "notify env differs"
+[ "$(env_value ROADIE_SERVICE_TOKEN_FILE roadie)" = /etc/wp-coding-agents/roadie/send-token ] \
+  && ok "send token file passed" || fail "token file: '$(env_value ROADIE_SERVICE_TOKEN_FILE roadie)'"
+[ "$(env_value ROADIE_DATA_DIR roadie)" = /home/opencode/.roadie ] \
   && ok "service data dir passed (unreadable to the web user, so send goes remote)" \
-  || fail "data dir: '$(env_value ROADIE_DATA_DIR)'"
-[ "$(env_value ROADIE_LOCK_PORT)" = 29988 ] && ok "lock port passed" || fail "lock port: '$(env_value ROADIE_LOCK_PORT)'"
+  || fail "data dir: '$(env_value ROADIE_DATA_DIR roadie)'"
+[ "$(env_value ROADIE_LOCK_PORT roadie)" = 29988 ] && ok "lock port passed" || fail "lock port: '$(env_value ROADIE_LOCK_PORT roadie)'"
 
 echo "==> local install registers the PATH binary"
-rm -f "$TMP/cli-channel.args"
+rm -f "$TMP/cli-channel."*.args
 mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/roadie"
 chmod 0755 "$TMP/bin/roadie"
 LOCAL_MODE=true ROADIE_DATA_DIR="$TMP/.roadie" PATH="$TMP/bin:/usr/bin:/bin" _roadie_register_cli_channel
-[ "$(registered command)" = "$TMP/bin/roadie" ] && ok "local PATH binary" || fail "local command: '$(registered command)'"
+[ "$(registered roadie command)" = "$TMP/bin/roadie" ] && ok "local PATH binary" || fail "local command: '$(registered roadie command)'"
 
 echo
 if [ "$FAILED" -gt 0 ]; then
