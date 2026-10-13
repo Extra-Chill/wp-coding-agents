@@ -116,7 +116,7 @@ if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes
   echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
   exit 1
 fi
-for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
+for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 ROADIE_BACKEND=opencode \
   ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token; do
   grep -Fq "Environment=$required" "$TMPDIR_NEW/roadie-systemd" \
     || { echo "FAIL: Roadie systemd unit is missing Environment=$required"; exit 1; }
