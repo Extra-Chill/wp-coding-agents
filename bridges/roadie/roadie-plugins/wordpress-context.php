@@ -44,7 +44,12 @@ $sections = 'turn' === ( $request['event'] ?? '' ) ? array( array( 'id' => 'word
 $total = 0;
 foreach ( $files as $filename => $file ) {
     $layer = $file['layer'] ?? $registry::LAYER_AGENT;
-    $personal = in_array( $layer, array( $registry::LAYER_USER, $registry::LAYER_PRINCIPAL ), true );
+    // LAYER_PRINCIPAL exists from Data Machine 0.175.5; older installs have no principal layer.
+    $personal_layers = array( $registry::LAYER_USER );
+    if ( defined( $registry . '::LAYER_PRINCIPAL' ) ) {
+        $personal_layers[] = constant( $registry . '::LAYER_PRINCIPAL' );
+    }
+    $personal = in_array( $layer, $personal_layers, true );
     if ( ( 'turn' === ( $request['event'] ?? '' ) ) !== $personal ) {
         continue;
     }

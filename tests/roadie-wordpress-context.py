@@ -15,9 +15,11 @@ with tempfile.TemporaryDirectory(prefix='roadie-speaker-instructions-') as temp:
     command = ['python3', str(root / 'lib/repair-opencode-json.py'), '--file', str(config), '--runtime', 'opencode', '--chat-bridge', 'roadie', '--roadie-plugins-dir', '/managed/plugins', '--managed-instructions-file', str(paths), '--speaker-context', '--additive', '--backup-dir', str(directory / 'backups')]
     subprocess.run(command, check=True, capture_output=True)
     result = json.loads(config.read_text())
-    assert result['instructions'] == [shared, agent, custom], result['instructions']
+    # The provider supplies shared, agent and personal memory alike (#718
+    # follow-up): every managed entry leaves; the operator's own file stays.
+    assert result['instructions'] == [custom], result['instructions']
     assert result['agent']['general']['model'] == 'operator/model'
     before = config.read_bytes()
     subprocess.run(command, check=True, capture_output=True)
     assert config.read_bytes() == before
-print('PASS: speaker context removes only managed personal instructions; operator agent/config survives repeat reconciliation')
+print('PASS: a configured context provider removes all managed memory instructions; operator entries/config survive repeat reconciliation')
