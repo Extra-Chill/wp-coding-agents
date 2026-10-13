@@ -375,9 +375,24 @@ def is_dm_managed_instruction(value: object) -> bool:
     return DM_MEMORY_MARKER in normalized or PROJECTED_MEMORY_MARKER in normalized
 
 
-def check_instruction_sync(data: dict, desired: List[str], chat_bridge: str = "none") -> dict:
+def check_instruction_sync(
+    data: dict,
+    desired: List[str],
+    chat_bridge: str = "none",
+    provider_owned: bool = False,
+) -> dict:
     current = list(data.get("instructions", []))
     current_managed = [item for item in current if is_dm_managed_instruction(item)]
+    if provider_owned:
+        # A configured Roadie context provider (wordpress-context) supplies
+        # Data Machine memory per session and speaker on every backend, so
+        # managed file references leave `instructions`: keeping them would
+        # deliver the same memory twice on OpenCode. Operator entries stay.
+        return {
+            "status": "needed" if current_managed else "ok",
+            "desired": [],
+            "current_managed": current_managed,
+        }
     if not desired:
         return {"status": "ok", "desired": []}
 
@@ -389,8 +404,15 @@ def check_instruction_sync(data: dict, desired: List[str], chat_bridge: str = "n
     }
 
 
-def apply_instruction_sync(data: dict, desired: List[str], chat_bridge: str = "none") -> dict:
-    result = check_instruction_sync(data, desired, chat_bridge)
+def apply_instruction_sync(
+    data: dict,
+    desired: List[str],
+    chat_bridge: str = "none",
+    provider_owned: bool = False,
+) -> dict:
+    result = check_instruction_sync(data, desired, chat_bridge, provider_owned)
+    if provider_owned:
+        desired = []
     if result["status"] != "needed":
         return result
 
@@ -661,7 +683,7 @@ def apply_model_route(data: dict, rewrites: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--speaker-context', action='store_true', help='Resolve user/principal memory through the configured Roadie context provider')
+    parser.add_argument('--speaker-context', action='store_true', help='Data Machine memory comes from the configured Roadie context provider; drop managed memory entries from instructions')
     parser.add_argument("--file", required=True, help="Path to opencode.json")
     parser.add_argument(
         "--runtime",
@@ -794,9 +816,9 @@ def main() -> int:
     prompt_result = check_prompt_migration(data)
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
-    if args.speaker_context:
-        managed_instructions = [item for item in managed_instructions if not (is_dm_managed_instruction(item) and '/users/' in item.replace('\\', '/'))]
-    instruction_sync_result = check_instruction_sync(data, managed_instructions, args.chat_bridge)
+    instruction_sync_result = check_instruction_sync(
+        data, managed_instructions, args.chat_bridge, provider_owned=args.speaker_context
+    )
     edit_permission_result = check_edit_permission(data, args.runtime, args.source_mode, args.owned_sources, args.owned_writable, args.log_paths)
     external_directory_result = check_external_directory(data, args.runtime, args.workspace_dirs, args.log_paths)
     model_route_result = check_model_route(
@@ -941,7 +963,9 @@ def main() -> int:
 
     instruction_sync_status = "ok"
     if has_instruction_drift:
-        apply_instruction_sync(data, managed_instructions, args.chat_bridge)
+        apply_instruction_sync(
+            data, managed_instructions, args.chat_bridge, provider_owned=args.speaker_context
+        )
         instruction_sync_status = "synced"
 
     edit_permission_status = "ok"

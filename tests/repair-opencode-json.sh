@@ -254,6 +254,49 @@ if data.get("instructions") != expected:
 PY
 grep -q '"instruction_sync": "synced"' "$TMP/managed-instructions.out"
 
+# A configured Roadie context provider (--speaker-context) owns all Data
+# Machine memory: managed entries leave `instructions` on every backend so
+# OpenCode does not receive the same memory twice. Operator entries stay.
+cat > "$TMP/provider-owned.json" <<'JSON'
+{
+  "instructions": [
+    "/srv/site/AGENTS.md",
+    "/srv/site/wp-content/uploads/datamachine-files/shared/SITE.md",
+    "/srv/site/wp-content/uploads/datamachine-files/agents/current-agent/SOUL.md",
+    "/srv/site/wp-content/uploads/datamachine-files/users/1/USER.md",
+    "./docs/custom.md"
+  ]
+}
+JSON
+python3 "$REPAIR" \
+  --file "$TMP/provider-owned.json" \
+  --runtime opencode \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
+  --managed-instructions-file "$TMP/managed-instructions.txt" \
+  --speaker-context \
+  --additive > "$TMP/provider-owned.out"
+python3 - "$TMP/provider-owned.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+if data.get("instructions") != ["/srv/site/AGENTS.md", "./docs/custom.md"]:
+    raise SystemExit(f"provider-owned memory left in instructions: {data.get('instructions')}")
+PY
+
+# Idempotent: a second pass finds nothing to change.
+python3 "$REPAIR" \
+  --file "$TMP/provider-owned.json" \
+  --runtime opencode \
+  --chat-bridge roadie \
+  --roadie-plugins-dir /opt/roadie-config/plugins \
+  --managed-instructions-file "$TMP/managed-instructions.txt" \
+  --speaker-context \
+  --additive > "$TMP/provider-owned-2.out"
+grep -q '"instruction_sync": "ok"' "$TMP/provider-owned-2.out"
+
 cat > "$TMP/edit-permissions.json" <<'JSON'
 {
   "permission": {

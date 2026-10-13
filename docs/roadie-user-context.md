@@ -50,10 +50,16 @@ The provider needs Roadie's first-turn/reconstructed-turn speaker-context fix
 that version is installed. Shared context is pinned without a speaker. First
 turns, speaker changes, and reconstruction resolve the current user separately.
 
-With this configuration present, setup/upgrade removes managed user/principal
-memory paths from the static OpenCode instructions. Operator-owned instructions
-remain intact. Existing sessions have historical prompts and user context;
-create a fresh conversation to establish the new shared prompt contract.
+With this configuration present, the provider owns all Data Machine memory:
+setup/upgrade removes every managed memory path (shared, agent, user and
+principal) from the static OpenCode instructions, so OpenCode does not receive
+the same memory twice and every backend (OpenCode or Pi) gets it from one
+place. Operator-owned instructions remain intact. Existing sessions have
+historical prompts and user context; create a fresh conversation to establish
+the new shared prompt contract.
+
+The resolver works on Data Machine installs without the principal layer
+(before 0.175.5); principal memory is simply absent there.
 
 This mapping supplies **context and chat admission**, not impersonation for
 WordPress abilities. It does not set the acting WP user, credentials, approval

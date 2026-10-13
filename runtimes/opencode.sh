@@ -100,7 +100,8 @@ runtime_discover_dm_paths() {
 import sys, json
 data = json.load(sys.stdin)
 for f in data:
-    if sys.argv[1] == 'true' and f.get('layer') in ('user', 'principal'):
+    # The configured Roadie context provider supplies all Data Machine memory.
+    if sys.argv[1] == 'true':
         continue
     path = f.get('path')
     if path:
@@ -365,6 +366,9 @@ _runtime_repair_opencode_json_additive() {
   log "opencode.json already exists — running additive repair..."
 
   local repair_out repair_rc
+  if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
+    managed_args+=(--speaker-context)
+  fi
   repair_out=$(python3 "$HELPER" \
     --file "$SITE_PATH/opencode.json" \
     --runtime opencode \

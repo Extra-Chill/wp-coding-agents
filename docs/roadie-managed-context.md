@@ -36,8 +36,8 @@ plugins survive):
 `dm-agent-sync.ts` only refreshed memory before a session's first message.
 Memory delivery itself is unchanged: setup and upgrade still sync Data
 Machine's injectable files into `opencode.json` `instructions`, and with
-`wordpress-context.json` configured, per-user memory comes from Roadie's
-`wordpress-context` plugin instead (`--speaker-context`). Freshness now follows
+`wordpress-context.json` configured, all Data Machine memory comes from Roadie's
+`wordpress-context` plugin instead (`--speaker-context`), on OpenCode and Pi alike. Freshness now follows
 Data Machine's own composition (or a manual `wp datamachine memory compose`)
 rather than a compose on every session start.
 
