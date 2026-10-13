@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0] - 2026-10-13
+
+### Changed
+- retire the Roadie OpenCode plugins in favor of Roadie-native primitives
+
+### Fixed
+- context provider owns all Data Machine memory; tolerate DM without principal layer
+
 ## [2.0.17] - 2026-10-10
 
 ### Changed
