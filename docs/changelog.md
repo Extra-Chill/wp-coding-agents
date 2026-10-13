@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0] - 2026-10-13
+
+### Added
+- provision Pi and run it as Roadie's backend once it verifies
+
+### Fixed
+- declare the OpenCode backend so Roadie 0.60 does not crash-loop
+
 ## [2.1.2] - 2026-10-13
 
 ### Fixed
