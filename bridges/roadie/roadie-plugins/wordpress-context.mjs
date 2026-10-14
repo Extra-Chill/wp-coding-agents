@@ -29,8 +29,32 @@ export function actorMapping(config, actor, spaceId) {
   const entry = config.people[`${actor.platform}:${spaceId}:${actor.id}`]
   if (!entry || !Number.isSafeInteger(entry.userId) || entry.userId <= 0) return null
   const capabilities = entry.capabilities ?? ['sessions']
-  if (!Array.isArray(capabilities) || capabilities.some((value) => !['sessions', 'shell', 'admin'].includes(value))) return null
+  if (!Array.isArray(capabilities) || capabilities.some((value) => !CAPABILITY_ORDER.includes(value))) return null
   return { userId: entry.userId, capabilities }
+}
+
+// Session rules for a team seat (Data Machine operator/viewer). In Roadie the
+// `shell` capability only gates user-typed raw shell; the agent's own tools
+// follow the host runtime config, which on a WordPress host includes the
+// operator's credentials. A team member's agent therefore gets no shell, no
+// file writes and no reads outside the session directory, and works through
+// abilities instead. wp-config.php holds the database credentials.
+export const TEAM_SEAT_PERMISSIONS = Object.freeze([
+  'bash:deny',
+  'edit:deny',
+  'external_directory:deny',
+  'read:*wp-config.php:deny',
+  'grep:*wp-config.php:deny',
+])
+
+const CAPABILITY_ORDER = ['sessions', 'shell', 'admin']
+
+// Map the WordPress seat tier to Roadie's capabilities and session rules.
+// Only an admin seat keeps the capabilities the operator declared; any other
+// or unknown role is a team seat (fail closed to the restricted tier).
+export function seatFor(role, capabilities) {
+  if (role === 'admin') return { capabilities: new Set(capabilities), permissions: [] }
+  return { capabilities: new Set(capabilities.filter((value) => value === 'sessions')), permissions: [...TEAM_SEAT_PERMISSIONS] }
 }
 
 // wp-cli shares stdout with PHP's error reporter, so the host's PHP build can
@@ -114,7 +138,8 @@ export function register(roadie) {
     const mapping = actorMapping(config, actor, context.guildId)
     if (!binding || !mapping) return { allowed: false, capabilities: new Set(), permissions: [] }
     const result = await invoke(binding, { operation: 'person', user_id: mapping.userId, agent_slug: binding.agentSlug, actor })
-    return { allowed: result.allowed === true, personId: `wordpress:${binding.sitePath}:${mapping.userId}`, capabilities: new Set(result.allowed === true ? mapping.capabilities : []), permissions: [] }
+    if (result.allowed !== true) return { allowed: false, capabilities: new Set(), permissions: [] }
+    return { allowed: true, personId: `wordpress:${binding.sitePath}:${mapping.userId}`, ...seatFor(result.role, mapping.capabilities) }
   })
   roadie.addFilter('context_sections', async (sections, request) => {
     const config = loadConfig(configPath)
