@@ -253,7 +253,7 @@ _roadie_provision_package() {
   url="$(roadie_release_url)"
 
   if ! _roadie_uses_system_prefix; then
-    run_cmd npm install -g "$url"
+    run_cmd npm install -g "$url" || return 1
     return 0
   fi
 
@@ -1623,6 +1623,7 @@ _roadie_install_launchd() {
   local plist="$plist_dir/$label.plist"
   run_cmd mkdir -p "$ROADIE_DATA_DIR" "$plist_dir"
   write_file "$plist" "$(bridge_render_launchd "$label")"
+  _roadie_install_upgrade_launchd "$plist_dir"
 
   if [ "$DRY_RUN" = false ] && bridge_is_ready; then
     launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -1632,6 +1633,30 @@ _roadie_install_launchd() {
     log "No Discord bot token yet — service not started. Run onboarding, then enable it:"
     log "  cd $SITE_PATH && $(_roadie_manual_command)"
     log "  launchctl bootstrap gui/$(id -u) $plist"
+  fi
+}
+
+# One-shot launchd job that moves Roadie to this checkout's pin and restarts
+# it (scripts/roadie-local-upgrade). The host-upgrade plugin starts it; being
+# its own job, it outlives the Roadie restart it triggers. The config tells the
+# plugin where things are; the pin itself is read live from the checkout.
+_roadie_install_upgrade_launchd() {
+  local plist_dir="$1" plist="$1/com.wp.roadie-upgrade.plist" rendered
+  run_cmd mkdir -p "$(roadie_config_dir)"
+  write_file "$(roadie_config_dir)/roadie-upgrade.json" "$(python3 - "$plist" "$ROADIE_DATA_DIR" "$SCRIPT_DIR" <<'PY'
+import json, sys
+plist, data, checkout = sys.argv[1:]
+print(json.dumps({"plist": plist, "label": "com.wp.roadie-upgrade", "checkout": checkout, "log": data + "/roadie-upgrade.log", "state": data + "/roadie-upgrade-state.json"}))
+PY
+)"
+  rendered="$(roadie_render_upgrade_launchd)"
+  if [ ! -f "$plist" ] || ! printf '%s\n' "$rendered" | cmp -s - "$plist"; then
+    [ "$DRY_RUN" = true ] && { echo -e "${BLUE}[dry-run]${NC} Would update $plist"; return 0; }
+    printf '%s\n' "$rendered" > "$plist"
+    if [ -f "${plist_dir}/com.wp.roadie.plist" ]; then
+      launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
+      launchctl bootstrap "gui/$(id -u)" "$plist"
+    fi
   fi
 }
 
@@ -1820,6 +1845,7 @@ bridge_update_launchd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
+  _roadie_install_upgrade_launchd "$HOME/Library/LaunchAgents"
   _roadie_select_backend
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
@@ -1947,6 +1973,38 @@ bridge_render_launchd() {
         <string>$(xml_escape "$(_roadie_remote_pool_url)")</string>
         <key>ROADIE_POOL_KEY_FILE</key>
         <string>$(xml_escape "$(_roadie_pool_key_file)")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
+    </dict>
+EOF
+}
+
+roadie_render_upgrade_launchd() {
+  local script="$SCRIPT_DIR/scripts/roadie-local-upgrade" path_value
+  # npm from the node Roadie runs on, so the install lands where Roadie runs from.
+  path_value="$(_compose_path_value "$(_resolve_node_bin_dir "$ROADIE_BIN")" /opt/homebrew/bin /usr/local/bin /usr/bin /bin)"
+  plist_document <<EOF
+    <key>Label</key>
+    <string>com.wp.roadie-upgrade</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$(xml_escape "$script")</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$(xml_escape "$SCRIPT_DIR")</string>
+    <key>StandardOutPath</key>
+    <string>$(xml_escape "$ROADIE_DATA_DIR/roadie-upgrade.log")</string>
+    <key>StandardErrorPath</key>
+    <string>$(xml_escape "$ROADIE_DATA_DIR/roadie-upgrade.log")</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>$(xml_escape "$HOME")</string>
+        <key>PATH</key>
+        <string>$(xml_escape "$path_value")</string>
+        <key>ROADIE_DATA_DIR</key>
+        <string>$(xml_escape "$ROADIE_DATA_DIR")</string>
+        <key>ROADIE_MANAGED</key>
+        <string>1</string>
     </dict>
 EOF
 }

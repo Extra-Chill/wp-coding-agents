@@ -1,0 +1,51 @@
+#!/bin/bash
+# Upgrade the local launchd Roadie package to this checkout's pin, outside
+# Roadie's process tree. Package resolution/install is shared with roadie.sh.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PIN_FILE="$SCRIPT_DIR/bridges/roadie/roadie-version"
+TO="$(tr -d '[:space:]' < "$PIN_FILE")"
+FROM=""
+
+source "$SCRIPT_DIR/bridges/roadie.sh"
+LOCAL_MODE=true
+DRY_RUN=false
+ROADIE_DATA_DIR="${ROADIE_DATA_DIR:-$HOME/.roadie}"
+STATE_FILE="$ROADIE_DATA_DIR/roadie-upgrade-state.json"
+mkdir -p "$ROADIE_DATA_DIR"
+log() { printf '%s\n' "$*"; }
+warn() { printf '%s\n' "$*" >&2; }
+error() { printf '%s\n' "$*" >&2; }
+run_cmd() { "$@"; }
+FROM="$(_roadie_installed_version)"
+set -e
+
+record_result() {
+  local outcome="$1" detail="${2:-}" tmp="$STATE_FILE.tmp.$$"
+  python3 - "$tmp" "$FROM" "$TO" "$outcome" "$detail" <<'PY'
+import datetime, json, sys
+path, before, after, result, detail = sys.argv[1:]
+with open(path, "w") as f:
+    json.dump({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(), "from": before or None, "to": after, "result": result, "detail": detail or None}, f)
+    f.write("\n")
+PY
+  mv -f "$tmp" "$STATE_FILE"
+}
+
+if [ "$FROM" = "$TO" ]; then
+  log "Roadie $TO already installed"
+  record_result ok "already installed"
+  exit 0
+fi
+
+if ! _roadie_provision_package; then
+  record_result failed "package provisioning failed"
+  exit 1
+fi
+
+if ! launchctl kickstart -k "gui/$(id -u)/com.wp.roadie"; then
+  record_result failed "Roadie installed but launchctl restart failed"
+  exit 1
+fi
+record_result ok "installed and restarted"
