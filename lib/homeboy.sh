@@ -764,7 +764,7 @@ recompose_agents_md_for_homeboy() {
   if (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md >/dev/null); then
     log "AGENTS.md recomposed after Homeboy reconciliation."
   else
-    homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy reconciliation."
+    homeboy_handle_failure "Cannot recompose AGENTS.md after Homeboy reconciliation: wp_run_as_site_owner printed the redacted compose stderr above (#628)."
   fi
 }
 

@@ -242,6 +242,12 @@ setup_service_permissions() {
     run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$ROADIE_DATA_DIR"
   else
     log "Phase 6: Running as root (--root)"
+    # Root-run setup also converges the site root's own directory mode
+    # (#628): only the non-root branch above gets the recursive g+w grant,
+    # so a root-run setup left the webroot without group-write and the
+    # first AGENTS.md compose refused its atomic rename. Same additive,
+    # non-recursive contract as the upgrade path (#644).
+    ensure_site_root_group_write "$SITE_PATH"
     run_cmd mkdir -p "$ROADIE_DATA_DIR"
   fi
 }

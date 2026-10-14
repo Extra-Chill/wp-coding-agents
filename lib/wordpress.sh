@@ -17,7 +17,7 @@ wp_cmd() {
 # atomically replaces files in that directory, and its euid detection controls
 # whether generated WP-CLI guidance includes --allow-root.
 wp_run_as_site_owner() {
-  local owner current_user service_home status
+  local owner current_user service_home status compose_err
   if [ "${LOCAL_MODE:-false}" = true ]; then
     wp_cli "$@" $WP_ROOT_FLAG
     return $?
@@ -53,15 +53,37 @@ wp_run_as_site_owner() {
   service_home=""
   [ "$owner" != "${SERVICE_USER:-}" ] || service_home="${SERVICE_HOME:-}"
   wp_cli_transport_ensure
+  compose_err="$(mktemp "${TMPDIR:-/tmp}/wp-coding-agents-compose-err.XXXXXX")"
   if [ -n "$service_home" ]; then
-    sudo -n -H -u "$owner" env HOME="$service_home" PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>&1
+    sudo -n -H -u "$owner" env HOME="$service_home" PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>"$compose_err"
   else
-    sudo -n -H -u "$owner" env PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>&1
+    sudo -n -H -u "$owner" env PATH="$PATH" "${WP_CLI_TRANSPORT[@]}" "$@" >/dev/null 2>"$compose_err"
   fi
   status=$?
   if [ "$status" -ne 0 ]; then
-    printf 'AGENTS.md compose failed [compose_command_failed]: WP-CLI composition as SITE_PATH owner %s returned status %s; inspect WordPress/Data Machine health and retry. CLI output was suppressed.\n' "$owner" "$status" >&2
+    printf 'AGENTS.md compose failed [compose_command_failed]: WP-CLI composition as SITE_PATH owner %s returned status %s; redacted stderr below names the failing precondition.\n' "$owner" "$status" >&2
+    # Surface the actionable diagnostic instead of a bare typed message
+    # (#628): when the site root is not writable by the compose identity,
+    # Data Machine refuses its atomic temp-file-plus-rename write, and that
+    # refusal is exactly what the operator needs to see. Values of
+    # credential-shaped KEY=VALUE lines are redacted before display — the
+    # bounded-output contract from #642 (compose stderr must never leak
+    # secrets into upgrade logs) still holds, so only the diagnostic
+    # survives.
+    if [ -s "$compose_err" ]; then
+      awk '
+        {
+          line = $0
+          low = tolower(line)
+          if (low ~ /(credential|password|passwd|secret|token|api_key|apikey)[a-z_]*=/) {
+            sub(/=.*/, "=[redacted]", line)
+          }
+          print line
+        }
+      ' "$compose_err" | tail -n 20 | sed 's/^/  compose: /' >&2
+    fi
   fi
+  rm -f "$compose_err"
   return "$status"
 }
 

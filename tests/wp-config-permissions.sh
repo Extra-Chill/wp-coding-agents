@@ -279,6 +279,27 @@ else
   chown "$(id -un)" "$root_site"
 fi
 
+# Root-run upgrades converge the same site-root contract (#628): the default
+# `sudo ./upgrade.sh` composes as the site owner through sudo and needs the
+# directory group-write too, so root mode repairs the bit directly instead
+# of silently skipping the convergence that v1.25-era root upgrades skipped.
+if [ "$(id -u)" -eq 0 ]; then
+  chmod 2755 "$root_site"
+  UPDATED_ITEMS=()
+  PENDING_ITEMS=()
+  RUN_AS_ROOT=true
+  upgrade_ensure_site_root_group_write >/dev/null 2>&1
+  RUN_AS_ROOT=false
+  [ "$(file_mode "$root_site")" = "$(group_write_added "2755")" ] || fail "root mode must converge the drifted site root, got $(file_mode "$root_site")"
+  [ "${#UPDATED_ITEMS[@]}" -eq 1 ] || fail "root mode must report the repair it applied"
+  [ "${#PENDING_ITEMS[@]}" -eq 0 ] || fail "root mode can repair directly and must not request a root repair"
+  chmod 2755 "$root_site"
+else
+  # Without a real root identity there is nothing to assert interactively;
+  # the seam is exercised above via the non-root repair-or-report path.
+  :
+fi
+
 # Dry-run must not mutate the drifted root.
 chmod 2755 "$root_site"
 drifted_dry="$(file_mode "$root_site")"
@@ -329,6 +350,12 @@ if [ "$(id -u)" -eq 0 ] && command -v runuser >/dev/null 2>&1 && id nobody >/dev
   [ "$(cat "$shared/AGENTS.md")" = composed ] || fail "atomic replacement did not install the composed content"
   echo "real non-root atomic AGENTS.md replacement passed"
 fi
+
+# setup's Phase 6: the non-root branch applies the recursive g+w grant, and
+# the root branch — which has no recursive grant at all (#628) — must converge
+# the site root itself through the same helper the upgrade path uses.
+setup_root_branch=$(sed -n '/setup_service_permissions()/,/^}/p' lib/infrastructure.sh | grep -c 'ensure_site_root_group_write "\$SITE_PATH"')
+[ "$setup_root_branch" -ge 1 ] || fail "setup's root-mode Phase 6 must converge the site root group-write"
 
 echo "site-root group-write convergence tests passed"
 
