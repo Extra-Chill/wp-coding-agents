@@ -39,6 +39,16 @@ The canonical `datamachine_can_access_agent` filter also applies.
 Capabilities are explicitly declared in the mapping; defaults grant sessions
 only. Unmapped actors are denied when this identity plugin is configured.
 
+## Lookup failures and slow sites
+
+Each lookup runs WP-CLI through the context's `transport` with a 12 second
+bound. A local site whose WP-CLI boots slower (a desktop WordPress app, a cold
+container) can raise it per context with `"lookupTimeoutMs": 30000` (1000 to
+120000). When a lookup fails, Roadie answers "Couldn't verify your account"
+and logs the cause: command not found (transport or service PATH), timed out
+(raise `lookupTimeoutMs`), or the exit status with the tail of stderr, such as
+a PHP fatal error.
+
 ## Per-person MCP servers
 
 A context can name MCP servers that every allowed seat gets as its own

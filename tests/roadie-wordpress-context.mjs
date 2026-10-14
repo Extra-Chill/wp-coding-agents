@@ -118,6 +118,23 @@ try {
   assert.throws(() => module.parseResolverStdout('Xdebug is broken {"allowed":true}'), /invalid JSON/)
   assert.throws(() => module.parseResolverStdout('"just a string"'), /invalid JSON/)
   assert.equal(module.stripPhpDiagnostics(PHP_NOTICE + '{"a":1}'), '{"a":1}')
+  // Lookup failures name their cause; the timeout is configurable per context.
+  assert.equal(module.lookupTimeoutMs({}), 12000)
+  assert.equal(module.lookupTimeoutMs({ lookupTimeoutMs: 45000 }), 45000)
+  assert.equal(module.lookupTimeoutMs({ lookupTimeoutMs: 5 }), 12000)
+  assert.equal(module.lookupTimeoutMs({ lookupTimeoutMs: 'x' }), 12000)
+  assert.match(module.describeLookupFailure({ code: 'ENOENT', path: 'wp' }, '', 12000), /command not found \(wp\)/)
+  assert.match(module.describeLookupFailure({ killed: true, signal: 'SIGTERM' }, '', 12000), /timed out after 12000ms/)
+  assert.equal(module.describeLookupFailure({ code: 255 }, 'PHP Fatal error:  Uncaught Error: Class "X" not found\n', 12000), 'exit 255: PHP Fatal error: Uncaught Error: Class "X" not found')
+  assert.equal(module.describeLookupFailure({ code: 1 }, '', 12000), 'exit 1')
+  const slow = path.join(temp, 'slow-wp.mjs')
+  fs.writeFileSync(slow, 'setTimeout(() => {}, 5000)\n')
+  const slowConfig = path.join(temp, 'slow-context.json')
+  fs.writeFileSync(slowConfig, JSON.stringify({ version: 1, defaultContext: 's', contexts: { s: { sitePath: '/site', agentSlug: 's', transport: [process.execPath, slow], lookupTimeoutMs: 1000 } }, people: { 'discord:g1:u1': { userId: 1, capabilities: ['sessions'] } } }))
+  process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG = slowConfig
+  const slowFilters = {}
+  module.register({ addFilter: (name, fn) => { slowFilters[name] = fn } })
+  await assert.rejects(slowFilters.person({}, { actor: { platform: 'discord', id: 'u1' }, context: { guildId: 'g1' } }), /WordPress context lookup failed: timed out after 1000ms/)
   console.log('PASS: seat tiers from the agent access role (admin unrestricted, operator/viewer restricted, denied/unmapped rejected), isolated concurrent user context, explicit scoped identity, unmapped and asserted actor rejection, PHP-notice stdout tolerated')
 } finally {
   delete process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG

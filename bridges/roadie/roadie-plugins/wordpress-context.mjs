@@ -134,6 +134,26 @@ export function deliverableSections(sections, directory) {
     .map(({ convention_path: _conventionPath, ...section }) => section)
 }
 
+const DEFAULT_LOOKUP_TIMEOUT_MS = 12000
+
+// Local sites (for example a desktop WordPress app's WP-CLI) can boot slower
+// than a server; a context may raise the bound with `lookupTimeoutMs`.
+export function lookupTimeoutMs(binding) {
+  const value = Number(binding?.lookupTimeoutMs)
+  return Number.isFinite(value) && value >= 1000 && value <= 120000 ? Math.floor(value) : DEFAULT_LOOKUP_TIMEOUT_MS
+}
+
+// Roadie logs this message when the person filter throws. Name the actual
+// failure (missing binary, timeout, exit status, PHP error) so an operator can
+// fix it, without echoing stdout, which can carry memory content.
+export function describeLookupFailure(error, stderr, timeout) {
+  if (error?.code === 'ENOENT') return `command not found (${error.path ?? 'transport'}); check the context transport and the service PATH`
+  if (error?.killed || error?.signal === 'SIGTERM') return `timed out after ${timeout}ms; raise lookupTimeoutMs on the context if the site is slow to boot`
+  const detail = String(stderr ?? '').replace(/\s+/g, ' ').trim().slice(-300)
+  const status = typeof error?.code === 'number' ? `exit ${error.code}` : (error?.signal ? `signal ${error.signal}` : 'failed')
+  return detail ? `${status}: ${detail}` : status
+}
+
 function invoke(binding, input) {
   const code = fs.readFileSync(resolver, 'utf8').replace(/^<\?php\s*/, '')
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64')
@@ -142,8 +162,9 @@ function invoke(binding, input) {
   const php = `$args=array('${encoded}');${code}`
   const [command, ...prefix] = binding.transport
   return new Promise((resolve, reject) => {
-    execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', php, '--allow-root'], { timeout: 12000, maxBuffer: 256 * 1024 }, (error, stdout) => {
-      if (error) { reject(new Error('WordPress context lookup failed', { cause: error })); return }
+    const timeout = lookupTimeoutMs(binding)
+    execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', php, '--allow-root'], { timeout, maxBuffer: 256 * 1024 }, (error, stdout, stderr) => {
+      if (error) { reject(new Error(`WordPress context lookup failed: ${describeLookupFailure(error, stderr, timeout)}`, { cause: error })); return }
       try { resolve(parseResolverStdout(stdout)) } catch (cause) { reject(new Error(cause instanceof Error ? cause.message : 'WordPress context returned invalid JSON', { cause })) }
     })
   })
