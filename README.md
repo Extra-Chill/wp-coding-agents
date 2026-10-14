@@ -540,7 +540,7 @@ constant takes precedence over the environment variable).
 
 Codex reads `AGENTS.override.md` from the WordPress site root when present, before falling back to `AGENTS.md`. Because Codex does not load arbitrary instruction files from an `instructions` array or Claude-style `@` includes, setup and upgrade generate a Codex-owned `AGENTS.override.md` from the shared `AGENTS.md` plus the local Data Machine memory files.
 
-Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that OpenCode also reads. On a site with both runtimes, OpenCode keeps using `AGENTS.md` plus `opencode.json` instructions, while Codex gets the same site guidance and memory through its generated override.
+Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that other runtimes read. Only the selected runtime keeps its projection: when the site's runtime is not Codex, upgrade removes the managed `AGENTS.override.md` (a user-owned one without the managed marker is left alone). Select Codex again with `./upgrade.sh --runtime codex`.
 
 Setup registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
 
