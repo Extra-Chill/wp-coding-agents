@@ -32,7 +32,6 @@ wp_cmd() {
 }
 sync_carried_plugins() {
   printf 'sync\n' >> "$CARRIED_TRACE"
-  mkdir -p "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code"
   mkdir -p "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration"
 }
 
@@ -41,9 +40,9 @@ SITE_PATH="$TMP/site"
 INSTALLATION_PROFILE_SITE_PATH="$SITE_PATH"
 INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
 INSTALLATION_PROFILE_HOMEBOY_MODE=disabled
-RUNTIME=claude-code
-DETECTED_RUNTIMES=(claude-code)
-INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration ai-provider-for-claude-code)
+RUNTIME=opencode
+DETECTED_RUNTIMES=(opencode)
+INSTALLATION_PROFILE_CARRIED_PLUGINS=(wp-coding-agents-integration)
 DRY_RUN=false
 RETIRED_HOMEBOY_OPTION_STATE="$TMP/retired-homeboy-option"
 touch "$RETIRED_HOMEBOY_OPTION_STATE"
@@ -62,7 +61,7 @@ INSTALLATION_PROFILE_OPERATION=upgrade
 integration_adapters_detect
 [ "$setup_records" = "${INTEGRATION_ADAPTER_RECORDS[*]}" ] || fail "setup and upgrade derived different records"
 case "$setup_records" in
-  *"integrations.dmc-managed-release-cleanup"*"integrations.retired-homeboy-option-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.ai-provider-for-claude-code"*"integrations.carried-plugin.wp-coding-agents-integration"*) ;;
+  *"integrations.dmc-managed-release-cleanup"*"integrations.retired-homeboy-option-cleanup"*"integrations.dmc-copied-release"*"integrations.carried-plugin.wp-coding-agents-integration"*) ;;
   *) fail "expected stale-state, copied-DMC, and carried-plugin records" ;;
 esac
 
@@ -72,7 +71,6 @@ integration_adapters_apply
 [ ! -e "$SITE_PATH/wp-content/mu-plugins/wp-coding-agents-dmc-managed-release.php" ] || fail "managed-release cleanup was not applied"
 [ ! -e "$RETIRED_HOMEBOY_OPTION_STATE" ] || fail "retired Homeboy option was not removed"
 [ -f "$SITE_PATH/wp-content/plugins/data-machine-code/HOMEBOY_DEPLOYED" ] || fail "copied DMC was changed"
-[ -d "$SITE_PATH/wp-content/plugins/ai-provider-for-claude-code" ] || fail "carried provider was not applied"
 [ -d "$SITE_PATH/wp-content/plugins/wp-coding-agents-integration" ] || fail "WordPress integration package was not applied"
 [ "$(grep -c '^homeboy$' "$HOMEBOY_TRACE")" -eq 1 ] || fail "disabled Homeboy cleanup was not applied"
 HOST_CAPABILITIES_AVAILABLE=false

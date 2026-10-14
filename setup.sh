@@ -8,7 +8,6 @@
 #   Fresh VPS:        SITE_DOMAIN=example.com ./setup.sh
 #   Existing WP:      EXISTING_WP=/var/www/mysite ./setup.sh --existing
 #   Local (macOS):    EXISTING_WP=/path/to/wordpress ./setup.sh --local
-#   Claude Code:      ./setup.sh --runtime claude-code
 #   Without Discord:  ./setup.sh --no-chat
 #
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
@@ -77,7 +76,6 @@ WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 RUNTIME=""
-CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
@@ -151,7 +149,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --chat)
       CHAT_BRIDGE="$2"
-      CHAT_BRIDGE_EXPLICIT=true
       shift 2
       ;;
     --skip-ssl)
@@ -267,6 +264,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --runtime)
+      reject_removed_runtime "$2" --runtime
       RUNTIME="$2"
       shift 2
       ;;
@@ -369,8 +367,6 @@ USAGE:
   Fresh VPS:          SITE_DOMAIN=example.com ./setup.sh
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
   Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
-  With Claude Code:   ./setup.sh --runtime claude-code --existing
-  With Codex:         ./setup.sh --runtime codex --existing --no-chat
 
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
@@ -569,36 +565,11 @@ fi
 # Runtime resolution
 # ============================================================================
 
-# Auto-detect runtime(s).
-#
-# RUNTIME is the "primary" runtime — the one that drives runtime_install,
-# runtime_generate_config, runtime_install_hooks, and the chat-bridge default.
-# First-match cascade: claude-code > opencode > codex.
-#
-# DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
-# machine with claude, opencode, and codex installed, retired managed skills are
-# removed from every detected runtime's skills dir (see lib/skills.sh).
-# Explicit --runtime <name> narrows both lists to that single runtime.
-if [ -n "$RUNTIME" ]; then
-  # User passed --runtime explicitly — respect it, single-runtime mode.
-  DETECTED_RUNTIMES=("$RUNTIME")
-else
-  if command -v claude &>/dev/null; then
-    DETECTED_RUNTIMES+=("claude-code")
-  fi
-  if command -v opencode &>/dev/null; then
-    DETECTED_RUNTIMES+=("opencode")
-  fi
-  if command -v codex &>/dev/null; then
-    DETECTED_RUNTIMES+=("codex")
-  fi
-  if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
-    # Nothing installed yet — default to opencode (will be installed).
-    DETECTED_RUNTIMES=("opencode")
-  fi
-  # Primary = first match in the cascade above.
-  RUNTIME="${DETECTED_RUNTIMES[0]}"
-fi
+# OpenCode is the only managed runtime. Codex and Claude Code were removed in
+# #751: they read the composed AGENTS.md natively when run in a terminal, so a
+# request for either one fails during argument parsing.
+RUNTIME="${RUNTIME:-opencode}"
+DETECTED_RUNTIMES=("$RUNTIME")
 
 # Source the selected runtime
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
@@ -607,23 +578,10 @@ if [ ! -f "$RUNTIME_FILE" ]; then
 fi
 source "$RUNTIME_FILE"
 
-# Set default chat bridge based on runtime
-# Roadie is the only chat bridge, and it runs the OpenCode runtime.
+# Roadie is the only chat bridge.
 if [ "$INSTALL_CHAT" = true ]; then
-  if [ "$RUNTIME" != "opencode" ]; then
-    if [ "$CHAT_BRIDGE_EXPLICIT" = true ]; then
-      error "The chat bridge (Roadie) requires --runtime opencode; use --no-chat with $RUNTIME."
-    fi
-    INSTALL_CHAT=false
-    CHAT_BRIDGE=""
-  else
-    CHAT_BRIDGE="${CHAT_BRIDGE:-roadie}"
-    [ "$CHAT_BRIDGE" = roadie ] || error "Unsupported chat bridge '$CHAT_BRIDGE'. The only bridge is roadie."
-  fi
-fi
-
-if [ "$EXTERNAL_WORDPRESS" = true ] && [ "$RUNTIME" != "opencode" ]; then
-  error "--external-wordpress currently requires --runtime opencode"
+  CHAT_BRIDGE="${CHAT_BRIDGE:-roadie}"
+  [ "$CHAT_BRIDGE" = roadie ] || error "Unsupported chat bridge '$CHAT_BRIDGE'. The only bridge is roadie."
 fi
 
 # ============================================================================
@@ -649,7 +607,6 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
-source_policy_assert_runtime_supports_mode
 
 # Owned mode defaults to a non-root service user (#327). Must run after the mode
 # resolves and before create_service_user / setup_service_permissions, both of

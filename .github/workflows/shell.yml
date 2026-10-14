@@ -247,18 +247,6 @@ jobs:
         run: ./tests/opencode-local-plugin-path.sh
       - name: Run tests/repair-opencode-json.sh
         run: ./tests/repair-opencode-json.sh
-      - name: Run tests/claude-code-permissions.sh
-        run: ./tests/claude-code-permissions.sh
-      - name: Run tests/codex-permissions.sh
-        run: ./tests/codex-permissions.sh
-
-  claude-code-hook-scope:
-    name: Claude Code hook agent scoping
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/claude-code-hook-scope.sh
-        run: ./tests/claude-code-hook-scope.sh
 
   # Suites that had no CI job until #335. Run as a matrix so adding a test is a
   # one-line change and tests/ci-coverage.sh stays satisfied; invoked through
@@ -274,9 +262,8 @@ jobs:
           - webroot-backup-hygiene
           - agents-md-failure-does-not-abort-upgrade
           - agents-md-compose-site-owner
-          - carried-claude-code-plugin
+          - carried-plugins
           - ci-coverage
-          - codex-runtime
           - datamachine-worker
           - detect-php-version
           - detect-site-domain

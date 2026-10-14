@@ -24,10 +24,7 @@ bridge_service_adapter_detect() {
       if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then
         [ -n "${CHAT_BRIDGE:-}" ] || return 0
       else
-        if [ "${RUNTIME:-}" = codex ]; then
-          CHAT_BRIDGE=""
-          return 0
-        elif [ "${LOCAL_MODE:-false}" = true ]; then
+        if [ "${LOCAL_MODE:-false}" = true ]; then
           detected="$(bridge_detect_local)"
         else
           detected="$(bridge_detect_vps)"

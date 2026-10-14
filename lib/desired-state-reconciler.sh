@@ -74,10 +74,6 @@ installation_profile_normalize() {
   INSTALLATION_PROFILE_CARRIED_PLUGINS=()
   if [ "$INSTALLATION_PROFILE_EXTERNAL_WORDPRESS" != true ]; then
     INSTALLATION_PROFILE_CARRIED_PLUGINS+=(wp-coding-agents-integration)
-    local runtime
-    for runtime in "${DETECTED_RUNTIMES[@]:-${INSTALLATION_PROFILE_RUNTIME}}"; do
-      [ "$runtime" = claude-code ] && INSTALLATION_PROFILE_CARRIED_PLUGINS+=(ai-provider-for-claude-code)
-    done
   fi
   if [ "$operation" = "$INSTALLATION_OPERATION_PLUGINS_ONLY" ]; then
     INSTALLATION_PROFILE_COMPONENTS=(plugins)

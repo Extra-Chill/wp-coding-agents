@@ -127,19 +127,18 @@ runtime_guidance_desired_state_apply_instructions() {
   runtime_guidance_desired_state_apply_function runtime_generate_instructions
 }
 
-# Only the selected runtime keeps a projection. Codex's managed
-# AGENTS.override.md is refreshed by runtimes/codex.sh when Codex is selected;
-# under any other runtime a managed copy is a stale duplicate nothing reads, so
-# it is removed. User-owned AGENTS.override.md files (no marker) stay untouched.
-runtime_guidance_retire_inactive_codex_projection() {
-  [ "${RUNTIME:-}" != codex ] || return 0
+# The Codex runtime and its AGENTS.override.md projection were removed (#751).
+# A managed copy (carrying the projection marker) is a stale duplicate of
+# AGENTS.md that nothing refreshes, so it is always removed. User-owned
+# AGENTS.override.md files (no marker) stay untouched.
+runtime_guidance_retire_codex_projection() {
   local projection="$SITE_PATH/AGENTS.override.md"
   [ -f "$projection" ] || return 0
   grep -Fq '<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->' "$projection" || return 0
   if [ "${DRY_RUN:-false}" = true ]; then
-    log "[dry-run] Would remove the inactive Codex projection $projection"
+    log "[dry-run] Would remove the retired Codex projection $projection"
     return 0
   fi
   rm -f "$projection"
-  log "Removed the inactive Codex projection $projection (runtime: ${RUNTIME:-unset})"
+  log "Removed the retired Codex projection $projection"
 }

@@ -21,27 +21,26 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - External runtime: runtime project root, WordPress-side root path, optional WordPress user, and control transport argv. Keep credentials in the runtime environment or credential store rather than argv.
 
 3. **Runtime axis**
-   Ask which runtime or runtimes the user wants:
-   - `opencode`
-   - `claude-code`
-   - `codex`
-   - `multiple`
+   `opencode` is the only managed runtime. Record `opencode`, or `auto` to let
+   `setup.sh` choose it. External runtimes require an explicit `opencode`
+   selection.
 
-   If they choose multiple, collect the desired runtime list. If they are unsure, record `auto` so `setup.sh` can auto-detect.
-   External runtimes currently require an explicit `opencode` selection.
+   Codex and Claude Code are not managed runtimes (#751). Users of those tools
+   run them in a terminal against the site's composed `AGENTS.md`; they do not
+   need a runtime selection.
 
 4. **Chat bridge axis**
    Ask how the user wants to communicate with the agent:
    - `roadie` — Discord bridge for OpenCode (the only managed bridge).
    - `none` — terminal/SSH/manual only.
-   - `auto` — Roadie for OpenCode; no bridge for other runtimes.
+   - `auto` — Roadie.
 
-   Claude Code and Codex have no managed chat bridge in wp-coding-agents; use `none` or `auto` for them. Telegram and cc-connect were removed until Roadie supports more platforms.
+   Telegram and cc-connect were removed until Roadie supports more platforms.
 
    For Roadie, collect whether a Discord bot token is available (`ROADIE_BOT_TOKEN`).
 
 5. **Codebox / gateway path**
-   Ask this only when the user mentions Codebox minions, OpenCode/Roadie external clients, or WP AI Gateway. Plain Codex runtime selection is handled by the runtime axis above and does not require a provider/gateway path.
+   Ask this only when the user mentions Codebox minions, OpenCode/Roadie external clients, or WP AI Gateway.
 
    Record one of:
    - `codebox-minions` — provider auth is inherited inside Codebox; WP AI Gateway is not required.
@@ -94,14 +93,13 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "migration_backups_ready": false
   },
   "runtime": {
-    "selection": "auto | opencode | claude-code | codex | multiple",
-    "runtimes": []
+    "selection": "auto | opencode"
   },
   "chat_bridge": {
     "selection": "auto | roadie | none",
     "bot_token_available": false
   },
-  "codex_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
+  "provider_path": "not-applicable | codebox-minions | external-openai-compatible-endpoint",
   "source": {
     "mode": "workspace | owned",
     "workspace_repositories": [
