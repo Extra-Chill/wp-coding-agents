@@ -50,13 +50,30 @@ _guidance_homeboy_service_bin_path() {
   _guidance_homeboy_managed_bin_path
 }
 
+# _guidance_homeboy_well_known_bin_paths — system install locations a host's
+# homeboy package or upgrade helper puts the binary in (`/usr/local/bin`
+# beside other admin-installed tools, `/usr/bin` for distro packaging).
+#
+# #636: an install whose binary lives at /usr/local/bin/homeboy must be
+# recognized even when homeboy is not on the syncing shell's PATH — upgrade
+# and cron contexts commonly run without a full interactive PATH, and a
+# `type -P`-exclusive fallthrough then left the previously baked (now stale)
+# per-user path as the only recorded location, silently dropping the section
+# after the binary moved.
+_guidance_homeboy_well_known_bin_paths() {
+  printf '%s\n' "${WP_CODING_AGENTS_HOMEBOY_WELL_KNOWN_BINS:-/usr/local/bin/homeboy /usr/bin/homeboy}"
+}
+
 # _guidance_homeboy_bin_candidates — ordered, de-duplicated candidate paths.
 #
 #   1. WP_CODING_AGENTS_HOMEBOY_BIN — explicit sync-time override, for an
 #      operator with a nonstandard install.
 #   2. The managed shared install location (see above), reachable to the
 #      composing web identity and writable by the service identity.
-#   3. `type -P homeboy` — the syncing user's PATH (the original #575
+#   3. The well-known system install locations (/usr/local/bin/homeboy,
+#      /usr/bin/homeboy) — present even when the syncing shell's trimmed
+#      PATH does not surface them (#636).
+#   4. `type -P homeboy` — the syncing user's PATH (the original #575
 #      probe), kept as a last resort for hosts that run homeboy from
 #      somewhere else but still keep it web-reachable.
 #
@@ -68,6 +85,7 @@ _guidance_homeboy_bin_candidates() {
     "${WP_CODING_AGENTS_HOMEBOY_BIN:-}" \
     "$(_guidance_homeboy_service_bin_path)" \
     "$(_guidance_homeboy_managed_bin_path)" \
+    $(_guidance_homeboy_well_known_bin_paths) \
     "$(type -P homeboy 2>/dev/null || true)"
   do
     [ -n "$candidate" ] || continue
