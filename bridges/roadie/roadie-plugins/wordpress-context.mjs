@@ -57,6 +57,28 @@ export function seatFor(role, capabilities) {
   return { capabilities: new Set(capabilities.filter((value) => value === 'sessions')), permissions: [...TEAM_SEAT_PERMISSIONS] }
 }
 
+// Per-person MCP servers for a context (Roadie person-MCP, roadie#152). Roadie
+// registers each one with the speaker's own OAuth token (connected through
+// Roadie's /connect) and scopes it to that speaker's turns. Entries mirror
+// Roadie's own validation: names safe in tool ids, https (http on loopback).
+const MCP_NAME = /^[a-z0-9][a-z0-9_-]{0,39}$/
+
+export function mcpServersFor(binding) {
+  const servers = []
+  for (const entry of Array.isArray(binding?.mcpServers) ? binding.mcpServers : []) {
+    if (!entry || typeof entry.name !== 'string' || typeof entry.url !== 'string') continue
+    const credential = entry.credential ?? entry.name
+    if (!MCP_NAME.test(entry.name) || typeof credential !== 'string' || !MCP_NAME.test(credential)) continue
+    let url
+    try { url = new URL(entry.url) } catch { continue }
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    if (url.username || url.password || !(url.protocol === 'https:' || (url.protocol === 'http:' && loopback))) continue
+    if (servers.some((server) => server.name === entry.name)) continue
+    servers.push({ name: entry.name, url: entry.url, credential })
+  }
+  return servers
+}
+
 // wp-cli shares stdout with PHP's error reporter, so the host's PHP build can
 // emit diagnostics before the resolver's JSON. This mirrors the capture
 // contract lib/common.sh wp_cli_strip_php_diagnostics() established for
@@ -139,7 +161,8 @@ export function register(roadie) {
     if (!binding || !mapping) return { allowed: false, capabilities: new Set(), permissions: [] }
     const result = await invoke(binding, { operation: 'person', user_id: mapping.userId, agent_slug: binding.agentSlug, actor })
     if (result.allowed !== true) return { allowed: false, capabilities: new Set(), permissions: [] }
-    return { allowed: true, personId: `wordpress:${binding.sitePath}:${mapping.userId}`, ...seatFor(result.role, mapping.capabilities) }
+    const mcpServers = mcpServersFor(binding)
+    return { allowed: true, personId: `wordpress:${binding.sitePath}:${mapping.userId}`, ...seatFor(result.role, mapping.capabilities), ...(mcpServers.length ? { mcpServers } : {}) }
   })
   roadie.addFilter('context_sections', async (sections, request) => {
     const config = loadConfig(configPath)

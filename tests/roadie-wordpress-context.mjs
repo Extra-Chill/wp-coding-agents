@@ -14,7 +14,16 @@ const calls = path.join(temp, 'calls.jsonl')
 fs.writeFileSync(wp, `import fs from 'node:fs'; const noise=${JSON.stringify(PHP_NOTICE)}; const args=process.argv.slice(2); const code=args[args.indexOf('eval')+1]; const match=code.match(/\\$args=array\\('([^']+)'\\)/); const req=JSON.parse(Buffer.from(match[1],'base64')); fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(req)+'\\n'); process.stdout.write(noise); process.stdout.write(JSON.stringify(req.operation==='person'?({1:{allowed:true,role:'admin'},2:{allowed:true,role:'viewer'},3:{allowed:true,role:'operator'},4:{allowed:true},5:{allowed:false,role:''}})[req.user_id]??{allowed:false,role:''}:{sections:req.event==='turn'?[{id:'user',content:'USER_'+req.user_id}]:[{id:'shared',content:'SHARED'},{id:'agents',title:'AGENTS.md',content:'AGENTS',convention_path:'AGENTS.md'}]}));`)
 const config = {
   version: 1, defaultContext: 'franklin',
-  contexts: { franklin: { sitePath: '/site', agentSlug: 'franklin', transport: [process.execPath, wp] } },
+  contexts: { franklin: { sitePath: '/site', agentSlug: 'franklin', transport: [process.execPath, wp], mcpServers: [
+    { name: 'site', url: 'https://example.test/wp-json/mcp' },
+    { name: 'site', url: 'https://dupe.test/mcp' },
+    { name: 'Bad Name', url: 'https://example.test/mcp' },
+    { name: 'plain', url: 'http://example.test/mcp' },
+    { name: 'creds', url: 'https://user:pass@example.test/mcp' },
+    { name: 'local', url: 'http://127.0.0.1:8080/mcp', credential: 'local-cred' },
+    { name: 'badcred', url: 'https://example.test/mcp', credential: '../x' },
+    'nope',
+  ] } },
   people: { 'discord:GUILD:ALICE': { userId: 1, capabilities: ['sessions'] }, 'slack:TEAM:BOB': { userId: 2, capabilities: ['sessions'] },
     'discord:GUILD:ADMIN': { userId: 1, capabilities: ['sessions', 'shell', 'admin'] },
     'discord:GUILD:CAROL': { userId: 3, capabilities: ['sessions', 'shell', 'admin'] },
@@ -49,7 +58,13 @@ try {
     assert.deepEqual(person.permissions, [...module.TEAM_SEAT_PERMISSIONS], `${label} seat is restricted`)
   }
   for (const rule of ['bash:deny', 'edit:deny', 'external_directory:deny']) assert(module.TEAM_SEAT_PERMISSIONS.includes(rule), rule)
+  // #748: allowed seats (any tier) carry the context's valid per-person MCP servers.
+  const servers = [{ name: 'site', url: 'https://example.test/wp-json/mcp', credential: 'site' }, { name: 'local', url: 'http://127.0.0.1:8080/mcp', credential: 'local-cred' }]
+  assert.deepEqual(admin.mcpServers, servers)
+  assert.deepEqual(bob.mcpServers, servers)
+  assert.deepEqual(module.mcpServersFor({}), [])
   const denied = await seat('DENIED')
+  assert.equal(denied.mcpServers, undefined)
   assert.deepEqual([denied.allowed, [...denied.capabilities], denied.permissions, denied.personId], [false, [], [], undefined])
   assert.equal((await seat('UNMAPPED')).allowed, false)
   // The returned permissions are a copy: mutating one seat leaves the next intact.
