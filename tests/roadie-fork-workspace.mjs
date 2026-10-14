@@ -8,13 +8,64 @@ import { pathToFileURL } from 'node:url'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roadie-active-owner-'))
 const previous = { ...process.env }
-const command = process.env.HOMEBOY_FORK_TEST_COMMAND ?? 'homeboy'
+const realHomeboy = process.env.HOMEBOY_FORK_TEST_COMMAND ?? 'homeboy'
 const source = path.join(root, 'fork-fixture')
 const home = path.join(root, 'host-home')
 const site = path.join(root, 'site')
 for (const directory of [source, home, site]) fs.mkdirSync(directory)
+// Homeboy 0.422.0 (Extra-Chill/homeboy#15859) removed `agent-task submit`, and
+// queued ownership is controller-internal now: every current CLI verb either
+// executes the plan or refuses queue-only admission. The fixture therefore
+// seeds active-scope ownership through its own wrapper command, which answers
+// the submit/cancel/active-scope surface from a JSON store and delegates every
+// other invocation to the real Homeboy binary. Worktree allocation, finalize,
+// and status — the production code under test — stay entirely real.
+const scopeStore = path.join(root, 'active-scope-store.json')
+const wrapperPath = path.join(root, 'fork-homeboy-wrapper.mjs')
+fs.writeFileSync(wrapperPath, `#!/usr/bin/env node
+import fs from 'node:fs'
+import { spawnSync } from 'node:child_process'
+const args = process.argv.slice(2)
+const readStore = () => { try { return JSON.parse(fs.readFileSync(process.env.ROADIE_FORK_TEST_SCOPE_STORE, 'utf8')) } catch { return {} } }
+const envelope = (operation, data) => { process.stdout.write(JSON.stringify({ schema: 'homeboy/command-result/v3', command: 'agent-task', operation, success: true, exit_code: 0, data }) + '\\n') }
+if (args[0] === 'agent-task') {
+  if (args[1] === 'submit' && args.includes('--run-id') && args.includes('--plan')) {
+    const plan = JSON.parse(args[args.indexOf('--plan') + 1])
+    const workspace = plan.metadata?.caller_workspace ?? null
+    const store = readStore()
+    const entries = store[process.env.HOMEBOY_CALLER_CONTEXT ?? ''] ?? []
+    entries.push({ run_id: args[args.indexOf('--run-id') + 1], repository: workspace?.repository ?? null, working_directory: workspace?.working_directory ?? null })
+    store[process.env.HOMEBOY_CALLER_CONTEXT ?? ''] = entries
+    fs.writeFileSync(process.env.ROADIE_FORK_TEST_SCOPE_STORE, JSON.stringify(store))
+    envelope('submit', { submitted: true })
+    process.exit(0)
+  }
+  if (args[1] === 'active-scope' && args.includes('--context')) {
+    const context = args[args.indexOf('--context') + 1]
+    const entries = readStore()[context] ?? []
+    const workspaces = entries.filter((entry) => entry.working_directory).map((entry) => ({ repository: entry.repository, working_directory: entry.working_directory, run_ids: [entry.run_id] }))
+    const pending_run_ids = entries.filter((entry) => !entry.working_directory).map((entry) => entry.run_id)
+    envelope('active-scope', { schema: 'homeboy/agent-task-active-scope/v1', caller_context: context, workspaces, pending_run_ids })
+    process.exit(0)
+  }
+  if (args[1] === 'cancel' && args.length === 3 && !args[2].startsWith('-')) {
+    const store = readStore()
+    for (const entries of Object.values(store)) {
+      const index = entries.findIndex((entry) => entry.run_id === args[2])
+      if (index !== -1) entries.splice(index, 1)
+    }
+    fs.writeFileSync(process.env.ROADIE_FORK_TEST_SCOPE_STORE, JSON.stringify(store))
+    envelope('cancel', { cancellation: { run_id: args[2], accepted: 'cancelled' } })
+    process.exit(0)
+  }
+}
+const result = spawnSync(process.env.ROADIE_FORK_TEST_REAL_HOMEBOY ?? 'homeboy', args, { stdio: 'inherit' })
+process.exit(result.status ?? 1)
+`)
+fs.chmodSync(wrapperPath, 0o755)
+const command = wrapperPath
 for (const key of Object.keys(process.env)) if (key.startsWith('HOMEBOY_')) delete process.env[key]
-Object.assign(process.env, { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), XDG_STATE_HOME: path.join(home, '.local/state') })
+Object.assign(process.env, { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), XDG_STATE_HOME: path.join(home, '.local/state'), ROADIE_FORK_TEST_SCOPE_STORE: scopeStore, ROADIE_FORK_TEST_REAL_HOMEBOY: realHomeboy })
 const run = (name, args, cwd = source) => execFileSync(name, args, { cwd, encoding: 'utf8', timeout: 120000 })
 const hb = (...args) => JSON.parse(run(command, args))
 const git = (...args) => run('git', args)
@@ -119,7 +170,7 @@ try {
   // unavailable; no pending parent can replace the conversation's directory.
   fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: 'fixture-absent-controller' }))
   assert.equal(typeof (await filters.fork_workspace(null, request(binding.workingDirectory))).provision, 'function')
-  console.log('PASS: real indexed task admission/switch/completion and Homeboy worktrees; historical activity ignored, ambiguity and pending allocation fail closed')
+  console.log('PASS: fixture-seeded active ownership across task switch and completion with real Homeboy worktrees; historical activity ignored, ambiguity and pending allocation fail closed')
 } finally {
   process.env = previous
   fs.rmSync(root, { recursive: true, force: true })
