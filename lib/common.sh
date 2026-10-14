@@ -390,6 +390,7 @@ initialize_roadie_overrides() {
   ROADIE_UNIT_EXPLICIT=false
   ROADIE_DATA_DIR_EXPLICIT=false
   ROADIE_LOCK_PORT_EXPLICIT=false
+  ROADIE_POOL_URL_EXPLICIT=false
   AGENT_SLUG_EXPLICIT=false
 
   if [ "${ROADIE_UNIT+x}" = x ]; then
@@ -403,6 +404,10 @@ initialize_roadie_overrides() {
   fi
   if [ -n "$ROADIE_LOCK_PORT" ]; then
     ROADIE_LOCK_PORT_EXPLICIT=true
+  fi
+  ROADIE_POOL_URL="${ROADIE_POOL_URL:-}"
+  if [ -n "$ROADIE_POOL_URL" ]; then
+    ROADIE_POOL_URL_EXPLICIT=true
   fi
   if [ -n "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG_EXPLICIT=true

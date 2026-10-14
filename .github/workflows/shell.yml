@@ -297,6 +297,7 @@ jobs:
           - roadie-multi-instance
           - roadie-provision
           - roadie-pi-backend
+          - roadie-remote-pool
           - refresh-roadie-pin
           - refresh-pi-pin
           - roadie-retire-kimaki
