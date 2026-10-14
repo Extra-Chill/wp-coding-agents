@@ -29,7 +29,7 @@ fi
 # Every phase reached after regenerate_agents_md. If the abort returns, these
 # stop appearing in the transcript.
 PHASES_AFTER=(
-  runtime_guidance_sync_managed_codex_projection
+  runtime_guidance_retire_inactive_codex_projection
   sync_claude_code_runtime
   sync_runtime_signature
   sync_runtime_instructions

@@ -92,29 +92,24 @@ reconciler_apply_plan
 assert_eq "$(<"$TRACE")" $'install\npaths\ncontext\nconfig\nhooks\ninstructions\nmcp' "runtime state survives its ordered component step"
 rm -f "$TRACE"
 
-# Canonical composition refreshes managed secondary-runtime projections while
-# preserving user-owned files and the selected runtime adapter.
-TRACE="$(mktemp)"
+# Only the selected runtime keeps a projection: a managed Codex
+# AGENTS.override.md is removed under another runtime, kept under Codex, and a
+# user-owned one is never touched.
+log() { :; }
 SITE_PATH="$(mktemp -d)"
-SCRIPT_DIR="$(mktemp -d)"
-mkdir "$SCRIPT_DIR/runtimes"
-printf '%s\n' \
-  'runtime_discover_dm_paths() { printf "paths\\n" >> "$TRACE"; }' \
-  '_codex_sync_override() { printf "codex\\n" >> "$TRACE"; }' \
-  > "$SCRIPT_DIR/runtimes/codex.sh"
-printf '%s\n' \
-  'runtime_discover_dm_paths() { printf "selected\\n" >> "$TRACE"; }' \
-  > "$SCRIPT_DIR/runtimes/opencode.sh"
+MARKER='<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->'
 RUNTIME=opencode
-RUNTIME_FILE="$SCRIPT_DIR/runtimes/opencode.sh"
-printf '<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->\n' > "$SITE_PATH/AGENTS.override.md"
-runtime_guidance_sync_managed_codex_projection
-assert_eq "$(<"$TRACE")" $'paths\ncodex' "managed Codex projection refreshes after canonical composition"
-runtime_discover_dm_paths
-assert_eq "$(<"$TRACE")" $'paths\ncodex\nselected' "selected runtime adapter is restored after projection refresh"
+printf '%s\n' "$MARKER" > "$SITE_PATH/AGENTS.override.md"
+runtime_guidance_retire_inactive_codex_projection
+[ ! -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "managed Codex projection is removed under another runtime"
+RUNTIME=codex
+printf '%s\n' "$MARKER" > "$SITE_PATH/AGENTS.override.md"
+runtime_guidance_retire_inactive_codex_projection
+[ -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "managed Codex projection is kept when Codex is selected"
+RUNTIME=opencode
 printf '# user owned\n' > "$SITE_PATH/AGENTS.override.md"
-runtime_guidance_sync_managed_codex_projection
-assert_eq "$(<"$TRACE")" $'paths\ncodex\nselected' "user-owned Codex projection remains untouched"
-rm -rf "$SITE_PATH" "$SCRIPT_DIR" "$TRACE"
+runtime_guidance_retire_inactive_codex_projection
+assert_eq "$(<"$SITE_PATH/AGENTS.override.md")" "# user owned" "user-owned AGENTS.override.md remains untouched"
+rm -rf "$SITE_PATH"
 
 echo "OK: runtime and guidance desired-state adapter"
