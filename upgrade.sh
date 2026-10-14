@@ -1604,7 +1604,7 @@ sync_skills
 # reconciliation halfway through.
 regenerate_agents_md || AGENTS_MD_EXIT_STATUS=$?
 if _run_filter_active agents-md; then
-  runtime_guidance_sync_managed_codex_projection
+  runtime_guidance_retire_inactive_codex_projection
 fi
 sync_claude_code_runtime
 sync_runtime_signature
