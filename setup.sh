@@ -539,6 +539,8 @@ ENVIRONMENT VARIABLES:
   ROADIE_UNIT               Roadie systemd unit (default: roadie.service)
   ROADIE_DATA_DIR           Roadie state directory
   ROADIE_LOCK_PORT          Roadie lock port
+  ROADIE_PI_MODEL           Pi model for Roadie sessions (provider/model);
+                            default: Pi's settings.json defaultModel
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CLI_TRANSPORT_JSON

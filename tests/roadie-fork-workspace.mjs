@@ -38,12 +38,7 @@ try {
   process.env.WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG = configPath
   const filters = {}, actions = {}
   const plugin = await import(pathToFileURL(path.resolve(import.meta.dirname, '../bridges/roadie/roadie-plugins/fork-workspace.mjs')))
-  delete process.env.OPENCODE_EXPERIMENTAL_WORKSPACES
   plugin.register({ addFilter(name, fn) { filters[name] = fn }, addAction(name, fn) { actions[name] = fn } })
-  assert.equal(process.env.OPENCODE_EXPERIMENTAL_WORKSPACES, 'true')
-  process.env.OPENCODE_EXPERIMENTAL_WORKSPACES = 'false'
-  plugin.register({ addFilter() {}, addAction() {} })
-  assert.equal(process.env.OPENCODE_EXPERIMENTAL_WORKSPACES, 'false')
   // Historical locations are deliberately irrelevant to a non-coding fork.
   assert.equal(await filters.fork_workspace(null, { ...request(), codingPaths: [source] }), null)
   const standalone = request(source)

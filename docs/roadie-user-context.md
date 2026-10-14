@@ -52,9 +52,8 @@ turns, speaker changes, and reconstruction resolve the current user separately.
 
 With this configuration present, the provider owns all Data Machine memory:
 setup/upgrade removes every managed memory path (shared, agent, user and
-principal) from the static OpenCode instructions, so OpenCode does not receive
-the same memory twice and every backend (OpenCode or Pi) gets it from one
-place. Operator-owned instructions remain intact. Existing sessions have
+principal) from the static OpenCode instructions, so Roadie's Pi sessions get
+it from one place and never twice. Operator-owned instructions remain intact. Existing sessions have
 historical prompts and user context; create a fresh conversation to establish
 the new shared prompt contract.
 

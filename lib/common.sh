@@ -391,6 +391,7 @@ initialize_roadie_overrides() {
   ROADIE_DATA_DIR_EXPLICIT=false
   ROADIE_LOCK_PORT_EXPLICIT=false
   ROADIE_POOL_URL_EXPLICIT=false
+  ROADIE_PI_MODEL_EXPLICIT=false
   AGENT_SLUG_EXPLICIT=false
 
   if [ "${ROADIE_UNIT+x}" = x ]; then
@@ -408,6 +409,10 @@ initialize_roadie_overrides() {
   ROADIE_POOL_URL="${ROADIE_POOL_URL:-}"
   if [ -n "$ROADIE_POOL_URL" ]; then
     ROADIE_POOL_URL_EXPLICIT=true
+  fi
+  ROADIE_PI_MODEL="${ROADIE_PI_MODEL:-}"
+  if [ -n "$ROADIE_PI_MODEL" ]; then
+    ROADIE_PI_MODEL_EXPLICIT=true
   fi
   if [ -n "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG_EXPLICIT=true
