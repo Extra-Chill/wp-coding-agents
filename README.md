@@ -652,7 +652,7 @@ than passed.
 
 ## Upgrades
 
-On a managed VPS, `/upgrade-and-restart` in Discord (or `roadie upgrade` on the host) upgrades the install: Roadie's `host_upgrade` hook calls the [agent self-upgrade command](#agent-self-upgrade), which runs what is merged to `main` and restarts Roadie when it finishes. Elsewhere, run `./upgrade.sh`; it preserves user state, syncs managed bridge and runtime files, and prints verification and restart commands for the detected environment. Earlier installs carried an `upgrade-wp-coding-agents` agent skill for this; upgrades remove it.
+On a managed VPS, `/upgrade-and-restart` in Discord (or `roadie upgrade` on the host) upgrades the install: Roadie's `host_upgrade` hook calls the [agent self-upgrade command](#agent-self-upgrade), which runs what is merged to `main` and restarts Roadie when it finishes. On a local macOS (launchd) install, the same hook starts the one-shot `com.wp.roadie-upgrade` launchd job (`scripts/roadie-local-upgrade`): it installs the Roadie release pinned in this checkout and restarts `com.wp.roadie`, logging to `$ROADIE_DATA_DIR/roadie-upgrade.log` and recording the result in `roadie-upgrade-state.json`. It moves Roadie only; pull this checkout first to get a newer pin. Elsewhere, run `./upgrade.sh`; it preserves user state, syncs managed bridge and runtime files, and prints verification and restart commands for the detected environment. Earlier installs carried an `upgrade-wp-coding-agents` agent skill for this; upgrades remove it.
 
 Run `./upgrade.sh --help` for upgrade flags.
 
