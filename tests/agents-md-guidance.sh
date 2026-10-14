@@ -580,6 +580,32 @@ fi
 
 export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/no-managed-homeboy-in-tests"
 
+echo "==> resolution recognizes a well-known system install that is off the syncing PATH (#636)"
+# #636's production shape: the binary lives at /usr/local/bin/homeboy (a
+# stand-in fixture path here), but the syncing shell's PATH does not contain
+# that directory (upgrade/cron contexts), while the previously baked staler
+# per-user copy is still the first candidate. The walk must still find the
+# well-known install instead of leaving the section silently dropped.
+mkdir -p "$TMP/well-known/bin"
+cat > "$TMP/well-known/bin/homeboy" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod 0755 "$TMP/well-known/bin/homeboy"
+export WP_CODING_AGENTS_HOMEBOY_WELL_KNOWN_BINS="$TMP/well-known/bin/homeboy"
+PATH="$TMP/per-user-home/bin:/usr/bin:/bin"
+export PATH
+guidance_sync_unit homeboy
+assert_contains "$MU_FILE" "$TMP/well-known/bin/homeboy" "Well-known system install is baked even when off the syncing PATH"
+if grep -qF "$TMP/per-user-home/bin/homeboy" "$MU_FILE"; then
+  echo "  FAIL stale per-user binary path leaked into the mu-plugin"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   unreachable per-user candidate is skipped in favor of the well-known install"
+fi
+unset WP_CODING_AGENTS_HOMEBOY_WELL_KNOWN_BINS
+rm -rf "$TMP/well-known"
+
 echo "==> no reachable candidate anywhere warns instead of silently dropping the section (#633)"
 # WP_CODING_AGENTS_COMPOSE_USER/GROUP simulate the web-server identity: names
 # that cannot possibly match any real file's owner/group in this sandbox, so
