@@ -93,6 +93,15 @@ WP_CODING_AGENTS_TEST_EUID=1000
 _roadie_provision_package
 grep -qxF "install -g $URL" "$NPM_LOG"; check $? "npm install -g of the pinned tarball, no prefix"
 
+# Under the bounded reconciler the npm invocation goes through the progress
+# heartbeat wrapper (#725); the argv the package manager sees must not change.
+echo "==> npm invocation is identical under the progress heartbeat"
+mkdir -p "$FAKE_GLOBAL_ROOT/@extrachill/roadie"
+printf '{"version":"0.0.1"}\n' > "$FAKE_GLOBAL_ROOT/@extrachill/roadie/package.json"
+: > "$NPM_LOG"
+RECONCILER_STEP_PROGRESS_FILE="$TMP/progress" _roadie_provision_package
+grep -qxF "install -g $URL" "$NPM_LOG"; check $? "heartbeat wrapper passes the same npm argv"
+
 echo
 if [ "$FAIL" -gt 0 ]; then
   echo "FAIL: $FAIL assertion(s)"
