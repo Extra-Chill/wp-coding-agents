@@ -741,7 +741,7 @@ _roadie_sync_assets() {
   done
 
   # accounts.mjs was the subrouter account mover; Roadie's own
-  # `credentials import-opencode|export-opencode` replaced it, and the
+  # `credentials import-opencode` replaced it, and the
   # subrouter package it loaded is leaving the Roadie package (#709).
   if [ -f "$config_dir/accounts.mjs" ]; then
     if [ "${DRY_RUN:-false}" = true ]; then
@@ -749,7 +749,7 @@ _roadie_sync_assets() {
     else
       rm -f "$config_dir/accounts.mjs"
       log "  Removed retired $config_dir/accounts.mjs"
-      UPDATED_ITEMS+=("roadie-config/accounts.mjs removed (use roadie credentials import-opencode|export-opencode)")
+      UPDATED_ITEMS+=("roadie-config/accounts.mjs removed (use roadie credentials import-opencode)")
     fi
   fi
 
@@ -841,10 +841,9 @@ _roadie_credentials() {
   fi
 }
 
-# Move OpenCode's subscription accounts into (import) or back out of (export)
-# Roadie's shared credential pool.
-_roadie_accounts() {
-  _roadie_credentials "${1}-opencode" --opencode-data "$(_roadie_opencode_data_dir)" --pool shared
+# Move OpenCode's subscription accounts into Roadie's shared credential pool.
+_roadie_accounts_import() {
+  _roadie_credentials import-opencode --opencode-data "$(_roadie_opencode_data_dir)" --pool shared
 }
 
 # The shared pool's rotation file (name -> ordered provider/model list).
@@ -874,16 +873,6 @@ sys.exit(0 if isinstance(rotations, dict) and sys.argv[2] in rotations else 1)' 
   done < <(printf '%s' "$wanted" | python3 -c 'import json,sys
 for name, models in sorted(json.load(sys.stdin).items()):
     print(name + "\t" + " ".join(models))')
-}
-
-# Printed after a migration: the rollback's account export step.
-roadie_accounts_rollback_command() {
-  local user_prefix=""
-  if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ]; then
-    user_prefix="sudo -u $SERVICE_USER -H "
-  fi
-  printf '%sROADIE_DATA_DIR=%s %s credentials export-opencode --opencode-data %s --pool shared\n' \
-    "$user_prefix" "$ROADIE_DATA_DIR" "${ROADIE_BIN:-$(roadie_bin)}" "$(_roadie_opencode_data_dir)"
 }
 
 # A failed migration must not leave the host without a bridge: re-enable and
@@ -950,7 +939,7 @@ _roadie_relocate_existing_copy_bindings() {
     --opencode-db "$(_roadie_opencode_data_dir)/opencode.db" --require-target-exists)
   [ "${DRY_RUN:-false}" != true ] || args+=(--dry-run)
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
-    # Same deliberate redirect as _roadie_accounts: the calling shell opens
+    # Same deliberate redirect as _roadie_accounts_import: the calling shell opens
     # the script so the service user needs no read access to the checkout.
     # shellcheck disable=SC2024
     relocate_out="$(sudo -n -H -u "$SERVICE_USER" python3 - "${args[@]}" \
@@ -1096,7 +1085,7 @@ roadie_migrate_from_kimaki() {
     _roadie_restore_kimaki "${kimaki_unit:-}"
     error "Reading stored model choices failed; Kimaki state left untouched and Kimaki restarted"
   fi
-  if ! accounts_out="$(_roadie_accounts import 2>&1)"; then
+  if ! accounts_out="$(_roadie_accounts_import 2>&1)"; then
     printf '%s\n' "$accounts_out" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
@@ -1144,7 +1133,7 @@ roadie_migrate_from_kimaki() {
   ROADIE_MIGRATED_THIS_RUN=1
   ROADIE_MIGRATION_KIMAKI_UNIT="${kimaki_unit:-}"
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
-  UPDATED_ITEMS+=("subscription accounts moved into the Roadie credential pool; on rollback, first run: $(roadie_accounts_rollback_command)")
+  UPDATED_ITEMS+=("subscription accounts moved into the Roadie credential pool; Roadie refreshes them, so a rollback to Kimaki needs a fresh OpenCode login")
   UPDATED_ITEMS+=("model choices routed through Roadie rotations; add fallbacks with 'roadie credentials rotation set'")
 }
 

@@ -51,7 +51,7 @@ sqlite3() { if [ "$SQLITE3_READONLY_FAILS" = 1 ] && [ "${1:-}" = -readonly ]; th
 # The account move has its own suite (tests/roadie-accounts.sh); here it is
 # recorded in the same log so its ordering against stop/disable is checked.
 ACCOUNTS_RESULT=0
-_roadie_accounts() { printf 'accounts %s\n' "$1" >> "$TMP/systemctl.log"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
+_roadie_accounts_import() { printf 'accounts %s\n' import >> "$TMP/systemctl.log"; echo "anthropic: 3 account(s), active #2"; return "$ACCOUNTS_RESULT"; }
 # Rotation creation also has its own coverage there; here the wanted set the
 # migration derives is captured, and it runs after the accounts are in.
 _roadie_ensure_rotations() { printf 'rotations\n' >> "$TMP/systemctl.log"; printf '%s\n' "$1" > "$TMP/rotations.json"; }
@@ -132,7 +132,7 @@ line() { grep -nx "$1" "$TMP/systemctl.log" | head -1 | cut -d: -f1; }
 [ -n "$(line 'accounts import')" ] && [ "$(line 'stop kimaki.service')" -lt "$(line 'accounts import')" ] && [ "$(line 'accounts import')" -lt "$(line 'disable kimaki.service')" ]
 check $? "accounts move into the Roadie pool while Kimaki is stopped, before it is disabled"
 [ "$(line 'accounts import')" -lt "$(line 'rotations')" ]; check $? "rotations are created after the accounts are imported"
-printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "credentials export-opencode"; check $? "summary gives the account rollback command"
+printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "fresh OpenCode login"; check $? "summary says a rollback needs a fresh login"
 NEW_DB="$ROADIE_DATA_DIR/discord-sessions.db"
 [ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "roadie/anthropic-claude-opus-5-5| roadie/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
 check $? "OAuth model choices routed through per-model rotations; API-key model kept"

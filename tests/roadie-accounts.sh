@@ -3,7 +3,7 @@
 # rotations through Roadie's own credential commands (#709).
 #
 # Account import/export semantics (order, active account, dedupe, 0600 files)
-# belong to `roadie credentials import-opencode|export-opencode` and are tested
+# belong to `roadie credentials import-opencode` and are tested
 # in Roadie. This test pins the bridge's side of that contract with a stub
 # `roadie` that records its argv and environment and keeps a real
 # rotation.json, so it needs neither real accounts nor any subrouter package.
@@ -63,25 +63,16 @@ LOCAL_MODE=true
 OC="$TMP/opencode"
 _roadie_opencode_data_dir() { printf '%s\n' "$OC"; }
 
-echo "==> account import/export use roadie credentials"
+echo "==> account import uses roadie credentials"
 : > "$CALLS"
 # The agent-mode markers of a Roadie tool shell must not leak into the call:
 # Roadie refuses operator-only credential commands in agent mode.
-ROADIE_AGENT_TOKEN=tok _roadie_accounts import >/dev/null
-check $? "_roadie_accounts import succeeds"
+ROADIE_AGENT_TOKEN=tok _roadie_accounts_import >/dev/null
+check $? "_roadie_accounts_import succeeds"
 grep -qx "argv: credentials import-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-opencode on the shared pool"
 grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
-: > "$CALLS"
-_roadie_accounts export >/dev/null; check $? "_roadie_accounts export succeeds"
-grep -qx "argv: credentials export-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "export runs credentials export-opencode"
-ROADIE_STUB_FAIL=import-opencode _roadie_accounts import >/dev/null 2>&1
+ROADIE_STUB_FAIL=import-opencode _roadie_accounts_import >/dev/null 2>&1
 [ $? -ne 0 ]; check $? "a failing import is reported as failure"
-
-echo "==> rollback command"
-ROLLBACK="$(roadie_accounts_rollback_command)"
-[ "$ROLLBACK" = "ROADIE_DATA_DIR=$ROADIE_DATA_DIR $STUB credentials export-opencode --opencode-data $OC --pool shared" ]
-check $? "rollback names export-opencode with the data dir and binary"
-case "$ROLLBACK" in *accounts.mjs*|*subrouter*) check 1 "rollback has no subrouter path" ;; *) check 0 "rollback has no subrouter path" ;; esac
 
 echo "==> rotations: one per stored direct model, existing ones kept"
 : > "$CALLS"

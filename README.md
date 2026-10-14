@@ -561,14 +561,7 @@ Managed installs replace Roadie's generic prompt sections with a small bridge pr
 
 Discord access is reconciled too, once the gateway is healthy: Roadie grants session access to the guild owner, Administrator, Manage Server, or a role named `Roadie` (case-insensitive), and Kimaki-era users hold a `kimaki` role, which Roadie stopped reading when it made a clean break from Kimaki install compatibility (roadie#32) — without this step every non-owner user is told to find a Roadie role that does not exist (#705). The migration renames `kimaki` to `Roadie` with the bot token when the bot has Manage Roles; otherwise, or when a `Roadie` role already exists, the upgrade summary carries the exact action (rename it by hand, or assign the existing role). The upgrade pass replays the reconciliation for installs cut over before this fix.
 
-To roll back, export the pool's current tokens back first (Roadie has refreshed them since, so Kimaki's copies are stale), then swap the services. The upgrade summary prints the exact command:
-
-```bash
-sudo -u <service-user> -H ROADIE_DATA_DIR=<service-home>/.roadie \
-  /usr/local/lib/wp-coding-agents/roadie/bin/roadie credentials export-opencode \
-  --opencode-data <service-home>/.local/share/opencode --pool shared
-systemctl disable --now roadie && systemctl enable --now kimaki
-```
+To roll back, swap the services: `systemctl disable --now roadie && systemctl enable --now kimaki`. Roadie has refreshed the subscription tokens since the migration, so Kimaki's copies are stale; log in again in OpenCode (`opencode auth login`) after the swap.
 
 After the cutover, add accounts with Roadie's `/login` (or `/credentials login-anthropic`): that adds to the shared credential pool.
 
