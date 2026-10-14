@@ -16,7 +16,11 @@ shift 2
 while [ "$1" = env ]; do shift; done
 if [ "$1" = test ]; then [ "${MOCK_OWNER_WRITABLE:-true}" = true ]; exit $?; fi
 while [[ "$1" == *=* ]]; do shift; done
-if [ "${MOCK_COMPOSE_FAIL:-false}" = true ]; then printf 'credential=never-display\n' >&2; exit 7; fi
+if [ "${MOCK_COMPOSE_FAIL:-false}" = true ]; then
+  printf 'Error: Directory "site" is not writable by this process.\n' >&2
+  printf 'credential=never-display\n' >&2
+  exit 7
+fi
 "$@"
 STUB
 cat > "$WORK/bin/wp" <<'STUB'
@@ -108,9 +112,13 @@ if output="$(cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose 
   exit 1
 fi
 [[ "$output" == *'[compose_command_failed]'* ]]
+# Actionable stderr is surfaced in redacted form (#628): the diagnostic the
+# operator needs shows, credential-shaped values do not.
+[[ "$output" == *'not writable by this process'* ]]
 [[ "$output" != *'credential=never-display'* ]]
+[[ "$output" == *'credential=[redacted]'* ]]
 [[ "$(<"$WORK/site/AGENTS.md")" = 'updated guidance' ]]
-echo 'ok   compose failure is bounded, credential-free, and preserves guidance'
+echo 'ok   compose failure surfaces redacted stderr and preserves guidance'
 
 LOCAL_MODE=true
 before_sudo="$(<"$SUDO_LOG")"

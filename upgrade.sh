@@ -571,11 +571,13 @@ upgrade_harden_wp_config_permissions
 # Converge the site root's own directory mode (#644). setup's one-time
 # recursive grant does not survive an external directory replacement, and the
 # service identity needs group-write at the root for AGENTS.md composition.
-# Same guard as the credentials hardener: ordinary non-root VPS upgrades only.
-# Root repairs the bit directly; the service user gets a single root-repair
-# result instead of every later write failing.
+# BOTH upgrade identities converge this (#628): a non-root upgrade that
+# cannot chmod a foreign-owned root gets one clear root-repair record
+# instead of every later write failing, and a root-run upgrade (the default
+# `sudo ./upgrade.sh` on a VPS) — which composes as the site owner through
+# sudo — repairs the bit directly so the atomic rename can proceed.
 upgrade_ensure_site_root_group_write() {
-  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] && [ "${RUN_AS_ROOT:-}" = false ] && \
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] && \
      [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && \
      [ "$SKILLS_ONLY" != true ] && \
      [ "$RECONCILE_SERVICES_ONLY" != true ]; then
@@ -1237,6 +1239,10 @@ regenerate_agents_md() {
     webroot_backup_prune_managed "$SITE_PATH"
   else
     warn "  datamachine memory compose failed"
+    # wp_run_as_site_owner prints the redacted compose stderr above this
+    # (#628): an unwritable site root makes Data Machine refuse the atomic
+    # rename, and that refusal is what names the repair.
+    warn "  Most often the site root is not writable by the compose identity; the summary's site-root group-write entry names the one-time repair."
     # Restore a partial write, or remove a newly-created partial file.
     agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
     rm -f "$BACKUP"
@@ -1252,8 +1258,13 @@ regenerate_agents_md() {
   if [ -f "$AGENTS_MD" ] && _runtime_detected opencode; then
     # Skip if CLAUDE.md exists as a regular file — it is user-owned.
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
-      (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
-      log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+      # The rename creates a directory entry, so like compose it needs write
+      # access to $SITE_PATH itself — not to AGENTS.md (#628).
+      if (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md); then
+        log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+      else
+        warn "  Could not symlink CLAUDE.md → AGENTS.md: $SITE_PATH is not writable by this identity; restoring the site root's group-write (see the summary) restores it."
+      fi
     else
       log "  CLAUDE.md exists as a regular file — leaving it alone (runtime-managed)"
     fi
