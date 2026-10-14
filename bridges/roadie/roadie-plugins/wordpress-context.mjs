@@ -66,6 +66,28 @@ export function parseResolverStdout(stdout) {
   return value
 }
 
+// Coding runtimes (Pi, OpenCode) load convention files such as AGENTS.md from
+// the session directory and each of its ancestors. A section WordPress marks
+// with a convention_path is skipped when the runtime will find that file on
+// disk, so the model doesn't get the same text twice (#733). Without a copy on
+// the path (a worktree outside the site, for example) it is still injected.
+export function runtimeLoadsFile(directory, conventionPath) {
+  if (typeof directory !== 'string' || !path.isAbsolute(directory)) return false
+  if (typeof conventionPath !== 'string' || !conventionPath || path.isAbsolute(conventionPath)) return false
+  for (let dir = path.resolve(directory); ; dir = path.dirname(dir)) {
+    try {
+      if (fs.statSync(path.join(dir, conventionPath)).isFile()) return true
+    } catch {}
+    if (path.dirname(dir) === dir) return false
+  }
+}
+
+export function deliverableSections(sections, directory) {
+  return sections
+    .filter((section) => !section?.convention_path || !runtimeLoadsFile(directory, section.convention_path))
+    .map(({ convention_path: _conventionPath, ...section }) => section)
+}
+
 function invoke(binding, input) {
   const code = fs.readFileSync(resolver, 'utf8').replace(/^<\?php\s*/, '')
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64')
@@ -104,6 +126,6 @@ export function register(roadie) {
     if (request.event === 'turn' && (!mapping || mapping.userId !== user)) return sections
     const result = await invoke(binding, { operation: 'context', event: request.event, user_id: request.event === 'turn' ? user : 0, agent_slug: binding.agentSlug, actor: request.actor })
     if (!Array.isArray(result.sections)) throw new Error('WordPress context response has no sections')
-    return [...sections, ...result.sections]
+    return [...sections, ...deliverableSections(result.sections, request.directory)]
   })
 }

@@ -11,7 +11,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roadie-wp-context-'))
 const configPath = path.join(temp, 'wordpress-context.json')
 const wp = path.join(temp, 'wp.mjs')
 const calls = path.join(temp, 'calls.jsonl')
-fs.writeFileSync(wp, `import fs from 'node:fs'; const noise=${JSON.stringify(PHP_NOTICE)}; const args=process.argv.slice(2); const code=args[args.indexOf('eval')+1]; const match=code.match(/\\$args=array\\('([^']+)'\\)/); const req=JSON.parse(Buffer.from(match[1],'base64')); fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(req)+'\\n'); process.stdout.write(noise); process.stdout.write(JSON.stringify(req.operation==='person'?{allowed:req.user_id===1||req.user_id===2}:{sections:[{id:req.event==='turn'?'user':'shared',content:req.event==='turn'?'USER_'+req.user_id:'SHARED'}]}));`)
+fs.writeFileSync(wp, `import fs from 'node:fs'; const noise=${JSON.stringify(PHP_NOTICE)}; const args=process.argv.slice(2); const code=args[args.indexOf('eval')+1]; const match=code.match(/\\$args=array\\('([^']+)'\\)/); const req=JSON.parse(Buffer.from(match[1],'base64')); fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(req)+'\\n'); process.stdout.write(noise); process.stdout.write(JSON.stringify(req.operation==='person'?{allowed:req.user_id===1||req.user_id===2}:{sections:req.event==='turn'?[{id:'user',content:'USER_'+req.user_id}]:[{id:'shared',content:'SHARED'},{id:'agents',title:'AGENTS.md',content:'AGENTS',convention_path:'AGENTS.md'}]}));`)
 const config = {
   version: 1, defaultContext: 'franklin',
   contexts: { franklin: { sitePath: '/site', agentSlug: 'franklin', transport: [process.execPath, wp] } },
@@ -30,7 +30,22 @@ try {
   assert.deepEqual([...alice.capabilities], ['sessions'])
   assert.equal((await filters.person(null, { actor: { platform: 'discord', id: 'ALICE' }, context: { guildId: 'OTHER' } })).allowed, false)
   const shared = await filters.context_sections([], { event: 'session_start', contextId: 'franklin' })
-  assert.deepEqual(shared, [{ id: 'shared', content: 'SHARED' }])
+  // #733: a convention file is injected (without its marker) unless the
+  // runtime loads it from the session directory or one of its ancestors.
+  assert.deepEqual(shared, [{ id: 'shared', content: 'SHARED' }, { id: 'agents', title: 'AGENTS.md', content: 'AGENTS' }])
+  const site = path.join(temp, 'site')
+  const nested = path.join(site, 'wp-content', 'plugins')
+  fs.mkdirSync(nested, { recursive: true })
+  const startIn = (directory) => filters.context_sections([], { event: 'session_start', contextId: 'franklin', directory })
+  assert.deepEqual(await startIn(site), [{ id: 'shared', content: 'SHARED' }, { id: 'agents', title: 'AGENTS.md', content: 'AGENTS' }])
+  fs.writeFileSync(path.join(site, 'AGENTS.md'), 'on disk')
+  assert.deepEqual(await startIn(site), [{ id: 'shared', content: 'SHARED' }])
+  assert.deepEqual(await startIn(nested), [{ id: 'shared', content: 'SHARED' }])
+  assert.equal(module.runtimeLoadsFile(path.join(temp, 'elsewhere'), 'AGENTS.md'), false)
+  assert.equal(module.runtimeLoadsFile('relative/dir', 'AGENTS.md'), false)
+  assert.equal(module.runtimeLoadsFile(site, path.join(site, 'AGENTS.md')), false)
+  fs.mkdirSync(path.join(temp, 'dir-not-file', 'AGENTS.md'), { recursive: true })
+  assert.equal(module.runtimeLoadsFile(path.join(temp, 'dir-not-file'), 'AGENTS.md'), false)
   const turn = (personId, actor, spaceId) => filters.context_sections([], { event: 'turn', contextId: 'franklin', personId, actor, spaceId })
   const [one, two] = await Promise.all([turn(alice.personId, { platform: 'discord', id: 'ALICE' }, 'GUILD'), turn(bob.personId, { platform: 'slack', id: 'BOB' }, 'TEAM')])
   assert.deepEqual(one, [{ id: 'user', content: 'USER_1' }])

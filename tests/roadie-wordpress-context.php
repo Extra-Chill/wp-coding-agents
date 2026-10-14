@@ -4,7 +4,7 @@
 namespace DataMachine\Engine\AI {
     class MemoryFileRegistry {
         const MODE_ALL='all', INJECTION_AGENT_IDENTITY='identity', INJECTION_AGENT_MEMORY='memory', INJECTION_USER_PROFILE='user', LAYER_AGENT='agent', LAYER_USER='user', LAYER_PRINCIPAL='principal';
-        public static function get_for_modes($modes,$contexts) { return array('SOUL.md'=>array('layer'=>'agent','priority'=>10),'USER.md'=>array('layer'=>'user','priority'=>25),'USER_MEMORY.md'=>array('layer'=>'principal','priority'=>28)); }
+        public static function get_for_modes($modes,$contexts) { return array('SOUL.md'=>array('layer'=>'agent','priority'=>10,'convention_path'=>''),'AGENTS.md'=>array('layer'=>'shared','priority'=>12,'convention_path'=>'AGENTS.md'),'USER.md'=>array('layer'=>'user','priority'=>25),'USER_MEMORY.md'=>array('layer'=>'principal','priority'=>28)); }
     }
 }
 namespace DataMachine\Core\FilesRepository {
@@ -32,11 +32,13 @@ namespace {
     }
     $base=array('operation'=>'context','agent_slug'=>'franklin');
     $shared=resolve_context($base+array('event'=>'session_start','user_id'=>1));
-    if (array_column($shared['sections'],'content')!==array('agent:0:SOUL.md')) throw new \RuntimeException('Pinned context contains user memory');
+    if (array_column($shared['sections'],'content')!==array('agent:0:SOUL.md','shared:0:AGENTS.md')) throw new \RuntimeException('Pinned context contains user memory');
+    // #733: convention files carry their path so the plugin can skip what the runtime loads from disk.
+    if (array_key_exists('convention_path',$shared['sections'][0])||($shared['sections'][1]['convention_path']??null)!=='AGENTS.md') throw new \RuntimeException('convention_path not passed through');
     foreach (array(1,2,3) as $id) {
         $turn=resolve_context($base+array('event'=>'turn','user_id'=>$id));
         $content=array_column($turn['sections'],'content');
-        if (!in_array('user:'.$id.':USER.md',$content,true)||!in_array('principal:'.$id.':USER_MEMORY.md',$content,true)||in_array('agent:0:SOUL.md',$content,true)) throw new \RuntimeException('Wrong speaker/layer');
+        if (!in_array('user:'.$id.':USER.md',$content,true)||!in_array('principal:'.$id.':USER_MEMORY.md',$content,true)||in_array('agent:0:SOUL.md',$content,true)||in_array('shared:0:AGENTS.md',$content,true)) throw new \RuntimeException('Wrong speaker/layer');
     }
     if(resolve_context($base+array('event'=>'turn','user_id'=>999))['sections']!==array()) throw new \RuntimeException('Unknown user inherited owner context');
     echo "PASS: shared/user/principal memory separation and missing-user rejection\n";
