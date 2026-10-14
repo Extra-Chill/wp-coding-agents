@@ -74,23 +74,21 @@ function ensureKnown(value, known, label) {
   }
 }
 
-function normalizeRuntime(profile, availableRuntimes, warnings) {
+// Codex and Claude Code are no longer managed runtimes (#751). Both read the
+// composed AGENTS.md natively when run in a terminal.
+const REMOVED_RUNTIMES = ["codex", "claude-code"]
+
+function normalizeRuntime(profile, availableRuntimes) {
   const runtime = profile.runtime ?? {}
   const selection = runtime.selection || "auto"
-  const requested = Array.isArray(runtime.runtimes) ? runtime.runtimes.filter(Boolean) : []
-
-  if (selection === "multiple") {
-    for (const name of requested) {
-      ensureKnown(name, availableRuntimes, "runtime")
-    }
-    warnings.push(
-      "Multiple runtimes are not compiled into comma-separated --runtime; setup.sh treats --runtime as one runtime file name."
+  if (REMOVED_RUNTIMES.includes(selection)) {
+    throw new Error(
+      `runtime.selection '${selection}' was removed (wp-coding-agents#751). Use Pi with Roadie, or run ${selection} yourself in a terminal against the site's composed AGENTS.md.`
     )
-    return { selection, requested, primary: requested[0] || "auto", flag: null }
   }
 
   ensureKnown(selection, availableRuntimes, "runtime")
-  return { selection, requested: selection === "auto" ? requested : [selection], primary: selection, flag: selection === "auto" ? null : selection }
+  return { selection, requested: selection === "auto" ? [] : [selection], flag: selection === "auto" ? null : selection }
 }
 
 // Kimaki was replaced by Roadie; saved profiles that name it select Roadie,
@@ -166,7 +164,6 @@ function compile(profile) {
   const warnings = []
   const env = {}
   const command = ["./setup.sh"]
-  const followUpCommands = []
 
   const installTarget = profile.install_target
   const target = profile.target ?? {}
@@ -224,7 +221,10 @@ function compile(profile) {
     env.WP_CLI_TRANSPORT_JSON = '["studio","wp"]'
   }
 
-  const runtime = normalizeRuntime(profile, availableRuntimes, warnings)
+  const runtime = normalizeRuntime(profile, availableRuntimes)
+  if (profile.codex_path !== undefined) {
+    throw new Error("codex_path was renamed provider_path when the Codex runtime was removed (wp-coding-agents#751)")
+  }
   if (installTarget === "external-runtime" && runtime.selection !== "opencode") {
     throw new Error("External runtime setup currently requires runtime.selection=opencode")
   }
@@ -250,10 +250,10 @@ function compile(profile) {
   } else if (bridge !== "auto") {
     addFlag(command, "--chat", bridge)
   }
-  const effectiveBridge = bridge === "auto" && runtime.primary === "codex" ? "none" : bridge
+  const effectiveBridge = bridge
 
   if (overlays.homeboy) addFlag(command, "--with-homeboy")
-  if (profile.codex_path === "external-openai-compatible-endpoint") addFlag(command, "--with-ai-gateway")
+  if (profile.provider_path === "external-openai-compatible-endpoint") addFlag(command, "--with-ai-gateway")
   if (overlays.multisite || overlays.subdomain_multisite) addFlag(command, "--multisite")
   if (overlays.subdomain_multisite) addFlag(command, "--subdomain")
   if (overlays.skip_deps) addFlag(command, "--skip-deps")
@@ -271,29 +271,14 @@ function compile(profile) {
     addFlag(command, "--systems-capabilities", systemsCapabilities.profile)
   }
 
-  if (runtime.selection === "multiple" && runtime.requested.length > 1) {
-    const runtimeOnlyEnv = {}
-    const wordpressPath = target.wordpress_path || (target.domain ? `/var/www/${target.domain}` : "")
-    if (wordpressPath) runtimeOnlyEnv.EXISTING_WP = wordpressPath
-    if (env.WP_CLI_TRANSPORT_JSON) runtimeOnlyEnv.WP_CLI_TRANSPORT_JSON = env.WP_CLI_TRANSPORT_JSON
-
-    for (const name of runtime.requested.slice(1)) {
-      const runtimeOnlyCommand = ["./setup.sh"]
-      if (installTarget === "local") runtimeOnlyCommand.push("--local")
-      runtimeOnlyCommand.push("--runtime-only", "--runtime", name)
-      followUpCommands.push(formatCommand(runtimeOnlyEnv, runtimeOnlyCommand))
-    }
-  }
-
   const verification = new Set(installTarget === "external-runtime" ? ["verify-external-wordpress-transport", "verify-data-machine-projection"] : ["verify-wordpress", "verify-data-machine"])
   if (target.wordpress_studio || overlays.wordpress_studio) verification.add("verify-wordpress-studio")
   if (installTarget === "fresh-vps" || installTarget === "existing-vps") verification.add("verify-vps-reachable")
 
-  const runtimeNames = runtime.selection === "multiple" ? runtime.requested : runtime.requested.filter((name) => name !== "auto")
+  const runtimeNames = runtime.requested
   for (const name of runtimeNames) {
     verification.add(`verify-runtime-${name}`)
   }
-  if (runtime.selection === "multiple") verification.add("verify-runtime-multiple")
 
   if (effectiveBridge === "none") {
     verification.add("verify-bridge-none")
@@ -305,8 +290,8 @@ function compile(profile) {
   }
 
   if (overlays.homeboy) verification.add("verify-homeboy")
-  if (profile.codex_path === "codebox-minions") verification.add("verify-codex-codebox-provider")
-  if (profile.codex_path === "external-openai-compatible-endpoint") verification.add("verify-wp-ai-gateway")
+  if (profile.provider_path === "codebox-minions") verification.add("verify-codebox-provider")
+  if (profile.provider_path === "external-openai-compatible-endpoint") verification.add("verify-wp-ai-gateway")
 
   return {
     summary: {
@@ -336,7 +321,6 @@ function compile(profile) {
     verification: {
       overlays: [...verification],
     },
-    follow_up_commands: followUpCommands,
     warnings,
   }
 }

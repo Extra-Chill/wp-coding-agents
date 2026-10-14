@@ -201,34 +201,6 @@ SOURCE_MODE=nonsense
 OWNED_SOURCES=""; OWNED_WRITABLE=""
 refute_rule "wp-content/plugins=allow" "unknown mode never grants write"
 
-# ===========================================================================
-echo "==> runtimes that cannot express scoped permissions refuse owned mode"
-# ===========================================================================
-
-for rt in claude-code codex; do
-  rc=0
-  SOURCE_MODE=owned RUNTIME="$rt" \
-    bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_mode' \
-    >/dev/null 2>&1 || rc=$?
-  if [ "$rc" -eq 3 ]; then
-    echo "  ok   $rt refuses owned source mode"
-  else
-    echo "  FAIL $rt should refuse managed posture (rc=$rc)"
-    FAILED=$((FAILED + 1))
-  fi
-done
-
-rc=0
-SOURCE_MODE=owned RUNTIME=opencode \
-  bash -c 'source lib/common.sh; source lib/source-policy.sh; error() { exit 3; }; source_policy_assert_runtime_supports_mode' \
-  >/dev/null 2>&1 || rc=$?
-if [ "$rc" -eq 0 ]; then
-  echo "  ok   opencode accepts managed posture"
-else
-  echo "  FAIL opencode should accept managed posture (rc=$rc)"
-  FAILED=$((FAILED + 1))
-fi
-
 SOURCE_LOG_PATHS_EXPLICIT=false; SOURCE_LOG_PATHS=""
 
 # ===========================================================================
@@ -323,71 +295,6 @@ EMPTY_WORKSPACE_JSON="$(mktemp)"
 assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["permission"].get("external_directory",{}))' "$EMPTY_WORKSPACE_JSON")" \
   "{}" "workspace mode with no declared checkout grants no external mutable target"
 rm -f "$EMPTY_WORKSPACE_JSON"
-
-# ===========================================================================
-echo "==> claude-code denies every installed root (managed is refused upstream)"
-# ===========================================================================
-
-_claude_settings_for() {
-  local mode="$1" out="$2" seed="${3:-}"
-  (
-    TMP="$(mktemp -d)"
-    trap 'rm -rf "$TMP"' EXIT
-    export SITE_PATH="$TMP/site"
-    export WORKSPACE_REPOSITORIES="$TMP/workspace"
-    export AGENT_SLUG="builder" DRY_RUN=false IS_STUDIO=false
-    mkdir -p "$SITE_PATH/.claude" "$TMP/workspace"
-    git -C "$TMP/workspace" init -q
-    if [ -n "$seed" ]; then
-      sed "s|SITE_PATH|$SITE_PATH|g" "$seed" > "$SITE_PATH/.claude/settings.json"
-    fi
-    UPDATED_ITEMS=()
-    SOURCE_MODE="$mode"
-    # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/runtimes/claude-code.sh"
-    runtime_install_hooks >/dev/null 2>&1
-    python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])),sort_keys=True))' \
-      "$SITE_PATH/.claude/settings.json" | sed "s|$SITE_PATH|SITE_PATH|g" > "$out"
-  )
-}
-
-CC_ENG="$(mktemp)"
-_claude_settings_for engineering "$CC_ENG"
-assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/themes/**)"' \
-  "workspace mode denies theme edits"
-assert_contains "$(cat "$CC_ENG")" '"Edit(SITE_PATH/wp-content/plugins/**)"' \
-  "workspace mode denies plugin edits"
-refute_contains "$(cat "$CC_ENG")" 'datamachine-code' \
-  "workspace mode does not grant a retired DMC command surface"
-rm -f "$CC_ENG"
-
-# ===========================================================================
-echo "==> codex filesystem profile keeps every installed root read-only"
-# ===========================================================================
-
-_codex_config_for() {
-  local mode="$1"
-  (
-    TMP="$(mktemp -d)"
-    trap 'rm -rf "$TMP"' EXIT
-    export SITE_PATH="$TMP/site" DRY_RUN=false
-    mkdir -p "$SITE_PATH/.codex" "$TMP/bin"
-    printf '#!/bin/sh\necho "codex-cli 0.142.5"\n' > "$TMP/bin/codex"
-    chmod +x "$TMP/bin/codex"
-    export PATH="$TMP/bin:$PATH"
-    UPDATED_ITEMS=()
-    SOURCE_MODE="$mode"
-    # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/runtimes/codex.sh"
-    runtime_generate_config >/dev/null 2>&1
-    cat "$SITE_PATH/.codex/config.toml"
-  )
-}
-
-CX_ENG="$(_codex_config_for engineering)"
-assert_contains "$CX_ENG" '"wp-content/themes" = "read"' "codex profile keeps themes read-only"
-assert_contains "$CX_ENG" '"wp-content/plugins" = "read"' "codex profile keeps plugins read-only"
-assert_contains "$CX_ENG" '"wp-includes" = "read"' "codex profile keeps core read-only"
 
 # ===========================================================================
 echo "==> AGENTS.md guidance agrees with the enforced permissions"

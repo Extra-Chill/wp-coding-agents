@@ -260,9 +260,5 @@ _print_bare_runtime_cmd() {
     return
   fi
 
-  if [ "$RUNTIME" = "claude-code" ]; then
-    echo "    cd $SITE_PATH && claude"
-  else
-    echo "    cd $SITE_PATH && opencode"
-  fi
+  echo "    cd $SITE_PATH && opencode"
 }

@@ -463,9 +463,8 @@ runtime_generate_instructions() {
 
 # Symlink CLAUDE.md → AGENTS.md so Claude-model opencode sessions inherit the
 # same DM context. OpenCode globs ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"] from
-# cwd; Claude Code reads only CLAUDE.md. Relative target survives directory moves.
-# Skipped when CLAUDE.md is a regular file (claude-code runtime
-# manage their own template-based CLAUDE.md).
+# cwd; Pi reads it too. Relative target survives directory moves.
+# Skipped when CLAUDE.md is a regular file — it is user-owned.
 # See: Extra-Chill/wp-coding-agents#108
 _opencode_symlink_claude_md() {
   local agents_md="$SITE_PATH/AGENTS.md"

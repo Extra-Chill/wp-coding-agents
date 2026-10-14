@@ -47,7 +47,7 @@ Output (stdout): JSON diagnostic object. Examples:
 
 CLI usage:
   repair-opencode-json.py --file <path> \
-    --runtime <opencode|claude-code> \
+    --runtime opencode \
     --chat-bridge <roadie|none> \
     [--roadie-plugins-dir <path>] \
     [--claude-code-auth-plugin <path>] \
@@ -156,12 +156,6 @@ def expected_plugins(
     ships no OpenCode plugins.
     """
     plugins: List[str] = []
-
-    if runtime != "opencode":
-        # Non-opencode runtimes don't use the opencode.json plugin array.
-        # Claude Code has its own config. Return empty so
-        # "drift" comparisons on those runtimes are no-ops.
-        return plugins
 
     if claude_code_auth_plugin:
         plugins.append(claude_code_auth_plugin)
@@ -572,8 +566,6 @@ def check_external_directory(
     workspace_dirs: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
-    if runtime != "opencode":
-        return {"status": "ok"}
     permission = data.get("permission", {})
     current = permission.get("external_directory") if isinstance(permission, dict) else None
     expected = expected_external_directory(data, workspace_dirs, log_paths)
@@ -609,9 +601,6 @@ def check_edit_permission(
     owned_writable: List[str] | None = None,
     log_paths: List[str] | None = None,
 ) -> dict:
-    if runtime != "opencode":
-        return {"status": "ok"}
-
     permission = data.get("permission", {})
     current = permission.get("edit") if isinstance(permission, dict) else None
     expected = expected_edit_permission(data, source_mode, owned_sources, owned_writable, log_paths)
@@ -645,7 +634,7 @@ def main() -> int:
     parser.add_argument(
         "--runtime",
         required=True,
-        choices=["opencode", "claude-code"],
+        choices=["opencode"],
     )
     parser.add_argument(
         "--chat-bridge",
@@ -760,7 +749,7 @@ def main() -> int:
         )
         return 2
 
-    # --- Prompt migration check (runs for all runtimes with opencode.json) ---
+    # --- Prompt migration check ---
     prompt_result = check_prompt_migration(data)
     agent_cleanup_result = check_agent_cleanup(data)
     managed_instructions = read_managed_instructions(args.managed_instructions_file)
@@ -786,23 +775,6 @@ def main() -> int:
             current,
             args.roadie_plugins_dir,
         )
-
-    # Claude Code: no plugin array concept here. Report ok
-    # if current is empty or absent; otherwise let user know we skipped.
-    plugin_skipped = False
-    if args.runtime != "opencode":
-        plugin_skipped = True
-        if prompt_result["status"] == "ok":
-            print(
-                json.dumps(
-                    {
-                        "status": "ok",
-                        "plugins": current,
-                        "prompt_migration": "ok",
-                    }
-                )
-            )
-            return 0
 
     diff = diff_plugins(normalized_current, expected)
     has_plugin_drift = bool(diff["missing"] or diff["unexpected"] or plugin_rewrites)
@@ -830,10 +802,6 @@ def main() -> int:
             "edit_permission": "ok",
             "external_directory": "ok",
         }
-        if plugin_skipped:
-            result["plugins_skipped"] = (
-                f"runtime {args.runtime} does not use opencode.json plugin array"
-            )
         print(json.dumps(result))
         return 0
 
@@ -866,10 +834,6 @@ def main() -> int:
             result["edit_permission_expected"] = edit_permission_result["expected"]
         if has_external_directory_drift:
             result["external_directory_expected"] = external_directory_result["expected"]
-        if plugin_skipped:
-            result["plugins_skipped"] = (
-                f"runtime {args.runtime} does not use opencode.json plugin array"
-            )
         print(json.dumps(result))
         return 1
 
@@ -886,7 +850,7 @@ def main() -> int:
         backup_path = f"{args.file}.backup.{suffix}"
     shutil.copy2(args.file, backup_path)
 
-    if has_plugin_drift and not plugin_skipped:
+    if has_plugin_drift:
         # --apply:    replace with exactly `expected` (removes unexpected).
         # --additive: merge missing entries, preserving user additions.
         repaired_data = dict(data)

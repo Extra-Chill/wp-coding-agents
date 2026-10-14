@@ -33,9 +33,8 @@ Human
         │
         ▼
 Coding runtime
-  ├─ OpenCode
-  ├─ Claude Code
-  └─ Codex
+  ├─ Pi (through Roadie)
+  └─ OpenCode
         │
         ▼
 WordPress + Data Machine
@@ -53,7 +52,7 @@ Data Machine is the always-present composition layer. It owns the persistent age
 The agent should know only what it can use.
 
 - **Data Machine** is always present and composes `AGENTS.md`, `SOUL.md`, `MEMORY.md`, `USER.md`, and shared site guidance.
-- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions, Claude Code `@` includes, or Codex's managed `AGENTS.override.md`.
+- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions. Other terminal tools (Codex, Claude Code, Pi) read the composed `AGENTS.md` directly.
 - **Chat bridges** describe the human communication surface when that bridge is selected.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
@@ -71,12 +70,7 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local
 cd ~/Studio/my-site && opencode
 ```
 
-Use Codex as the terminal runtime when you want the site context in a Codex session without a chat bridge:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-cd ~/Studio/my-site && codex
-```
+Any terminal coding tool that reads `AGENTS.md` (Pi, Codex, Claude Code via the `CLAUDE.md` symlink) gets the same site context when started from the site root. wp-coding-agents does not install or configure those tools.
 
 ### Chat-Connected Agent
 
@@ -113,12 +107,9 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | WordPress | Site runtime, plugin host, WP-CLI surface | Existing local install or installed on VPS |
 | Data Machine | Agent identity, memory, composed guidance, abilities, flows, jobs | Always installed |
 | OpenCode | Coding runtime | Selected or auto-detected |
-| Claude Code | Coding runtime | Selected or auto-detected |
-| Codex | Coding runtime | Selected or auto-detected |
 | wp-coding-agents | Source policy, declared repository authority, runtime permissions, setup, and upgrade | Always installed |
 | Roadie | Discord bridge running Pi agent sessions | Optional chat bridge (the only one) |
 | Homeboy | Optional repo-aware task/lab orchestration, native Rust worktree lifecycle, and Cook | Enabled with `--with-homeboy` when available |
-| AI Provider for Claude Code | WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 
 ## Installation
 
@@ -133,13 +124,7 @@ cd wp-coding-agents
 EXISTING_WP=~/Studio/my-site ./setup.sh --local
 ```
 
-Select a runtime explicitly when needed:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-```
+OpenCode is the only managed runtime, so `--runtime opencode` is the default. The Codex and Claude Code runtimes were removed ([#751](https://github.com/Extra-Chill/wp-coding-agents/issues/751)): `--runtime codex|claude-code`, or an installation profile that recorded either one, fails with a migration note. Use Pi with Roadie, or run those tools in a terminal against the composed `AGENTS.md`.
 
 ### VPS
 
@@ -274,7 +259,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 
 | Flag | Description |
 | --- | --- |
-| `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
+| `--runtime <name>` | Coding runtime: `opencode` (the default and only value). `codex` and `claude-code` were removed in #751. |
 | `--source-mode <name>` | `workspace` (default) or `owned`. See [Source Mode](#source-mode). `--posture` is a deprecated alias. |
 | `--workspace-repository <absolute-git-checkout>` | Existing primary Git checkout authority for workspace mode. Repeatable. |
 | `--workspace-repository-clone <git-remote> <absolute-destination>` | Materialize and declare a missing primary checkout. Existing destinations are validated and never overwritten; credential-free declarations persist for upgrade recovery. Repeatable. |
@@ -288,7 +273,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--roadie-unit <unit>` | Target a Roadie systemd instance, such as `roadie-example.service`. |
 | `--roadie-data-dir <path>` | Override that Roadie instance's state directory. |
 | `--roadie-lock-port <port>` | Override that Roadie instance's lock port. |
-| `--chat <bridge>` | Chat bridge: `roadie` (the only bridge; OpenCode runtime). Claude Code and Codex run without a managed chat bridge. |
+| `--chat <bridge>` | Chat bridge: `roadie` (the only bridge). |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
 | `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for OpenCode runtimes. |
@@ -481,12 +466,8 @@ permissions and the generated guidance from the source mode and these
 declarations, so the prose cannot tell the agent to do something the
 permissions then block.
 
-Managed is currently supported on the `opencode` runtime only. OpenCode
-evaluates permissions with `findLast` over rules in config key order, so a
-narrow allow written after a broad deny wins. Claude Code treats deny as
-absolute and Codex has no documented precedence for overlapping filesystem
-entries, so both refuse owned mode rather than emit a permission set whose
-behavior on a production site is unverified.
+OpenCode evaluates permissions with `findLast` over rules in config key
+order, so a narrow allow written after a broad deny wins.
 
 The chosen mode is recorded on the install, so `./upgrade.sh` converges to it
 without repeating the flag. Pass `--source-mode` to either script to change it.
@@ -514,13 +495,7 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode \
   --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
 ```
 
-### Claude Code
-
-Claude Code uses `CLAUDE.md` with generated `@` includes. A SessionStart hook refreshes the Data Machine memory includes for each session.
-
-When Claude Code is selected or detected, `wp-coding-agents` installs the carried `ai-provider-for-claude-code` plugin so WordPress AI Client consumers can use the local Claude Code OAuth-backed provider when appropriate.
-
-Both the standalone OpenCode OAuth plugin and the carried PHP provider resolve their
+The direct (non-Roadie) OpenCode Claude Pro/Max OAuth plugin resolves its
 `claude-cli/<version>` client identity from the public npm registry's stable
 `@anthropic-ai/claude-code` release. The installed Claude CLI is optional. Successful
 lookups are cached for six hours and refreshed on subsequent requests, including
@@ -528,28 +503,13 @@ in long-running sessions. Registry requests have a three-second timeout, send no
 OAuth credentials, and do not follow redirects. An unavailable or invalid registry
 response retains the last good version and retries after five minutes; a fresh
 offline install uses the bundled bootstrap version until discovery succeeds.
-
 OpenCode stores this public metadata in
-`${XDG_CACHE_HOME:-~/.cache}/opencode/claude-code-version.json`; WordPress stores it
-in the non-autoloaded `ai_provider_claude_code_client_version` option. Warm requests
-use the process cache. `OPENCODE_ANTHROPIC_USER_AGENT` and
-`AI_PROVIDER_CLAUDE_CODE_USER_AGENT` still override discovery entirely (the PHP
-constant takes precedence over the environment variable).
+`${XDG_CACHE_HOME:-~/.cache}/opencode/claude-code-version.json`.
+`OPENCODE_ANTHROPIC_USER_AGENT` overrides discovery entirely.
 
-### Codex
+### Codex and Claude Code
 
-Codex reads `AGENTS.override.md` from the WordPress site root when present, before falling back to `AGENTS.md`. Because Codex does not load arbitrary instruction files from an `instructions` array or Claude-style `@` includes, setup and upgrade generate a Codex-owned `AGENTS.override.md` from the shared `AGENTS.md` plus the local Data Machine memory files.
-
-Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that other runtimes read. Only the selected runtime keeps its projection: when the site's runtime is not Codex, upgrade removes the managed `AGENTS.override.md` (a user-owned one without the managed marker is left alone). Select Codex again with `./upgrade.sh --runtime codex`.
-
-Setup registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
-
-Codex does not currently have a managed chat bridge in this repo, so setup defaults to terminal/manual operation:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-cd ~/Studio/my-site && codex
-```
+These are no longer managed runtimes ([#751](https://github.com/Extra-Chill/wp-coding-agents/issues/751)). Run them in a terminal from the site root; they read the composed `AGENTS.md` (Claude Code through the `CLAUDE.md` symlink). Upgrade removes a stale managed `AGENTS.override.md` left by the old Codex projection (a user-owned one without the managed marker is left alone).
 
 ### Roadie
 
@@ -565,7 +525,7 @@ To roll back, swap the services: `systemctl disable --now roadie && systemctl en
 
 After the cutover, add accounts with Roadie's `/login` (or `/credentials login-anthropic`): that adds to the shared credential pool.
 
-**Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)). Claude Code and Codex run without a managed chat bridge.
+**Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)).
 
 Inbound events queue independently of a runtime. The queue intentionally has no Roadie connector yet: a connector needs a durable conversation-to-runtime mapping, and missing mappings fail closed.
 
@@ -588,7 +548,7 @@ Data Machine manages the agent's persistent files:
 | `MEMORY.md` | Agent | Persistent project knowledge |
 | `USER.md` | User | Human profile and preferences |
 
-The selected runtime reads this memory at session start. Direct OpenCode installs reference the files from `opencode.json`, Claude Code uses generated `@` includes, and Codex receives the same file contents through a generated site-root `AGENTS.override.md`. Under the Roadie bridge no static file references are synced: Roadie's `wordpress-context` plugin supplies the memory per session and speaker (`docs/roadie-user-context.md`), so Roadie's Pi sessions get current context without file wiring. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
+The selected runtime reads this memory at session start. Direct OpenCode installs reference the files from `opencode.json`. Under the Roadie bridge no static file references are synced: Roadie's `wordpress-context` plugin supplies the memory per session and speaker (`docs/roadie-user-context.md`), so Roadie's Pi sessions get current context without file wiring. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
 
 ## Abilities And Dispatch
 

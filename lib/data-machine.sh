@@ -55,9 +55,8 @@ upgrade_data_machine_plugins() {
   return "$status"
 }
 
-# Derive a Data Machine agent slug from a site domain. Shared by setup
-# (create_dm_agent) and upgrade (claude-code runtime sync) so both compute the
-# same canonical slug: first domain label, lowercased, underscores → hyphens.
+# Derive a Data Machine agent slug from a site domain: first domain label,
+# lowercased, underscores → hyphens.
 derive_agent_slug() {
   echo "$1" | sed 's/\..*//' | tr '[:upper:]' '[:lower:]' | tr '_' '-'
 }

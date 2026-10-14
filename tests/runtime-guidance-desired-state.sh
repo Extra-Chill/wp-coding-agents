@@ -47,7 +47,7 @@ expected_runtime_records() {
   printf 'guidance.agents-md\nruntime.%s' "$runtime"
 }
 
-for runtime in opencode claude-code codex; do
+for runtime in opencode; do
   setup_records="$(records_for setup "$runtime" false 'runtime guidance')"
   upgrade_records="$(records_for upgrade "$runtime" false 'runtime guidance')"
   assert_eq "$setup_records" "$upgrade_records" "$runtime setup and upgrade derive equivalent records"
@@ -92,23 +92,19 @@ reconciler_apply_plan
 assert_eq "$(<"$TRACE")" $'install\npaths\ncontext\nconfig\nhooks\ninstructions\nmcp' "runtime state survives its ordered component step"
 rm -f "$TRACE"
 
-# Only the selected runtime keeps a projection: a managed Codex
-# AGENTS.override.md is removed under another runtime, kept under Codex, and a
-# user-owned one is never touched.
+# The Codex projection is retired: a managed AGENTS.override.md is always
+# removed (dry-run only reports it), and a user-owned one is never touched.
 log() { :; }
 SITE_PATH="$(mktemp -d)"
 MARKER='<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->'
 RUNTIME=opencode
 printf '%s\n' "$MARKER" > "$SITE_PATH/AGENTS.override.md"
-runtime_guidance_retire_inactive_codex_projection
-[ ! -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "managed Codex projection is removed under another runtime"
-RUNTIME=codex
-printf '%s\n' "$MARKER" > "$SITE_PATH/AGENTS.override.md"
-runtime_guidance_retire_inactive_codex_projection
-[ -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "managed Codex projection is kept when Codex is selected"
-RUNTIME=opencode
+DRY_RUN=true runtime_guidance_retire_codex_projection
+[ -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "dry-run keeps the managed Codex projection"
+runtime_guidance_retire_codex_projection
+[ ! -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "managed Codex projection is removed"
 printf '# user owned\n' > "$SITE_PATH/AGENTS.override.md"
-runtime_guidance_retire_inactive_codex_projection
+runtime_guidance_retire_codex_projection
 assert_eq "$(<"$SITE_PATH/AGENTS.override.md")" "# user owned" "user-owned AGENTS.override.md remains untouched"
 rm -rf "$SITE_PATH"
 

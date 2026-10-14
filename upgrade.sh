@@ -182,7 +182,7 @@ while [[ $# -gt 0 ]]; do
     --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
     --systems-capabilities) SYSTEMS_CAPABILITIES_PROFILE="$2"; shift 2 ;;
     --systems-capabilities-only) SYSTEMS_CAPABILITIES_ONLY=true; shift ;;
-    --runtime)       RUNTIME="$2"; shift 2 ;;
+    --runtime)       reject_removed_runtime "$2" --runtime; RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
     --project-agent-bundle) OPENCODE_AGENT_BUNDLE="$2"; shift 2 ;;
@@ -464,28 +464,12 @@ else
   # Load declarative setup intent before runtime selection and source-policy
   # resolution. The profile never contains transport argv, tokens, or secrets.
   installation_profile_load
-  # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
-  # full list (drives multi-runtime skills install); RUNTIME is the primary
-  # (first-match cascade: claude-code > opencode > codex). Explicit --runtime
-  # narrows to a single runtime.
-  if [ -n "$RUNTIME" ]; then
-    DETECTED_RUNTIMES=("$RUNTIME")
-  else
-    if command -v claude &>/dev/null; then
-      DETECTED_RUNTIMES+=("claude-code")
-    fi
-    if command -v opencode &>/dev/null; then
-      DETECTED_RUNTIMES+=("opencode")
-    fi
-    if command -v codex &>/dev/null; then
-      DETECTED_RUNTIMES+=("codex")
-    fi
-    if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
-      warn "No runtime binary found — defaulting to opencode"
-      DETECTED_RUNTIMES=("opencode")
-    fi
-    RUNTIME="${DETECTED_RUNTIMES[0]}"
-  fi
+  # OpenCode is the only managed runtime. Codex and Claude Code were removed
+  # in #751. --runtime rejects them during argument parsing; a recorded
+  # profile runtime naming either one fails here with no compatibility path.
+  reject_removed_runtime "${RUNTIME:-}" "Recorded installation-profile runtime"
+  RUNTIME="${RUNTIME:-opencode}"
+  DETECTED_RUNTIMES=("$RUNTIME")
 
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
 if [ ! -f "$RUNTIME_FILE" ]; then
@@ -512,7 +496,6 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
-source_policy_assert_runtime_supports_mode
 if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode
@@ -845,9 +828,7 @@ sync_chat_bridge_config() {
 #      and chat bridge. Only applies when runtime is opencode.
 #   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that
 #      breaks Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated
-#      to a top-level `instructions` array. This check runs for ALL runtimes
-#      because opencode.json can exist even when the primary runtime is
-#      claude-code.
+#      to a top-level `instructions` array.
 #   3. Data Machine instruction paths.
 #   4. OpenCode edit denies for installed WordPress source.
 #
@@ -981,11 +962,8 @@ check_opencode_json_drift() {
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
 
-  # Runtime arg for repair-opencode-json.py: always `opencode` when the file
-  # exists. The primary RUNTIME may be `claude-code`, but the presence of
-  # opencode.json on disk means opencode IS in use — otherwise the file wouldn't
-  # be there. expected_plugins() skips plugin-array drift entirely for
-  # non-opencode runtimes, which would silently mask real drift here.
+  # Runtime arg for repair-opencode-json.py: OpenCode is the only managed
+  # runtime, and opencode.json on disk means it is in use.
   local RUNTIME_ARG="opencode"
 
   local MANAGED_INSTRUCTIONS_FILE=""
@@ -1266,15 +1244,13 @@ regenerate_agents_md() {
     return 1
   fi
 
-  # Symlink CLAUDE.md → AGENTS.md so Claude-model OpenCode sessions get the same DM context.
-  # OpenCode reads both filenames from the cwd glob (AGENTS.md, CLAUDE.md, CONTEXT.md),
-  # Claude Code reads only CLAUDE.md. Symlink keeps both runtimes covered without
+  # Symlink CLAUDE.md → AGENTS.md so Claude-model sessions get the same DM context.
+  # OpenCode and Pi read CLAUDE.md as well as AGENTS.md. The symlink avoids
   # duplicating content or risking drift on AGENTS.md regeneration. Relative target
   # ensures the symlink survives directory moves.
   # See: Extra-Chill/wp-coding-agents#108
   if [ -f "$AGENTS_MD" ] && _runtime_detected opencode; then
-    # Skip if CLAUDE.md exists as a regular file (e.g. claude-code runtime
-    # generates its own CLAUDE.md from a template — don't clobber it).
+    # Skip if CLAUDE.md exists as a regular file — it is user-owned.
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
       (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
       log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
@@ -1291,45 +1267,6 @@ _runtime_detected() {
     [ "$runtime" = "$candidate" ] && return 0
   done
   [ "${RUNTIME:-}" = "$candidate" ]
-}
-
-# ============================================================================
-# Phase 5b: Sync Claude Code runtime (SessionStart hook + CLAUDE.md)
-#   Claude Code installs aren't covered by the chat-bridge phases: opencode.json
-#   drift, Roadie plugins, and systemd units don't apply to them. Their managed
-#   surface is the SessionStart hook (.claude/hooks/dm-agent-sync.sh), its
-#   agent-scope sidecar, the settings.json hook registration, and the
-#   template-generated CLAUDE.md. Without this phase those silently rot: a stale
-#   hook keeps exit 0-ing and CLAUDE.md never gets its Data Machine memory
-#   block, so the agent boots with no personality/memory. This mirrors what
-#   setup.sh installs and keeps claude-code a first-class upgrade target
-#   alongside opencode.
-# ============================================================================
-
-sync_claude_code_runtime() {
-  : # Runtime hooks and configuration are shared adapter records.
-}
-
-sync_runtime_signature() {
-  _run_filter_active patch || return 0
-
-  _runtime_detected codex || return 0
-
-  local codex_runtime_file="$SCRIPT_DIR/runtimes/codex.sh"
-  if ! declare -F _codex_register_runtime_signature >/dev/null; then
-    # shellcheck disable=SC1090
-    source "$codex_runtime_file"
-  fi
-
-  if declare -F _codex_register_runtime_signature >/dev/null; then
-    log "Phase 5c: Removing retired Codex runtime registry..."
-    _codex_register_runtime_signature
-  fi
-
-  if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
-    # shellcheck disable=SC1090
-    source "$RUNTIME_FILE"
-  fi
 }
 
 sync_runtime_instructions() {
@@ -1604,10 +1541,8 @@ sync_skills
 # reconciliation halfway through.
 regenerate_agents_md || AGENTS_MD_EXIT_STATUS=$?
 if _run_filter_active agents-md; then
-  runtime_guidance_retire_inactive_codex_projection
+  runtime_guidance_retire_codex_projection
 fi
-sync_claude_code_runtime
-sync_runtime_signature
 sync_runtime_instructions
 if [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   opencode_project_subagents_optional || OPENCODE_PROJECTION_EXIT_STATUS=$?

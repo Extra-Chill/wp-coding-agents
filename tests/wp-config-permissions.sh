@@ -63,11 +63,10 @@ eval "$(sed -n '/^harden_wp_config_permissions() {/,/^}/p' lib/wordpress.sh)"
 # path may substitute the broad site permissions repair.
 setup_call=$(grep -n 'harden_wp_config_permissions "\$SITE_PATH"' lib/infrastructure.sh)
 upgrade_resolve=$(grep -n '^source_policy_resolve_writable_paths$' upgrade.sh | cut -d: -f1)
-upgrade_assert=$(grep -n '^source_policy_assert_runtime_supports_mode$' upgrade.sh | cut -d: -f1)
 upgrade_adopt=$(grep -n '^adopt_service_identity_from_units$' upgrade.sh | cut -d: -f1)
 upgrade_call=$(grep -n '^upgrade_harden_wp_config_permissions$' upgrade.sh | cut -d: -f1)
 [ -n "$setup_call" ] || fail "setup must call the config hardener"
-[ -n "$upgrade_call" ] && [ "$upgrade_call" -gt "$upgrade_assert" ] && [ "$upgrade_call" -gt "$upgrade_adopt" ] \
+[ -n "$upgrade_call" ] && [ "$upgrade_call" -gt "$upgrade_resolve" ] && [ "$upgrade_call" -gt "$upgrade_adopt" ] \
   || fail "ordinary upgrade must harden after source validation and service identity adoption"
 
 mode_of() {
