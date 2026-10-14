@@ -64,7 +64,7 @@ SYSTEMD_UNIT_DIR="$TMP/systemd"
 mkdir -p "$SYSTEMD_UNIT_DIR" "$TMP/site"
 printf '{\n  "model": "roadie/opus"\n}\n' > "$TMP/site/opencode.json"
 
-unset ROADIE_UNIT ROADIE_DATA_DIR ROADIE_LOCK_PORT ROADIE_PI_MODEL ROADIE_PI_BIN ROADIE_POOL_URL AGENT_SLUG
+unset ROADIE_UNIT ROADIE_DATA_DIR ROADIE_LOCK_PORT ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_PI_BIN ROADIE_POOL_URL AGENT_SLUG
 initialize_roadie_overrides
 ROADIE_UNIT=roadie.service
 SITE_PATH="$TMP/site"
@@ -158,6 +158,7 @@ Environment=PATH=/usr/bin:/bin
 Environment=ROADIE_DATA_DIR=$TMP/home/.roadie
 Environment=ROADIE_BACKEND=opencode
 Environment=ROADIE_PI_MODEL=roadie/opus
+Environment=ROADIE_PI_TITLE_MODEL=zai/glm-flash
 Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=HOST_CUSTOM=preserved
 ExecStart=/usr/bin/roadie --data-dir $TMP/home/.roadie --auto-restart
@@ -168,6 +169,7 @@ upgrade
 ! grep -q "^Environment=ROADIE_BACKEND=" "$UNIT"; check $? "ROADIE_BACKEND is no longer rendered"
 unit_has_once "ROADIE_PI_BIN=$PI_BIN"; check $? "ROADIE_PI_BIN rendered once"
 unit_has_once ROADIE_PI_MODEL=roadie/opus; check $? "the installed unit keeps its ROADIE_PI_MODEL"
+unit_has_once ROADIE_PI_TITLE_MODEL=zai/glm-flash; check $? "the installed unit keeps its ROADIE_PI_TITLE_MODEL"
 unit_has_once HOST_CUSTOM=preserved; check $? "operator env survives"
 # Installer-owned keys are re-appended in template order, so the first upgrade
 # may reorder them; from then on the unit is stable.
@@ -186,10 +188,21 @@ ROADIE_PI_MODEL_EXPLICIT=false
 upgrade
 unit_has_once ROADIE_PI_MODEL=roadie/sol; check $? "the operator model then persists from the unit"
 
+echo "==> an operator ROADIE_PI_TITLE_MODEL replaces the installed one"
+ROADIE_PI_TITLE_MODEL=opencode-go/haiku
+ROADIE_PI_TITLE_MODEL_EXPLICIT=true
+upgrade
+unit_has_once ROADIE_PI_TITLE_MODEL=opencode-go/haiku; check $? "operator title model rendered once"
+! grep -qFx "Environment=ROADIE_PI_TITLE_MODEL=zai/glm-flash" "$UNIT"; check $? "the previous title model is replaced"
+ROADIE_PI_TITLE_MODEL_EXPLICIT=false
+upgrade
+unit_has_once ROADIE_PI_TITLE_MODEL=opencode-go/haiku; check $? "the operator title model then persists from the unit"
+
 echo "==> a unit without a model leaves Pi's settings.json default"
-grep -v '^Environment=ROADIE_PI_MODEL=' "$UNIT" > "$UNIT.new" && mv "$UNIT.new" "$UNIT"
+grep -v '^Environment=ROADIE_PI_\(TITLE_\)\{0,1\}MODEL=' "$UNIT" > "$UNIT.new" && mv "$UNIT.new" "$UNIT"
 upgrade
 ! grep -q "^Environment=ROADIE_PI_MODEL=" "$UNIT"; check $? "no ROADIE_PI_MODEL is invented"
+! grep -q "^Environment=ROADIE_PI_TITLE_MODEL=" "$UNIT"; check $? "no ROADIE_PI_TITLE_MODEL is invented"
 
 echo "==> a later failed Pi verification drops only ROADIE_PI_BIN"
 printf '#!/bin/sh\nexit 1\n' > "$PI_BIN"
@@ -201,15 +214,17 @@ cp "$TMP/pi.orig" "$PI_BIN"
 echo "==> launchd plist and manual command carry the Pi keys"
 ROADIE_PI_BIN="$PI_BIN"
 ROADIE_PI_MODEL=roadie/opus
+ROADIE_PI_TITLE_MODEL=zai/glm-flash
 PLIST="$(LOCAL_MODE=true ROADIE_BIN=/usr/bin/roadie bridge_render_launchd com.wp.roadie 2>/dev/null)"
 ! printf '%s' "$PLIST" | grep -q '<key>ROADIE_BACKEND</key>'; check $? "launchd sets no ROADIE_BACKEND"
 printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_PI_BIN</key>' | grep -qF "<string>$PI_BIN</string>"; check $? "launchd ROADIE_PI_BIN"
 printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_PI_MODEL</key>' | grep -q '<string>roadie/opus</string>'; check $? "launchd ROADIE_PI_MODEL"
+printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_PI_TITLE_MODEL</key>' | grep -q '<string>zai/glm-flash</string>'; check $? "launchd ROADIE_PI_TITLE_MODEL"
 if command -v plutil >/dev/null 2>&1; then
   printf '%s' "$PLIST" > "$TMP/roadie.plist"
   plutil -lint "$TMP/roadie.plist" >/dev/null; check $? "launchd plist stays valid"
 fi
-_roadie_manual_command | grep -q "^ROADIE_MANAGED=1 ROADIE_PI_BIN='$PI_BIN' ROADIE_PI_MODEL='roadie/opus'"; check $? "manual command carries the Pi keys"
+_roadie_manual_command | grep -q "^ROADIE_MANAGED=1 ROADIE_PI_BIN='$PI_BIN' ROADIE_PI_MODEL='roadie/opus' ROADIE_PI_TITLE_MODEL='zai/glm-flash'"; check $? "manual command carries the Pi keys"
 ! _roadie_manual_command | grep -q "ROADIE_BACKEND"; check $? "manual command sets no ROADIE_BACKEND"
 
 echo "==> no removed Roadie flag is rendered"

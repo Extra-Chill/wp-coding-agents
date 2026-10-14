@@ -185,6 +185,9 @@ _roadie_resolve_instance() {
   if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ]; then
     ROADIE_PI_MODEL=$(_roadie_unit_env_value "$unit_file" ROADIE_PI_MODEL)
   fi
+  if [ "${ROADIE_PI_TITLE_MODEL_EXPLICIT:-false}" != true ]; then
+    ROADIE_PI_TITLE_MODEL=$(_roadie_unit_env_value "$unit_file" ROADIE_PI_TITLE_MODEL)
+  fi
   if [ -z "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG=$(_roadie_unit_env_value "$unit_file" DATAMACHINE_AGENT_SLUG)
   fi
@@ -1420,6 +1423,7 @@ _roadie_manual_command() {
   printf 'ROADIE_MANAGED=1'
   [ -z "${ROADIE_PI_BIN:-}" ] || printf ' ROADIE_PI_BIN=%s' "$(_roadie_shell_quote "$ROADIE_PI_BIN")"
   [ -z "${ROADIE_PI_MODEL:-}" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_MODEL")"
+  [ -z "${ROADIE_PI_TITLE_MODEL:-}" ] || printf ' ROADIE_PI_TITLE_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_TITLE_MODEL")"
   if _roadie_remote_pool_ready; then
     printf ' ROADIE_POOL_URL=%s ROADIE_POOL_KEY_FILE=%s' "$(_roadie_shell_quote "$(_roadie_remote_pool_url)")" "$(_roadie_shell_quote "$(_roadie_pool_key_file)")"
   fi
@@ -1530,6 +1534,9 @@ EOF
   if [ -n "${ROADIE_PI_MODEL:-}" ]; then
     printf 'Environment=ROADIE_PI_MODEL=%s\n' "$ROADIE_PI_MODEL"
   fi
+  if [ -n "${ROADIE_PI_TITLE_MODEL:-}" ]; then
+    printf 'Environment=ROADIE_PI_TITLE_MODEL=%s\n' "$ROADIE_PI_TITLE_MODEL"
+  fi
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
   fi
@@ -1584,6 +1591,9 @@ _roadie_install_launchd() {
   local plist="$plist_dir/$label.plist"
   if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ] && [ -f "$plist" ]; then
     ROADIE_PI_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_MODEL || true)"
+  fi
+  if [ "${ROADIE_PI_TITLE_MODEL_EXPLICIT:-false}" != true ] && [ -f "$plist" ]; then
+    ROADIE_PI_TITLE_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_TITLE_MODEL || true)"
   fi
   run_cmd mkdir -p "$ROADIE_DATA_DIR" "$plist_dir"
   write_file "$plist" "$(bridge_render_launchd "$label")"
@@ -1721,11 +1731,12 @@ bridge_update_systemd() {
   local installed_plugins
   installed_plugins=$(printf '%s\n' "$current_env" | sed -n 's/^Environment=ROADIE_PLUGINS=//p' | tail -n 1 | tr -d '"')
   # Pi keys are installer-owned: ROADIE_PI_BIN is re-verified every run and
-  # ROADIE_PI_MODEL was resolved from this unit (or the operator) already.
+  # ROADIE_PI_MODEL / ROADIE_PI_TITLE_MODEL were resolved from this unit (or
+  # the operator) already.
   # ROADIE_BACKEND is no longer rendered (Pi is Roadie's only backend, and any
   # value but `pi` stops Roadie v0.67+), so a stale `opencode` is dropped here.
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
-    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
+    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
   # Installer-owned plugin list: managed set plus operator extras (#724),
@@ -1794,6 +1805,9 @@ bridge_update_launchd() {
   fi
   if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ]; then
     ROADIE_PI_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_MODEL || true)"
+  fi
+  if [ "${ROADIE_PI_TITLE_MODEL_EXPLICIT:-false}" != true ]; then
+    ROADIE_PI_TITLE_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_TITLE_MODEL || true)"
   fi
   local new_plist
   new_plist=$(bridge_render_launchd com.wp.roadie)
@@ -1893,7 +1907,7 @@ bridge_render_launchd() {
         <key>ROADIE_MANAGED</key>
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
-        <string>1</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)
+        <string>1</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)$(if [ -n "${ROADIE_PI_TITLE_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_TITLE_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_TITLE_MODEL")"; fi)
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>
