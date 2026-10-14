@@ -664,8 +664,48 @@ roadie_merged_plugins_value() {
   printf '%s\n' "$merged"
 }
 
+# ROADIE_PLUGINS as the installed service would run it: the systemd unit's
+# value, else the launchd plist's. Empty when neither service file exists
+# yet (a fresh install has no unit to read, and the unit that gets rendered
+# carries the template plugin set).
+_roadie_service_plugins_value() {
+  local unit_file plist
+  unit_file="$(_roadie_unit_dir)/$(bridge_systemd_units)"
+  if [ -f "$unit_file" ]; then
+    grep '^Environment=ROADIE_PLUGINS=' "$unit_file" \
+      | sed -n 's/^Environment=ROADIE_PLUGINS=//p' | tail -n 1 | tr -d '"'
+    return 0
+  fi
+  plist="$HOME/Library/LaunchAgents/com.wp.roadie.plist"
+  [ -f "$plist" ] && _plist_string_after_key "$plist" ROADIE_PLUGINS
+  return 0
+}
+
 roadie_speaker_context_enabled() {
-  [ "${CHAT_BRIDGE:-}" = roadie ] && [ -f "$(roadie_config_dir)/wordpress-context.json" ]
+  [ "${CHAT_BRIDGE:-}" = roadie ] || return 1
+  [ -f "$(roadie_config_dir)/wordpress-context.json" ] || return 1
+  # The context provider is the wordpress-context Roadie plugin, so managed
+  # memory may only leave opencode.json when the service really runs that
+  # plugin (#729). A unit whose ROADIE_PLUGINS pre-dates the managed merge
+  # would otherwise lose SOUL/MEMORY/SITE/RULES/USER memory entirely: the
+  # mapping removed from instructions, the plugin never loaded. No service
+  # file yet means a fresh install whose next render carries the template set.
+  if [ ! -f "$(_roadie_unit_dir)/$(bridge_systemd_units)" ] &&
+     [ ! -f "$HOME/Library/LaunchAgents/com.wp.roadie.plist" ]; then
+    return 0
+  fi
+  local plugins entry basenames="" oldIFS
+  plugins="$(_roadie_service_plugins_value 2>/dev/null || true)"
+  oldIFS=$IFS
+  IFS=','
+  for entry in $plugins; do
+    basenames="$basenames,${entry##*/}"
+  done
+  IFS=$oldIFS
+  case "$basenames," in
+    *,wordpress-context.mjs,*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 roadie_prompt_config_file() {
@@ -1766,7 +1806,12 @@ bridge_update_systemd() {
   # controller. Keep the fresh-render order: managed Homeboy first.
   current_env=$(_ensure_systemd_path_first "$current_env" "$(_roadie_managed_homeboy_dir)")
 
-  merged_env=$(_merge_systemd_env_lines "$current_env" "$(_roadie_template_env "$path_value")")
+  # ROADIE_SHELL_ENV is template-owned (#729): it is regenerated from this
+  # run's ROADIE_BIN and roadie#186 every time, so an existing unit must not
+  # pin the first-rendered mapping forever. (ROADIE_PLUGINS is converged
+  # above by the in-place managed merge, which keeps operator extras.)
+  merged_env=$(MANAGED_ENV_KEYS="ROADIE_SHELL_ENV" \
+    _merge_systemd_env_lines "$current_env" "$(_roadie_template_env "$path_value")")
   merged_env=$(_preserve_systemd_umask "$unit_file" "$merged_env")
   merged_env=$(_roadie_append_env_files "$merged_env")
 
