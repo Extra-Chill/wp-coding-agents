@@ -331,16 +331,25 @@ _roadie_provision_pi() {
   fi
 }
 
-# `pi --version` as the identity the service runs under, through the node the
-# Roadie service uses. Prints the version on success.
-_roadie_pi_service_version() {
-  local bin="$1" output node_dir
+# Run Pi as the identity the service runs under, through the node the Roadie
+# service uses, against Roadie's own agent dir (where the credential pools
+# write models.json). Extra `VAR=value` env goes before the binary.
+_roadie_pi_run() {
+  local bin="$1" node_dir agent_dir
+  shift
   node_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
+  agent_dir="${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}/pi-agent"
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
-    output="$(sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$node_dir:/usr/local/bin:/usr/bin:/bin" "$bin" --version 2>&1)" || return 1
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$node_dir:/usr/local/bin:/usr/bin:/bin" PI_CODING_AGENT_DIR="$agent_dir" "$bin" "$@" 2>&1
   else
-    output="$(PATH="$node_dir:$PATH" "$bin" --version 2>&1)" || return 1
+    PATH="$node_dir:$PATH" PI_CODING_AGENT_DIR="$agent_dir" "$bin" "$@" 2>&1
   fi
+}
+
+# `pi --version` as the service user. Prints the version on success.
+_roadie_pi_service_version() {
+  local output
+  output="$(_roadie_pi_run "$1" --version)" || return 1
   printf '%s\n' "$output" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
 }
 
@@ -352,6 +361,32 @@ _roadie_site_model() {
   [ -f "$config" ] || { printf '%s\n' "${OPENCODE_MODEL:-}"; return 0; }
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model") or "")' "$config" 2>/dev/null \
     || printf '%s\n' "${OPENCODE_MODEL:-}"
+}
+
+# The model rendered as ROADIE_PI_MODEL: the site model, but only when Pi can
+# serve it (#734). Pi and OpenCode share the Roadie pool catalog (`roadie/*`),
+# but a direct provider key that only OpenCode holds (a z.ai key in its
+# auth.json) is invisible to Pi, and pinning it would break every new session.
+# An unservable model is left out, so Pi falls back to its own default: the
+# `defaultProvider`/`defaultModel` in the agent dir's settings.json.
+#
+# Pi's catalog is only authoritative once Roadie has written its pool
+# providers (models.json). Before the first start (a fresh install) or when
+# the listing fails, the site model is kept, as before.
+_roadie_pi_model() {
+  local bin="$1" model listing agent_dir
+  model="$(_roadie_site_model)"
+  [ -n "$model" ] || return 0
+  agent_dir="${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}/pi-agent"
+  if [ ! -s "$agent_dir/models.json" ] || ! listing="$(_roadie_pi_run "$bin" --list-models)"; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+  if printf '%s\n' "$listing" | awk -v want="$model" 'NR > 1 && $1 "/" $2 == want { found = 1 } END { exit !found }'; then
+    printf '%s\n' "$model"
+    return 0
+  fi
+  warn "  Pi cannot serve the site model $model (not in \`pi --list-models\` for $agent_dir); ROADIE_PI_MODEL is left unset, so Pi uses defaultProvider/defaultModel from $agent_dir/settings.json." >&2
 }
 
 # Install and verify Pi once per run (every instance on a host shares the one
@@ -383,7 +418,7 @@ _roadie_select_backend() {
   if [ "$ROADIE_PI_VERIFIED" != none ]; then
     ROADIE_AGENT_BACKEND=pi
     ROADIE_PI_BIN="$ROADIE_PI_VERIFIED"
-    ROADIE_PI_MODEL="$(_roadie_site_model)"
+    ROADIE_PI_MODEL="$(_roadie_pi_model "$ROADIE_PI_VERIFIED")"
   else
     ROADIE_AGENT_BACKEND=opencode
     ROADIE_PI_BIN=""

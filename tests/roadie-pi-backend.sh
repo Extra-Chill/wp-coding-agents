@@ -125,6 +125,57 @@ SITE_PATH="$TMP/site-b" _roadie_select_backend
 [ "$ROADIE_PI_MODEL" = roadie/sol ]; check $? "a second instance renders its own site's model"
 [ ! -s "$NPM_LOG" ]; check $? "a second instance reuses the verified install"
 
+echo "==> ROADIE_PI_MODEL is rendered only when Pi can serve it (#734)"
+# A Pi that answers --version and lists the models in $FAKE_PI_MODELS (one
+# `provider model` per line); FAKE_PI_LIST_FAIL=1 makes the listing fail.
+cp "$PI_BIN" "$TMP/pi.orig"
+cat > "$PI_BIN" <<SH
+#!/bin/sh
+if [ "\$1" = --list-models ]; then
+  [ "\${FAKE_PI_LIST_FAIL:-0}" != 1 ] || exit 1
+  [ -n "\$PI_CODING_AGENT_DIR" ] || exit 1
+  echo "provider       model    context"
+  printf '%s\n' "\$FAKE_PI_MODELS"
+  exit 0
+fi
+echo "$PI_PIN"
+SH
+chmod 0755 "$PI_BIN"
+AGENT_DIR="$ROADIE_DATA_DIR/pi-agent"
+
+reset_selection
+FAKE_PI_MODELS="openai-codex gpt-6-luna 272K" _roadie_select_backend
+[ "$ROADIE_PI_MODEL" = roadie/opus ]; check $? "before Roadie writes models.json the site model is kept"
+
+mkdir -p "$AGENT_DIR"
+printf '{"providers":{}}\n' > "$AGENT_DIR/models.json"
+reset_selection
+export FAKE_PI_MODELS="roadie opus 200K
+openai-codex gpt-6-luna 272K"
+_roadie_select_backend
+[ "$ROADIE_PI_MODEL" = roadie/opus ]; check $? "a model in Pi's catalog is rendered"
+[ ! -s "$TMP/warn.log" ]; check $? "no warning for a servable model"
+
+reset_selection
+printf '{"model":"zai-coding-plan/glm-5.3-flash"}\n' > "$TMP/site-b/opencode.json"
+# The real warn() prints to stdout; it must not leak into the captured model.
+warn() { printf 'WARN: %s\n' "$*" | tee -a "$TMP/warn.log"; }
+SITE_PATH="$TMP/site-b" _roadie_select_backend
+warn() { printf 'WARN: %s\n' "$*" >> "$TMP/warn.log"; }
+[ "$ROADIE_AGENT_BACKEND" = pi ]; check $? "an unservable model still selects Pi"
+[ -z "$ROADIE_PI_MODEL" ]; check $? "an unservable model leaves ROADIE_PI_MODEL unset"
+grep -q "cannot serve the site model zai-coding-plan/glm-5.3-flash" "$TMP/warn.log"; check $? "the unservable model is reported"
+grep -q "settings.json" "$TMP/warn.log"; check $? "the warning names Pi's own default"
+
+reset_selection
+FAKE_PI_LIST_FAIL=1 SITE_PATH="$TMP/site-b" _roadie_select_backend
+[ "$ROADIE_PI_MODEL" = zai-coding-plan/glm-5.3-flash ]; check $? "a failed listing keeps the site model"
+
+unset FAKE_PI_MODELS
+rm -rf "$AGENT_DIR"
+cp "$TMP/pi.orig" "$PI_BIN"
+printf '{"model":"roadie/sol"}\n' > "$TMP/site-b/opencode.json"
+
 echo "==> a Pi below Roadie's major gate keeps OpenCode"
 reset_selection
 printf '#!/bin/sh\necho "0.73.1"\n' > "$PI_BIN"
