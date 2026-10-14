@@ -39,6 +39,29 @@ The canonical `datamachine_can_access_agent` filter also applies.
 Capabilities are explicitly declared in the mapping; defaults grant sessions
 only. Unmapped actors are denied when this identity plugin is configured.
 
+## Seat tiers
+
+The resolver also returns the speaker's Data Machine agent access role, resolved
+the same way as Data Machine's `ChatPersonResolver`: the agent owner and
+WordPress administrators are `admin`, otherwise the grant's role (`operator` or
+`viewer`). A user admitted only through `datamachine_can_access_agent` is a
+`viewer`. The role, not the mapping, decides the seat:
+
+| Role | Roadie capabilities | Session permission rules |
+|------|---------------------|--------------------------|
+| `admin` | as declared in the mapping | none (full toolset) |
+| `operator`, `viewer`, missing/unknown | `sessions` only | `bash:deny`, `edit:deny`, `external_directory:deny`, `read:*wp-config.php:deny`, `grep:*wp-config.php:deny` |
+
+Roadie's `shell` capability only gates user-typed raw shell (`!cmd`,
+`/run-shell-command`). The agent's own tools follow the host runtime config,
+which on a WordPress host includes the operator's credentials (for example the
+host `gh` login). Without these rules every admitted seat would hold them. A
+team seat's agent can still read the site tree inside the session directory
+and use Roadie's own tools; it acts on WordPress through abilities (per-person
+MCP, roadie#152) rather than through shell. Rules are applied per turn, so in a
+shared thread an admin's turn runs unrestricted and a team member's turn runs
+restricted.
+
 Shared/agent memory is supplied on `session_start`. User and agent-user memory
 is supplied on `turn`, through Data Machine's registered memory store. The
 provider verifies the actor's space-scoped mapping again before reading user
@@ -76,7 +99,8 @@ bash tests/bridge-render.sh
 bash tests/repair-opencode-json.sh
 ```
 
-The plugin test verifies two concurrent users, Discord/Slack mapping, wrong
+The plugin test verifies seat tiers (admin unrestricted; operator, viewer and
+missing roles restricted; denied and unmapped rejected), two concurrent users, Discord/Slack mapping, wrong
 spaces, missing and mismatched identities, mapping removal, and absence of
 acting-user promotion. The PHP boundary fixture verifies shared/user/principal
 layer selection. Before activation, run the provider against the target's

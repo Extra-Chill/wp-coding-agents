@@ -17,14 +17,21 @@ namespace DataMachine\Core\Agents {
     class AgentIdentityResolver { public function resolve_agent_identity($slug) { return (object) array('owner_id'=>1); } }
 }
 namespace DataMachine\Core\Database\Agents {
-    class AgentAccess { public function user_can_access($agent_id,$user_id,$role) { return $user_id===3 && $agent_id===7 && $role==='viewer'; } }
+    class AgentAccess {
+        // Grants: 3 viewer, 4 operator, 5 admin. Mirrors the role hierarchy.
+        public function user_can_access($agent_id,$user_id,$role) {
+            $grants=array(3=>'viewer',4=>'operator',5=>'admin'); $rank=array('viewer'=>1,'operator'=>2,'admin'=>3);
+            return $agent_id===7 && isset($grants[$user_id]) && $rank[$grants[$user_id]]>=$rank[$role];
+        }
+    }
 }
 namespace {
     class WP_Agent { public function get_meta() { return array('datamachine_agent_id'=>7); } }
     function wp_get_agent($slug) { return new WP_Agent(); }
-    function get_user_by($field,$id) { return in_array($id,array(1,2,3),true) ? (object) array('ID'=>$id) : false; }
+    function get_user_by($field,$id) { return in_array($id,array(1,2,3,4,5,6,7),true) ? (object) array('ID'=>$id) : false; }
     function user_can($user,$cap) { return $user->ID===2; }
-    function apply_filters($name,$value,...$args) { return $value; }
+    // User 6 is admitted only by the host access filter (a team entitlement).
+    function apply_filters($name,$value,...$args) { return $name==='datamachine_can_access_agent' && $args[1]===6 && $args[2]==='viewer' ? true : $value; }
     function wp_json_encode($value) { return json_encode($value); }
     function resolve_context($request) {
         $args=array(base64_encode(json_encode($request)));
@@ -41,5 +48,12 @@ namespace {
         if (!in_array('user:'.$id.':USER.md',$content,true)||!in_array('principal:'.$id.':USER_MEMORY.md',$content,true)||in_array('agent:0:SOUL.md',$content,true)||in_array('shared:0:AGENTS.md',$content,true)) throw new \RuntimeException('Wrong speaker/layer');
     }
     if(resolve_context($base+array('event'=>'turn','user_id'=>999))['sections']!==array()) throw new \RuntimeException('Unknown user inherited owner context');
-    echo "PASS: shared/user/principal memory separation and missing-user rejection\n";
+    // #711 seat tier: owner and administrators are admin, otherwise the grant role;
+    // filter-only admission is viewer; no access or an unknown user is denied with no role.
+    $expected=array(1=>array(true,'admin'),2=>array(true,'admin'),3=>array(true,'viewer'),4=>array(true,'operator'),5=>array(true,'admin'),6=>array(true,'viewer'),7=>array(false,''),999=>array(false,''));
+    foreach ($expected as $id=>$want) {
+        $person=resolve_context(array('operation'=>'person','agent_slug'=>'franklin','user_id'=>$id));
+        if (array($person['allowed'],$person['role'])!==$want) throw new \RuntimeException('Wrong seat for user '.$id.': '.json_encode($person));
+    }
+    echo "PASS: shared/user/principal memory separation, missing-user rejection, seat role from agent access\n";
 }

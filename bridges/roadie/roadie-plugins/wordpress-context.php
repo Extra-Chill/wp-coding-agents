@@ -22,11 +22,28 @@ $user = $user_id > 0 ? get_user_by( 'id', $user_id ) : false;
 $identity_class = '\DataMachine\Core\Agents\AgentIdentityResolver';
 $owner_id = class_exists( $identity_class ) ? ( new $identity_class() )->resolve_agent_identity( $agent_slug )->owner_id : 0;
 $access_class = '\DataMachine\Core\Database\Agents\AgentAccess';
-$granted = $user && class_exists( $access_class ) && ( new $access_class() )->user_can_access( $agent_id, $user_id, 'viewer' );
-$allowed = $user && ( $user_id === $owner_id || user_can( $user, 'manage_options' ) || $granted );
+$access = $user && class_exists( $access_class ) ? new $access_class() : null;
+$is_admin = $user && ( $user_id === $owner_id || user_can( $user, 'manage_options' ) );
+$granted = $access && $access->user_can_access( $agent_id, $user_id, 'viewer' );
+$allowed = $is_admin || $granted;
 $allowed = (bool) apply_filters( 'datamachine_can_access_agent', $allowed, $agent_id, $user_id, 'viewer' );
 if ( 'person' === $request['operation'] ) {
-    echo wp_json_encode( array( 'allowed' => $allowed && (bool) $user ) );
+    // Seat tier is the Data Machine agent access role, resolved the same way
+    // as Data Machine's ChatPersonResolver: the owner and WordPress
+    // administrators are admin, otherwise the grant's role. Admission through
+    // the access filter alone is a viewer seat. The Roadie plugin maps the
+    // tier to session capabilities and permission rules.
+    $role = '';
+    if ( $allowed && $user ) {
+        if ( $is_admin || ( $access && $access->user_can_access( $agent_id, $user_id, 'admin' ) ) ) {
+            $role = 'admin';
+        } elseif ( $access && $access->user_can_access( $agent_id, $user_id, 'operator' ) ) {
+            $role = 'operator';
+        } else {
+            $role = 'viewer';
+        }
+    }
+    echo wp_json_encode( array( 'allowed' => $allowed && (bool) $user, 'role' => $role ) );
     return;
 }
 if ( 'turn' === ( $request['event'] ?? '' ) && ( ! $user || ! $allowed ) ) {
