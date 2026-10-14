@@ -541,6 +541,8 @@ ENVIRONMENT VARIABLES:
   ROADIE_LOCK_PORT          Roadie lock port
   ROADIE_PI_MODEL           Pi model for Roadie sessions (provider/model);
                             default: Pi's settings.json defaultModel
+  ROADIE_PI_TITLE_MODEL     Small Pi model for thread titles (provider/model);
+                            default: the session model
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CLI_TRANSPORT_JSON
