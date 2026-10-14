@@ -103,6 +103,10 @@ ROADIE="$(render_in_subshell roadie com.wp.roadie)"
 check_plist "roadie" "$ROADIE"
 check_roundtrip "roadie" "$ROADIE"
 
+ROADIE_UPGRADE="$( bridge_load roadie >/dev/null 2>&1; roadie_render_upgrade_launchd )"
+check_plist "roadie-upgrade" "$ROADIE_UPGRADE"
+check_roundtrip "roadie-upgrade" "$ROADIE_UPGRADE"
+
 # ---------------------------------------------------------------------------
 # Services
 # ---------------------------------------------------------------------------

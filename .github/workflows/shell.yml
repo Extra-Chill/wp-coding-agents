@@ -40,6 +40,14 @@ jobs:
       - name: Run tests/duplicate-mechanism.sh
         run: ./tests/duplicate-mechanism.sh
 
+  roadie-local-upgrade:
+    name: local launchd Roadie upgrade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/roadie-local-upgrade.sh
+        run: bash tests/roadie-local-upgrade.sh
+
   escaping-helpers:
     name: shared JSON and XML escaping
     runs-on: ubuntu-latest
