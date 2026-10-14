@@ -39,6 +39,29 @@ The canonical `datamachine_can_access_agent` filter also applies.
 Capabilities are explicitly declared in the mapping; defaults grant sessions
 only. Unmapped actors are denied when this identity plugin is configured.
 
+## Per-person MCP servers
+
+A context can name MCP servers that every allowed seat gets as its own
+(Roadie person-MCP, roadie#152):
+
+```json
+"site-agent": {
+  "sitePath": "/srv/site",
+  "agentSlug": "site-agent",
+  "mcpServers": [
+    {"name": "site", "url": "https://auth.example.com/wp-json/extrachill-mcp/v1/mcp"}
+  ]
+}
+```
+
+`credential` defaults to `name`. Names must match `^[a-z0-9][a-z0-9_-]{0,39}$`
+and URLs must be https (http only on loopback). Invalid or duplicate entries
+are dropped. Roadie registers each server with the speaker's own OAuth token
+and only for that speaker's turns. The person connects once in chat with
+`/connect` (OAuth device grant, roadie#271), so WordPress abilities run as
+that WordPress user, within their own capabilities. Until they connect, the
+server is simply absent.
+
 ## Seat tiers
 
 The resolver also returns the speaker's Data Machine agent access role, resolved
