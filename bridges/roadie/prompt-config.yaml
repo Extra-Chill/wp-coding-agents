@@ -35,7 +35,7 @@ append:
     content: |
       ## Roadie Discord Bridge
 
-      Roadie connects this OpenCode session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
+      Roadie connects this agent session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
 
       ## Managed Coding Runtime
 
@@ -43,4 +43,4 @@ append:
 
       ## Bridge Diagnostics
 
-      For Roadie bridge failures, check `journalctl -u roadie.service` (or the unit for this site) and `curl -s http://127.0.0.1:$ROADIE_LOCK_PORT/health`.
+      For Roadie bridge failures, check the service log (`journalctl -u roadie.service` or this site's unit on Linux; `$ROADIE_DATA_DIR/roadie.stderr.log` and `roadie.stdout.log` under launchd on macOS) and `curl -s http://127.0.0.1:$ROADIE_LOCK_PORT/health`.
