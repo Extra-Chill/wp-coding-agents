@@ -547,6 +547,7 @@ _roadie_secrets_dir() {
 _roadie_bot_token_file()  { printf '%s/bot-token\n' "$(_roadie_secrets_dir)"; }
 _roadie_send_token_file() { printf '%s/send-token\n' "$(_roadie_secrets_dir)"; }
 _roadie_pool_key_file()   { printf '%s/pool-key\n' "$(_roadie_secrets_dir)"; }
+_roadie_pool_admin_key_file() { printf '%s/pool-admin-key\n' "$(_roadie_secrets_dir)"; }
 
 # ============================================================================
 # Remote credential pool (Extra-Chill/roadie#226)
@@ -577,6 +578,14 @@ _roadie_remote_pool_ready() {
     PENDING_ITEMS+=("Roadie pool client key ($(_roadie_pool_key_file))")
   fi
   return 1
+}
+
+# Optional admin client key (`client add <name> --admin` on the host,
+# Extra-Chill/roadie#238): with it, /credentials, /login and the
+# `roadie credentials` account verbs manage the pool host's accounts.
+# Rendered only alongside a ready remote pool and only once the file exists.
+_roadie_remote_pool_admin_ready() {
+  _roadie_remote_pool_ready && [ -s "$(_roadie_pool_admin_key_file)" ]
 }
 
 # The send token reaches only POST /roadie/send on the loopback lock port.
@@ -628,6 +637,10 @@ _roadie_install_secrets() {
   if [ -n "${ROADIE_POOL_KEY:-}" ]; then
     _roadie_write_secret "$(_roadie_pool_key_file)" "$ROADIE_POOL_KEY" "$owner" "$group" 0600
     UPDATED_ITEMS+=("Roadie pool client key")
+  fi
+  if [ -n "${ROADIE_POOL_ADMIN_KEY:-}" ]; then
+    _roadie_write_secret "$(_roadie_pool_admin_key_file)" "$ROADIE_POOL_ADMIN_KEY" "$owner" "$group" 0600
+    UPDATED_ITEMS+=("Roadie pool admin key")
   fi
 
   if [ ! -s "$send_file" ]; then
@@ -1468,6 +1481,9 @@ _roadie_manual_command() {
   if _roadie_remote_pool_ready; then
     printf ' ROADIE_POOL_URL=%s ROADIE_POOL_KEY_FILE=%s' "$(_roadie_shell_quote "$(_roadie_remote_pool_url)")" "$(_roadie_shell_quote "$(_roadie_pool_key_file)")"
   fi
+  if _roadie_remote_pool_admin_ready; then
+    printf ' ROADIE_POOL_ADMIN_KEY_FILE=%s' "$(_roadie_shell_quote "$(_roadie_pool_admin_key_file)")"
+  fi
   printf ' ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
     "$(_roadie_shell_quote "$(roadie_prompt_config_file)")" \
     "$(_roadie_shell_quote "$(_roadie_send_token_file)")" \
@@ -1584,6 +1600,9 @@ EOF
   if _roadie_remote_pool_ready; then
     echo "Environment=ROADIE_POOL_URL=$(_roadie_remote_pool_url)"
     echo "Environment=ROADIE_POOL_KEY_FILE=$(_roadie_pool_key_file)"
+  fi
+  if _roadie_remote_pool_admin_ready; then
+    echo "Environment=ROADIE_POOL_ADMIN_KEY_FILE=$(_roadie_pool_admin_key_file)"
   fi
   if [ -n "${ROADIE_LOCK_PORT:-}" ]; then
     echo "Environment=ROADIE_LOCK_PORT=$ROADIE_LOCK_PORT"
@@ -1759,7 +1778,7 @@ bridge_update_systemd() {
   # Backend keys are installer-owned: re-selected every run, never preserved
   # from the installed unit, so a host moves to Pi once Pi verifies.
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
-    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE; do
+    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
   # Installer-owned plugin list: managed set plus operator extras (#724),
@@ -1946,7 +1965,9 @@ bridge_render_launchd() {
         <key>ROADIE_POOL_URL</key>
         <string>$(xml_escape "$(_roadie_remote_pool_url)")</string>
         <key>ROADIE_POOL_KEY_FILE</key>
-        <string>$(xml_escape "$(_roadie_pool_key_file)")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
+        <string>$(xml_escape "$(_roadie_pool_key_file)")</string>"; fi)$(if _roadie_remote_pool_admin_ready; then echo "
+        <key>ROADIE_POOL_ADMIN_KEY_FILE</key>
+        <string>$(xml_escape "$(_roadie_pool_admin_key_file)")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
     </dict>
 EOF
 }

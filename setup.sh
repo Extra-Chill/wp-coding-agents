@@ -438,8 +438,11 @@ OPTIONS:
                      Bill through a remote credential pool host
                      (roadie credentials serve). The client key comes from
                      ROADIE_POOL_KEY (env, never argv) or an existing
-                     <secrets>/pool-key file. Pass "local" to return to the
-                     bot's own pool.
+                     <secrets>/pool-key file. An optional admin client key
+                     (client add <name> --admin) from ROADIE_POOL_ADMIN_KEY
+                     or <secrets>/pool-admin-key lets /credentials and /login
+                     manage the host's accounts. Pass "local" to return to
+                     the bot's own pool.
   --no-chat          Skip the chat bridge
   --chat <bridge>    Chat bridge to install. The only bridge is roadie (Discord),
                      installed by default for the opencode runtime

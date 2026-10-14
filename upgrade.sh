@@ -287,7 +287,9 @@ USAGE:
                                  Override the selected Roadie lock port
   ./upgrade.sh --roadie-pool-url <url|local>
                                  Bill through a remote credential pool host
-                                 (key: ROADIE_POOL_KEY env or <secrets>/pool-key);
+                                 (key: ROADIE_POOL_KEY env or <secrets>/pool-key;
+                                 optional admin key for /credentials and /login:
+                                 ROADIE_POOL_ADMIN_KEY env or <secrets>/pool-admin-key);
                                  "local" returns to the bot's own pool
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
