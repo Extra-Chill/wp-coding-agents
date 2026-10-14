@@ -64,6 +64,13 @@ foreach ( $files as $filename => $file ) {
     if ( $total > 131072 || count( $sections ) >= 50 ) {
         break;
     }
-    $sections[] = array( 'id' => 'wordpress-' . $layer . '-' . $filename, 'title' => $filename, 'content' => $content );
+    $section = array( 'id' => 'wordpress-' . $layer . '-' . $filename, 'title' => $filename, 'content' => $content );
+    // A file materialized where coding runtimes discover it by convention
+    // (AGENTS.md) is already loaded from disk. The Roadie plugin drops it when
+    // the session directory sees that copy, so it is not sent twice (#733).
+    if ( is_string( $file['convention_path'] ?? null ) && '' !== $file['convention_path'] ) {
+        $section['convention_path'] = $file['convention_path'];
+    }
+    $sections[] = $section;
 }
 echo wp_json_encode( array( 'sections' => $sections ) );
