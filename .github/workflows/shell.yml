@@ -292,6 +292,8 @@ jobs:
           - roadie-multi-instance
           - roadie-provision
           - roadie-pi-backend
+          - roadie-boot-smoke
+          - roadie-release-breaking
           - roadie-remote-pool
           - refresh-roadie-pin
           - refresh-pi-pin
@@ -329,7 +331,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace' || matrix.test == 'roadie-boot-smoke'
         with:
           node-version: 24
       - name: Install verified Homeboy workspace fixture

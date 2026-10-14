@@ -5,9 +5,14 @@ name: Refresh Roadie pin
 # Roadie's newest release without anyone editing it. Roadie does not notify
 # this repository; this workflow asks, hourly and on demand.
 #
-# A refresh lands on main directly once the Roadie install tests pass with the
-# new pin. Hosts pick it up on their next upgrade (`/upgrade-and-restart`);
-# nothing here restarts a running bridge.
+# A refresh lands on main directly once the Roadie install and boot tests pass
+# with the new pin. Hosts pick it up on their next upgrade
+# (`/upgrade-and-restart`); nothing here restarts a running bridge.
+#
+# A release whose range carries a breaking change never pushes to main: the
+# refresh opens a PR instead (#731), so installer changes can land with the
+# pin and someone reviews the startup-contract implications before hosts
+# self-upgrade into a crash loop.
 on:
   schedule:
     - cron: '23 * * * *'
@@ -15,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: refresh-roadie-pin
@@ -55,6 +61,27 @@ jobs:
           set -euo pipefail
           bash tests/roadie-provision.sh
 
+      # The provision test never starts the service; this does (#731). A
+      # release that exits before backend resolution or database
+      # initialization — a usage or config error at startup — fails here
+      # instead of crash-looping every self-upgrading host.
+      - name: Boot the new pin
+        if: steps.pin.outputs.before != steps.pin.outputs.after
+        run: bash tests/roadie-boot-smoke.sh
+
+      # Breaking releases go through review instead of main.
+      - name: Detect a breaking release
+        id: breaking
+        if: steps.pin.outputs.before != steps.pin.outputs.after
+        run: |
+          set -euo pipefail
+          if ./scripts/roadie-release-breaking.sh \
+              "${{ steps.pin.outputs.before }}" "${{ steps.pin.outputs.after }}"; then
+            echo "breaking=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "breaking=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Commit the new pin
         if: steps.pin.outputs.before != steps.pin.outputs.after
         env:
@@ -65,4 +92,36 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add bridges/roadie/roadie-version
           git commit -m "chore(roadie): pin v${VERSION}"
-          git push origin HEAD:main
+
+      # Non-breaking: land on main as before; hosts pick it up on upgrade.
+      - name: Push the new pin to main
+        if: steps.pin.outputs.before != steps.pin.outputs.after && steps.breaking.outputs.breaking != 'true'
+        run: git push origin HEAD:main
+
+      # Breaking: a PR, so installer changes land with the pin and a human
+      # reviews the startup contract before hosts self-upgrade (#731).
+      - name: Open a PR for the breaking release
+        if: steps.pin.outputs.before != steps.pin.outputs.after && steps.breaking.outputs.breaking == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pin.outputs.after }}
+          BRANCH: refresh-roadie-pin/v${{ steps.pin.outputs.after }}
+        run: |
+          set -euo pipefail
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          {
+            echo "Roadie's release range v${{ steps.pin.outputs.before }}...v${VERSION} carries a breaking change, so the pin moves through review instead of main (#731).";
+            echo;
+            echo 'Detected as breaking by `scripts/roadie-release-breaking.sh`:';
+            echo '```';
+            ./scripts/roadie-release-breaking.sh "${{ steps.pin.outputs.before }}" "$VERSION" || true;
+            echo '```';
+            echo;
+            echo 'Both gates passed (provision + boot smoke), so the release starts, but the startup contract may have shifted. Land any installer changes with this pin.';
+          } > body.md
+          gh pr create \
+            --title "chore(roadie): pin v${VERSION} (breaking)" \
+            --body-file body.md \
+            --base main \
+            --head "$BRANCH"
