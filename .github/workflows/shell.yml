@@ -338,7 +338,14 @@ jobs:
           node-version: 24
       - name: Install verified Homeboy workspace fixture
         if: matrix.test == 'roadie-fork-workspace'
-        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.409.0/homeboy-installer.sh | sh
+        # The installer fetches `latest` unless the tag and version are set, so
+        # the URL alone never pinned anything. 0.421.0 is the last release with
+        # `agent-task submit`, which the fixture uses to seed active-scope runs
+        # (removed in 0.422.0 by Extra-Chill/homeboy#15859).
+        env:
+          HOMEBOY_UPGRADE_RELEASE_TAG: v0.421.0
+          HOMEBOY_UPGRADE_RELEASE_VERSION: 0.421.0
+        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.421.0/homeboy-installer.sh | sh
       - name: Install sqlite3 for the Kimaki migration test
         if: matrix.test == 'roadie-kimaki-migration'
         run: command -v sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)
