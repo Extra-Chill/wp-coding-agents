@@ -189,6 +189,7 @@ while [[ $# -gt 0 ]]; do
     --roadie-unit)   ROADIE_UNIT="$2"; ROADIE_UNIT_EXPLICIT=true; shift 2 ;;
     --roadie-data-dir) ROADIE_DATA_DIR="$2"; ROADIE_DATA_DIR_EXPLICIT=true; shift 2 ;;
     --roadie-lock-port) ROADIE_LOCK_PORT="$2"; ROADIE_LOCK_PORT_EXPLICIT=true; shift 2 ;;
+    --roadie-pool-url) ROADIE_POOL_URL="$2"; ROADIE_POOL_URL_EXPLICIT=true; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
     --root)          RUN_AS_ROOT=true;  SERVICE_USER_FORCED=true; shift ;;
     --non-root)      RUN_AS_ROOT=false; SERVICE_USER_FORCED=true; shift ;;
@@ -284,6 +285,10 @@ USAGE:
                                  Override the selected Roadie state directory
   ./upgrade.sh --roadie-lock-port <port>
                                  Override the selected Roadie lock port
+  ./upgrade.sh --roadie-pool-url <url|local>
+                                 Bill through a remote credential pool host
+                                 (key: ROADIE_POOL_KEY env or <secrets>/pool-key);
+                                 "local" returns to the bot's own pool
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
                                 of the existing unit's User=)

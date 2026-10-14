@@ -182,6 +182,9 @@ _roadie_resolve_instance() {
   if [ "${ROADIE_LOCK_PORT_EXPLICIT:-false}" != true ]; then
     ROADIE_LOCK_PORT=$(_roadie_unit_env_value "$unit_file" ROADIE_LOCK_PORT)
   fi
+  if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
+    ROADIE_POOL_URL=$(_roadie_unit_env_value "$unit_file" ROADIE_POOL_URL)
+  fi
   if [ -z "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG=$(_roadie_unit_env_value "$unit_file" DATAMACHINE_AGENT_SLUG)
   fi
@@ -543,6 +546,38 @@ _roadie_secrets_dir() {
 
 _roadie_bot_token_file()  { printf '%s/bot-token\n' "$(_roadie_secrets_dir)"; }
 _roadie_send_token_file() { printf '%s/send-token\n' "$(_roadie_secrets_dir)"; }
+_roadie_pool_key_file()   { printf '%s/pool-key\n' "$(_roadie_secrets_dir)"; }
+
+# ============================================================================
+# Remote credential pool (Extra-Chill/roadie#226)
+# ============================================================================
+# A bot with ROADIE_POOL_URL keeps no accounts: Roadie relays its Pi sessions
+# to a pool host (`roadie credentials serve`) under this bot's client key
+# (`roadie credentials client add` on the host). The key is a secret file, the
+# same as the bot token. Both keys render only together, and only once the key
+# exists: a URL without its key would start Roadie against a pool it cannot
+# use, so the bot keeps its local pool and the gap is reported instead.
+
+_roadie_remote_pool_url() {
+  case "${ROADIE_POOL_URL:-}" in
+    ''|local) return 1 ;;
+    http://*|https://*) printf '%s\n' "${ROADIE_POOL_URL%/}" ;;
+    *) error "Invalid --roadie-pool-url '$ROADIE_POOL_URL' (expected an http(s) URL or \"local\")" ;;
+  esac
+}
+
+# Succeeds when the unit should run against the remote pool.
+_roadie_remote_pool_ready() {
+  _roadie_remote_pool_url >/dev/null || return 1
+  [ -s "$(_roadie_pool_key_file)" ] && return 0
+  if [ "${ROADIE_POOL_KEY_REPORTED:-false}" != true ]; then
+    ROADIE_POOL_KEY_REPORTED=true
+    warn "  ROADIE_POOL_URL is set but $(_roadie_pool_key_file) is missing; Roadie keeps its local credential pool."
+    warn "  Register this bot on the pool host (roadie credentials client add <name>), then re-run with ROADIE_POOL_KEY=<key>."
+    PENDING_ITEMS+=("Roadie pool client key ($(_roadie_pool_key_file))")
+  fi
+  return 1
+}
 
 # The send token reaches only POST /roadie/send on the loopback lock port.
 # Group-readable by the web user so scheduled dispatch can `roadie send`
@@ -589,6 +624,10 @@ _roadie_install_secrets() {
 
   if [ -n "${ROADIE_BOT_TOKEN:-}" ]; then
     _roadie_write_secret "$bot_file" "$ROADIE_BOT_TOKEN" "$owner" "$group" 0600
+  fi
+  if [ -n "${ROADIE_POOL_KEY:-}" ]; then
+    _roadie_write_secret "$(_roadie_pool_key_file)" "$ROADIE_POOL_KEY" "$owner" "$group" 0600
+    UPDATED_ITEMS+=("Roadie pool client key")
   fi
 
   if [ ! -s "$send_file" ]; then
@@ -1387,6 +1426,8 @@ bridge_install() {
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_backend
+  # Report a missing pool key here: the renderers run in subshells.
+  _roadie_remote_pool_ready >/dev/null || true
   roadie_migrate_from_kimaki
   _roadie_install_secrets
   _roadie_sync_assets
@@ -1424,6 +1465,9 @@ _roadie_manual_command() {
   printf 'ROADIE_MANAGED=1 ROADIE_BACKEND=%s' "$ROADIE_AGENT_BACKEND"
   [ -z "${ROADIE_PI_BIN:-}" ] || printf ' ROADIE_PI_BIN=%s' "$(_roadie_shell_quote "$ROADIE_PI_BIN")"
   [ -z "${ROADIE_PI_MODEL:-}" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_MODEL")"
+  if _roadie_remote_pool_ready; then
+    printf ' ROADIE_POOL_URL=%s ROADIE_POOL_KEY_FILE=%s' "$(_roadie_shell_quote "$(_roadie_remote_pool_url)")" "$(_roadie_shell_quote "$(_roadie_pool_key_file)")"
+  fi
   printf ' ROADIE_PROMPT_CONFIG=%s ROADIE_SERVICE_TOKEN_FILE=%s roadie --data-dir %s' \
     "$(_roadie_shell_quote "$(roadie_prompt_config_file)")" \
     "$(_roadie_shell_quote "$(_roadie_send_token_file)")" \
@@ -1537,6 +1581,10 @@ EOF
   if [ -s "$(_roadie_bot_token_file)" ] || [ -n "${ROADIE_BOT_TOKEN:-}" ]; then
     echo "Environment=ROADIE_BOT_TOKEN_FILE=$(_roadie_bot_token_file)"
   fi
+  if _roadie_remote_pool_ready; then
+    echo "Environment=ROADIE_POOL_URL=$(_roadie_remote_pool_url)"
+    echo "Environment=ROADIE_POOL_KEY_FILE=$(_roadie_pool_key_file)"
+  fi
   if [ -n "${ROADIE_LOCK_PORT:-}" ]; then
     echo "Environment=ROADIE_LOCK_PORT=$ROADIE_LOCK_PORT"
   fi
@@ -1596,6 +1644,8 @@ bridge_sync_config() {
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_backend
+  # Report a missing pool key here: the renderers run in subshells.
+  _roadie_remote_pool_ready >/dev/null || true
   _roadie_install_secrets
   _roadie_sync_assets
   _roadie_reconcile_existing_project_paths
@@ -1698,6 +1748,8 @@ bridge_update_systemd() {
 
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_backend
+  # Report a missing pool key here: the renderers run in subshells.
+  _roadie_remote_pool_ready >/dev/null || true
   local path_value current_env merged_env
   path_value="$(_roadie_path_value)"
   current_env=$(grep '^Environment=' "$unit_file" || true)
@@ -1707,7 +1759,7 @@ bridge_update_systemd() {
   # Backend keys are installer-owned: re-selected every run, never preserved
   # from the installed unit, so a host moves to Pi once Pi verifies.
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
-    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL; do
+    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
   # Installer-owned plugin list: managed set plus operator extras (#724),
@@ -1769,6 +1821,11 @@ bridge_update_launchd() {
 
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_backend
+  # Report a missing pool key here: the renderers run in subshells.
+  _roadie_remote_pool_ready >/dev/null || true
+  if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
+    ROADIE_POOL_URL="$(_plist_string_after_key "$plist" ROADIE_POOL_URL || true)"
+  fi
   local new_plist
   new_plist=$(bridge_render_launchd com.wp.roadie)
   if echo "$new_plist" | cmp -s - "$plist"; then
@@ -1885,7 +1942,11 @@ bridge_render_launchd() {
         <key>ROADIE_BOT_TOKEN_FILE</key>
         <string>$(xml_escape "$(_roadie_bot_token_file)")</string>"; fi)$(if [ -n "${AGENT_SLUG:-}" ]; then echo "
         <key>DATAMACHINE_AGENT_SLUG</key>
-        <string>$(xml_escape "$AGENT_SLUG")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
+        <string>$(xml_escape "$AGENT_SLUG")</string>"; fi)$(if _roadie_remote_pool_ready; then echo "
+        <key>ROADIE_POOL_URL</key>
+        <string>$(xml_escape "$(_roadie_remote_pool_url)")</string>
+        <key>ROADIE_POOL_KEY_FILE</key>
+        <string>$(xml_escape "$(_roadie_pool_key_file)")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
     </dict>
 EOF
 }

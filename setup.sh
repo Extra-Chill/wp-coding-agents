@@ -339,6 +339,11 @@ while [[ $# -gt 0 ]]; do
       ROADIE_LOCK_PORT_EXPLICIT=true
       shift 2
       ;;
+    --roadie-pool-url)
+      ROADIE_POOL_URL="$2"
+      ROADIE_POOL_URL_EXPLICIT=true
+      shift 2
+      ;;
     --help|-h)
       SHOW_HELP=true
       shift
@@ -429,6 +434,12 @@ OPTIONS:
                      Roadie state directory (default: <service-home>/.roadie)
   --roadie-lock-port <port>
                      Roadie lock port (default: Roadie's built-in default)
+  --roadie-pool-url <url>
+                     Bill through a remote credential pool host
+                     (roadie credentials serve). The client key comes from
+                     ROADIE_POOL_KEY (env, never argv) or an existing
+                     <secrets>/pool-key file. Pass "local" to return to the
+                     bot's own pool.
   --no-chat          Skip the chat bridge
   --chat <bridge>    Chat bridge to install. The only bridge is roadie (Discord),
                      installed by default for the opencode runtime
