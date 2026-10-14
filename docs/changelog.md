@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.3.0] - 2026-10-14
+
+### Added
+- bill a bot through a remote credential pool host
+
 ## [2.2.2] - 2026-10-14
 
 ### Fixed
