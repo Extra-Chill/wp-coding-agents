@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.2.2] - 2026-10-14
+
+### Fixed
+- make the managed prompt backend- and platform-neutral
+
 ## [2.2.1] - 2026-10-14
 
 ### Changed
