@@ -36,11 +36,8 @@ ROADIE_PACKAGE_NAME='@extrachill/roadie'
 # the installed package when one appears; today's package has no engines
 # field at all.
 ROADIE_MIN_NODE_MAJOR=24
-# The agent backend Roadie runs: `pi` once the pinned Pi package is installed
-# and passes Roadie's own version gate as the service user, else `opencode`.
-# Roadie's built-in default is Pi (v0.59.0); a unit that leaves it implicit
-# without a working `pi` exits 64 and crash-loops, so it is always rendered.
-ROADIE_AGENT_BACKEND=opencode
+# Pi is Roadie's only agent backend (v0.67.0): the pinned Pi package is
+# installed alongside Roadie and verified as the service user.
 ROADIE_PI_PACKAGE_NAME='@earendil-works/pi-coding-agent'
 # Roadie refuses Pi below this major (agent-backend/registry.ts MIN_PI_MAJOR).
 ROADIE_PI_MIN_MAJOR=1
@@ -184,6 +181,9 @@ _roadie_resolve_instance() {
   fi
   if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
     ROADIE_POOL_URL=$(_roadie_unit_env_value "$unit_file" ROADIE_POOL_URL)
+  fi
+  if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ]; then
+    ROADIE_PI_MODEL=$(_roadie_unit_env_value "$unit_file" ROADIE_PI_MODEL)
   fi
   if [ -z "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG=$(_roadie_unit_env_value "$unit_file" DATAMACHINE_AGENT_SLUG)
@@ -356,42 +356,6 @@ _roadie_pi_service_version() {
   printf '%s\n' "$output" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
 }
 
-# The site's configured agent model. Pi reads the same Roadie credential pool
-# catalog OpenCode does (provider `roadie`, same rotation ids), so the model
-# carries across unchanged.
-_roadie_site_model() {
-  local config="$SITE_PATH/opencode.json"
-  [ -f "$config" ] || { printf '%s\n' "${OPENCODE_MODEL:-}"; return 0; }
-  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model") or "")' "$config" 2>/dev/null \
-    || printf '%s\n' "${OPENCODE_MODEL:-}"
-}
-
-# The model rendered as ROADIE_PI_MODEL: the site model, but only when Pi can
-# serve it (#734). Pi and OpenCode share the Roadie pool catalog (`roadie/*`),
-# but a direct provider key that only OpenCode holds (a z.ai key in its
-# auth.json) is invisible to Pi, and pinning it would break every new session.
-# An unservable model is left out, so Pi falls back to its own default: the
-# `defaultProvider`/`defaultModel` in the agent dir's settings.json.
-#
-# Pi's catalog is only authoritative once Roadie has written its pool
-# providers (models.json). Before the first start (a fresh install) or when
-# the listing fails, the site model is kept, as before.
-_roadie_pi_model() {
-  local bin="$1" model listing agent_dir
-  model="$(_roadie_site_model)"
-  [ -n "$model" ] || return 0
-  agent_dir="${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}/pi-agent"
-  if [ ! -s "$agent_dir/models.json" ] || ! listing="$(_roadie_pi_run "$bin" --list-models)"; then
-    printf '%s\n' "$model"
-    return 0
-  fi
-  if printf '%s\n' "$listing" | awk -v want="$model" 'NR > 1 && $1 "/" $2 == want { found = 1 } END { exit !found }'; then
-    printf '%s\n' "$model"
-    return 0
-  fi
-  warn "  Pi cannot serve the site model $model (not in \`pi --list-models\` for $agent_dir); ROADIE_PI_MODEL is left unset, so Pi uses defaultProvider/defaultModel from $agent_dir/settings.json." >&2
-}
-
 # Install and verify Pi once per run (every instance on a host shares the one
 # install). Sets ROADIE_PI_VERIFIED to the verified binary, or `none`.
 _roadie_verify_pi() {
@@ -399,7 +363,7 @@ _roadie_verify_pi() {
   ROADIE_PI_VERIFIED=none
   local bin version
   if ! _roadie_provision_pi; then
-    warn "  Pi is not installed; Roadie stays on ROADIE_BACKEND=opencode."
+    warn "  Pi is not installed; Roadie cannot start without it."
     return 0
   fi
   [ "${DRY_RUN:-false}" != true ] || return 0
@@ -409,23 +373,20 @@ _roadie_verify_pi() {
     ROADIE_PI_VERIFIED="$bin"
     log "Roadie agent backend: Pi $version ($bin)"
   else
-    warn "  $bin --version failed or is below ${ROADIE_PI_MIN_MAJOR}.x as ${SERVICE_USER:-$(id -un)} (${version:-no version}); Roadie stays on ROADIE_BACKEND=opencode."
+    warn "  $bin --version failed or is below ${ROADIE_PI_MIN_MAJOR}.x as ${SERVICE_USER:-$(id -un)} (${version:-no version}); Roadie cannot start until Pi passes its version gate."
+    PENDING_ITEMS+=("Pi ${ROADIE_PI_MIN_MAJOR}.x for Roadie ($bin)")
   fi
 }
 
-# Select the backend for the instance being rendered: Pi when the pinned
-# package installs and passes Roadie's version gate as the service user,
-# otherwise OpenCode, so a failed Pi install never leaves a crash-looping unit.
-_roadie_select_backend() {
+# Resolve the Pi keys for the instance being rendered. ROADIE_PI_BIN names the
+# managed binary once it verifies; otherwise it is left out and Roadie looks
+# for `pi` on PATH, failing at startup with its own error when none works.
+_roadie_select_pi() {
   _roadie_verify_pi
   if [ "$ROADIE_PI_VERIFIED" != none ]; then
-    ROADIE_AGENT_BACKEND=pi
     ROADIE_PI_BIN="$ROADIE_PI_VERIFIED"
-    ROADIE_PI_MODEL="$(_roadie_pi_model "$ROADIE_PI_VERIFIED")"
   else
-    ROADIE_AGENT_BACKEND=opencode
     ROADIE_PI_BIN=""
-    ROADIE_PI_MODEL=""
   fi
 }
 
@@ -734,6 +695,13 @@ RETIRED_ROADIE_OPENCODE_PLUGINS=(
   session-attribution.ts
 )
 
+# Roadie plugin modules this bridge no longer ships. runtime-config.mjs fed
+# opencode.json into Roadie's `opencode_server_config` hook, which left with
+# Roadie's OpenCode backend (roadie#177, v0.67.0).
+RETIRED_ROADIE_PLUGIN_MODULES=(
+  runtime-config.mjs
+)
+
 # Copy the wp-coding-agents-owned assets (Roadie prompt config and plugins)
 # into the durable config dir. Idempotent; reports what changed.
 _roadie_sync_assets() {
@@ -799,6 +767,19 @@ _roadie_sync_assets() {
     log "  Removed retired $plugins_dir/$retired"
     UPDATED_ITEMS+=("roadie-config/plugins/$retired removed (Roadie-native replacement, #718)")
   done
+
+  local modules_dir
+  modules_dir="$(roadie_plugins_dir)"
+  for retired in "${RETIRED_ROADIE_PLUGIN_MODULES[@]}"; do
+    [ -e "$modules_dir/$retired" ] || continue
+    if [ "${DRY_RUN:-false}" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would remove retired $modules_dir/$retired"
+      continue
+    fi
+    rm -f "$modules_dir/$retired"
+    log "  Removed retired $modules_dir/$retired"
+    UPDATED_ITEMS+=("roadie-config/roadie-plugins/$retired removed (Roadie runs Pi only)")
+  done
 }
 
 # ============================================================================
@@ -815,7 +796,7 @@ _roadie_sync_assets() {
 #      refresh tokens rotate on use, so two live copies invalidate each other.
 #   5. route model choices on those providers through Roadie rotations: one
 #      rotation per model in use (exactly that model; fallbacks are operator
-#      policy), in the Roadie database copy and opencode.json
+#      policy), in the Roadie database copy
 #   6. disable the Kimaki unit, keep it and ~/.kimaki untouched as rollback
 # A node too old for the pinned release refuses the whole migration before
 # step 1 (#692). Bridge install then proves the replacement: it starts the
@@ -852,7 +833,7 @@ _roadie_opencode_data_dir() {
 _roadie_credentials() {
   local bin
   bin="${ROADIE_BIN:-$(roadie_bin)}"
-  local envs=(-u ROADIE_OPENCODE_PROCESS -u ROADIE_AGENT_TOKEN ROADIE_DATA_DIR="$ROADIE_DATA_DIR")
+  local envs=(-u ROADIE_AGENT_TOKEN ROADIE_DATA_DIR="$ROADIE_DATA_DIR")
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     sudo -n -H -u "$SERVICE_USER" env "${envs[@]}" HOME="$SERVICE_HOME" "$bin" credentials "$@"
   else
@@ -1109,7 +1090,7 @@ roadie_migrate_from_kimaki() {
   # reach a model, so a failure rolls the whole migration back.
   local accounts_out models_out rotations_json rotations_out
   if ! rotations_json="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" rotations \
-         --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
+         --db "$target_db" 2>&1)"; then
     printf '%s\n' "$rotations_json" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
@@ -1134,20 +1115,11 @@ roadie_migrate_from_kimaki() {
     [ -n "$entry" ] && log "  $entry"
   done <<< "$rotations_out"
 
-  # Snapshot opencode.json before its defaults are repointed. The rotations it
-  # will name are served by Roadie, so if the post-migration health gate
-  # rolls back to Kimaki, Kimaki's OpenCode would otherwise start with a
-  # default model whose provider no longer exists (#692 follow-up).
-  ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT=""
-  if [ -f "$SITE_PATH/opencode.json" ]; then
-    ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT="$(mktemp)"
-    cat "$SITE_PATH/opencode.json" > "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
-  fi
-
   # Point those choices at the rotations, in the Roadie copy of the database
-  # (before Roadie first starts) and opencode.json.
+  # (before Roadie first starts). opencode.json is left alone: Roadie runs Pi,
+  # and the `roadie/*` provider does not exist for a standalone OpenCode.
   if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
-         --db "$target_db" --opencode-json "$SITE_PATH/opencode.json" 2>&1)"; then
+         --db "$target_db" 2>&1)"; then
     printf '%s\n' "$models_out" >&2
     rm -f "$target_db"
     _roadie_restore_kimaki "${kimaki_unit:-}"
@@ -1173,21 +1145,7 @@ roadie_migrate_from_kimaki() {
   ROADIE_MIGRATION_KIMAKI_UNIT="${kimaki_unit:-}"
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
   UPDATED_ITEMS+=("subscription accounts moved into the Roadie credential pool; on rollback, first run: $(roadie_accounts_rollback_command)")
-  UPDATED_ITEMS+=("model choices routed through Roadie rotations; add fallbacks with 'roadie credentials rotation set' (opencode.json backed up as opencode.json.before-roadie-*; restore it on rollback)")
-}
-
-# Put opencode.json back exactly as the migration found it. Written through
-# the existing file so its owner and mode are kept.
-_roadie_restore_migration_opencode_json() {
-  local snapshot="${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}"
-  [ -n "$snapshot" ] && [ -f "$snapshot" ] || return 0
-  cat "$snapshot" > "$SITE_PATH/opencode.json" || return 1
-  rm -f "$snapshot"
-  log "  Restored opencode.json model choices for Kimaki"
-}
-
-_roadie_discard_migration_opencode_json_snapshot() {
-  [ -z "${ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT:-}" ] || rm -f "$ROADIE_MIGRATION_OPENCODE_JSON_SNAPSHOT"
+  UPDATED_ITEMS+=("model choices routed through Roadie rotations; add fallbacks with 'roadie credentials rotation set'")
 }
 
 # A migration that leaves Roadie crash-looping behind an --auto-restart
@@ -1214,7 +1172,6 @@ _roadie_verify_migration_health() {
     if _roadie_is_healthy "$unit"; then
       log "  $unit healthy after the migration (discordReady on 127.0.0.1:$(_roadie_health_port))"
       _roadie_migrate_access_roles
-      _roadie_discard_migration_opencode_json_snapshot
       return 0
     fi
     sleep 2
@@ -1222,12 +1179,8 @@ _roadie_verify_migration_health() {
 
   systemctl stop "$unit" 2>/dev/null || true
   systemctl disable "$unit" 2>/dev/null || true
-  # Kimaki needs its own model choices back before it starts: the Roadie
-  # rotations they were repointed to were served by the Roadie just stopped.
   # Accounts need nothing: the import copied them, and a Roadie that never
   # came up never refreshed a token, so Kimaki's copies are still current.
-  _roadie_restore_migration_opencode_json \
-    || warn "  Could not restore opencode.json; restore it from opencode.json.before-roadie-* before using Kimaki"
   _roadie_restore_kimaki "$ROADIE_MIGRATION_KIMAKI_UNIT"
   log "  Roadie never became healthy; last journal lines for $unit:"
   journalctl -u "$unit" -n 20 --no-pager 2>/dev/null || true
@@ -1438,7 +1391,7 @@ PY
 bridge_install() {
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_backend
+  _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   roadie_migrate_from_kimaki
@@ -1475,7 +1428,7 @@ bridge_install() {
 }
 
 _roadie_manual_command() {
-  printf 'ROADIE_MANAGED=1 ROADIE_BACKEND=%s' "$ROADIE_AGENT_BACKEND"
+  printf 'ROADIE_MANAGED=1'
   [ -z "${ROADIE_PI_BIN:-}" ] || printf ' ROADIE_PI_BIN=%s' "$(_roadie_shell_quote "$ROADIE_PI_BIN")"
   [ -z "${ROADIE_PI_MODEL:-}" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_MODEL")"
   if _roadie_remote_pool_ready; then
@@ -1553,9 +1506,10 @@ _roadie_path_value() {
   roadie_bin_dir=$(dirname "$ROADIE_BIN")
   node_bin_dir=$(_resolve_node_bin_dir "$ROADIE_BIN")
   homeboy_bin_dir="$(_roadie_managed_homeboy_dir)"
-  # The service user's own tool dirs come before the system ones: the OpenCode
-  # installer puts its binary in ~/.opencode/bin, and a stale distro copy in
-  # /usr/bin would otherwise win (Roadie spawns `opencode` from PATH).
+  # The service user's own tool dirs come before the system ones. Agent shells
+  # inherit this PATH and may run the standalone OpenCode runtime (Homeboy
+  # coding tasks): its installer puts the binary in ~/.opencode/bin, and a
+  # stale distro copy in /usr/bin would otherwise win.
   local home_dirs=()
   if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
     home_dirs=("$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.opencode/bin" "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
@@ -1574,7 +1528,6 @@ Environment=PATH=$path_value
 Environment=ROADIE_DATA_DIR=$ROADIE_DATA_DIR
 Environment=ROADIE_MANAGED=1
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
-Environment=ROADIE_BACKEND=$ROADIE_AGENT_BACKEND
 Environment=ROADIE_PROMPT_CONFIG=$(roadie_prompt_config_file)
 Environment=ROADIE_PLUGINS=$(roadie_plugins_value)
 Environment=ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)
@@ -1640,6 +1593,9 @@ _roadie_install_systemd() {
 _roadie_install_launchd() {
   local label="com.wp.roadie" plist_dir="$HOME/Library/LaunchAgents"
   local plist="$plist_dir/$label.plist"
+  if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ] && [ -f "$plist" ]; then
+    ROADIE_PI_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_MODEL || true)"
+  fi
   run_cmd mkdir -p "$ROADIE_DATA_DIR" "$plist_dir"
   write_file "$plist" "$(bridge_render_launchd "$label")"
 
@@ -1662,7 +1618,7 @@ bridge_sync_config() {
   log "Phase 2: Syncing Roadie config ($(roadie_config_dir))..."
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_backend
+  _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   _roadie_install_secrets
@@ -1766,7 +1722,7 @@ bridge_update_systemd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_backend
+  _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   local path_value current_env merged_env
@@ -1775,8 +1731,10 @@ bridge_update_systemd() {
   local key
   local installed_plugins
   installed_plugins=$(printf '%s\n' "$current_env" | sed -n 's/^Environment=ROADIE_PLUGINS=//p' | tail -n 1 | tr -d '"')
-  # Backend keys are installer-owned: re-selected every run, never preserved
-  # from the installed unit, so a host moves to Pi once Pi verifies.
+  # Pi keys are installer-owned: ROADIE_PI_BIN is re-verified every run and
+  # ROADIE_PI_MODEL was resolved from this unit (or the operator) already.
+  # ROADIE_BACKEND is no longer rendered (Pi is Roadie's only backend, and any
+  # value but `pi` stops Roadie v0.67+), so a stale `opencode` is dropped here.
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
     ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
@@ -1839,11 +1797,14 @@ bridge_update_launchd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_backend
+  _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
     ROADIE_POOL_URL="$(_plist_string_after_key "$plist" ROADIE_POOL_URL || true)"
+  fi
+  if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ]; then
+    ROADIE_PI_MODEL="$(_plist_string_after_key "$plist" ROADIE_PI_MODEL || true)"
   fi
   local new_plist
   new_plist=$(bridge_render_launchd com.wp.roadie)
@@ -1943,9 +1904,7 @@ bridge_render_launchd() {
         <key>ROADIE_MANAGED</key>
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
-        <string>1</string>
-        <key>ROADIE_BACKEND</key>
-        <string>$ROADIE_AGENT_BACKEND</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)
+        <string>1</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>

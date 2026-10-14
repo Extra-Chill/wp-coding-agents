@@ -19,6 +19,8 @@ set -eu
 
 # Snapshots describe a host without a workspace data root; the operator shell may set one.
 unset HOMEBOY_DATA_DIR
+# Nor any Roadie service env (an agent shell under Roadie carries its own).
+unset ROADIE_PI_MODEL ROADIE_PI_BIN ROADIE_POOL_URL ROADIE_CHANNELS_CONFIG
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
@@ -116,11 +118,16 @@ if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes
   echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
   exit 1
 fi
-for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 ROADIE_BACKEND=opencode \
+for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
   ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token; do
   grep -Fq "Environment=$required" "$TMPDIR_NEW/roadie-systemd" \
     || { echo "FAIL: Roadie systemd unit is missing Environment=$required"; exit 1; }
 done
+# Pi is Roadie's only backend (roadie#177): ROADIE_BACKEND is never rendered.
+if grep -q '^Environment=ROADIE_BACKEND=' "$TMPDIR_NEW/roadie-systemd"; then
+  echo "FAIL: Roadie systemd unit renders the removed ROADIE_BACKEND selector"
+  exit 1
+fi
 if grep -q '^Environment=ROADIE_BOT_TOKEN=' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd unit inlines the bot token instead of a file reference"
   exit 1

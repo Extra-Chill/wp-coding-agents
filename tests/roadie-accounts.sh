@@ -28,8 +28,8 @@ cat > "$STUB" <<'SH'
 # enough of `credentials rotation set` to keep a real rotation.json.
 {
   printf 'argv:'; printf ' %s' "$@"; printf '\n'
-  printf 'env: ROADIE_DATA_DIR=%s OPENCODE_PROCESS=%s AGENT_TOKEN=%s\n' \
-    "${ROADIE_DATA_DIR:-}" "${ROADIE_OPENCODE_PROCESS:-unset}" "${ROADIE_AGENT_TOKEN:-unset}"
+  printf 'env: ROADIE_DATA_DIR=%s AGENT_TOKEN=%s\n' \
+    "${ROADIE_DATA_DIR:-}" "${ROADIE_AGENT_TOKEN:-unset}"
 } >> "$ROADIE_STUB_CALLS"
 if [ "${ROADIE_STUB_FAIL:-}" = "$2" ]; then echo "stub failure for $2" >&2; exit 3; fi
 if [ "$1 $2 $3" = "credentials rotation set" ]; then
@@ -67,10 +67,10 @@ echo "==> account import/export use roadie credentials"
 : > "$CALLS"
 # The agent-mode markers of a Roadie tool shell must not leak into the call:
 # Roadie refuses operator-only credential commands in agent mode.
-ROADIE_OPENCODE_PROCESS=1 ROADIE_AGENT_TOKEN=tok _roadie_accounts import >/dev/null
+ROADIE_AGENT_TOKEN=tok _roadie_accounts import >/dev/null
 check $? "_roadie_accounts import succeeds"
 grep -qx "argv: credentials import-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-opencode on the shared pool"
-grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR OPENCODE_PROCESS=unset AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
+grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
 : > "$CALLS"
 _roadie_accounts export >/dev/null; check $? "_roadie_accounts export succeeds"
 grep -qx "argv: credentials export-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "export runs credentials export-opencode"

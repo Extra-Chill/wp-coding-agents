@@ -45,16 +45,6 @@ eligible repositories:
 `WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG` selects another configuration path.
 Source and target identity is verified by Git, including existing worktrees.
 
-## Runtime providers
-
-The managed host projects installation providers, plugins and default models from
-the site's `opencode.json` through Roadie's generic `opencode_server_config` hook.
-Relative plugin/provider package paths resolve against that installation. This
-keeps an inherited model usable when a fork targets a repository with no provider
-configuration. Project instructions and permissions stay local; an invalid host
-profile stops backend startup. The model picker reads the effective workspace's
-execution-active catalogue.
-
 ## Allocation and binding
 
 The provider asks Homeboy to create a unique branch/worktree from the selected
@@ -71,10 +61,7 @@ owns later cleanup. This uses the existing lifecycle.
 
 Requires Homeboy's `agent-task active-scope` indexed ownership contract and the
 source-session fork hook in Roadie. An older controller fails closed instead of
-falling back to conversation scanning. Also requires OpenCode's
-existing experimental workspace APIs (released OpenCode 1.18.31).
-The managed provider enables `OPENCODE_EXPERIMENTAL_WORKSPACES=true` before
-Roadie starts the backend; an explicit host environment value takes precedence.
+falling back to conversation scanning.
 Restart the bridge after upgrading the provider. Missing support,
 discovery or binding fails before a fork task runs.
 

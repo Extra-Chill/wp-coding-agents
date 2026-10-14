@@ -102,7 +102,8 @@ sqlite3 "$DB" "CREATE TABLE scheduled_task_runs(id INTEGER PRIMARY KEY AUTOINCRE
     VALUES (1,'failed','$KIMAKI_DATA/projects/demo','run died in $KIMAKI_DATA/projects/demo/sub');"
 SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH" "$TMP/site-external"
-printf '{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}\n' > "$SITE_PATH/opencode.json"
+SITE_OPENCODE_JSON='{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}'
+printf '%s\n' "$SITE_OPENCODE_JSON" > "$SITE_PATH/opencode.json"
 printf 'png' > "$KIMAKI_DATA/attachments/a.png"
 printf 'x' > "$KIMAKI_DATA/projects/demo/state"
 DATA_BEFORE="$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort)"
@@ -136,11 +137,11 @@ NEW_DB="$ROADIE_DATA_DIR/discord-sessions.db"
 [ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "roadie/anthropic-claude-opus-5-5| roadie/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
 check $? "OAuth model choices routed through per-model rotations; API-key model kept"
 [ "$(sqlite3 "$DB" "SELECT model_id FROM session_models WHERE session_id='s1'")" = anthropic/claude-opus-5-5 ]; check $? "Kimaki database keeps its model choices (rollback)"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'anthropic-claude-sonnet-5-5':['anthropic/claude-sonnet-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/rotations.json"
-check $? "rotations derived from stored choices and opencode.json, one model each"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert (d['model'],d['small_model'],d['plugin'])==('roadie/anthropic-claude-opus-5-5','roadie/anthropic-claude-sonnet-5-5',['x']), d" "$SITE_PATH/opencode.json"
-check $? "opencode.json defaults routed through Roadie rotations, other keys kept"
-ls "$SITE_PATH"/opencode.json.before-roadie-* >/dev/null 2>&1; check $? "opencode.json backed up"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/rotations.json"
+check $? "rotations derived from the stored choices only, one model each"
+# Roadie runs Pi (roadie#177): opencode.json belongs to the standalone runtime.
+[ "$(cat "$SITE_PATH/opencode.json")" = "$SITE_OPENCODE_JSON" ]; check $? "opencode.json left untouched"
+if ls "$SITE_PATH"/opencode.json.before-roadie-* >/dev/null 2>&1; then check 1 "no opencode.json backup"; else check 0 "no opencode.json backup"; fi
 
 # #660: the copy carries the database's operational directory bindings, so the
 # migration must relocate exactly the references into the copied projects root
@@ -340,9 +341,6 @@ sleep() { :; }
 journalctl() { printf 'journal %s\n' "$*" >> "$TMP/systemctl.log"; }
 CURL_DISCORD_READY=0
 error() { printf 'ERROR: %s\n' "$*" >> "$TMP/health-fail.out"; printf '%s\n' "${PENDING_ITEMS[@]}" > "$TMP/health-pending.out"; exit 1; }
-DIRECT_OPENCODE_JSON='{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}'
-printf '%s\n' "$DIRECT_OPENCODE_JSON" > "$SITE_PATH/opencode.json"
-chmod 640 "$SITE_PATH/opencode.json"
 ( bridge_install ) > /dev/null 2>&1
 rc=$?
 [ "$rc" -ne 0 ]; check $? "bridge_install fails when Roadie never becomes healthy"
@@ -357,9 +355,6 @@ grep -qx "journal -u roadie.service -n 20 --no-pager" "$TMP/systemctl.log"; chec
 [ -f "$ROADIE_DATA_DIR/discord-sessions.db" ]; check $? "Roadie data dir kept for a retry"
 grep -qF "never reported discordReady" "$TMP/health-pending.out"; check $? "pending item recorded"
 grep -qF "Kimaki re-enabled and restarted" "$TMP/health-fail.out"; check $? "clear error printed"
-[ "$(cat "$SITE_PATH/opencode.json")" = "$DIRECT_OPENCODE_JSON" ]
-check $? "opencode.json model choices restored for Kimaki (the rotations are served by the stopped Roadie)"
-[ "$(stat -c %a "$SITE_PATH/opencode.json")" = 640 ]; check $? "opencode.json mode kept on restore"
 [ ! -s "$DISCORD_CALLS_LOG" ]; check $? "an unhealthy gateway triggers no Discord access-role calls (#705)"
 [ ! -s "$ROLE_PATCH_LOG" ]; check $? "no role rename on rollback"
 
@@ -375,8 +370,7 @@ UPDATED_ITEMS=()
 rc=$?
 [ "$rc" -eq 0 ]; check $? "bridge_install succeeds when Roadie is healthy"
 grep -qx "restart roadie.service" "$TMP/systemctl.log"; check $? "Roadie health-checked"
-python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['model']=='roadie/anthropic-claude-opus-5-5'" "$SITE_PATH/opencode.json"
-check $? "healthy Roadie keeps opencode.json on its rotations"
+[ "$(cat "$SITE_PATH/opencode.json")" = "$SITE_OPENCODE_JSON" ]; check $? "healthy Roadie leaves opencode.json untouched"
 grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "migration disabled Kimaki"
 if grep -qx "enable kimaki.service" "$TMP/systemctl.log" || grep -qx "start kimaki.service" "$TMP/systemctl.log"; then
   check 1 "healthy Roadie keeps Kimaki disabled"

@@ -980,11 +980,6 @@ check_opencode_json_drift() {
     CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
-  # Under Roadie, model/small_model values still naming subrouter/<preset>
-  # move to roadie/<preset> when Roadie's shared pool has that rotation (#709).
-  if [ "$BRIDGE_ARG" = roadie ] && [ -n "${ROADIE_DATA_DIR:-}" ]; then
-    claude_code_auth_args+=(--roadie-rotations-file "$ROADIE_DATA_DIR/credentials/shared/rotation.json")
-  fi
 
   # Runtime arg for repair-opencode-json.py: always `opencode` when the file
   # exists. The primary RUNTIME may be `claude-code`, but the presence of

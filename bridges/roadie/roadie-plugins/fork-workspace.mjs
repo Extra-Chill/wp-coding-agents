@@ -5,7 +5,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
-import { registerRuntimeConfig } from './runtime-config.mjs'
 
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -62,10 +61,6 @@ async function activeOwner(command, request) {
 }
 
 export function register(roadie) {
-  registerRuntimeConfig(roadie)
-  // Managed plugins load before Roadie starts its OpenCode backend. Enable
-  // the native API our automatic worktree binding uses; explicit host env wins.
-  process.env.OPENCODE_EXPERIMENTAL_WORKSPACES ??= 'true'
   const configPath = process.env.WP_CODING_AGENTS_FORK_WORKSPACES_CONFIG ?? fileURLToPath(new URL('../fork-workspaces.json', import.meta.url))
   roadie.addFilter('fork_workspace', (_provider, request) => (async () => {
     if (_provider) return _provider
