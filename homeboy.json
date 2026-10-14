@@ -8,5 +8,8 @@
       "file": "VERSION",
       "pattern": "^([0-9.]+)$"
     }
-  ]
+  ],
+  "release": {
+    "owner": "ci"
+  }
 }
