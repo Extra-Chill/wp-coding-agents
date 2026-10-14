@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.1] - 2026-10-14
+
+### Changed
+- actually pin Homeboy for the fork-workspace fixture
+
+### Fixed
+- send AGENTS.md once when the runtime loads it from disk
+- render ROADIE_PI_MODEL only when Pi can serve it
+
 ## [2.2.0] - 2026-10-13
 
 ### Added
