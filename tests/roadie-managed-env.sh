@@ -47,6 +47,7 @@ Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
 Environment=HOST_CUSTOM=preserved
 Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/srv/operator/extra.mjs
+Environment=ROADIE_SHELL_ENV="{\"stale\":\"pre-roadie-186\"}"
 ExecStart=/usr/bin/roadie --data-dir /root/.roadie --auto-restart
 EOF
 
@@ -148,6 +149,11 @@ if [ "$SHELL_ENV_JSON" = "$EXPECTED_SHELL_ENV_JSON" ]; then
   check 0 "unit ROADIE_SHELL_ENV matches the template builder"
 else
   check 1 "unit ROADIE_SHELL_ENV matches the template builder ($SHELL_ENV_JSON)"
+fi
+if grep -q 'stale' "$UNIT"; then
+  check 1 "stale ROADIE_SHELL_ENV is replaced (#729)"
+else
+  check 0 "stale ROADIE_SHELL_ENV is replaced (#729)"
 fi
 ROADIE_BIN_UNDER_TEST="$(roadie_bin)"
 SHELL_ENV_JSON="$SHELL_ENV_JSON" ROADIE_BIN_UNDER_TEST="$ROADIE_BIN_UNDER_TEST" python3 - <<'PY'

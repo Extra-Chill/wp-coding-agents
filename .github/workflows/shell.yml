@@ -202,6 +202,14 @@ jobs:
       - name: Run tests/roadie-managed-env.sh
         run: ./tests/roadie-managed-env.sh
 
+  roadie-speaker-context-gate:
+    name: --speaker-context gated on the service plugin set (#729)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/roadie-speaker-context-gate.sh
+        run: ./tests/roadie-speaker-context-gate.sh
+
   runtime-guard:
     name: runtime deactivation guard (#328)
     runs-on: ubuntu-latest
