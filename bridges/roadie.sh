@@ -228,6 +228,37 @@ _roadie_uses_system_prefix() {
   [ "${LOCAL_MODE:-false}" != true ]
 }
 
+# Run an npm command under the bounded reconciler's progress contract (#725).
+#
+# npm only prints on completion ("changed 185 packages in 9m"), so the
+# bounded reconcile step that wraps this function sees a silent child and
+# kills it at the fixed step budget — a cold global install (empty npm cache)
+# took 514s against the 420s deadline. The bounded runner extends the
+# deadline while RECONCILER_STEP_PROGRESS_FILE is touched, so heartbeat while
+# the npm child is still accumulating CPU time: an active download and reify
+# keep the CPU busy, while a stalled npm stops the heartbeat and the fixed
+# step deadline applies again. Outside the reconciler (no progress file
+# advertised, dry-run) this is a plain run_cmd.
+_roadie_run_with_progress() {
+  local progress_file="${RECONCILER_STEP_PROGRESS_FILE:-}"
+  if [ -z "$progress_file" ] || [ "${DRY_RUN:-false}" = true ]; then
+    run_cmd npm "$@"
+    return
+  fi
+  local pid cpu last_cpu=""
+  npm "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    cpu="$(ps -o time= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    if [ -n "$cpu" ] && [ "$cpu" != "$last_cpu" ]; then
+      last_cpu="$cpu"
+      touch "$progress_file" 2>/dev/null || true
+    fi
+    sleep 5
+  done
+  wait "$pid"
+}
+
 # Root-owned and world-readable: the service user runs it, and www-data runs
 # `roadie send` from the dispatch transport without any sudo hop.
 _roadie_system_prefix() {
@@ -256,7 +287,7 @@ _roadie_provision_package() {
   url="$(roadie_release_url)"
 
   if ! _roadie_uses_system_prefix; then
-    run_cmd npm install -g "$url"
+    _roadie_run_with_progress install -g "$url"
     return 0
   fi
 
@@ -268,7 +299,7 @@ _roadie_provision_package() {
     return 0
   fi
   run_cmd mkdir -p "$prefix"
-  run_cmd npm install -g --prefix "$prefix" "$url"
+  _roadie_run_with_progress install -g --prefix "$prefix" "$url"
   if [ "${DRY_RUN:-false}" != true ]; then
     chmod -R a+rX "$prefix"
     log "Roadie ${have:+$have → }$want installed in $prefix"
@@ -318,7 +349,7 @@ _roadie_provision_pi() {
   have="$(_roadie_pi_installed_version)"
   [ "$have" != "$want" ] || return 0
   if ! _roadie_uses_system_prefix; then
-    run_cmd npm install -g "$ROADIE_PI_PACKAGE_NAME@$want"
+    _roadie_run_with_progress install -g "$ROADIE_PI_PACKAGE_NAME@$want"
     return
   fi
   prefix="$(_roadie_pi_system_prefix)"
@@ -329,7 +360,7 @@ _roadie_provision_pi() {
     return 1
   fi
   run_cmd mkdir -p "$prefix" || return 1
-  run_cmd npm install -g --prefix "$prefix" "$ROADIE_PI_PACKAGE_NAME@$want" || return 1
+  _roadie_run_with_progress install -g --prefix "$prefix" "$ROADIE_PI_PACKAGE_NAME@$want" || return 1
   if [ "${DRY_RUN:-false}" != true ]; then
     chmod -R a+rX "$prefix"
     log "Pi ${have:+$have → }$want installed in $prefix"

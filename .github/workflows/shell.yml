@@ -320,6 +320,8 @@ jobs:
           - runtime-guidance-desired-state
           - convergence-orchestrator
           - bridge-service-adapters
+          - bridge-reconcile-progress
+          - bridge-failure-gates-dependent-steps
           - integration-adapters
           - upgrade-opencode-auth-plugin-sync
           - wordpress-service

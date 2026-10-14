@@ -900,6 +900,17 @@ upgrade_install_opencode_claude_code_auth_plugin() {
 check_opencode_json_drift() {
   _run_filter_active opencode-json || return 0
 
+  # The bridge record owns the pinned Roadie install. When it failed (npm
+  # install killed at its deadline, #725), the installed bridge may still be
+  # the previous release, and everything this phase writes — the model-route
+  # rewrite toward `roadie/*` provider routes and the retired-plugin removal
+  # — assumes the new one. Applying it would point a running old Roadie at
+  # routes it cannot serve. Skip both, loudly.
+  if [ "${BRIDGE_RECONCILE_FAILED:-false}" = true ]; then
+    warn "Phase 3b: skipped — the chat-bridge reconcile failed, so the model-route rewrite and plugin retirement did not apply (they assume the new Roadie, #725)."
+    warn "  Do not restart the bridge; re-run the upgrade once the failure above is fixed."
+    return 0
+  fi
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
   # (the managed Roadie plugins), and
@@ -1458,6 +1469,17 @@ _resolve_bridge_env() {
 _print_bridge_restart_hint() {
   [ -n "$CHAT_BRIDGE" ] || return 0
 
+  # A failed bridge reconcile may leave the previous Roadie installed while
+  # config for the new release is already on disk; restarting then would
+  # point every session at provider routes the installed bridge cannot
+  # serve (#725).
+  if [ "${BRIDGE_RECONCILE_FAILED:-false}" = true ]; then
+    warn "Do NOT restart $(bridge_display_name) — the chat-bridge reconcile failed above and the pinned release may not be installed."
+    warn "Re-run the upgrade once the failure is fixed, then restart."
+    echo ""
+    return 0
+  fi
+
   local env display cmd
   env=$(_resolve_bridge_env)
   display=$(bridge_display_name)
@@ -1517,6 +1539,10 @@ PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
 AGENTS_MD_EXIT_STATUS=0
 OPENCODE_PROJECTION_EXIT_STATUS=0
+# The bridge record carries the pinned Roadie install (bridges/<bridge>).
+# When its reconcile fails, dependent steps that assume the new Roadie must
+# not apply — and the restart hint must be withheld (#725).
+BRIDGE_RECONCILE_FAILED=false
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
 if [ "$PLUGINS_ONLY" != true ]; then
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
@@ -1529,6 +1555,11 @@ if [ "$PLUGINS_ONLY" != true ]; then
   if [ "$SKILLS_ONLY" != true ]; then
     convergence_run "$INSTALLATION_OPERATION_UPGRADE" || CONVERGENCE_EXIT_STATUS=$?
   fi
+fi
+if [ "$PLUGINS_ONLY" != true ]; then
+  case " ${RECONCILER_FAILED_RECORDS[*]:-} " in
+    *' bridges.'*) BRIDGE_RECONCILE_FAILED=true ;;
+  esac
 fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
