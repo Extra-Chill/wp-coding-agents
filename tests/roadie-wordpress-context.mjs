@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +14,7 @@ const configPath = path.join(temp, 'wordpress-context.json')
 const wp = path.join(temp, 'wp.mjs')
 const calls = path.join(temp, 'calls.jsonl')
 const state = path.join(temp, 'state.json')
+const linkCalls = path.join(temp, 'link-calls.jsonl')
 
 // Fake WordPress: plays Data Machine's datamachine/resolve-chat-person against
 // platform-scoped chat identity links (ChatIdentityLinks) and agent access
@@ -23,11 +25,28 @@ fs.writeFileSync(state, JSON.stringify({
   roles: { 1: 'admin', 2: 'viewer', 3: 'operator', 4: '' },
   old: false,
 }))
+// It also plays datamachine/link-chat-identity (ChatIdentityLinks::link): a
+// user holds one actor per platform (relinking replaces it), an actor held by
+// another user is a chat_identity_conflict, and the user must exist.
 fs.writeFileSync(wp, `import fs from 'node:fs'
 const args = process.argv.slice(2)
 const code = args[args.indexOf('eval') + 1]
-if (!code.includes("wp_get_ability( 'datamachine/resolve-chat-person' )")) { process.stderr.write('not the ability'); process.exit(1) }
 const req = JSON.parse(Buffer.from(code.match(/base64_decode\\( '([^']+)'/)[1], 'base64'))
+if (code.includes("wp_get_ability( 'datamachine/link-chat-identity' )")) {
+  if (!code.includes("'error' => array(")) { process.stderr.write('link must report errors as JSON'); process.exit(1) }
+  fs.appendFileSync(${JSON.stringify(linkCalls)}, JSON.stringify({ ...req, argv: args.filter((arg) => arg !== code) }) + '\\n')
+  const current = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'))
+  const key = req.platform + ':' + req.actor_id
+  const fail = (code, message) => { process.stdout.write(${JSON.stringify(PHP_NOTICE)} + JSON.stringify({ error: { code, message } })); process.exit(0) }
+  if (![1, 2, 3, 4, 5, 7].includes(req.user_id)) fail('chat_identity_user_not_found', 'WordPress user not found.')
+  if (current.links[key] && current.links[key] !== req.user_id) fail('chat_identity_conflict', 'That actor is already linked to another user on this platform.')
+  for (const [other, user] of Object.entries(current.links)) if (user === req.user_id && other.startsWith(req.platform + ':')) delete current.links[other]
+  current.links[key] = req.user_id
+  fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify(current))
+  process.stdout.write(JSON.stringify({ success: true, user_id: req.user_id, platform: req.platform, actor_id: req.actor_id }))
+  process.exit(0)
+}
+if (!code.includes("wp_get_ability( 'datamachine/resolve-chat-person' )")) { process.stderr.write('not the ability'); process.exit(1) }
 const withSections = !code.includes("$result['sections'] = array();")
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ ...req, withSections, argv: args.filter((arg) => arg !== code) }) + '\\n')
 const { links, roles, old } = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'))
@@ -171,6 +190,119 @@ try {
   closed(await person('discord', 'ALICE'))
   assert(readCalls().every((req) => !('acting_user_id' in req) && !('user_id' in req)), 'the adapter never asserts a WordPress user')
 
+  // #765 / roadie#292: self-serve identity linking. A fake site answers
+  // /wp-json/wp/v2/users/me for bearer tokens, like WordPress with bearer auth.
+  const seen = []
+  const userinfo = http.createServer((req, res) => {
+    const token = String(req.headers.authorization ?? '').replace(/^Bearer /, '')
+    seen.push({ path: req.url, method: req.method, token })
+    if (token === 'slow-secret') return
+    const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(typeof body === 'string' ? body : JSON.stringify(body)) }
+    if (req.url !== '/wp-json/wp/v2/users/me') return json(404, { code: 'rest_no_route' })
+    if (token === 'redirect-secret') { res.writeHead(302, { location: 'https://elsewhere.test/me' }); return res.end() }
+    const users = { 'admin-secret': 1, 'nogrant-secret': 7, 'ghost-secret': 99 }
+    if (token in users) return json(200, { id: users[token], name: 'someone' })
+    if (token === 'err-secret') return json(500, { code: 'oops' })
+    if (token === 'junk-secret') return json(200, '<html>not json')
+    if (token === 'noid-secret') return json(200, { name: 'no id' })
+    return json(401, { code: 'rest_not_logged_in', message: 'You are not currently logged in.' })
+  })
+  await new Promise((resolve) => userinfo.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${userinfo.address().port}`
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => warnings.push(args.join(' '))
+  try {
+    const linkConfig = {
+      ...config,
+      contexts: {
+        ...config.contexts,
+        franklin: { ...config.contexts.franklin, lookupTimeoutMs: 1000, mcpServers: [{ name: 'site', url: `${origin}/wp-json/extrachill-mcp/v1/mcp` }], selfLink: { server: 'site' } },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(linkConfig))
+    setState({ links: { 'discord:ALICE': 1, 'discord:CAROL': 3 } })
+    fs.writeFileSync(linkCalls, '')
+    const provider = (channelId = 'C1', actor = { platform: 'discord', id: 'NEWBIE' }) => filters.identity_link_provider(null, { actor, context: { guildId: 'GUILD', channelId } })
+    const link = (access, actor = { platform: 'discord', id: 'NEWBIE' }, channelId = 'C1') => filters.link_identity(undefined, { actor, context: { guildId: 'GUILD', channelId }, token: access === undefined ? undefined : { access, refresh: 'refresh-secret' } })
+    const readLinkCalls = () => fs.readFileSync(linkCalls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+
+    // Provider: the named server (Roadie discovers its OAuth server like /connect).
+    assert.deepEqual(await provider(), { url: `${origin}/wp-json/extrachill-mcp/v1/mcp`, name: 'site', credential: 'site' })
+    // No selfLink on the context (ghost), or no actor: null / the prior value.
+    assert.equal(await provider('GHOST'), null)
+    assert.equal(await provider('C1', { platform: 'discord' }), null)
+    assert.deepEqual(await filters.link_identity(undefined, { actor: { platform: 'discord', id: 'X' }, context: { channelId: 'GHOST' }, token: { access: 'admin-secret' } }), { linked: false, reason: "This site doesn't offer account linking here." })
+    assert.equal(readLinkCalls().length, 0)
+
+    // Unlinked person signs in as user 1: the token goes to users/me as a
+    // bearer; the verified id (never caller input) is linked, without --user.
+    closed(await person('discord', 'NEWBIE'))
+    assert.deepEqual(await link('admin-secret'), { linked: true })
+    assert.deepEqual(seen.at(-1), { path: '/wp-json/wp/v2/users/me', method: 'GET', token: 'admin-secret' })
+    const [linkCall] = readLinkCalls()
+    assert.deepEqual(linkCall, { user_id: 1, platform: 'discord', actor_id: 'NEWBIE', argv: ['--path=/site', 'eval', '--allow-root'] })
+    const now = await person('discord', 'NEWBIE')
+    assert.deepEqual([now.allowed, now.personId], [true, 'wordpress:/site:1'])
+    // Linking again as the same user is idempotent.
+    assert.deepEqual(await link('admin-secret'), { linked: true })
+
+    // An actor already linked to someone else is refused, and nothing changes.
+    const conflict = await link('admin-secret', { platform: 'discord', id: 'CAROL' })
+    assert.equal(conflict.linked, false)
+    assert.match(conflict.reason, /already linked to a different WordPress account/)
+    assert.equal(JSON.parse(fs.readFileSync(state, 'utf8')).links['discord:CAROL'], 3)
+
+    // Linked, but the user holds no agent grant: access is still the grant's call.
+    assert.deepEqual(await link('nogrant-secret', { platform: 'slack', id: 'NOGRANT' }), { linked: true })
+    closed(await person('slack', 'NOGRANT'))
+
+    // Every failure returns { linked: false, reason } in plain words.
+    fs.writeFileSync(linkCalls, '')
+    const failures = [
+      ['wrong-secret', /didn't accept that sign-in/],
+      ['err-secret', /couldn't confirm your sign-in \(HTTP 500\)/],
+      ['junk-secret', /didn't name a WordPress account/],
+      ['noid-secret', /didn't name a WordPress account/],
+      ['redirect-secret', /Couldn't reach the site/],
+      ['slow-secret', /didn't answer in time/],
+      ['ghost-secret', /refused the link \(chat_identity_user_not_found\)/],
+      ['', /did not return a usable token/],
+      [undefined, /did not return a usable token/],
+    ]
+    for (const [access, reason] of failures) {
+      const result = await link(access)
+      assert.equal(result.linked, false, String(access))
+      assert.match(result.reason, reason, String(access))
+    }
+    assert.match((await link('admin-secret', { platform: 'discord' })).reason, /which chat account/)
+    assert.deepEqual(readLinkCalls().map((call) => call.user_id), [99], 'only a verified user id reaches the link ability')
+    // The transport failing while recording the link.
+    const broken = await module.linkIdentity({ sitePath: '/site', transport: [process.execPath, '-e', 'process.exit(3)'] }, { userinfoUrl: `${origin}/wp-json/wp/v2/users/me` }, { actor: { platform: 'discord', id: 'Z' }, token: { access: 'admin-secret' } })
+    assert.deepEqual(broken, { linked: false, reason: "Couldn't record the link on the site. Try again later or ask an admin." })
+    // The token never appears in a reason or a log line.
+    assert(warnings.length >= 2, 'refusals and transport failures are logged')
+    for (const line of warnings) assert(!/secret/.test(line), line)
+    for (const [access] of failures) if (access) assert(!JSON.stringify(await link(access)).includes(access))
+
+    // Config validation: https or loopback http, a known server, default URL.
+    const base = { mcpServers: [{ name: 'site', url: 'https://auth.example.com/wp-json/extrachill-mcp/v1/mcp' }] }
+    assert.deepEqual(module.selfLinkFor({ ...base, selfLink: { server: 'site' } }), { server: { name: 'site', url: 'https://auth.example.com/wp-json/extrachill-mcp/v1/mcp', credential: 'site' }, userinfoUrl: 'https://auth.example.com/wp-json/wp/v2/users/me' })
+    assert.equal(module.selfLinkFor({ ...base, selfLink: { server: 'site', userinfoUrl: 'https://id.example.com/me' } }).userinfoUrl, 'https://id.example.com/me')
+    assert.equal(module.selfLinkFor({ ...base, selfLink: { server: 'site', userinfoUrl: 'http://id.example.com/me' } }), null)
+    assert.equal(module.selfLinkFor({ ...base, selfLink: { server: 'site', userinfoUrl: 'https://u:p@id.example.com/me' } }), null)
+    assert.equal(module.selfLinkFor({ ...base, selfLink: { server: 'other' } }), null)
+    assert.equal(module.selfLinkFor({ ...base, selfLink: true }), null)
+    assert.equal(module.selfLinkFor(base), null)
+    assert.equal(module.selfLinkFor(null), null)
+    await assert.rejects(module.fetchUserId('http://example.com/me', 'x'), /misconfigured/)
+  } finally {
+    console.warn = warn
+    userinfo.closeAllConnections()
+    await new Promise((resolve) => userinfo.close(resolve))
+    fs.writeFileSync(configPath, JSON.stringify(config))
+  }
+
   // A leftover `people` block from the old mapping grants nothing.
   fs.writeFileSync(configPath, JSON.stringify({ ...config, people: { 'discord:GUILD:ALICE': { userId: 1, capabilities: ['sessions', 'shell', 'admin'] } } }))
   closed(await person('discord', 'ALICE'))
@@ -229,11 +361,16 @@ eval(file_get_contents(getenv('SNIPPET')));
     return execFileSync('php', [stub], { env: { ...process.env, SNIPPET: path.join(temp, 'snippet.php'), ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   }
   const input = { agent_slug: 'franklin', platform: 'discord', actor_id: "O'Brien/ü", event: 'turn' }
-  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(input))), { name: module.ABILITY, in: input, sections: [{ name: 'S' }] })
-  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(input, { withSections: false }))).sections, [])
-  assert.throws(() => runPhp(module.abilityPhp(input), { FAIL: '1' }), /ability_invalid_input: bad/)
-  assert.throws(() => runPhp(module.abilityPhp(input), { NO_ABILITY: '1' }), /not registered/)
-  console.log('PASS: resolve-chat-person adapter: platform-scoped links (server moves need no config), seat tiers from the agent access role (admin unrestricted, operator/viewer restricted, denied/unlinked rejected), actorless agent context with no_actor, isolated concurrent user context, unlinked and asserted actor rejection, convention files skipped, PHP-notice stdout tolerated')
+  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(module.ABILITY, input))), { name: module.ABILITY, in: input, sections: [{ name: 'S' }] })
+  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(module.ABILITY, input, { withSections: false }))).sections, [])
+  assert.throws(() => runPhp(module.abilityPhp(module.ABILITY, input), { FAIL: '1' }), /ability_invalid_input: bad/)
+  assert.throws(() => runPhp(module.abilityPhp(module.ABILITY, input), { NO_ABILITY: '1' }), /not registered/)
+  // The link call takes any ability name and reports a refusal as JSON, exit 0.
+  const linkInput = { user_id: 1, platform: 'discord', actor_id: 'NEWBIE' }
+  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(module.LINK_ABILITY, linkInput, { errorsAsJson: true }))), { name: module.LINK_ABILITY, in: linkInput, sections: [{ name: 'S' }] })
+  assert.deepEqual(JSON.parse(runPhp(module.abilityPhp(module.LINK_ABILITY, linkInput, { errorsAsJson: true }), { FAIL: '1' })), { error: { code: 'ability_invalid_input', message: 'bad' } })
+  assert.throws(() => module.abilityPhp("x'); evil(); ('", {}), /Invalid ability name/)
+  console.log('PASS: resolve-chat-person adapter: platform-scoped links (server moves need no config), seat tiers from the agent access role (admin unrestricted, operator/viewer restricted, denied/unlinked rejected), actorless agent context with no_actor, isolated concurrent user context, unlinked and asserted actor rejection, convention files skipped, PHP-notice stdout tolerated, self-serve link (verified users/me id, conflict refused, plain reasons, no token leaks)')
 } finally {
   delete process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG
   fs.rmSync(temp, { recursive: true, force: true })
