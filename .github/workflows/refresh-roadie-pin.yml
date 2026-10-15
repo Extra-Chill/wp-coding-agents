@@ -73,6 +73,8 @@ jobs:
       - name: Detect a breaking release
         id: breaking
         if: steps.pin.outputs.before != steps.pin.outputs.after
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ./scripts/roadie-release-breaking.sh \
@@ -108,8 +110,14 @@ jobs:
           BRANCH: refresh-roadie-pin/v${{ steps.pin.outputs.after }}
         run: |
           set -euo pipefail
-          git checkout -b "$BRANCH"
-          git push origin "$BRANCH"
+          git checkout -B "$BRANCH"
+          # A refresh retries hourly; an earlier attempt may already own the
+          # branch (and its PR), so replace the branch instead of rejecting.
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -qx OPEN; then
+            echo "::notice::PR for $BRANCH is already open; branch refreshed."
+            exit 0
+          fi
           {
             echo "Roadie's release range v${{ steps.pin.outputs.before }}...v${VERSION} carries a breaking change, so the pin moves through review instead of main (#731).";
             echo;
@@ -120,8 +128,11 @@ jobs:
             echo;
             echo 'Both gates passed (provision + boot smoke), so the release starts, but the startup contract may have shifted. Land any installer changes with this pin.';
           } > body.md
-          gh pr create \
+          if ! gh pr create \
             --title "chore(roadie): pin v${VERSION} (breaking)" \
             --body-file body.md \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH"; then
+            echo "::error::Could not open the pin PR. Branch $BRANCH is pushed; open it by hand, or enable 'Allow GitHub Actions to create and approve pull requests' for this repository."
+            exit 1
+          fi
