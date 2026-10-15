@@ -1,16 +1,28 @@
-// WordPress owns actor mapping and registered memory. Roadie owns delivery.
-// Context is explicit: no display-name matching, owner fallback or global WP
-// user mutation. Configure mappings in operator-owned wordpress-context.json.
+// WordPress decides who a chat actor is and what their seat may do; Roadie
+// owns delivery. This plugin is a thin adapter over Data Machine's
+// `datamachine/resolve-chat-person` ability (#711): the actor link lives on the
+// WordPress user (`wp datamachine chat-identity link`), the role comes from the
+// agent access grant, and memory comes from the registered memory store.
+// wordpress-context.json only binds Roadie contexts to a site and agent.
+// No display-name matching, owner fallback or global WP user mutation.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 
-const resolver = fileURLToPath(new URL('./wordpress-context.php', import.meta.url))
+export const ABILITY = 'datamachine/resolve-chat-person'
+
+let warnedPeople = false
 
 function loadConfig(configPath) {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  if (config.version !== 1 || !config.contexts || !config.people) throw new Error('Use version 1 with contexts and people in wordpress-context.json')
+  if (config.version !== 1 || !config.contexts) throw new Error('Use version 1 with contexts in wordpress-context.json')
+  if (config.people && !warnedPeople) {
+    // Identity used to be mapped here. It now lives in Data Machine chat
+    // identity links; a leftover `people` block grants nothing.
+    warnedPeople = true
+    console.warn('wordpress-context: `people` in wordpress-context.json is ignored; link chat actors with `wp datamachine chat-identity link` (#711)')
+  }
   return config
 }
 
@@ -22,15 +34,6 @@ export function resolveBinding(config, request) {
   const transport = binding.transport ?? ['wp']
   if (!Array.isArray(transport) || !transport.length || transport.some((arg) => typeof arg !== 'string' || !arg || arg.includes('\0'))) return null
   return { ...binding, transport }
-}
-
-export function actorMapping(config, actor, spaceId) {
-  if (!actor || typeof actor.platform !== 'string' || typeof actor.id !== 'string' || !spaceId) return null
-  const entry = config.people[`${actor.platform}:${spaceId}:${actor.id}`]
-  if (!entry || !Number.isSafeInteger(entry.userId) || entry.userId <= 0) return null
-  const capabilities = entry.capabilities ?? ['sessions']
-  if (!Array.isArray(capabilities) || capabilities.some((value) => !CAPABILITY_ORDER.includes(value))) return null
-  return { userId: entry.userId, capabilities }
 }
 
 // Session rules for a team seat (Data Machine operator/viewer). In Roadie the
@@ -50,9 +53,9 @@ export const TEAM_SEAT_PERMISSIONS = Object.freeze([
 const CAPABILITY_ORDER = ['sessions', 'shell', 'admin']
 
 // Map the WordPress seat tier to Roadie's capabilities and session rules.
-// Only an admin seat keeps the capabilities the operator declared; any other
-// or unknown role is a team seat (fail closed to the restricted tier).
-export function seatFor(role, capabilities) {
+// An admin seat gets the full toolset (every Roadie capability, no rules); any
+// other or unknown role is a team seat (fail closed to the restricted tier).
+export function seatFor(role, capabilities = CAPABILITY_ORDER) {
   if (role === 'admin') return { capabilities: new Set(capabilities), permissions: [] }
   return { capabilities: new Set(capabilities.filter((value) => value === 'sessions')), permissions: [...TEAM_SEAT_PERMISSIONS] }
 }
@@ -154,47 +157,89 @@ export function describeLookupFailure(error, stderr, timeout) {
   return detail ? `${status}: ${detail}` : status
 }
 
-function invoke(binding, input) {
-  const code = fs.readFileSync(resolver, 'utf8').replace(/^<\?php\s*/, '')
+// Ability sections are {name, layer, priority, content, convention_path?};
+// Roadie sections are {id, title?, content}. Ids keep the shape the bridge has
+// always used so pinned context stays stable across the switch.
+export function roadieSections(sections) {
+  if (!Array.isArray(sections)) throw new Error('WordPress context response has no sections')
+  return sections.map((section) => {
+    if (!section || typeof section.name !== 'string' || !section.name || typeof section.content !== 'string') throw new Error('WordPress context returned an invalid section')
+    const layer = typeof section.layer === 'string' ? section.layer : ''
+    const convention = typeof section.convention_path === 'string' && section.convention_path ? { convention_path: section.convention_path } : {}
+    if (layer === 'runtime') return { id: section.name, content: section.content, ...convention }
+    return { id: `wordpress-${layer}-${section.name}`, title: section.name, content: section.content, ...convention }
+  })
+}
+
+// The ability runs inside WordPress through the configured transport. There is
+// no generic ability CLI on every host, so this evaluates one public Abilities
+// API call: no Data Machine class is touched from here. `withSections: false`
+// drops memory from the output when only the admission decision is needed.
+export function abilityPhp(input, { withSections = true } = {}) {
   const encoded = Buffer.from(JSON.stringify(input)).toString('base64')
-  // The local code is host-owned; remote control transports can execute this
-  // same bounded read without copying PHP or memory files into the runtime.
-  const php = `$args=array('${encoded}');${code}`
+  return [
+    `$ability = function_exists( 'wp_get_ability' ) ? wp_get_ability( '${ABILITY}' ) : null;`,
+    `if ( ! $ability ) { fwrite( STDERR, 'The ${ABILITY} ability is not registered.' . PHP_EOL ); exit( 1 ); }`,
+    `$result = $ability->execute( json_decode( base64_decode( '${encoded}', true ), true ) );`,
+    `if ( is_wp_error( $result ) ) { fwrite( STDERR, $result->get_error_code() . ': ' . $result->get_error_message() . PHP_EOL ); exit( 1 ); }`,
+    ...(withSections ? [] : [`if ( is_array( $result ) ) { $result['sections'] = array(); }`]),
+    `echo wp_json_encode( $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );`,
+  ].join(' ')
+}
+
+function resolvePerson(binding, input, options) {
   const [command, ...prefix] = binding.transport
   return new Promise((resolve, reject) => {
     const timeout = lookupTimeoutMs(binding)
-    execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', php, '--allow-root'], { timeout, maxBuffer: 256 * 1024 }, (error, stdout, stderr) => {
+    execFile(command, [...prefix, `--path=${binding.sitePath}`, 'eval', abilityPhp(input, options), '--allow-root'], { timeout, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) { reject(new Error(`WordPress context lookup failed: ${describeLookupFailure(error, stderr, timeout)}`, { cause: error })); return }
       try { resolve(parseResolverStdout(stdout)) } catch (cause) { reject(new Error(cause instanceof Error ? cause.message : 'WordPress context returned invalid JSON', { cause })) }
     })
   })
 }
 
+function actorInput(actor) {
+  if (!actor || typeof actor.platform !== 'string' || !actor.platform || typeof actor.id !== 'string' || !actor.id) return null
+  return { platform: actor.platform, actor_id: actor.id }
+}
+
+const denied = () => ({ allowed: false, capabilities: new Set(), permissions: [] })
+
 export function register(roadie) {
   const configPath = process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG ?? fileURLToPath(new URL('../wordpress-context.json', import.meta.url))
   if (!fs.existsSync(configPath)) return
-  // Resolve mappings fresh per callback. Roadie's own identity cache is opt-in
-  // TTL; this provider does not retain users or context across conversations.
+  // Resolve fresh per callback. Roadie's own identity cache is opt-in TTL;
+  // this provider does not retain users or context across conversations.
   roadie.addFilter('person', async (_person, { actor, context }) => {
     const config = loadConfig(configPath)
-    const binding = resolveBinding(config, { contextId: config.channelContexts?.[context.channelId] })
-    const mapping = actorMapping(config, actor, context.guildId)
-    if (!binding || !mapping) return { allowed: false, capabilities: new Set(), permissions: [] }
-    const result = await invoke(binding, { operation: 'person', user_id: mapping.userId, agent_slug: binding.agentSlug, actor })
-    if (result.allowed !== true) return { allowed: false, capabilities: new Set(), permissions: [] }
+    const binding = resolveBinding(config, { contextId: config.channelContexts?.[context?.channelId] })
+    const who = actorInput(actor)
+    if (!binding || !who) return denied()
+    // Links are platform-scoped, so the server/guild never takes part.
+    const result = await resolvePerson(binding, { agent_slug: binding.agentSlug, ...who, event: 'person' }, { withSections: false })
+    if (result.allowed !== true || !Number.isSafeInteger(result.user_id) || result.user_id <= 0) return denied()
     const mcpServers = mcpServersFor(binding)
-    return { allowed: true, personId: `wordpress:${binding.sitePath}:${mapping.userId}`, ...seatFor(result.role, mapping.capabilities), ...(mcpServers.length ? { mcpServers } : {}) }
+    return { allowed: true, personId: `wordpress:${binding.sitePath}:${result.user_id}`, ...seatFor(result.role), ...(mcpServers.length ? { mcpServers } : {}) }
   })
   roadie.addFilter('context_sections', async (sections, request) => {
     const config = loadConfig(configPath)
     const binding = resolveBinding(config, { ...request, contextId: request.contextId ?? config.channelContexts?.[request.channelId] })
     if (!binding) return sections
-    const prefix = `wordpress:${binding.sitePath}:`
-    const user = typeof request.personId === 'string' && request.personId.startsWith(prefix) ? Number(request.personId.slice(prefix.length)) : 0
-    const mapping = actorMapping(config, request.actor, request.spaceId)
-    if (request.event === 'turn' && (!mapping || mapping.userId !== user)) return sections
-    const result = await invoke(binding, { operation: 'context', event: request.event, user_id: request.event === 'turn' ? user : 0, agent_slug: binding.agentSlug, actor: request.actor })
-    if (!Array.isArray(result.sections)) throw new Error('WordPress context response has no sections')
-    return [...sections, ...deliverableSections(result.sections, request.directory)]
+    if (request.event === 'turn') {
+      // Personal memory needs a platform-authenticated person (Roadie sets
+      // personId only for those) whose actor still resolves to that user.
+      const prefix = `wordpress:${binding.sitePath}:`
+      const user = typeof request.personId === 'string' && request.personId.startsWith(prefix) ? Number(request.personId.slice(prefix.length)) : 0
+      const who = actorInput(request.actor)
+      if (!Number.isSafeInteger(user) || user <= 0 || !who) return sections
+      const result = await resolvePerson(binding, { agent_slug: binding.agentSlug, ...who, event: 'turn' })
+      if (result.allowed !== true || result.user_id !== user) return sections
+      return [...sections, ...deliverableSections(roadieSections(result.sections), request.directory)]
+    }
+    // Shared context is pinned without a speaker: ask for agent-layer memory
+    // only. Data Machine answers allowed:false, reason no_actor (#3615).
+    const result = await resolvePerson(binding, { agent_slug: binding.agentSlug, platform: actorInput(request.actor)?.platform ?? '', actor_id: '', event: request.event })
+    if (result.reason !== 'no_actor') throw new Error(`WordPress agent context unavailable (${result.reason || 'unexpected response'}); needs Data Machine with actorless resolve-chat-person (data-machine#3615)`)
+    return [...sections, ...deliverableSections(roadieSections(result.sections), request.directory)]
   })
 }

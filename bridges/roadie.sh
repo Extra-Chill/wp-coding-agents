@@ -771,9 +771,12 @@ RETIRED_ROADIE_OPENCODE_PLUGINS=(
 
 # Roadie plugin modules this bridge no longer ships. runtime-config.mjs fed
 # opencode.json into Roadie's `opencode_server_config` hook, which left with
-# Roadie's OpenCode backend (roadie#177, v0.67.0).
+# Roadie's OpenCode backend (roadie#177, v0.67.0). wordpress-context.php was
+# the wordpress-context plugin's own resolver; the plugin now calls Data
+# Machine's resolve-chat-person ability instead (#711).
 RETIRED_ROADIE_PLUGIN_MODULES=(
   runtime-config.mjs
+  wordpress-context.php
 )
 
 # Copy the wp-coding-agents-owned assets (Roadie prompt config and plugins)
@@ -794,7 +797,7 @@ _roadie_sync_assets() {
 
   run_cmd mkdir -p "$(roadie_plugins_dir)"
   for src in "$SCRIPT_DIR/bridges/roadie/prompt-config.yaml" \
-              "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.php; do
+              "$SCRIPT_DIR"/bridges/roadie/roadie-plugins/*.mjs; do
     [ -f "$src" ] || continue
     local name dest
     name="$(basename "$src")"
@@ -852,7 +855,7 @@ _roadie_sync_assets() {
     fi
     rm -f "$modules_dir/$retired"
     log "  Removed retired $modules_dir/$retired"
-    UPDATED_ITEMS+=("roadie-config/roadie-plugins/$retired removed (Roadie runs Pi only)")
+    UPDATED_ITEMS+=("roadie-config/roadie-plugins/$retired removed (retired module)")
   done
 }
 
