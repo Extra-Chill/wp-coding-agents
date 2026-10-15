@@ -107,6 +107,56 @@ and only for that speaker's turns. The person connects once in chat with
 that WordPress user, within their own capabilities. Until they connect, the
 server is simply absent.
 
+## Self-serve identity linking
+
+A person nobody has linked yet can link themselves by signing in at the site
+from chat (Roadie `/link` or the **Link your account** prompt, roadie#292).
+Enable it per context by naming one of its `mcpServers`:
+
+```json
+"site-agent": {
+  "sitePath": "/srv/site",
+  "agentSlug": "site-agent",
+  "mcpServers": [
+    {"name": "site", "url": "https://auth.example.com/wp-json/extrachill-mcp/v1/mcp"}
+  ],
+  "selfLink": {"server": "site"}
+}
+```
+
+On extrachill.com this is `"selfLink": {"server": "extrachill"}`.
+
+- **`identity_link_provider`** returns that server's `{ url, name, credential }`.
+  Roadie discovers its OAuth authorization server the same way `/connect`
+  does. Without `selfLink`, or if it names no valid server, the filter returns
+  `null` and nothing changes.
+- **`link_identity`** sends the access token as a bearer token to `userinfoUrl`
+  with a GET request and reads the WordPress user `id` from the response.
+  `userinfoUrl` defaults to `<server origin>/wp-json/wp/v2/users/me`. The URL
+  must be https (http only on loopback), redirects are refused, and the request
+  times out after `lookupTimeoutMs`. The plugin then runs
+  `datamachine/link-chat-identity` with `{ user_id, platform, actor_id }`
+  through the same transport as the lookups.
+
+The ability is admin-only and lets WP-CLI run it as the host operator, the same
+way as `resolve-chat-person`. The plugin does not pass `--user`: Data Machine
+would still accept the call through its WP-CLI operator rule, so it would
+restrict nothing. Instead, the plugin itself decides the link input. `user_id`
+is always the id the site returned for the token, and the actor is the one
+Roadie authenticated. A person can only link the chat account they are using
+to the WordPress account they signed in as.
+
+If the actor is already linked to a different user, Data Machine refuses
+(`chat_identity_conflict`) and the person is told to ask an admin. If the
+signed-in user already had a different actor on that platform, the new link
+replaces it, as with `wp datamachine chat-identity link`. Linking grants no
+access: admission is still the agent access grant. On every failure the filter
+returns `{ linked: false, reason }` with a plain reason. The token never
+appears in a reason or a log line, and it is never passed to WP-CLI.
+
+The user ids must belong to the same WordPress install as `sitePath`. On a
+multisite, users are network-wide, so any site's `users/me` works.
+
 ## Seat tiers
 
 The ability returns the speaker's Data Machine agent access role: the agent
@@ -172,7 +222,12 @@ missing roles restricted; denied and unlinked rejected), platform-scoped
 links across servers, two concurrent users, Discord/Slack actors, mismatched
 and missing identities, unlinking between turns, actorless shared context,
 the pre-#3615 failure, convention-file skipping, and that the adapter never
-asserts a WordPress user. It also runs the generated PHP against a stub
-ability. Before activation, run the plugin read-only against the target's
+asserts a WordPress user. For self-serve linking it runs a loopback
+`users/me` server and covers: the verified id linked without `--user`,
+relinking, refusal when the actor is linked elsewhere, linking without a
+grant (still denied), a 401, a 500, a non-JSON body, a body with no id,
+redirects, timeouts, a missing token or actor, transport failure, config
+validation, and that the token never leaks. It also runs the generated PHP
+against a stub ability. Before activation, run the plugin read-only against the target's
 registered agent with a linked actor and a `session_start`, checking section
 ids without printing private content.
