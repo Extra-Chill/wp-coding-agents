@@ -35,7 +35,10 @@ def valid_claim(value, runtime_id):
     if not isinstance(value, dict) or set(value) != {"id", "lease_token", "event"} or not isinstance(value["id"], int) or value["id"] <= 0 or not isinstance(value["lease_token"], str) or not value["lease_token"]:
         return False
     event = value["event"]
-    if not isinstance(event, dict) or set(event) != REQUIRED or not all(isinstance(event[key], str) and event[key] and len(event[key]) <= 65535 for key in REQUIRED - {"attributes"}):
+    if not isinstance(event, dict) or set(event) - {"attachments"} != REQUIRED or not all(isinstance(event[key], str) and event[key] and len(event[key]) <= 65535 for key in REQUIRED - {"attributes"}):
+        return False
+    attachments = event.get("attachments", [])
+    if not isinstance(attachments, list) or len(attachments) > 8 or not all(isinstance(entry, dict) and entry for entry in attachments):
         return False
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", event["source"]) or len(event["external_id"]) > 191 or not RUNTIME_ID.fullmatch(event["runtime_id"]) or event["runtime_id"] != runtime_id:
         return False
@@ -61,7 +64,7 @@ def slack_config():
 def deliver_slack(claim):
     event = claim["event"]
     attributes = event["attributes"]
-    if event["source"] != "slack" or set(attributes) != ATTRIBUTE_KEYS or not all(attributes.get(key) for key in ATTRIBUTE_KEYS) or not TIMESTAMP.fullmatch(attributes["message_ts"]) or not TIMESTAMP.fullmatch(attributes["thread_ts"]):
+    if event["source"] != "slack" or event.get("attachments") or set(attributes) != ATTRIBUTE_KEYS or not all(attributes.get(key) for key in ATTRIBUTE_KEYS) or not TIMESTAMP.fullmatch(attributes["message_ts"]) or not TIMESTAMP.fullmatch(attributes["thread_ts"]):
         raise ValueError("unsupported or malformed Slack event")
     endpoint, secret = slack_config()
     if event["type"] not in {"message", "app_mention"}:
