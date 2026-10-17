@@ -424,6 +424,22 @@ _roadie_select_pi() {
   fi
 }
 
+# The Pi model the rendered service carries. With the WP AI Gateway opted in
+# (#774) the gateway provider wins over whatever a previously rendered unit
+# carried (e.g. roadie/opus), unless the operator pinned ROADIE_PI_MODEL
+# explicitly for this run. Without the gateway, the resolved value (operator,
+# existing unit/plist, or empty for Roadie's credential-pool default) passes
+# through unchanged.
+_roadie_pi_model_value() {
+  if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ] \
+    && declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled \
+    && declare -F ai_gateway_pi_model >/dev/null; then
+    ai_gateway_pi_model
+    return
+  fi
+  printf '%s' "${ROADIE_PI_MODEL:-}"
+}
+
 roadie_bin() {
   if _roadie_uses_system_prefix; then
     printf '%s/bin/roadie\n' "$(_roadie_system_prefix)"
@@ -1494,9 +1510,11 @@ bridge_install() {
 }
 
 _roadie_manual_command() {
+  local pi_model
+  pi_model="$(_roadie_pi_model_value)"
   printf 'ROADIE_MANAGED=1'
   [ -z "${ROADIE_PI_BIN:-}" ] || printf ' ROADIE_PI_BIN=%s' "$(_roadie_shell_quote "$ROADIE_PI_BIN")"
-  [ -z "${ROADIE_PI_MODEL:-}" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_MODEL")"
+  [ -z "$pi_model" ] || printf ' ROADIE_PI_MODEL=%s' "$(_roadie_shell_quote "$pi_model")"
   [ -z "${ROADIE_PI_TITLE_MODEL:-}" ] || printf ' ROADIE_PI_TITLE_MODEL=%s' "$(_roadie_shell_quote "$ROADIE_PI_TITLE_MODEL")"
   if _roadie_remote_pool_ready; then
     printf ' ROADIE_POOL_URL=%s ROADIE_POOL_KEY_FILE=%s' "$(_roadie_shell_quote "$(_roadie_remote_pool_url)")" "$(_roadie_shell_quote "$(_roadie_pool_key_file)")"
@@ -1605,8 +1623,10 @@ EOF
   if [ -n "${ROADIE_PI_BIN:-}" ]; then
     printf 'Environment=ROADIE_PI_BIN=%s\n' "$ROADIE_PI_BIN"
   fi
-  if [ -n "${ROADIE_PI_MODEL:-}" ]; then
-    printf 'Environment=ROADIE_PI_MODEL=%s\n' "$ROADIE_PI_MODEL"
+  local pi_model
+  pi_model="$(_roadie_pi_model_value)"
+  if [ -n "$pi_model" ]; then
+    printf 'Environment=ROADIE_PI_MODEL=%s\n' "$pi_model"
   fi
   if [ -n "${ROADIE_PI_TITLE_MODEL:-}" ]; then
     printf 'Environment=ROADIE_PI_TITLE_MODEL=%s\n' "$ROADIE_PI_TITLE_MODEL"
@@ -1637,7 +1657,7 @@ EOF
 
 _roadie_append_env_files() {
   local env_block="$1"
-  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+  if declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled; then
     local gateway_env_line
     gateway_env_line="EnvironmentFile=-$(ai_gateway_env_file)"
     grep -qF "$gateway_env_line" <<< "$env_block" || env_block="$env_block
@@ -1949,8 +1969,9 @@ EOF
 bridge_render_launchd() {
   local label="$1"
   [ "$label" = "com.wp.roadie" ] || { echo "roadie has no label '$label'" >&2; return 1; }
-  local roadie_bin_dir node_bin_dir path_value datamachine_wp_transport_json channels_config
+  local roadie_bin_dir node_bin_dir path_value datamachine_wp_transport_json channels_config pi_model
   channels_config="$(roadie_channels_config_file)"
+  pi_model="$(_roadie_pi_model_value)"
   roadie_bin_dir="$(dirname "$ROADIE_BIN")"
   node_bin_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
   # The resolved Homeboy dir leads, mirroring _roadie_path_value: a legacy
@@ -1986,7 +2007,7 @@ bridge_render_launchd() {
         <key>ROADIE_MANAGED</key>
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
-        <string>1</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "${ROADIE_PI_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_MODEL")"; fi)$(if [ -n "${ROADIE_PI_TITLE_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_TITLE_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_TITLE_MODEL")"; fi)
+        <string>1</string>$(if [ -n "${ROADIE_PI_BIN:-}" ]; then printf '\n        <key>ROADIE_PI_BIN</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_BIN")"; fi)$(if [ -n "$pi_model" ]; then printf '\n        <key>ROADIE_PI_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$pi_model")"; fi)$(if [ -n "${ROADIE_PI_TITLE_MODEL:-}" ]; then printf '\n        <key>ROADIE_PI_TITLE_MODEL</key>\n        <string>%s</string>' "$(xml_escape "$ROADIE_PI_TITLE_MODEL")"; fi)
         <key>ROADIE_PROMPT_CONFIG</key>
         <string>$(xml_escape "$(roadie_prompt_config_file)")</string>$(if [ -n "$channels_config" ]; then printf '\n        <key>ROADIE_CHANNELS_CONFIG</key>\n        <string>%s</string>' "$(xml_escape "$channels_config")"; fi)
         <key>ROADIE_PLUGINS</key>
@@ -2078,8 +2099,8 @@ _roadie_datamachine_wp_transport_systemd_env() {
 }
 
 _roadie_ai_gateway_launchd_env_xml() {
-  declare -F ai_gateway_enabled_for_opencode >/dev/null || return 0
-  ai_gateway_enabled_for_opencode || return 0
+  declare -F ai_gateway_enabled >/dev/null || return 0
+  ai_gateway_enabled || return 0
   declare -F ai_gateway_read_env_value >/dev/null || return 0
 
   local env_file base_url api_key

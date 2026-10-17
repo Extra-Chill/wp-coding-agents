@@ -276,7 +276,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--chat <bridge>` | Chat bridge: `roadie` (the only bridge). |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
-| `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for OpenCode runtimes. |
+| `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for Pi (Roadie sessions); an existing `opencode.json` gains the same provider. Without it, Pi stays on Roadie's credential pool. |
 | `--ai-gateway-provider <id>` | WordPress AI Client backend provider for the gateway route (default: `openai`). |
 | `--ai-gateway-model <id>` | Backend model for the gateway route (default: `gpt-4o-mini`). |
 | `--ai-gateway-opencode-model <id>` | OpenCode-facing gateway model ID (default: `site-default`). |
@@ -488,7 +488,7 @@ an instance explicitly. The single-instance defaults are `roadie.service` and
 
 OpenCode uses `opencode.json` with Data Machine-composed instruction files. Roadie is the chat bridge for OpenCode when chat is enabled.
 
-Pass `--with-ai-gateway` to opt OpenCode into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, and writes an OpenAI-compatible `provider.wp-ai-gateway` entry so clients receive only the gateway token while upstream credentials stay in WordPress. Native OpenCode auth is untouched unless gateway mode is opted in.
+Pass `--with-ai-gateway` to opt the agent runtime into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, merges a `wp-ai-gateway` provider into Pi's `models.json` (pointing the Roadie unit's `ROADIE_PI_MODEL` at it), and writes an OpenAI-compatible `provider.wp-ai-gateway` entry into any existing `opencode.json`. Clients receive only the gateway token while upstream credentials stay in WordPress. Without the flag, Pi sessions stay on Roadie's pooled subscription credentials.
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode \

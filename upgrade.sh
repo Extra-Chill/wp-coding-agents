@@ -297,10 +297,14 @@ USAGE:
   ./upgrade.sh --non-root       Force non-root service identity (User=opencode)
   ./upgrade.sh --with-ai-gateway
                                 Opt in to additive WP AI Gateway integration
-                                for OpenCode: install/activate gateway stack,
-                                configure route, reuse existing token env, and
-                                merge a wp-ai-gateway OpenAI-compatible provider
-                                 into opencode.json.
+                                for Pi: install/activate gateway stack,
+                                configure route, reuse existing token env,
+                                merge a wp-ai-gateway provider into Pi's
+                                models.json, and set the Roadie unit's Pi
+                                model to the gateway model. An existing
+                                opencode.json gains the same provider.
+                                Without the flag, Pi stays on Roadie's
+                                credential pool.
   ./upgrade.sh --with-datamachine-worker
                                  Opt in to the managed bounded Data Machine
                                  worker. The choice persists across upgrades.
@@ -395,9 +399,10 @@ OPT-IN TOUCHES:
     so the array matches exactly what setup would produce today.
   - WP AI Gateway (--with-ai-gateway) — installs/updates wp-ai-gateway and
     ai-provider-for-openai, configures the gateway route, writes/reuses
-    .opencode/wp-ai-gateway.env, and additively merges provider.wp-ai-gateway
-    into opencode.json. Existing gateway tokens are reused unless
-    --rotate-ai-gateway-token is also passed.
+    .opencode/wp-ai-gateway.env, merges the gateway provider into Pi's
+    models.json (and provider.wp-ai-gateway into an existing opencode.json),
+    and points ROADIE_PI_MODEL at the gateway model. Existing gateway tokens
+    are reused unless --rotate-ai-gateway-token is also passed.
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
     authenticate with Claude Pro/Max OAuth. Roadie installs never carry it:
@@ -1424,11 +1429,12 @@ print_summary() {
     warn "  $AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND"
   fi
 
-  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+  if declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled; then
     echo ""
     log "WP AI Gateway:"
     log "  Base URL:  $(ai_gateway_base_url)"
     log "  Env file:  $(ai_gateway_env_file)"
+    log "  Pi model:  $(ai_gateway_pi_model)"
     log "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
     log "  API model: $(ai_gateway_api_model_id)"
     log "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
