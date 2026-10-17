@@ -172,6 +172,14 @@ jobs:
       - name: Run tests/ai-gateway.sh
         run: ./tests/ai-gateway.sh
 
+  wordpress-chat-activation:
+    name: WordPress chat opt-in activation (#779)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/wordpress-chat-activation.sh
+        run: ./tests/wordpress-chat-activation.sh
+
   cli-channel-binary-path:
     name: Roadie CLI channel reachable by the web user (#198)
     runs-on: ubuntu-latest
