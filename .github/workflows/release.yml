@@ -33,6 +33,10 @@ on:
         description: 'Preview the release without making changes'
         type: boolean
         default: false
+      bump:
+        description: 'Force a version bump (major, minor, patch, or an explicit version). Required to cut a release whose commits include breaking changes.'
+        type: string
+        default: ''
 
 concurrency:
   group: release
@@ -43,6 +47,9 @@ jobs:
     uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
     with:
       dry-run: ${{ inputs.dry-run || false }}
+      # Homeboy skips implicit majors (major-requires-flag); an operator
+      # dispatch with bump=major is the explicit flag.
+      args: ${{ inputs.bump && format('--bump {0}', inputs.bump) || '' }}
       # This repo ships as a git checkout installers clone at a tag; it has no
       # build artifact. Every release so far had zero assets, so skip the
       # package/publish steps rather than ask an extension to build nothing.
