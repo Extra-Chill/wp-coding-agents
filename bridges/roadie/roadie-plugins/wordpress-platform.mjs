@@ -49,14 +49,18 @@ export const WRITE_ABILITIES = Object.freeze({
   claimInput: 'agents/claim-chat-run-input',
 })
 
-// Roadie session-lifecycle actions mapped onto canonical run statuses. The
-// run was left open (`running`) by the pending handler return; the runtime
-// finalizes it when the session settles (agents-api#585).
+// Roadie session-lifecycle actions mapped onto canonical run statuses. These
+// are the only session actions Roadie core emits (hooks.ts `RoadieActions`);
+// there is no busy or aborted action. The run was left open (`running`) by
+// the pending handler return, so no busy signal is needed, and a
+// Roadie-initiated abort is observed through `interactions.cancelQuestion()`
+// (see createWordPressChatThread) and turns the settling idle into
+// `cancelled`. A backend-side abort (`MessageAbortedError` that Roadie did
+// not start) emits no action at all: Extra-Chill/roadie#300 tracks the
+// missing generic `session_aborted` action.
 export const SESSION_STATUS = Object.freeze({
-  session_busy: 'running',
   session_idle: 'completed',
   session_error: 'failed',
-  session_aborted: 'cancelled',
 })
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:3712/wordpress/events'
@@ -189,6 +193,7 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
   let currentRun = null
   let name = conversationId
   let abortRequested = null
+  let abortObserved = false // Roadie-initiated abort seen since the run began
   let pendingQuestion = null // { kind, requestId?, messageId, maxFiles?, resolveUpload? }
   const permissions = new Map() // contextHash -> Set(requestId)
 
@@ -254,6 +259,13 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
     hasQuestion: () => pendingQuestion !== null,
     hasPending: () => pendingQuestion !== null || permissions.size > 0,
     async cancelQuestion() {
+      // Roadie core calls cancelQuestion exactly once, in
+      // abortActiveRunInternal (thread-session-runtime.ts), on every
+      // Roadie-initiated abort — the only signal the platform receives at
+      // abort time (no session_aborted action exists; roadie#300). Remember
+      // it so the settling session_idle finalizes the run as cancelled
+      // rather than completed (#777).
+      abortObserved = true
       if (!pendingQuestion) return
       const cancelled = pendingQuestion
       pendingQuestion = null
@@ -313,8 +325,10 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
   return {
     thread,
     heartbeat,
-    setCurrentRun(run) { currentRun = run },
+    setCurrentRun(run) { currentRun = run; abortObserved = false },
     currentRun: () => currentRun,
+    /** True once if Roadie aborted since the current run began. */
+    consumeAbortObservation() { const seen = abortObserved; abortObserved = false; return seen },
     onAbortRequested(fn) { abortRequested = fn },
     recordIncoming(text, userId) { history.push({ id: `wp-user-${history.length + 1}`, author: String(userId), fromBot: false, text }) },
     /** Deliver drained answers to the pending interaction, if any. */
@@ -566,11 +580,24 @@ export function createWordPressPlatform({ configPath, runtimeApi, env = process.
     },
   }
 
-  // Run status follows session state; the heartbeat's `cancelled` echo aborts.
+  // Run status follows the thread's *main* session only; the heartbeat's
+  // `cancelled` echo aborts. Delegated child sessions (subagents) fire
+  // session_idle/session_error with `parentSessionId` set and the same
+  // threadId (roadie hooks.ts), so the first subagent finishing must not
+  // finalize the user's run (#777). When the thread's main session is known,
+  // an event for any other sessionId (stale or child) is ignored too.
   const sessionStateChanged = async (status, payload = {}) => {
+    if (payload.parentSessionId) return
     const state = [...states.values()].find((entry) => entry.threadState.thread.id === payload.threadId)
     if (!state || !state.threadState.currentRun()) return
-    await state.threadState.heartbeat(status).catch(() => {})
+    if (payload.sessionId) {
+      const mainSessionId = await Promise.resolve(runtime?.getThreadSession?.(payload.threadId)).catch(() => null)
+      if (mainSessionId && payload.sessionId !== mainSessionId) return
+    }
+    // A Roadie-initiated abort settles as a plain idle (MessageAbortedError
+    // is swallowed by handleSessionError); finalize as cancelled instead.
+    const aborted = state.threadState.consumeAbortObservation()
+    await state.threadState.heartbeat(status === 'completed' && aborted ? 'cancelled' : status).catch(() => {})
   }
 
   return { definition, handleEvent, sessionStateChanged, states }

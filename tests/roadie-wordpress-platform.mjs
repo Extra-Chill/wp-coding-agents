@@ -43,7 +43,7 @@ fs.writeFileSync(state, JSON.stringify({
   statusLog: [],
   queuedInput: [],
   cancelled: false,
-  claims: { run_1: 'tok_1', run_2: 'tok_2', run_3: 'tok_3' },
+  claims: { run_1: 'tok_1', run_2: 'tok_2', run_3: 'tok_3', run_4: 'tok_4', run_5: 'tok_5' },
   links: { 'wordpress:7': 7, 'discord:ALICE': 7 },
   roles: { 7: 'admin' },
 }))
@@ -111,7 +111,8 @@ export function getOrCreateRuntime(input) {
 export function disposeRuntime(threadId) { calls.push(['disposeRuntime', threadId]) }
 export function markChatPlatformReady(id, ready) { calls.push(['markChatPlatformReady', id, ready]) }
 export function setChannelParentResolver(resolver, options) { calls.push(['setChannelParentResolver', options]); parentResolver.fn = resolver }
-export async function getThreadSession() { return null }
+export const threadSessions = new Map()
+export async function getThreadSession(threadId) { return threadSessions.get(threadId) ?? null }
 export async function setChannelDirectory(input) { calls.push(['setChannelDirectory', input]) }
 export async function readConversationAdmission() { return null }
 export async function resolveConversationIntake(input) { calls.push(['intake', { actor: input.actor, threadId: input.threadId, isNewConversation: input.isNewConversation }]); return { outcome: 'respond' } }
@@ -149,7 +150,9 @@ plugin.register({
   addFilter() {},
 })
 assert.equal(definition?.id, 'wordpress')
-assert.deepEqual(Object.keys(actions).sort(), ['session_aborted', 'session_busy', 'session_error', 'session_idle'])
+// Only the session actions Roadie core actually emits are registered
+// (hooks.ts RoadieActions): session_busy/session_aborted do not exist (#777).
+assert.deepEqual(Object.keys(actions).sort(), ['session_error', 'session_idle'])
 
 const handle = await definition.start({ platformIds: ['wordpress'], options: {} })
 assert(!(handle instanceof Error), String(handle))
@@ -266,8 +269,19 @@ try {
   chat.interactions.clearPermission(permission.contextHash)
   assert.equal(chat.interactions.hasPending(), false)
 
-  // --- Run status follows session state.
-  await actions.session_idle({ threadId })
+  // --- Run status follows the thread's *main* session only (#777): a
+  // delegated child session (subagent) fires session_idle with
+  // parentSessionId set and the same threadId; it must not finalize the run.
+  const statusWrites = () => readState().statusLog.length
+  const before = statusWrites()
+  await actions.session_idle({ threadId, sessionId: 'child-1', parentSessionId: 'main-1' })
+  assert.equal(statusWrites(), before, 'a child session going idle wrote no run status')
+  // Once the thread's main session is known, a stale session's idle is ignored.
+  stub.threadSessions.set(threadId, 'main-1')
+  await actions.session_idle({ threadId, sessionId: 'stale-1' })
+  assert.equal(statusWrites(), before, 'a stale session idle wrote no run status')
+  // The main session going idle completes the run.
+  await actions.session_idle({ threadId, sessionId: 'main-1' })
   assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_1', status: 'completed' })
 
   // --- The real inbound-event-connector delivers the next queued turn.
@@ -310,10 +324,25 @@ try {
   // committed WP-side cancel aborts the session on the next status write.
   await post(turnEvent('run_3', 'tok_3', { message: 'one more thing' }))
   setState({ cancelled: true })
-  await actions.session_busy({ threadId })
+  await actions.session_idle({ threadId, sessionId: 'main-1' })
   assert.equal(rt.aborted.length, 2, 'the cancelled echo aborted the session')
   assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_3', status: 'cancelled' })
   setState({ cancelled: false })
+
+  // --- A Roadie-side abort finalizes the run as cancelled (#777): Roadie's
+  // abortActiveRunInternal calls interactions.cancelQuestion() (the only
+  // abort-time signal the platform receives; roadie#300) and the abort then
+  // settles as a plain session_idle.
+  await post(turnEvent('run_4', 'tok_4', { message: 'take it back' }))
+  await chat.interactions.cancelQuestion()
+  await actions.session_idle({ threadId, sessionId: 'main-1' })
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_4', status: 'cancelled' })
+
+  // The abort observation does not leak into the next run: a fresh turn's
+  // main-session idle completes normally.
+  await post(turnEvent('run_5', 'tok_5', { message: 'try again' }))
+  await actions.session_idle({ threadId, sessionId: 'main-1' })
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_5', status: 'completed' })
 
   // --- Writes are claim-bound: an unknown run/claim pair is refused by WP.
   await post(turnEvent('run_bad', 'bad-token', { conversation: 'wpca-2' }))
@@ -336,7 +365,7 @@ try {
   assert(stub.calls.some(([name, id, ready]) => name === 'markChatPlatformReady' && id === 'wordpress' && ready === false))
   assert(stub.calls.some(([name, id]) => name === 'disposeRuntime' && id === threadId))
 
-  console.log('PASS: wordpress platform registers, writes through claim-bound abilities, round-trips questions, aborts on cancel, and resolves identity through the person filter')
+  console.log('PASS: wordpress platform registers, writes through claim-bound abilities, round-trips questions, finalizes runs from the main session only, cancels on Roadie-side aborts, and resolves identity through the person filter')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })
 }
