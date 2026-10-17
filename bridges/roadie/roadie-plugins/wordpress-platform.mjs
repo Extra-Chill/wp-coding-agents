@@ -396,12 +396,26 @@ const RUNTIME_MODULES = [
   'session-handler/thread-session-runtime.js',
 ]
 
-export async function loadRuntimeApi(env = process.env) {
+// The Roadie worker inherits the wrapper's argv[1]. On managed installs that
+// is a symlink (`…/roadie/bin/roadie` -> `…/@extrachill/roadie/bin.js`),
+// which Node does not realpath, and the runtime modules live in the
+// package's `dist/` rather than beside the entry (#787). Resolve the real
+// entry and accept either its directory or its `dist/`.
+export function resolveRuntimeDir(entry) {
+  if (!entry) throw new Error('Cannot locate the Roadie runtime modules: no CLI entrypoint')
+  let real = entry
+  try { real = fs.realpathSync(entry) } catch {}
+  const dir = path.dirname(real)
+  const candidates = [dir, path.join(dir, 'dist')]
+  const found = candidates.find((candidate) => RUNTIME_MODULES.every((name) => fs.existsSync(path.join(candidate, name))))
+  if (!found) throw new Error(`Cannot locate the Roadie runtime modules near ${entry} (looked in ${candidates.join(', ')}); set WP_CODING_AGENTS_ROADIE_RUNTIME_MODULE`)
+  return found
+}
+
+export async function loadRuntimeApi(env = process.env, argv = process.argv) {
   const spec = env.WP_CODING_AGENTS_ROADIE_RUNTIME_MODULE
   if (spec) return await import(pathToFileURL(path.resolve(spec)).href)
-  const entry = process.argv[1]
-  if (!entry) throw new Error('Cannot locate the Roadie runtime modules: no CLI entrypoint')
-  const base = path.dirname(entry)
+  const base = resolveRuntimeDir(argv[1])
   const api = {}
   for (const name of RUNTIME_MODULES) Object.assign(api, await import(pathToFileURL(path.join(base, name)).href))
   if (typeof api.getOrCreateRuntime !== 'function') throw new Error('The Roadie runtime modules do not expose getOrCreateRuntime; set WP_CODING_AGENTS_ROADIE_RUNTIME_MODULE')
