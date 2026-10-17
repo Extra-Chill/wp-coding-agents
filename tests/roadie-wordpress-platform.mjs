@@ -79,13 +79,20 @@ if (ability === 'agents/append-chat-run-events') {
   save(); out({ run_id: input.run_id, appended: input.events.length })
 }
 if (ability === 'agents/set-chat-run-status') {
+  // The canonical status vocabulary is bounded (agents-api#586): there is no
+  // input_required run status; anything non-canonical is refused.
+  const statuses = ['running', 'cancelling', 'cancelled', 'completed', 'failed', 'runtime_tool_pending', 'approval_required', 'budget_exceeded', 'stalled', 'interrupted']
+  if (!statuses.includes(input.status)) fail('agents_chat_run_invalid_status', 'status must be a canonical chat run status other than queued.')
   state.statusLog.push({ run_id: input.run_id, status: input.status })
   save(); out({ run_id: input.run_id, session_id: 'wpca-1', status: input.status, cancelled: state.cancelled })
 }
 if (ability === 'agents/claim-chat-run-input') {
+  // Claimed items are canonical public_queue_item shapes: the answer text is
+  // the 'message' string agents/queue-chat-message stored, never 'content'.
   const messages = state.queuedInput
+  if (messages.some((item) => typeof item.message !== 'string' || !item.queued_message_id)) fail('agents_chat_run_invalid_queue_item', 'queued items must be canonical public_queue_item shapes')
   state.queuedInput = []
-  save(); out({ run_id: input.run_id, messages })
+  save(); out({ run_id: input.run_id, session_id: 'wpca-1', status: 'running', messages, count: messages.length })
 }
 fail('unknown_ability', ability)
 `)
@@ -115,7 +122,7 @@ export const threadSessions = new Map()
 export async function getThreadSession(threadId) { return threadSessions.get(threadId) ?? null }
 export async function setChannelDirectory(input) { calls.push(['setChannelDirectory', input]) }
 export async function readConversationAdmission() { return null }
-export async function resolveConversationIntake(input) { calls.push(['intake', { actor: input.actor, threadId: input.threadId, isNewConversation: input.isNewConversation }]); return { outcome: 'respond' } }
+export async function resolveConversationIntake(input) { calls.push(['intake', { actor: input.actor, threadId: input.threadId, isNewConversation: input.isNewConversation }]); return { outcome: input.text === 'ignore me' ? 'ignore' : 'respond' } }
 export async function recordConversationAdmission(input) { calls.push(['admission', { actor: input.actor, starter: input.starter }]) }
 export function resolveChannelPolicy() { return undefined }
 export function applicationDirectory() { return undefined }
@@ -183,7 +190,7 @@ const turnEvent = (runId, claim, overrides = {}) => ({
   attributes: { agent: 'franklin', run_id: runId, actor_user_id: '7', runtime_conversation_id: 'rc-1', ...(claim ? { claim_token: claim } : {}) },
   ...(overrides.attachments ? { attachments: overrides.attachments } : {}),
 })
-const inputEvent = (runId, n) => ({ source: 'agents-chat', external_id: `input-${n}`, type: 'chat_input', conversation_id: 'wpca-1', runtime_id: RUNTIME_ID, message: 'input', attributes: { run_id: runId, actor_user_id: '7' } })
+const inputEvent = (runId, n, conversation = 'wpca-1') => ({ source: 'agents-chat', external_id: `input-${n}`, type: 'chat_input', conversation_id: conversation, runtime_id: RUNTIME_ID, message: 'input', attributes: { run_id: runId, actor_user_id: '7' } })
 
 try {
   // Ingress refuses anything the connector did not sign.
@@ -239,13 +246,14 @@ try {
   assert.deepEqual([recent[0].author, recent[0].fromBot, recent[0].text], ['7', false, 'deploy the fix'])
   assert.deepEqual([recent[1].fromBot, recent[1].text], [true, 'Streamed and edited'])
 
-  // --- A question round-trips: input_required out, claim-chat-run-input back.
+  // --- A question round-trips: input_required message out (the run status
+  // stays canonical `running` while waiting), claim-chat-run-input back.
   await chat.interactions.question({ sessionId: 's1', directory: '/site', requestId: 'q1', input: { question: 'Which color?', options: ['red', 'blue'] } })
   assert.equal(chat.interactions.hasQuestion(), true)
   const question = readState().messages.at(-1)
   assert.deepEqual([question.message.type, question.message.content, question.message.payload.kind, question.message.payload.request_id], ['input_required', 'Which color?', 'question', 'q1'])
-  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_1', status: 'input_required' })
-  setState({ queuedInput: [{ id: 'u1', role: 'user', content: 'blue' }] })
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_1', status: 'running' })
+  setState({ queuedInput: [{ queued_message_id: 'queued_u1', session_id: 'wpca-1', run_id: 'run_1', agent: 'franklin', message: 'blue', attachments: [], client_context: {}, created_at: '2026-01-01T00:00:00+00:00' }] })
   const answered = await post(inputEvent('run_1', 1))
   assert.deepEqual([answered.status, answered.body.answered], [200, true])
   assert(readCalls().some((entry) => entry.ability === 'agents/claim-chat-run-input' && entry.input.run_id === 'run_1' && entry.input.claim_token === 'tok_1'))
@@ -256,7 +264,7 @@ try {
   // --- An upload request resolves with the answer's attachment URLs.
   const uploadPromise = chat.interactions.upload({ sessionId: 's1', directory: '/site', prompt: 'Attach the logs', maxFiles: 2 })
   await new Promise((resolve) => setTimeout(resolve, 50))
-  setState({ queuedInput: [{ id: 'u2', role: 'user', content: '', attachments: [{ type: 'file', url: 'https://example.com/debug.log' }] }] })
+  setState({ queuedInput: [{ queued_message_id: 'queued_u2', session_id: 'wpca-1', run_id: 'run_1', agent: 'franklin', message: '', attachments: [{ type: 'file', url: 'https://example.com/debug.log' }], client_context: {}, created_at: '2026-01-01T00:00:01+00:00' }] })
   await post(inputEvent('run_1', 2))
   assert.deepEqual(await uploadPromise, ['https://example.com/debug.log'])
 
@@ -269,20 +277,34 @@ try {
   chat.interactions.clearPermission(permission.contextHash)
   assert.equal(chat.interactions.hasPending(), false)
 
+  // --- An answer that arrives as a new agents/chat turn supersedes the
+  // waiting run explicitly: linking event + terminal status for run_1, then
+  // the new run adopts the session and delivers the answer (#778).
+  await chat.interactions.question({ sessionId: 's1', directory: '/site', requestId: 'q2', input: { question: 'Deploy to production?' } })
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_1', status: 'running' })
+  const answeredTurn = await post(turnEvent('run_4', 'tok_4', { message: 'yes, ship it' }))
+  assert.deepEqual([answeredTurn.status, answeredTurn.body.answered], [200, true])
+  assert.equal(chat.interactions.hasQuestion(), false)
+  assert.equal(rt.incoming.at(-1).prompt, 'yes, ship it')
+  const superseded = readState().events.find((event) => event.type === 'run_superseded')
+  assert.deepEqual([superseded.run_id, superseded.metadata.next_run_id], ['run_1', 'run_4'], 'the stranded run is linked to its successor')
+  assert(readState().statusLog.some((entry) => entry.run_id === 'run_1' && entry.status === 'completed'), 'the superseded run ended in a terminal status')
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_4', status: 'running' })
+
   // --- Run status follows the thread's *main* session only (#777): a
   // delegated child session (subagent) fires session_idle with
   // parentSessionId set and the same threadId; it must not finalize the run.
-  const statusWrites = () => readState().statusLog.length
-  const before = statusWrites()
+  const statusWriteCount = () => readState().statusLog.length
+  const before = statusWriteCount()
   await actions.session_idle({ threadId, sessionId: 'child-1', parentSessionId: 'main-1' })
-  assert.equal(statusWrites(), before, 'a child session going idle wrote no run status')
+  assert.equal(statusWriteCount(), before, 'a child session going idle wrote no run status')
   // Once the thread's main session is known, a stale session's idle is ignored.
   stub.threadSessions.set(threadId, 'main-1')
   await actions.session_idle({ threadId, sessionId: 'stale-1' })
-  assert.equal(statusWrites(), before, 'a stale session idle wrote no run status')
+  assert.equal(statusWriteCount(), before, 'a stale session idle wrote no run status')
   // The main session going idle completes the run.
   await actions.session_idle({ threadId, sessionId: 'main-1' })
-  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_1', status: 'completed' })
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_4', status: 'completed' })
 
   // --- The real inbound-event-connector delivers the next queued turn.
   const bindir = path.join(temp, 'bin')
@@ -312,6 +334,7 @@ try {
   })
   assert(fs.readFileSync(controlLog, 'utf8').includes('ack 21 --lease-token=lease-21'), 'connector acked after the platform accepted the turn')
   assert.equal(rt.incoming.at(-1).prompt, 'and run the tests')
+  assert.equal(readState().events.filter((event) => event.type === 'run_superseded').length, 1, 'an already-finalized run is not superseded again')
 
   // --- agents/cancel-chat-run aborts: the queued chat_cancel stops the
   // session and finalizes the run as cancelled.
@@ -351,6 +374,21 @@ try {
   assert(refused instanceof Error && refused.message.includes('agents_chat_run_claim_invalid'))
   assert(!readState().messages.some((entry) => entry.run_id === 'run_bad'))
 
+  // --- A turn the intake ignores still ends in a terminal status, and a
+  // later queued answer with nowhere to go (no pending interaction, no
+  // session runtime) is left durably queued instead of claimed-and-dropped.
+  const ignoredTurn = await post(turnEvent('run_5', 'tok_5', { conversation: 'wpca-3', message: 'ignore me' }))
+  assert.deepEqual([ignoredTurn.status, ignoredTurn.body.ignored], [200, true])
+  assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_5', status: 'completed' }, 'the ignored turn finalized its run')
+  assert.equal(stub.runtimes.has('wordpress:site:wpca-3'), false, 'no session runtime was created for the ignored turn')
+  const strayItem = { queued_message_id: 'queued_u9', session_id: 'wpca-3', run_id: 'run_5', agent: 'franklin', message: 'stray answer', attachments: [], client_context: {}, created_at: '2026-01-01T00:00:02+00:00' }
+  setState({ queuedInput: [strayItem] })
+  const strayInput = await post(inputEvent('run_5', 9, 'wpca-3'))
+  assert.deepEqual([strayInput.status, strayInput.body.ignored], [200, true])
+  assert(!readCalls().some((entry) => entry.ability === 'agents/claim-chat-run-input' && entry.input.run_id === 'run_5'), 'nothing drained the answer it could not deliver')
+  assert.deepEqual(readState().queuedInput, [strayItem], 'the answer stays durably queued canonical-side')
+  setState({ queuedInput: [] })
+
   // --- Identity: the actor goes through the existing person filter with
   // platform `wordpress`, so seats and permissions match Discord.
   const filters = {}
@@ -360,12 +398,17 @@ try {
   const unlinked = await filters.person(null, { actor: { platform: 'wordpress', id: '99' }, context: { channelId: 'C1' } })
   assert.equal(unlinked.allowed, false)
 
+  // --- Every status write the plugin made used the canonical vocabulary.
+  const canonical = ['running', 'cancelling', 'cancelled', 'completed', 'failed', 'runtime_tool_pending', 'approval_required', 'budget_exceeded', 'stalled', 'interrupted']
+  const statusWrites = readCalls().filter((entry) => entry.ability === 'agents/set-chat-run-status')
+  assert(statusWrites.length > 0 && statusWrites.every((entry) => canonical.includes(entry.input.status)), 'only canonical run statuses are ever written')
+
   // --- Shutdown disposes runtimes and reports the platform not ready.
   await handle.stop()
   assert(stub.calls.some(([name, id, ready]) => name === 'markChatPlatformReady' && id === 'wordpress' && ready === false))
   assert(stub.calls.some(([name, id]) => name === 'disposeRuntime' && id === threadId))
 
-  console.log('PASS: wordpress platform registers, writes through claim-bound abilities, round-trips questions, finalizes runs from the main session only, cancels on Roadie-side aborts, and resolves identity through the person filter')
+  console.log('PASS: wordpress platform registers, writes through claim-bound abilities, round-trips questions on a single run, supersedes stranded runs on turn takeover, finalizes runs from the main session only, cancels on Roadie-side aborts, and resolves identity through the person filter')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })
 }

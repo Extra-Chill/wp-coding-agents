@@ -13,6 +13,22 @@ namespace AgentsAPI\AI\Channels {
 	function agents_chat_permission( array $input ): bool { return (bool) $GLOBALS['chat_permission']; }
 }
 
+namespace AgentsAPI\AI {
+	// Stub of the canonical queued-input contract (#778): queue_message stores
+	// an answer where agents/claim-chat-run-input drains it for the waiting run.
+	class WP_Agent_Chat_Run_Control {
+		public static mixed $queue_result = null;
+		public static array $queue_calls = array();
+		public static function context_from_input( array $input ): array {
+			return array( 'workspace' => null, 'owner' => array( 'type' => 'user', 'key' => (string) \get_current_user_id() ), 'principal' => null, 'conversation_store' => null );
+		}
+		public static function queue_message( array $input, mixed $workspace = null, mixed $owner = null, mixed $store = null ): mixed {
+			self::$queue_calls[] = array( 'input' => $input, 'owner' => $owner );
+			return self::$queue_result;
+		}
+	}
+}
+
 namespace {
 define( 'ABSPATH', __DIR__ . '/' );
 define( 'ARRAY_A', 'ARRAY_A' );
@@ -120,6 +136,30 @@ $assert( 'cancellation of a mapped session gets the runtime cancel handler', is_
 $cancelled = call_user_func( $cancel_handler, array( 'run_id' => 'run_0001', 'session_id' => $session_id ) );
 $cancel_envelope = json_decode( $wpdb->rows[2]['envelope'] ?? '', true );
 $assert( 'cancellation enqueues a chat_cancel event on the same conversation and returns cancelling', is_array( $cancelled ) && 'cancelling' === $cancelled['status'] && 3 === count( $wpdb->rows ) && is_array( $cancel_envelope ) && 'chat_cancel' === $cancel_envelope['type'] && $session_id === $cancel_envelope['conversation_id'] && 'runtime-chat-1' === $cancel_envelope['runtime_id'] && 'run_0001' === $cancel_envelope['attributes']['run_id'] );
+
+// Answers to a waiting run (#778): agents/queue-chat-message routes to this
+// layer for mapped sessions, stores the answer through the canonical
+// queued-input contract, and wakes the claiming runtime with a chat_input
+// event addressed to the same run — so the original run resumes.
+$assert( 'queueing against an unmapped session is untouched', null === apply_filters( 'wp_agent_chat_message_queue_handler', null, array( 'session_id' => 'session-with-no-mapping', 'message' => 'blue' ) ) && null === apply_filters( 'wp_agent_chat_message_queue_handler', null, array( 'session_id' => 'session-owned-elsewhere', 'message' => 'blue' ) ) );
+$queue_handler = apply_filters( 'wp_agent_chat_message_queue_handler', null, array( 'session_id' => $session_id, 'message' => 'blue' ) );
+$assert( 'queueing against a mapped session gets the runtime queue handler', is_callable( $queue_handler ) );
+
+\AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_result = array( 'run_id' => 'run_0001', 'session_id' => $session_id, 'status' => 'queued', 'queued_message_id' => 'queued_abc', 'position' => 1 );
+$queued_answer = call_user_func( $queue_handler, array( 'agent' => 'site-agent', 'session_id' => $session_id, 'message' => 'blue' ) );
+$input_envelope = json_decode( $wpdb->rows[3]['envelope'] ?? '', true );
+$assert( 'the answer is stored through the canonical queue contract', 1 === count( \AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_calls ) && 'blue' === \AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_calls[0]['input']['message'] && array( 'type' => 'user', 'key' => '7' ) === \AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_calls[0]['owner'] );
+$assert( 'the canonical queue result returns to the client', is_array( $queued_answer ) && 'queued_abc' === $queued_answer['queued_message_id'] && 'queued' === $queued_answer['status'] && 'run_0001' === $queued_answer['run_id'] );
+$assert( 'a chat_input event wakes the claiming runtime for the same run', 4 === count( $wpdb->rows ) && is_array( $input_envelope ) && 'chat_input' === $input_envelope['type'] && 'input-queued_abc' === $input_envelope['external_id'] && $session_id === $input_envelope['conversation_id'] && 'runtime-chat-1' === $input_envelope['runtime_id'] && 'run_0001' === $input_envelope['attributes']['run_id'] && '7' === $input_envelope['attributes']['actor_user_id'] && 'queued_abc' === $input_envelope['attributes']['queued_message_id'] );
+$assert( 'the runtime wake was scheduled for the queued answer', false !== wp_next_scheduled( 'wp_coding_agents_runtime_wake', array( 'runtime-chat-1', 'inbound_event' ) ) );
+
+$current_user_id = 0;
+$anonymous_answer = call_user_func( $queue_handler, array( 'session_id' => $session_id, 'message' => 'blue' ) );
+$assert( 'an anonymous answer fails closed without queueing', is_wp_error( $anonymous_answer ) && 'wp_coding_agents_runtime_chat_forbidden' === $anonymous_answer->get_error_code() && 1 === count( \AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_calls ) && 4 === count( $wpdb->rows ) );
+$current_user_id = 7;
+\AgentsAPI\AI\WP_Agent_Chat_Run_Control::$queue_result = new WP_Error( 'agents_chat_run_not_found', 'No chat run was found for the requested session owner.' );
+$missing_target = call_user_func( $queue_handler, array( 'session_id' => $session_id, 'message' => 'blue' ) );
+$assert( 'a canonical queue refusal propagates without waking the runtime', is_wp_error( $missing_target ) && 'agents_chat_run_not_found' === $missing_target->get_error_code() && 4 === count( $wpdb->rows ) );
 
 // Claim/ack scoping by runtime_id holds for chat-origin events.
 $assert( 'another runtime cannot claim the chat events', null === WpCodingAgents_Inbound_Events::claim( 'runtime-foreign' ) );
