@@ -673,7 +673,7 @@ roadie_plugins_dir() {
 }
 
 roadie_plugins_value() {
-  printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs,%s/fork-workspace.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
+  printf '%s/host-upgrade.mjs,%s/wordpress-context.mjs,%s/wordpress-platform.mjs,%s/fork-workspace.mjs\n' "$(roadie_plugins_dir)" "$(roadie_plugins_dir)" "$(roadie_plugins_dir)" "$(roadie_plugins_dir)"
 }
 
 # ROADIE_PLUGINS is installer-owned: its value is the managed plugin set this

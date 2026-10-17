@@ -68,7 +68,7 @@ add_filter( 'wp_coding_agents_inbound_event_adapter_config', static function( ar
 	return $config;
 }, 10, 2 );
 
-$turn = array( 'agent' => 'site-agent', 'message' => 'deploy the fix', 'run_id' => 'run_0001', 'session_id' => null, 'attachments' => array( array( 'type' => 'image', 'url' => 'https://example.com/a.png' ) ) );
+$turn = array( 'agent' => 'site-agent', 'message' => 'deploy the fix', 'run_id' => 'run_0001', 'session_id' => null, '_agents_run_claim_token' => 'claim-token-0001', 'attachments' => array( array( 'type' => 'image', 'url' => 'https://example.com/a.png' ) ) );
 
 $assert( 'an unconfigured agent is untouched', null === apply_filters( 'wp_agent_chat_handler', null, array( 'agent' => 'other-agent', 'message' => 'hi' ) ) );
 $existing = static function (): void {};
@@ -83,6 +83,7 @@ $session_id = is_array( $result ) ? $result['session_id'] : '';
 $envelope = json_decode( $wpdb->rows[0]['envelope'] ?? '', true );
 $assert( 'the event carries conversation_id = WP session_id, the message, the acting user, and the run_id', is_array( $envelope ) && 'agents-chat' === $envelope['source'] && 'chat_message' === $envelope['type'] && $session_id === $envelope['conversation_id'] && 'runtime-chat-1' === $envelope['runtime_id'] && 'deploy the fix' === $envelope['message'] && 'run_0001' === $envelope['attributes']['run_id'] && '7' === $envelope['attributes']['actor_user_id'] && 'site-agent' === $envelope['attributes']['agent'] );
 $assert( 'the event carries the attachments', is_array( $envelope ) && array( array( 'type' => 'image', 'url' => 'https://example.com/a.png' ) ) === $envelope['attachments'] );
+$assert( 'the event hands the run claim token to the claiming runtime (agents-api#585)', is_array( $envelope ) && 'claim-token-0001' === $envelope['attributes']['claim_token'] );
 $assert( 'the runtime wake was scheduled for the configured runtime', false !== wp_next_scheduled( 'wp_coding_agents_runtime_wake', array( 'runtime-chat-1', 'inbound_event' ) ) );
 
 $assert( 'the first turn persisted the durable session-to-runtime-conversation mapping', 1 === count( $wpdb->maps ) && $session_id === $wpdb->maps[0]['session_id'] && 'runtime-chat-1' === $wpdb->maps[0]['runtime_id'] && $wpdb->maps[0]['runtime_conversation_id'] === $envelope['attributes']['runtime_conversation_id'] );
@@ -90,8 +91,9 @@ $assert( 'the first turn persisted the durable session-to-runtime-conversation m
 $replay = call_user_func( $handler, array_merge( $turn, array( 'session_id' => $session_id ) ) );
 $assert( 'a replayed run_id stays a single durable event', is_array( $replay ) && 1 === count( $wpdb->rows ) && true === $replay['metadata']['wp_coding_agents']['duplicate'] );
 
-$second = call_user_func( $handler, array( 'agent' => 'site-agent', 'message' => 'and run the tests', 'run_id' => 'run_0002', 'session_id' => $session_id ) );
+$second = call_user_func( $handler, array( 'agent' => 'site-agent', 'message' => 'and run the tests', 'run_id' => 'run_0002', 'session_id' => $session_id, '_agents_run_claim_token' => str_repeat( 'x', 192 ) ) );
 $second_envelope = json_decode( $wpdb->rows[1]['envelope'] ?? '', true );
+$assert( 'an oversized claim token is dropped rather than failing the durable turn', is_array( $second_envelope ) && ! isset( $second_envelope['attributes']['claim_token'] ) );
 $assert( 'a continuing turn reuses the persisted mapping', is_array( $second ) && 2 === count( $wpdb->rows ) && 1 === count( $wpdb->maps ) && $session_id === $second['session_id'] && is_array( $second_envelope ) && $wpdb->maps[0]['runtime_conversation_id'] === $second_envelope['attributes']['runtime_conversation_id'] && ! isset( $second_envelope['attachments'] ) );
 
 $unmapped = call_user_func( $handler, array( 'agent' => 'site-agent', 'message' => 'hello', 'run_id' => 'run_0003', 'session_id' => 'session-with-no-mapping' ) );

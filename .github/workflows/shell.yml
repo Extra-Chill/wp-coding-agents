@@ -290,6 +290,7 @@ jobs:
           - roadie-application-config
           - roadie-fork-workspace
           - roadie-wordpress-context
+          - roadie-wordpress-platform
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
