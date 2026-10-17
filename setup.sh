@@ -469,10 +469,13 @@ OPTIONS:
   --wordpress-service-workers <n>
                       Concurrent PHP workers for the local service (default: 4).
                       One slow request no longer blocks every page.
-  --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
+  --with-ai-gateway  Opt in to WP AI Gateway setup for Pi (Roadie sessions).
                      Installs/activates the gateway/provider stack, configures
-                     the gateway route, mints/reuses a gateway token, and adds
-                     an OpenAI-compatible provider to opencode.json.
+                     the gateway route, mints/reuses a gateway token, merges a
+                     gateway provider into Pi's models.json, and points the
+                     Roadie unit's ROADIE_PI_MODEL at it. Without the flag, Pi
+                     stays on Roadie's credential pool. An existing
+                     opencode.json also gains an OpenAI-compatible provider.
   --ai-gateway-provider <id>
                      Backend WordPress AI Client provider for site-default
                      routing (default: openai)

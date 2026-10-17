@@ -24,10 +24,11 @@ print_summary() {
   # Runtime-specific config summary
   runtime_print_summary
 
-  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+  if declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled; then
     echo "WP AI Gateway:"
     echo "  Base URL:  $(ai_gateway_base_url)"
     echo "  Env file:  $(ai_gateway_env_file)"
+    echo "  Pi model:  $(ai_gateway_pi_model)"
     echo "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
     echo "  API model: $(ai_gateway_api_model_id)"
     echo "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
