@@ -312,6 +312,12 @@ if ( ! class_exists( 'WpCodingAgents_Runtime_Chat', false ) ) {
 			foreach ( is_array( $input['attachments'] ?? null ) ? $input['attachments'] : array() as $attachment ) {
 				if ( is_array( $attachment ) && array() !== $attachment ) { $attachments[] = $attachment; }
 			}
+			$attributes = array( 'agent' => $agent, 'run_id' => $run_id, 'actor_user_id' => (string) $actor, 'runtime_conversation_id' => $mapping['runtime_conversation_id'] );
+			// agents-api#585: agents/chat reserves the run and injects the opaque
+			// claim token; the runtime presents it back to the claim-bound write
+			// abilities. It rides the durable event to the claiming runtime only.
+			$claim_token = self::text( $input['_agents_run_claim_token'] ?? null );
+			if ( null !== $claim_token && strlen( $claim_token ) <= 191 ) { $attributes['claim_token'] = $claim_token; }
 			$queued = WpCodingAgents_Inbound_Events::submit( array(
 				'source' => self::SOURCE,
 				'external_id' => 'turn-' . $run_id,
@@ -320,7 +326,7 @@ if ( ! class_exists( 'WpCodingAgents_Runtime_Chat', false ) ) {
 				'runtime_id' => $runtime_id,
 				'message' => $message,
 				'attachments' => $attachments,
-				'attributes' => array( 'agent' => $agent, 'run_id' => $run_id, 'actor_user_id' => (string) $actor, 'runtime_conversation_id' => $mapping['runtime_conversation_id'] ),
+				'attributes' => $attributes,
 			) );
 			if ( is_wp_error( $queued ) ) { return $queued; }
 			// The event is durable; a failed wake is repaired by runtime polling, so the pending turn still returns.
