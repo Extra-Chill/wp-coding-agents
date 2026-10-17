@@ -105,7 +105,31 @@ render_with_bridge() {
 }
 
 TMPDIR_NEW="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR_NEW"' EXIT
+FIXTURE_HOST_ROOT="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_NEW" "$FIXTURE_HOST_ROOT"' EXIT
+
+# ---------------------------------------------------------------------------
+# Hermetic host roots (#776) — the render probes the filesystem for optional
+# host state (channels.yaml under the config root, bot-token / pool keys under
+# the secrets root). On a managed host those files are REAL, so rendering
+# against the default roots leaks extra Environment lines (e.g.
+# ROADIE_CHANNELS_CONFIG) into output the committed snapshots never carry.
+# Point every probed root at an empty fixture tree the test owns, then strip
+# the fixture prefix from rendered output so snapshots keep the canonical
+# host paths. The snapshot is now deterministic whether or not the host has
+# a real /opt/roadie-config/channels.yaml or /etc/wp-coding-agents secrets.
+# ---------------------------------------------------------------------------
+mkdir -p "$FIXTURE_HOST_ROOT/opt/roadie-config" \
+         "$FIXTURE_HOST_ROOT/etc/wp-coding-agents" \
+         "$FIXTURE_HOST_ROOT$SERVICE_HOME/.roadie"
+export ROADIE_CONFIG_DIR="$FIXTURE_HOST_ROOT/opt/roadie-config"
+export ROADIE_SECRETS_ROOT="$FIXTURE_HOST_ROOT/etc/wp-coding-agents"
+# Local-mode (launchd) probes live under ROADIE_DATA_DIR; redirect it too.
+export ROADIE_DATA_DIR="$FIXTURE_HOST_ROOT$SERVICE_HOME/.roadie"
+
+# strip_fixture_root — rewrite fixture paths back to the canonical host paths
+# the committed snapshots use.
+strip_fixture_root() { sed "s|$FIXTURE_HOST_ROOT||g"; }
 
 # ---------------------------------------------------------------------------
 # Render every snapshot
@@ -113,7 +137,7 @@ trap 'rm -rf "$TMPDIR_NEW"' EXIT
 echo "==> rendering snapshots"
 
 # systemd ---------------------------------------------------------------
-render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" > "$TMPDIR_NEW/roadie-systemd"
+render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" | strip_fixture_root > "$TMPDIR_NEW/roadie-systemd"
 if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes/.local/bin:/home/chubes/.opencode/bin:/home/chubes/.local/share/pnpm:/home/chubes/.bun/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
   exit 1
@@ -132,6 +156,12 @@ if grep -q '^Environment=ROADIE_BOT_TOKEN=' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd unit inlines the bot token instead of a file reference"
   exit 1
 fi
+# The fixture config root has no channels.yaml, so the baseline render must
+# not bind one — host-managed /opt/roadie-config/channels.yaml must not leak.
+if grep -q 'ROADIE_CHANNELS_CONFIG' "$TMPDIR_NEW/roadie-systemd"; then
+  echo "FAIL: Roadie systemd unit leaked ROADIE_CHANNELS_CONFIG from ambient host state"
+  exit 1
+fi
 
 # launchd ---------------------------------------------------------------
 PLATFORM="mac"
@@ -140,7 +170,11 @@ HOME_SAVE="$HOME"
 export HOME="$SERVICE_HOME"
 ROADIE_BIN="/opt/homebrew/bin/roadie"
 
-render_with_bridge roadie render_launchd com.wp.roadie > "$TMPDIR_NEW/roadie-launchd"
+render_with_bridge roadie render_launchd com.wp.roadie | strip_fixture_root > "$TMPDIR_NEW/roadie-launchd"
+if grep -q 'ROADIE_CHANNELS_CONFIG' "$TMPDIR_NEW/roadie-launchd"; then
+  echo "FAIL: Roadie launchd plist leaked ROADIE_CHANNELS_CONFIG from ambient host state"
+  exit 1
+fi
 
 export HOME="$HOME_SAVE"
 
@@ -249,3 +283,40 @@ calls=pathlib.Path(sys.argv[1]).read_text().splitlines()
 assert calls==[f'bootout {sys.argv[3]} {sys.argv[2]}',f'bootstrap {sys.argv[3]} {sys.argv[2]}'],calls
 PY
 echo "  ok   managed launchd restart reloads the plist with correctly quoted paths"
+
+# ---------------------------------------------------------------------------
+# Channels policy fixture (#776): when the config root the TEST owns carries
+# channels.yaml, both renders must bind ROADIE_CHANNELS_CONFIG to it. This is
+# the positive half of the hermetic contract above: the binding comes from
+# the fixture, so the case passes identically on a host with or without a
+# real /opt/roadie-config/channels.yaml.
+# ---------------------------------------------------------------------------
+PLATFORM="linux"
+LOCAL_MODE=false
+export PLATFORM LOCAL_MODE
+ROADIE_BIN="$ROADIE_SYSTEM_PREFIX/bin/roadie"
+ROADIE_DATA_DIR="$FIXTURE_HOST_ROOT$SERVICE_HOME/.roadie"
+printf 'channels: {}\n' > "$ROADIE_CONFIG_DIR/channels.yaml"
+CHANNELS_SYSTEMD="$(render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" | strip_fixture_root)"
+if ! printf '%s\n' "$CHANNELS_SYSTEMD" | grep -Fq 'Environment=ROADIE_CHANNELS_CONFIG="/opt/roadie-config/channels.yaml"'; then
+  echo "FAIL: systemd render does not bind ROADIE_CHANNELS_CONFIG to the fixture channels.yaml"
+  exit 1
+fi
+echo "  ok   systemd render binds ROADIE_CHANNELS_CONFIG when the fixture provides channels.yaml"
+
+PLATFORM="mac"
+LOCAL_MODE=true
+HOME_SAVE="$HOME"
+export HOME="$SERVICE_HOME"
+ROADIE_BIN="/opt/homebrew/bin/roadie"
+mkdir -p "$ROADIE_DATA_DIR/roadie-config"
+printf 'channels: {}\n' > "$ROADIE_DATA_DIR/roadie-config/channels.yaml"
+CHANNELS_LAUNCHD="$(render_with_bridge roadie render_launchd com.wp.roadie | strip_fixture_root)"
+export HOME="$HOME_SAVE"
+if ! printf '%s\n' "$CHANNELS_LAUNCHD" | grep -Fq '<key>ROADIE_CHANNELS_CONFIG</key>' \
+   || ! printf '%s\n' "$CHANNELS_LAUNCHD" | grep -Fq '<string>/home/chubes/.roadie/roadie-config/channels.yaml</string>'; then
+  echo "FAIL: launchd render does not bind ROADIE_CHANNELS_CONFIG to the fixture channels.yaml"
+  exit 1
+fi
+echo "  ok   launchd render binds ROADIE_CHANNELS_CONFIG when the fixture provides channels.yaml"
+rm -f "$ROADIE_CONFIG_DIR/channels.yaml" "$ROADIE_DATA_DIR/roadie-config/channels.yaml"
