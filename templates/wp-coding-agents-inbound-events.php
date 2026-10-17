@@ -267,6 +267,14 @@ if ( ! class_exists( 'WpCodingAgents_Inbound_Events', false ) ) {
  * The WP session is durably mapped to a runtime conversation ID on the first
  * turn; a continuing session without a mapping fails closed. Cancellation
  * flows through the same queue via `wp_agent_chat_run_cancel_handler`.
+ *
+ * Answers to a waiting run (#778): `agents/queue-chat-message` stores the
+ * answer through the canonical agents-api queued-input contract
+ * (`WP_Agent_Chat_Run_Control::queue_message`), then this layer wakes the
+ * claiming runtime with a durable `chat_input` event for the *same* run. The
+ * runtime drains the answer with `agents/claim-chat-run-input`, so one run
+ * spans question → answer → completion instead of stranding in a waiting
+ * state while a second run carries the answer.
  */
 if ( ! class_exists( 'WpCodingAgents_Runtime_Chat', false ) ) {
 	class WpCodingAgents_Runtime_Chat {
@@ -275,6 +283,7 @@ if ( ! class_exists( 'WpCodingAgents_Runtime_Chat', false ) ) {
 		public static function register(): void {
 			add_filter( 'wp_agent_chat_handler', array( self::class, 'route' ), 10, 2 );
 			add_filter( 'wp_agent_chat_run_cancel_handler', array( self::class, 'route_cancel' ), 10, 2 );
+			add_filter( 'wp_agent_chat_message_queue_handler', array( self::class, 'route_queue' ), 10, 2 );
 		}
 
 		/** @param mixed $handler @return mixed */
@@ -336,6 +345,59 @@ if ( ! class_exists( 'WpCodingAgents_Runtime_Chat', false ) ) {
 				'completed' => false,
 				'metadata' => array( 'wp_coding_agents' => array( 'pending' => true, 'runtime_id' => $runtime_id, 'event_id' => $queued['id'], 'duplicate' => ! $queued['new'], 'runtime_conversation_id' => $mapping['runtime_conversation_id'] ) ),
 			);
+		}
+
+		/** Claim queued answers only for sessions this layer durably mapped to a configured runtime. @param mixed $handler @return mixed */
+		public static function route_queue( $handler, array $input ) {
+			if ( null !== $handler ) { return $handler; }
+			$session_id = self::text( $input['session_id'] ?? null );
+			$mapping = null === $session_id ? null : self::conversation_mapping( $session_id );
+			return is_array( $mapping ) && in_array( $mapping['runtime_id'], self::configured_runtime_ids(), true ) ? array( self::class, 'handle_queue' ) : $handler;
+		}
+
+		/**
+		 * Store an answer to a waiting run and wake the claiming runtime (#778).
+		 *
+		 * The answer rides the canonical agents-api queued-input contract that
+		 * `agents/claim-chat-run-input` drains; the `chat_input` event carries no
+		 * message content — it is only the durable wake, addressed to the same
+		 * run the answer targets, so the original run resumes instead of being
+		 * stranded while a second run carries the answer.
+		 *
+		 * @return array<string,mixed>|WP_Error
+		 */
+		public static function handle_queue( array $input ) {
+			$actor = self::authenticated_actor( null );
+			if ( is_wp_error( $actor ) ) { return $actor; }
+			$session_id = self::text( $input['session_id'] ?? null );
+			$mapping = null === $session_id ? null : self::conversation_mapping( $session_id );
+			if ( ! is_array( $mapping ) || ! in_array( $mapping['runtime_id'], self::configured_runtime_ids(), true ) ) { return new WP_Error( 'wp_coding_agents_runtime_chat_unmapped', 'No durable runtime conversation mapping exists for this session.', array( 'status' => 409 ) ); }
+			if ( ! class_exists( '\AgentsAPI\AI\WP_Agent_Chat_Run_Control' ) ) { return new WP_Error( 'wp_coding_agents_runtime_chat_queue_unavailable', 'The agents-api queued-input contract is unavailable.', array( 'status' => 501 ) ); }
+			$context = \AgentsAPI\AI\WP_Agent_Chat_Run_Control::context_from_input( $input );
+			if ( is_wp_error( $context ) ) { return $context; }
+			try {
+				$queued = \AgentsAPI\AI\WP_Agent_Chat_Run_Control::queue_message( $input, $context['workspace'], $context['owner'], $context['conversation_store'] );
+			} catch ( \InvalidArgumentException | \RuntimeException $error ) {
+				return new WP_Error( 'wp_coding_agents_runtime_chat_queue_failed', $error->getMessage() );
+			}
+			if ( is_wp_error( $queued ) ) { return $queued; }
+			$run_id = self::text( $queued['run_id'] ?? null );
+			$queued_id = self::text( $queued['queued_message_id'] ?? null );
+			if ( null === $run_id || strlen( $run_id ) > 180 || null === $queued_id || strlen( $queued_id ) > 180 ) { return new WP_Error( 'wp_coding_agents_runtime_chat_queue_failed', 'The canonical queue returned no addressable run for the answer.' ); }
+			$event = WpCodingAgents_Inbound_Events::submit( array(
+				'source' => self::SOURCE,
+				'external_id' => 'input-' . $queued_id,
+				'type' => 'chat_input',
+				'conversation_id' => $session_id,
+				'runtime_id' => $mapping['runtime_id'],
+				'message' => 'input',
+				'attributes' => array( 'run_id' => $run_id, 'actor_user_id' => (string) $actor, 'runtime_conversation_id' => $mapping['runtime_conversation_id'], 'queued_message_id' => $queued_id ),
+			) );
+			// The answer is already durably queued canonical-side; a failed wake
+			// event is surfaced so operators see it, but the runtime drains the
+			// queue on its next claim for this run either way.
+			if ( is_wp_error( $event ) ) { return $event; }
+			return $queued;
 		}
 
 		/** @return array<string,mixed>|WP_Error */

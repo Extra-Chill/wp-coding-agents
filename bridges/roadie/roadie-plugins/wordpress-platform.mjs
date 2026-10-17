@@ -188,9 +188,16 @@ export function createRunWriter(binding) {
 const envelope = (type, content, payload) => ({ role: 'assistant', type, content, ...(payload ? { payload } : {}) })
 const asError = (error) => (error instanceof Error ? error : new Error(String(error)))
 
+// agents/set-chat-run-status accepts only the canonical chat run vocabulary
+// (agents-api#586); these are the terminal members. `input_required` is a
+// message *type*, never a run status: a run waiting on an answer stays
+// `running` until the same run completes (#778).
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+
 export function createWordPressChatThread({ contextKey, conversationId, writer }) {
   const history = [] // ChatHistoryMessage shape, oldest first
   let currentRun = null
+  const finalized = new Set() // run ids that reached a terminal status
   let name = conversationId
   let abortRequested = null
   let abortObserved = false // Roadie-initiated abort seen since the run began
@@ -205,7 +212,9 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
   // The set-chat-run-status response always carries `cancelled`, so every
   // status write doubles as cancellation observation (agents-api#585).
   const heartbeat = async (status) => {
-    const result = await writer.status(requireRun(), status)
+    const run = requireRun()
+    const result = await writer.status(run, status)
+    if (TERMINAL_STATUSES.has(status) || TERMINAL_STATUSES.has(result?.status)) finalized.add(run.runId)
     if (result?.cancelled === true && abortRequested) await abortRequested('cancelled')
     return result
   }
@@ -234,26 +243,29 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
       return true
     },
     clearPermission(contextHash) { permissions.delete(contextHash) },
-    // Question → canonical input_required; the answer arrives through the
-    // inbound queue and is drained with agents/claim-chat-run-input.
+    // Question → canonical input_required *message*; the run status stays
+    // `running` (there is no input_required run status in the agents-api
+    // vocabulary) and the heartbeat doubles as cancellation observation. The
+    // answer arrives through agents/queue-chat-message → chat_input and is
+    // drained with agents/claim-chat-run-input for this same run (#778).
     async question({ requestId, input }) {
       const text = typeof input?.question === 'string' && input.question ? input.question : 'The agent needs an answer to continue.'
       const { id } = await appendOne(envelope('input_required', text, { kind: 'question', request_id: requestId, question: input }), text)
       pendingQuestion = { kind: 'question', requestId, messageId: id }
-      await heartbeat('input_required')
+      await heartbeat('running')
     },
     async actions({ buttons }) {
       const labels = (Array.isArray(buttons) ? buttons : []).map((button) => button?.label).filter((label) => typeof label === 'string' && label)
       const text = labels.length ? labels.join(' | ') : 'Choose an action to continue.'
       const { id } = await appendOne(envelope('input_required', text, { kind: 'actions', buttons }), text)
       pendingQuestion = { kind: 'actions', messageId: id }
-      await heartbeat('input_required')
+      await heartbeat('running')
     },
     // Upload → file request; resolves with the attachment URLs of the answer.
     async upload({ prompt, maxFiles }) {
       const text = typeof prompt === 'string' && prompt ? prompt : 'Attach the requested files.'
       const { id } = await appendOne(envelope('input_required', text, { kind: 'file_request', prompt: text, max_files: maxFiles }), text)
-      await heartbeat('input_required')
+      await heartbeat('running')
       return new Promise((resolve) => { pendingQuestion = { kind: 'upload', messageId: id, maxFiles, resolveUpload: resolve } })
     },
     hasQuestion: () => pendingQuestion !== null,
@@ -325,7 +337,23 @@ export function createWordPressChatThread({ contextKey, conversationId, writer }
   return {
     thread,
     heartbeat,
-    setCurrentRun(run) { currentRun = run; abortObserved = false },
+    /**
+     * Adopt a newly claimed run. An open previous run is superseded
+     * explicitly — a linking `run_superseded` event plus a terminal status —
+     * so no run is ever stranded waiting when a new turn takes over (#778).
+     */
+    async adoptRun(run) {
+      const previous = currentRun
+      if (previous && previous.runId !== run.runId && !finalized.has(previous.runId)) {
+        await writer.events(previous, [{ type: 'run_superseded', metadata: { next_run_id: run.runId } }]).catch(() => {})
+        await writer.status(previous, 'completed').catch(() => {})
+        finalized.add(previous.runId)
+      }
+      currentRun = run
+      abortObserved = false
+    },
+    markFinalized(runId) { finalized.add(runId) },
+    isFinalized: (runId) => finalized.has(runId),
     currentRun: () => currentRun,
     /** True once if Roadie aborted since the current run began. */
     consumeAbortObservation() { const seen = abortObserved; abortObserved = false; return seen },
@@ -404,7 +432,10 @@ export function createWordPressPlatform({ configPath, runtimeApi, env = process.
     if (state.runtime?.abort) await state.runtime.abort('Cancelled from WordPress')
     else if (runtime?.disposeRuntime) runtime.disposeRuntime(threadId)
     const run = (runId && state.runs.get(runId)) ?? state.threadState.currentRun()
-    if (run) await state.writer.status(run, 'cancelled').catch(() => {})
+    if (run) {
+      await state.writer.status(run, 'cancelled').catch(() => {})
+      state.threadState.markFinalized(run.runId)
+    }
     state.threadState.thread.interactions.dispose()
   }
 
@@ -472,7 +503,10 @@ export function createWordPressPlatform({ configPath, runtimeApi, env = process.
     const state = stateFor(parsed.conversationId, found)
     const run = { runId: parsed.attributes.run_id, claimToken }
     state.runs.set(run.runId, run)
-    state.threadState.setCurrentRun(run)
+    // Adopting the new run supersedes an unfinalized previous one (linking
+    // event + terminal status), so a turn that takes over a waiting session
+    // never strands the earlier run (#778).
+    await state.threadState.adoptRun(run)
     state.threadState.recordIncoming(parsed.message, parsed.attributes.actor_user_id)
     // A turn that arrives while a question is open answers it; otherwise it
     // starts or continues the session through the shared intake path.
@@ -483,24 +517,50 @@ export function createWordPressPlatform({ configPath, runtimeApi, env = process.
     }
     const intake = await ensureRuntime(state, parsed)
     if (intake instanceof Error) return { status: 422, error: intake.message }
-    if (intake === null) return { status: 200, accepted: true, ignored: true }
+    if (intake === null) {
+      // Nothing will ever execute for this turn: finalize its run now so it
+      // still ends in a terminal status.
+      await state.threadState.heartbeat('completed').catch(() => {})
+      return { status: 200, accepted: true, ignored: true }
+    }
     await enqueuePrompt(state, parsed, parsed.message, intake)
     return { status: 200, accepted: true }
   }
 
-  // A wake for queued answers: drain agents/claim-chat-run-input and feed the
-  // pending interaction (question/actions/upload round trip).
+  // A wake for queued answers (produced by WpCodingAgents_Runtime_Chat when a
+  // WP client answers through agents/queue-chat-message): drain
+  // agents/claim-chat-run-input for the same run and feed the pending
+  // interaction (question/actions/upload round trip). The run that asked the
+  // question resumes and later finalizes itself — no second run is spawned.
   const handleInput = async (parsed) => {
     const state = states.get(parsed.conversationId)
-    const run = state?.threadState.currentRun()
+    const run = state?.runs.get(parsed.attributes.run_id) ?? state?.threadState.currentRun()
     if (!state || !run) return { status: 200, accepted: true, ignored: true }
+    // Drain only when the drained answers have somewhere to go: a pending
+    // interaction consumes them, or the live session runtime takes them as
+    // follow-up prompts. With neither (e.g. the turn was ignored at intake),
+    // claiming here would silently drop the answers — leave them durably
+    // queued canonical-side for a future wake instead (#778).
+    if (!state.threadState.thread.interactions.hasQuestion() && !state.runtime) {
+      return { status: 200, accepted: true, ignored: true }
+    }
     const result = await state.writer.claimInput(run)
+    // Claimed queue items are canonical public_queue_item shapes: the answer
+    // text is the `message` string (what agents/queue-chat-message stored),
+    // alongside queued_message_id/run_id/attachments (agents-api#586).
     const answers = (Array.isArray(result.messages) ? result.messages : [])
-      .map((message) => ({ content: typeof message?.content === 'string' ? message.content : '', attachments: message?.attachments }))
+      .map((item) => ({ content: typeof item?.message === 'string' ? item.message : '', attachments: item?.attachments }))
       .filter((answer) => answer.content || (Array.isArray(answer.attachments) && answer.attachments.length))
     const delivered = await state.threadState.deliverAnswers(answers)
-    if (delivered && delivered.kind !== 'upload' && state.runtime) {
-      for (const answer of delivered.answers) {
+    if (delivered?.kind === 'upload') return { status: 200, accepted: true, answered: true }
+    // Claimed answers are never dropped: ones that matched a pending
+    // question resume the session as its answer; ones that arrived without a
+    // pending interaction continue the session as follow-up prompts (the
+    // guard above guarantees a runtime exists whenever nothing was pending).
+    const prompts = delivered ? delivered.answers : answers
+    if (state.runtime) {
+      for (const answer of prompts) {
+        if (!answer.content) continue
         state.threadState.recordIncoming(answer.content, parsed.attributes.actor_user_id)
         await enqueuePrompt(state, parsed, answer.content)
       }
