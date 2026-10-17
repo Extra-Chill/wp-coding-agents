@@ -78,6 +78,18 @@ with tempfile.TemporaryDirectory() as temp:
     result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
     outputs.append(result.stdout + result.stderr)
     assert result.returncode == 1 and len(Receiver.requests) == 4
+    attached = claim("1710000005.000001", "1710000000.000001")
+    attached["event"]["attachments"] = [{"type": "image", "url": "https://example.com/a.png"}]
+    state.write_text(json.dumps({"status": "claimed", "claim": attached}))
+    result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
+    outputs.append(result.stdout + result.stderr)
+    assert result.returncode == 1 and len(Receiver.requests) == 4, "attachments must never reach the Slack reconstruction endpoint"
+    malformed = claim("1710000006.000001", "1710000000.000001")
+    malformed["event"]["attachments"] = "not-a-list"
+    state.write_text(json.dumps({"status": "claimed", "claim": malformed}))
+    result = subprocess.run([str(connector), "--once"], env=env, capture_output=True, text=True)
+    outputs.append(result.stdout + result.stderr)
+    assert result.returncode == 1 and len(Receiver.requests) == 4
     observed = connector.read_text() + log.read_text() + "".join(outputs)
     assert SECRET not in observed and MESSAGE not in observed
     server.shutdown()
