@@ -59,7 +59,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -173,6 +173,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
+    --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
     --workspace-repository) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository "$2"; shift 2 ;;
     --workspace-repository-clone) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository_clone "$2" "$3"; shift 3 ;;
@@ -305,6 +306,16 @@ USAGE:
                                 opencode.json gains the same provider.
                                 Without the flag, Pi stays on Roadie's
                                 credential pool.
+  ./upgrade.sh --wordpress-chat-agent <slug>
+                                Opt in to WordPress-native chat for one agent:
+                                writes the runtime-chat adapter config (slug ->
+                                runtime ID), mints/reuses a shared signing
+                                secret in a 0600 env file, runs the
+                                inbound-event-connector as a managed service
+                                next to Roadie, adds wordpress to the Roadie
+                                platform list, and ensures a wordpress:<context>
+                                channel entry. Once enabled, later upgrades
+                                converge without repeating the flag.
   ./upgrade.sh --with-datamachine-worker
                                  Opt in to the managed bounded Data Machine
                                  worker. The choice persists across upgrades.
@@ -811,6 +822,12 @@ sync_cli_transport_runtime() {
 update_ai_gateway() {
   _run_filter_active reconciliation || return 0
   ai_gateway_apply
+}
+
+update_wordpress_chat() {
+  _run_filter_active reconciliation || return 0
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
+  wordpress_chat_apply
 }
 
 # ============================================================================
@@ -1550,6 +1567,12 @@ OPENCODE_PROJECTION_EXIT_STATUS=0
 # not apply — and the restart hint must be withheld (#725).
 BRIDGE_RECONCILE_FAILED=false
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
+if [ "$PLUGINS_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
+  # The shared WordPress chat secret must exist before the bridge renders
+  # reference its env file or inline its values (#779). No-op unless the
+  # activation flag was passed or a previous opt-in wrote the env file.
+  wordpress_chat_write_env
+fi
 if [ "$PLUGINS_ONLY" != true ]; then
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
   CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
@@ -1570,6 +1593,7 @@ fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
 update_ai_gateway
+update_wordpress_chat
 sync_chat_bridge_config
 if _run_filter_active systemd; then
   systems_capabilities_apply

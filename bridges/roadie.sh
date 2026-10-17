@@ -1653,6 +1653,13 @@ EOF
   if [ -n "${AGENT_SLUG:-}" ]; then
     echo "Environment=DATAMACHINE_AGENT_SLUG=$AGENT_SLUG"
   fi
+  # WordPress chat opt-in (#779): the platform list gains `wordpress`
+  # (roadie#297 comma list) only when the activation flag or its durable env
+  # file enables it; otherwise this renders nothing and output stays
+  # byte-identical.
+  if declare -F wordpress_chat_enabled >/dev/null && wordpress_chat_enabled; then
+    printf 'Environment=ROADIE_PLATFORM=%s\n' "$(wordpress_chat_roadie_platform_value)"
+  fi
 }
 
 _roadie_append_env_files() {
@@ -1667,6 +1674,14 @@ $gateway_env_line"
     local codebox_db_env_line="EnvironmentFile=-$CODEBOX_DATABASE_ENV_FILE"
     grep -qF "$codebox_db_env_line" <<< "$env_block" || env_block="$env_block
 $codebox_db_env_line"
+  fi
+  # The shared WordPress chat signing secret (#779): the same 0600 env file
+  # the connector unit loads, so the HMAC secret matches on both processes.
+  if declare -F wordpress_chat_enabled >/dev/null && wordpress_chat_enabled; then
+    local wordpress_chat_env_line
+    wordpress_chat_env_line="EnvironmentFile=-$(wordpress_chat_env_file)"
+    grep -qF "$wordpress_chat_env_line" <<< "$env_block" || env_block="$env_block
+$wordpress_chat_env_line"
   fi
   printf '%s\n' "$env_block"
 }
@@ -2029,7 +2044,7 @@ bridge_render_launchd() {
         <key>ROADIE_POOL_KEY_FILE</key>
         <string>$(xml_escape "$(_roadie_pool_key_file)")</string>"; fi)$(if _roadie_remote_pool_admin_ready; then echo "
         <key>ROADIE_POOL_ADMIN_KEY_FILE</key>
-        <string>$(xml_escape "$(_roadie_pool_admin_key_file)")</string>"; fi)$(_roadie_ai_gateway_launchd_env_xml)
+        <string>$(xml_escape "$(_roadie_pool_admin_key_file)")</string>"; fi)$(_roadie_wordpress_chat_launchd_env_xml)$(_roadie_ai_gateway_launchd_env_xml)
     </dict>
 EOF
 }
@@ -2096,6 +2111,28 @@ _roadie_datamachine_wp_transport_systemd_env() {
   value=${value//\\/\\\\}
   value=${value//\"/\\\"}
   printf 'Environment=DATAMACHINE_WP_TRANSPORT_JSON="%s"\n' "$value"
+}
+
+# WordPress chat opt-in (#779) on launchd: the platform list plus the ingress
+# delivery env inlined from the shared 0600 env file (launchd has no
+# EnvironmentFile). Renders nothing unless the activation is enabled.
+_roadie_wordpress_chat_launchd_env_xml() {
+  declare -F wordpress_chat_enabled >/dev/null || return 0
+  wordpress_chat_enabled || return 0
+  local env_file key value
+  env_file="$(wordpress_chat_env_file)"
+  echo "
+        <key>ROADIE_PLATFORM</key>
+        <string>$(xml_escape "$(wordpress_chat_roadie_platform_value)")</string>"
+  for key in WP_CODING_AGENTS_INBOUND_WORDPRESS_ENABLED \
+    WP_CODING_AGENTS_INBOUND_WORDPRESS_ENDPOINT \
+    WP_CODING_AGENTS_INBOUND_WORDPRESS_SIGNING_SECRET_ENV \
+    "$WORDPRESS_CHAT_SECRET_ENV_NAME"; do
+    value="$(wordpress_chat_read_env_value "$key" "$env_file")"
+    [ -n "$value" ] || continue
+    echo "        <key>$key</key>
+        <string>$(xml_escape "$value")</string>"
+  done
 }
 
 _roadie_ai_gateway_launchd_env_xml() {

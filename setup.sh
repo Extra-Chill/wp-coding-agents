@@ -22,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -249,6 +249,10 @@ while [[ $# -gt 0 ]]; do
     --rotate-ai-gateway-token)
       ROTATE_AI_GATEWAY_TOKEN=true
       shift
+      ;;
+    --wordpress-chat-agent)
+      WORDPRESS_CHAT_AGENT="$2"
+      shift 2
       ;;
     --no-homeboy)
       HOMEBOY_MODE="disabled"
@@ -494,6 +498,15 @@ OPTIONS:
   --rotate-ai-gateway-token
                       Mint a new gateway token instead of reusing the existing
                       .opencode/wp-ai-gateway.env value
+  --wordpress-chat-agent <slug>
+                      Opt in to WordPress-native chat for one agent: writes the
+                      runtime-chat adapter config (agent slug -> runtime ID),
+                      mints and reuses a shared signing secret in a 0600 env
+                      file, runs the inbound-event-connector as a managed
+                      service next to Roadie, adds wordpress to the Roadie
+                      platform list, and ensures a wordpress:<context> channel
+                      entry. Recorded durably; upgrades converge without
+                      repeating the flag.
   --no-claude-code-auth
                       Skip the managed direct OpenCode Claude Pro/Max OAuth
                       auth plugin. Installed by default for direct OpenCode
@@ -659,6 +672,9 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
   source_policy_record_writable_paths
   source_policy_record_log_paths
   ai_gateway_apply
+  # The shared WordPress chat secret must exist before any bridge render
+  # references its env file or inlines its values (#779).
+  wordpress_chat_write_env
 fi
 
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
@@ -677,7 +693,7 @@ fi
 [ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
 [ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
 [ "$RUNTIME_ONLY" != true ] && remove_retired_skills
-if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi; fi
+if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; wordpress_chat_apply; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi
