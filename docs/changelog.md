@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.1] - 2026-10-19
+
+### Fixed
+- require resolve-chat-person before switching WordPress identity plugins
+
 ## [3.1.0] - 2026-10-19
 
 ### Added
