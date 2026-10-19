@@ -15,6 +15,11 @@ const wp = path.join(temp, 'wp.mjs')
 const calls = path.join(temp, 'calls.jsonl')
 const state = path.join(temp, 'state.json')
 const linkCalls = path.join(temp, 'link-calls.jsonl')
+// The fixture site lives under os.tmpdir(), and runtimeLoadsFile() walks every
+// ancestor, so a real file name like AGENTS.md could be found on the host
+// (#795). The plugin is generic over convention_path; use a per-run name that
+// no host has.
+const convention = `ROADIE-TEST-CONVENTION-${process.pid}-${path.basename(temp)}.md`
 
 // Fake WordPress: plays Data Machine's datamachine/resolve-chat-person against
 // platform-scoped chat identity links (ChatIdentityLinks) and agent access
@@ -51,7 +56,7 @@ const withSections = !code.includes("$result['sections'] = array();")
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ ...req, withSections, argv: args.filter((arg) => arg !== code) }) + '\\n')
 const { links, roles, old } = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'))
 const deny = (user_id, reason) => ({ allowed: false, user_id, role: '', sections: [], reason })
-const agent = [{ name: 'SOUL.md', layer: 'agent', priority: 10, content: 'SOUL' }, { name: 'AGENTS.md', layer: 'shared', priority: 12, content: 'AGENTS', convention_path: 'AGENTS.md' }]
+const agent = [{ name: 'SOUL.md', layer: 'agent', priority: 10, content: 'SOUL' }, { name: 'AGENTS.md', layer: 'shared', priority: 12, content: 'AGENTS', convention_path: ${JSON.stringify(convention)} }]
 let out
 if (req.agent_slug !== 'franklin') out = deny(0, 'agent_not_found')
 else if (!req.actor_id) out = req.event === 'turn' || old ? deny(0, old ? 'actor_not_linked' : 'no_actor') : { ...deny(0, 'no_actor'), sections: agent }
@@ -151,15 +156,18 @@ try {
   const nested = path.join(site, 'wp-content', 'plugins')
   fs.mkdirSync(nested, { recursive: true })
   const startIn = (directory) => filters.context_sections([], { event: 'session_start', contextId: 'franklin', directory })
+  // #795: a decoy AGENTS.md in the site's parent must not affect the fixture.
+  fs.writeFileSync(path.join(temp, 'AGENTS.md'), 'decoy')
   assert.deepEqual(await startIn(site), agentSections)
-  fs.writeFileSync(path.join(site, 'AGENTS.md'), 'on disk')
+  assert.deepEqual(await startIn(nested), agentSections)
+  fs.writeFileSync(path.join(site, convention), 'on disk')
   assert.deepEqual(await startIn(site), [agentSections[0]])
   assert.deepEqual(await startIn(nested), [agentSections[0]])
-  assert.equal(module.runtimeLoadsFile(path.join(temp, 'elsewhere'), 'AGENTS.md'), false)
-  assert.equal(module.runtimeLoadsFile('relative/dir', 'AGENTS.md'), false)
-  assert.equal(module.runtimeLoadsFile(site, path.join(site, 'AGENTS.md')), false)
-  fs.mkdirSync(path.join(temp, 'dir-not-file', 'AGENTS.md'), { recursive: true })
-  assert.equal(module.runtimeLoadsFile(path.join(temp, 'dir-not-file'), 'AGENTS.md'), false)
+  assert.equal(module.runtimeLoadsFile(path.join(temp, 'elsewhere'), convention), false)
+  assert.equal(module.runtimeLoadsFile('relative/dir', convention), false)
+  assert.equal(module.runtimeLoadsFile(site, path.join(site, convention)), false)
+  fs.mkdirSync(path.join(temp, 'dir-not-file', convention), { recursive: true })
+  assert.equal(module.runtimeLoadsFile(path.join(temp, 'dir-not-file'), convention), false)
   // Data Machine before #3615 cannot answer without an actor: fail loudly
   // (Roadie logs it and continues) rather than silently dropping memory.
   setState({ old: true })
