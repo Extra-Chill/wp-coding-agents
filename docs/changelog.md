@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.0] - 2026-10-19
+
+### Added
+- local launchd upgrade path for roadie upgrade / /upgrade-and-restart
+
 ## [3.0.2] - 2026-10-17
 
 ### Fixed
