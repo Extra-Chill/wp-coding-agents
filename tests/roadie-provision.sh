@@ -43,6 +43,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$prefix" ] || exit 0
+[ -n "${FAKE_NPM_FAIL:-}" ] && { echo "npm error code ETARGET" >&2; exit 1; }
+[ -n "${FAKE_NPM_NOOP:-}" ] && exit 0
 mkdir -p "$prefix/lib/node_modules/@extrachill/roadie" "$prefix/bin"
 printf '{"version":"%s"}\n' "$FAKE_VERSION" > "$prefix/lib/node_modules/@extrachill/roadie/package.json"
 printf '#!/bin/sh\ntouch "%s"\n' "$VERSION_PROBE" > "$prefix/bin/roadie"
@@ -85,6 +87,20 @@ _roadie_provision_package
 [ ! -s "$NPM_LOG" ]; check $? "no npm call without root"
 printf '%s\n' "${PENDING_ITEMS[@]}" | grep -qF "Roadie $PIN install (root)"; check $? "pending item names the pinned version"
 grep -qF -- "--roadie-only" "$TMP/warn.log"; check $? "warning gives the --roadie-only root repair command"
+
+echo "==> a failed npm install is reported, not claimed (#797)"
+printf '{"version":"0.0.1"}\n' > "$TMP/prefix/lib/node_modules/@extrachill/roadie/package.json"
+WP_CODING_AGENTS_TEST_EUID=0
+UPDATED_ITEMS=()
+FAKE_NPM_FAIL=1 _roadie_provision_package; rc=$?
+[ "$rc" -ne 0 ]; check $? "npm failure returns non-zero"
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ]; check $? "npm failure records no update"
+[ "$(_roadie_installed_version)" = 0.0.1 ]; check $? "previous version is left in place"
+FAKE_NPM_NOOP=1 _roadie_provision_package; rc=$?
+[ "$rc" -ne 0 ]; check $? "a zero-exit npm that installed nothing is caught by the version check"
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ]; check $? "a version mismatch records no update"
+_roadie_provision_package; rc=$?
+[ "$rc" -eq 0 ] && [ "$(_roadie_installed_version)" = "$PIN" ]; check $? "a successful retry installs the pin"
 
 echo "==> local install uses the user's global npm"
 LOCAL_MODE=true

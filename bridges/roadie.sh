@@ -298,10 +298,22 @@ _roadie_provision_package() {
     PENDING_ITEMS+=("Roadie $want install (root)")
     return 0
   fi
-  run_cmd mkdir -p "$prefix"
-  _roadie_run_with_progress install -g --prefix "$prefix" "$url"
+  run_cmd mkdir -p "$prefix" || return 1
+  # A failed npm install (e.g. a dependency not yet on the registry) leaves the
+  # previous Roadie in place. Report it instead of claiming the upgrade, so the
+  # caller stops before restarting onto a version that is not there.
+  if ! _roadie_run_with_progress install -g --prefix "$prefix" "$url"; then
+    warn "  Roadie $want install into $prefix failed; ${have:-no version} remains installed."
+    return 1
+  fi
   if [ "${DRY_RUN:-false}" != true ]; then
     chmod -R a+rX "$prefix"
+    local installed
+    installed="$(_roadie_installed_version)"
+    if [ "$installed" != "$want" ]; then
+      warn "  Roadie install reported success but ${installed:-nothing} is installed in $prefix, not $want."
+      return 1
+    fi
     log "Roadie ${have:+$have → }$want installed in $prefix"
     UPDATED_ITEMS+=("Roadie $want")
   fi
@@ -1557,7 +1569,7 @@ PY
 
 bridge_install() {
   _roadie_require_identity_ability || return 1
-  _roadie_provision_package
+  _roadie_provision_package || return 1
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
@@ -1836,7 +1848,7 @@ PY
 bridge_sync_config() {
   log "Phase 2: Syncing Roadie config ($(roadie_config_dir))..."
   _roadie_require_identity_ability || return 1
-  _roadie_provision_package
+  _roadie_provision_package || return 1
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_pi
   # Report a missing pool key here: the renderers run in subshells.
