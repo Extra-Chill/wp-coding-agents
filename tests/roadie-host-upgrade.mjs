@@ -35,9 +35,7 @@ async function load(binPath, configPath = localConfig) {
 try {
   assert.equal(await load(path.join(temp, 'missing')), undefined, 'no command: no handler registered')
 
-  fs.mkdirSync(path.join(temp, 'checkout/bridges/roadie'), { recursive: true })
-  fs.writeFileSync(path.join(temp, 'checkout/bridges/roadie/roadie-version'), '9.8.7\n')
-  fs.writeFileSync(localConfig, JSON.stringify({ plist: localPlist, checkout: path.join(temp, 'checkout'), label: 'com.wp.roadie-upgrade', log: '/tmp/roadie-upgrade.log', state: '/tmp/roadie-state.json' }))
+  fs.writeFileSync(localConfig, JSON.stringify({ plist: localPlist, label: 'com.wp.roadie-upgrade', log: '/tmp/roadie-upgrade.log', state: '/tmp/roadie-state.json' }))
   assert.equal(await load(path.join(temp, 'missing')), undefined, 'local handler requires plist')
   fs.writeFileSync(localPlist, '')
   const localFilter = await load(path.join(temp, 'missing'))
@@ -47,7 +45,7 @@ try {
   process.env.FAKE_EXIT = '0'
   let localResult = await localHandler()
   assert.equal(localResult.ok, true)
-  assert.match(localResult.message, /9\.8\.7/)
+  assert.match(localResult.message, /pinned on main/)
   assert.match(localResult.message, /roadie-upgrade\.log/)
   assert.match(fs.readFileSync(calls, 'utf8'), /kickstart gui\/\d+\/com\.wp\.roadie-upgrade/)
 

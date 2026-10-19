@@ -1722,14 +1722,14 @@ _roadie_install_launchd() {
 # One-shot launchd job that moves Roadie to this checkout's pin and restarts
 # it (scripts/roadie-local-upgrade). The host-upgrade plugin starts it; being
 # its own job, it outlives the Roadie restart it triggers. The config tells the
-# plugin where things are; the pin itself is read live from the checkout.
+# plugin where things are; the script reads the pin from main when it runs.
 _roadie_install_upgrade_launchd() {
   local plist_dir="$1" plist="$1/com.wp.roadie-upgrade.plist" rendered
   run_cmd mkdir -p "$(roadie_config_dir)"
-  write_file "$(roadie_config_dir)/roadie-upgrade.json" "$(python3 - "$plist" "$ROADIE_DATA_DIR" "$SCRIPT_DIR" <<'PY'
+  write_file "$(roadie_config_dir)/roadie-upgrade.json" "$(python3 - "$plist" "$ROADIE_DATA_DIR" <<'PY'
 import json, sys
-plist, data, checkout = sys.argv[1:]
-print(json.dumps({"plist": plist, "label": "com.wp.roadie-upgrade", "checkout": checkout, "log": data + "/roadie-upgrade.log", "state": data + "/roadie-upgrade-state.json"}))
+plist, data = sys.argv[1:]
+print(json.dumps({"plist": plist, "label": "com.wp.roadie-upgrade", "log": data + "/roadie-upgrade.log", "state": data + "/roadie-upgrade-state.json"}))
 PY
 )"
   rendered="$(roadie_render_upgrade_launchd)"

@@ -14,7 +14,6 @@
 
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
-import path from 'node:path'
 
 const UPGRADE_BIN = process.env.WP_CODING_AGENTS_UPGRADE_BIN || '/usr/local/sbin/wp-coding-agents-upgrade'
 const LOCAL_CONFIG = process.env.ROADIE_LOCAL_UPGRADE_CONFIG
@@ -36,15 +35,6 @@ function runLaunchctl(args) {
   })
 }
 
-// The pin is read when the upgrade is requested: the checkout may have moved on since setup.
-function pinnedVersion(config) {
-  try {
-    return fs.readFileSync(path.join(config.checkout, 'bridges/roadie/roadie-version'), 'utf8').trim() || null
-  } catch {
-    return null
-  }
-}
-
 function startLocalUpgrade(config) {
   return async function () {
     const target = `gui/${process.getuid()}/${config.label || 'com.wp.roadie-upgrade'}`
@@ -56,7 +46,7 @@ function startLocalUpgrade(config) {
     if (started.error) return { ok: false, message: started.output || `launchctl kickstart failed: ${started.error.message}` }
     return {
       ok: true,
-      message: `Roadie upgrade to pinned version ${pinnedVersion(config) ?? '(unknown)'} started. Follow: tail -f ${config.log}; result: ${config.state} (or launchctl print ${target}).`,
+      message: `Roadie upgrade to the version pinned on main started. Follow: tail -f ${config.log}; result: ${config.state} (or launchctl print ${target}).`,
     }
   }
 }

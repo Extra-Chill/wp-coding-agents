@@ -1,11 +1,13 @@
 #!/bin/bash
-# Upgrade the local launchd Roadie package to this checkout's pin, outside
-# Roadie's process tree. Package resolution/install is shared with roadie.sh.
+# Upgrade the local launchd Roadie package to the pin merged to main, outside
+# Roadie's process tree. Like the VPS upgrade, only what is merged to main
+# runs: the operator's checkout may sit on any branch, so its working-tree pin
+# is not trusted. Package resolution/install is shared with roadie.sh.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PIN_FILE="$SCRIPT_DIR/bridges/roadie/roadie-version"
-TO="$(tr -d '[:space:]' < "$PIN_FILE")"
+TRUST_REF="${ROADIE_UPGRADE_TRUST_REF:-main}"
+TO=""
 FROM=""
 
 source "$SCRIPT_DIR/bridges/roadie.sh"
@@ -19,7 +21,6 @@ warn() { printf '%s\n' "$*" >&2; }
 error() { printf '%s\n' "$*" >&2; }
 run_cmd() { "$@"; }
 FROM="$(_roadie_installed_version)"
-set -e
 
 record_result() {
   local outcome="$1" detail="${2:-}" tmp="$STATE_FILE.tmp.$$"
@@ -32,6 +33,15 @@ with open(path, "w") as f:
 PY
   mv -f "$tmp" "$STATE_FILE"
 }
+
+if ! git -C "$SCRIPT_DIR" fetch --quiet origin "$TRUST_REF" \
+  || ! TO="$(git -C "$SCRIPT_DIR" show "FETCH_HEAD:bridges/roadie/roadie-version" | tr -d '[:space:]')" \
+  || [ -z "$TO" ]; then
+  record_result failed "could not read the Roadie pin from origin/$TRUST_REF"
+  exit 1
+fi
+roadie_pinned_version() { printf '%s\n' "$TO"; }
+set -e
 
 if [ "$FROM" = "$TO" ]; then
   log "Roadie $TO already installed"
