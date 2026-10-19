@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.2] - 2026-10-19
+
+### Changed
+- isolate convention-file fixture from host AGENTS.md
+
 ## [3.1.1] - 2026-10-19
 
 ### Fixed
