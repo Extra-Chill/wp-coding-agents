@@ -228,6 +228,14 @@ jobs:
       - name: Run tests/roadie-speaker-context-gate.sh
         run: ./tests/roadie-speaker-context-gate.sh
 
+  roadie-identity-ability-gate:
+    name: Roadie identity plugins gated on resolve-chat-person (#793)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/roadie-identity-ability-gate.sh
+        run: ./tests/roadie-identity-ability-gate.sh
+
   runtime-guard:
     name: runtime deactivation guard (#328)
     runs-on: ubuntu-latest
