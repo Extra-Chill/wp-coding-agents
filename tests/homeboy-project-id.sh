@@ -24,7 +24,7 @@ cat > "$FAKE_BIN/homeboy" <<'SH'
 #!/bin/sh
 if [ "$1 $2" = "project list" ]; then
   cat <<JSON
-{"success":true,"data":{"projects":[
+{"success":true,"data":{"entities":[
   {"domain":"intelligence-chubes4","id":"intelligence-chubes4"},
   {"domain":"example.test","id":"example"}
 ]}}

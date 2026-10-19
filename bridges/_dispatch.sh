@@ -151,6 +151,13 @@ _compose_path_value() {
 # preserving every existing Environment= line the host has customised (e.g.
 # BUN_INSTALL, custom PATH, secrets) and appending template keys that are
 # missing. Returns the merged block on stdout.
+#
+# Keys named in MANAGED_ENV_KEYS (space-separated) are template-owned (#729):
+# "installed value wins" is there to keep operator edits alive, but keys the
+# installer regenerates on every run — the session-attribution mapping
+# ROADIE_SHELL_ENV (roadie#186) — would otherwise be pinned at whatever the
+# unit was first rendered with, leaving later template revisions unreachable
+# on any long-lived install.
 _merge_systemd_env_lines() {
   local current_env="$1"
   local template_env="$2"
@@ -189,7 +196,14 @@ _merge_systemd_env_lines() {
     local key
     key=$(echo "$tmpl_line" | sed -n 's/^Environment=\([^=]*\)=.*/\1/p')
     [ -z "$key" ] && continue
-    if ! echo "$current_env" | grep -q "^Environment=${key}="; then
+    local managed_key=false
+    case " ${MANAGED_ENV_KEYS:-} " in
+      *" $key "*) managed_key=true ;;
+    esac
+    if [ "$managed_key" = true ]; then
+      merged=$(printf '%s\n' "$merged" | grep -v "^Environment=${key}=" || true)
+    fi
+    if [ "$managed_key" = true ] || ! echo "$current_env" | grep -q "^Environment=${key}="; then
       if [ -n "$merged" ]; then
         merged="$merged
 $tmpl_line"

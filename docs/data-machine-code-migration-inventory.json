@@ -541,7 +541,7 @@
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_worktree_runtime_signatures", "datamachine_code_worktree_context_projection_targets", "datamachine_code_worktree_context_projection_cleanup", "data-machine-code"],
       "current_owner": "wp-coding-agents producer over DMC hooks",
-      "current_consumers": ["DMC worktree lifecycle", "OpenCode and Codex signature registrations"],
+      "current_consumers": ["DMC worktree lifecycle", "OpenCode signature registrations"],
       "persistence": "Generated wp-coding-agents-runtimes.php and projected checkout files",
       "target_owner": "Homeboy",
       "disposition": "replace",
@@ -562,21 +562,6 @@
       "disposition": "replace",
       "migration_issue": "#526, #528",
       "verification_gate": "OpenCode reaches configured repositories without DMC and emits attribution only to an active owner"
-    },
-    {
-      "id": "wca-claude-policy",
-      "subsystem": null,
-      "surface": "Claude workspace permissions and DMC WP-CLI allow rules",
-      "source": { "repository": "wp-coding-agents", "path": "runtimes/claude-code.sh", "symbol_or_command": "runtime_install_hooks: wp datamachine-code workspace|github|gitsync" },
-      "evidence_kind": "runtime",
-      "contracts": ["wp datamachine-code *", "data-machine-code"],
-      "current_owner": "wp-coding-agents",
-      "current_consumers": ["Claude Code runtime"],
-      "persistence": "Generated Claude settings and additionalDirectories",
-      "target_owner": "wp-coding-agents",
-      "disposition": "replace",
-      "migration_issue": "#526, #528",
-      "verification_gate": "Generated policy grants native repository/Git workflow and contains no DMC command prefixes"
     },
     {
       "id": "wca-kimaki-signature",

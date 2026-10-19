@@ -58,6 +58,7 @@ ROADIE_PI_VERIFIED=none
 ROADIE_BIN="$(roadie_bin)"
 UNIT="$SYSTEMD_UNIT_DIR/roadie.service"
 KEY_FILE="$TMP/secrets/roadie/pool-key"
+ADMIN_KEY_FILE="$TMP/secrets/roadie/pool-admin-key"
 
 write_unit() {
   cat > "$UNIT" <<EOF
@@ -74,7 +75,7 @@ ExecStart=/usr/bin/roadie --data-dir $TMP/home/.roadie --auto-restart
 EOF
 }
 count() { grep -cFx "Environment=$1" "$UNIT"; }
-reset() { : > "$TMP/warn.log"; PENDING_ITEMS=(); UPDATED_ITEMS=(); unset ROADIE_POOL_KEY_REPORTED ROADIE_POOL_KEY; }
+reset() { : > "$TMP/warn.log"; PENDING_ITEMS=(); UPDATED_ITEMS=(); unset ROADIE_POOL_KEY_REPORTED ROADIE_POOL_KEY ROADIE_POOL_ADMIN_KEY; }
 
 echo "==> a URL without the client key keeps the local pool and reports the gap"
 reset
@@ -98,6 +99,20 @@ bridge_update_systemd >/dev/null 2>&1
 ! grep -q "rpk_test_key" "$UNIT"; check $? "the key itself never enters the unit"
 [ "$(count HOST_CUSTOM=preserved)" -eq 1 ]; check $? "operator env survives"
 
+echo "==> no admin key: ROADIE_POOL_ADMIN_KEY_FILE is not rendered"
+! grep -q '^Environment=ROADIE_POOL_ADMIN_KEY_FILE' "$UNIT"; check $? "no admin key file without the key"
+
+echo "==> ROADIE_POOL_ADMIN_KEY is stored as a 0600 secret and rendered once"
+reset
+export ROADIE_POOL_ADMIN_KEY="rpc_admin_test_key"
+_roadie_install_secrets >/dev/null 2>&1
+unset ROADIE_POOL_ADMIN_KEY
+[ "$(cat "$ADMIN_KEY_FILE")" = rpc_admin_test_key ]; check $? "admin key written to <secrets>/pool-admin-key"
+[ "$(stat -c %a "$ADMIN_KEY_FILE" 2>/dev/null || stat -f %Lp "$ADMIN_KEY_FILE")" = 600 ]; check $? "admin key file is 0600"
+bridge_update_systemd >/dev/null 2>&1
+[ "$(count "ROADIE_POOL_ADMIN_KEY_FILE=$ADMIN_KEY_FILE")" -eq 1 ]; check $? "ROADIE_POOL_ADMIN_KEY_FILE rendered once"
+! grep -q "rpc_admin_test_key" "$UNIT"; check $? "the admin key itself never enters the unit"
+
 echo "==> a later upgrade adopts the URL from the installed unit"
 reset
 unset ROADIE_POOL_URL ROADIE_UNIT
@@ -115,7 +130,7 @@ echo "==> --roadie-pool-url local returns to the bot's own pool"
 reset
 ROADIE_POOL_URL=local ROADIE_POOL_URL_EXPLICIT=true
 bridge_update_systemd >/dev/null 2>&1
-! grep -q '^Environment=ROADIE_POOL_' "$UNIT"; check $? "pool keys removed"
+! grep -q '^Environment=ROADIE_POOL_' "$UNIT"; check $? "pool keys removed (admin key file included)"
 
 echo "==> an invalid URL is refused"
 reset
@@ -129,11 +144,12 @@ ROADIE_POOL_URL="$POOL_URL" ROADIE_POOL_URL_EXPLICIT=true
 PLIST="$(LOCAL_MODE=false ROADIE_BIN=/usr/bin/roadie bridge_render_launchd com.wp.roadie 2>/dev/null)"
 printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_POOL_URL</key>' | grep -qF "<string>$POOL_URL</string>"; check $? "launchd ROADIE_POOL_URL"
 printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_POOL_KEY_FILE</key>' | grep -qF "<string>$KEY_FILE</string>"; check $? "launchd ROADIE_POOL_KEY_FILE"
+printf '%s' "$PLIST" | grep -A1 '<key>ROADIE_POOL_ADMIN_KEY_FILE</key>' | grep -qF "<string>$ADMIN_KEY_FILE</string>"; check $? "launchd ROADIE_POOL_ADMIN_KEY_FILE"
 if command -v plutil >/dev/null 2>&1; then
   printf '%s' "$PLIST" > "$TMP/roadie.plist"
   plutil -lint "$TMP/roadie.plist" >/dev/null; check $? "launchd plist stays valid"
 fi
-_roadie_manual_command | grep -qF "ROADIE_POOL_URL='$POOL_URL' ROADIE_POOL_KEY_FILE='$KEY_FILE'"; check $? "manual command carries the pool keys"
+_roadie_manual_command | grep -qF "ROADIE_POOL_URL='$POOL_URL' ROADIE_POOL_KEY_FILE='$KEY_FILE' ROADIE_POOL_ADMIN_KEY_FILE='$ADMIN_KEY_FILE'"; check $? "manual command carries the pool keys"
 
 echo
 if [ "$FAIL" -ne 0 ]; then

@@ -21,7 +21,7 @@ function compile(profile) {
     },
     runtime: { selection: "opencode" },
     chat_bridge: { selection: "kimaki" },
-    codex_path: "external-openai-compatible-endpoint",
+    provider_path: "external-openai-compatible-endpoint",
     overlays: {},
     agent: { slug: "remote" },
   })
@@ -67,7 +67,7 @@ function compile(profile) {
   assert.match(result.stderr, /requires a colocated VPS install/)
 }
 
-for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
+for (const selection of ["auto"]) {
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
     input: JSON.stringify({
       install_target: "external-runtime",
@@ -76,7 +76,7 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
         wordpress_path: "/remote/site",
         control_transport_argv: ["/usr/local/bin/control"],
       },
-      runtime: { selection, runtimes: selection === "multiple" ? ["opencode", "codex"] : [] },
+      runtime: { selection },
       chat_bridge: { selection: "none" },
       overlays: {},
     }),
@@ -92,7 +92,7 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
     target: { wordpress_path: "~/Studio/site", wordpress_studio: true },
     runtime: { selection: "opencode", runtimes: [] },
     chat_bridge: { selection: "roadie" },
-    codex_path: "not-applicable",
+    provider_path: "not-applicable",
     overlays: { homeboy: true, wordpress_studio: true },
     agent: { slug: "site" },
   })
@@ -111,19 +111,14 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
   const plan = compile({
     install_target: "fresh-vps",
     target: { domain: "example.com" },
-    runtime: { selection: "multiple", runtimes: ["claude-code", "opencode"] },
+    runtime: { selection: "auto" },
     chat_bridge: { selection: "auto" },
     overlays: {},
     agent: {},
   })
 
   assert.equal(plan.commands.dry_run, "SITE_DOMAIN=example.com ./setup.sh --dry-run")
-  assert.ok(plan.warnings.some((warning) => warning.includes("Multiple runtimes")))
   assert.ok(plan.warnings.some((warning) => warning.includes("no new mutable repository authority")))
-  assert.ok(plan.verification.overlays.includes("verify-runtime-multiple"))
-  assert.ok(plan.verification.overlays.includes("verify-runtime-claude-code"))
-  assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))
-  assert.deepEqual(plan.follow_up_commands, ["EXISTING_WP=/var/www/example.com ./setup.sh --runtime-only --runtime opencode"])
 }
 
 {
@@ -139,21 +134,6 @@ for (const selection of ["auto", "codex", "claude-code", "multiple"]) {
   assert.equal(plan.commands.dry_run, "SITE_DOMAIN=network.example.com ./setup.sh --no-chat --multisite --subdomain --dry-run")
 }
 
-{
-  const plan = compile({
-    install_target: "local",
-    target: { wordpress_path: "/Users/chubes/Studio/site" },
-    runtime: { selection: "codex" },
-    chat_bridge: { selection: "auto" },
-    overlays: {},
-    agent: {},
-  })
-
-  assert.equal(plan.commands.dry_run, "EXISTING_WP=/Users/chubes/Studio/site ./setup.sh --local --runtime codex --dry-run")
-  assert.equal(plan.summary.bridge_axis, "none")
-  assert.ok(plan.verification.overlays.includes("verify-runtime-codex"))
-  assert.ok(plan.verification.overlays.includes("verify-bridge-none"))
-}
 
 {
   const plan = compile({
@@ -240,25 +220,13 @@ for (const source of [
   assert.doesNotMatch(plan.commands.apply, /--workspace-repository/)
 }
 
-{
-  const plan = compile({
-    install_target: "local",
-    target: { wordpress_path: "/home/chris/site" },
-    runtime: { selection: "multiple", runtimes: ["opencode", "claude-code"] },
-    chat_bridge: { selection: "none" },
-    overlays: {},
-    agent: {},
-  })
-
-  assert.deepEqual(plan.follow_up_commands, ["EXISTING_WP=/home/chris/site ./setup.sh --local --runtime-only --runtime claude-code"])
-}
 
 {
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
     input: JSON.stringify({
       install_target: "local",
       target: { wordpress_path: "/tmp/site" },
-      runtime: { selection: "claude-code,opencode" },
+      runtime: { selection: "opencode,pi" },
       chat_bridge: { selection: "none" },
       overlays: {},
     }),
@@ -266,7 +234,45 @@ for (const source of [
   })
 
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /Unknown runtime: claude-code,opencode/)
+  assert.match(result.stderr, /Unknown runtime: opencode,pi/)
+}
+
+// Codex and Claude Code were removed (#751) and fail with a migration note.
+for (const selection of ["codex", "claude-code", "multiple"]) {
+  const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
+    input: JSON.stringify({
+      install_target: "local",
+      target: { wordpress_path: "/tmp/site" },
+      runtime: { selection },
+      chat_bridge: { selection: "none" },
+      overlays: {},
+    }),
+    encoding: "utf8",
+  })
+
+  assert.notEqual(result.status, 0)
+  if (selection === "multiple") {
+    assert.match(result.stderr, /Unknown runtime: multiple/)
+  } else {
+    assert.match(result.stderr, new RegExp(`runtime\\.selection '${selection}' was removed \\(wp-coding-agents#751\\)`))
+  }
+}
+
+{
+  const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
+    input: JSON.stringify({
+      install_target: "local",
+      target: { wordpress_path: "/tmp/site" },
+      runtime: { selection: "opencode" },
+      chat_bridge: { selection: "none" },
+      codex_path: "codebox-minions",
+      overlays: {},
+    }),
+    encoding: "utf8",
+  })
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /codex_path was renamed provider_path/)
 }
 
 console.log("OK: setup profile compiler")

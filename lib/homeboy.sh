@@ -308,7 +308,7 @@ try:
 except Exception:
     payload = {}
 
-projects = payload.get("data", {}).get("projects", [])
+projects = payload.get("data", {}).get("entities", [])
 for project in projects:
     domain = (project.get("domain") or "").strip().lower()
     if domain and domain == site_domain and project.get("id"):
@@ -323,39 +323,9 @@ PY
 
       # Local Studio installs can surface a transient localhost URL while the
       # registered Homeboy project keeps the stable Studio project id/domain.
-      # In that case, resolve by base_path before falling back to a slug.
+      # Path-based resolution happens via the per-id loop over `project show`
+      # payloads below, since `project list` rows only carry `id` and `domain`.
       if [ -n "${SITE_PATH:-}" ]; then
-        resolved="$(HOMEBOY_PROJECT_LIST="$project_list" HOMEBOY_SITE_PATH="$SITE_PATH" python3 <<'PY'
-import json
-import os
-from pathlib import Path
-
-site_path = Path(os.environ.get("HOMEBOY_SITE_PATH", "")).expanduser()
-try:
-    site_path = site_path.resolve()
-except Exception:
-    site_path = site_path.absolute()
-
-try:
-    payload = json.loads(os.environ.get("HOMEBOY_PROJECT_LIST", ""))
-except Exception:
-    payload = {}
-
-for project in payload.get("data", {}).get("projects", []):
-    base_path = project.get("base_path") or ""
-    if not base_path:
-        continue
-    candidate = Path(base_path).expanduser()
-    try:
-        candidate = candidate.resolve()
-    except Exception:
-        candidate = candidate.absolute()
-    if candidate == site_path and project.get("id"):
-        print(project["id"])
-        break
-PY
-)"
-        if [ -z "$resolved" ]; then
           local project_id project_ids project_json
           project_ids="$(HOMEBOY_PROJECT_LIST="$project_list" python3 <<'PY'
 import json
@@ -366,7 +336,7 @@ try:
 except Exception:
     payload = {}
 
-for project in payload.get("data", {}).get("projects", []):
+for project in payload.get("data", {}).get("entities", []):
     project_id = project.get("id") or ""
     if project_id:
         print(project_id)
@@ -409,7 +379,6 @@ PY
               break
             fi
           done <<< "$project_ids"
-        fi
         if [ -n "$resolved" ]; then
           printf '%s\n' "$resolved"
           return 0
@@ -795,7 +764,7 @@ recompose_agents_md_for_homeboy() {
   if (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md >/dev/null); then
     log "AGENTS.md recomposed after Homeboy reconciliation."
   else
-    homeboy_handle_failure "Could not recompose AGENTS.md after Homeboy reconciliation."
+    homeboy_handle_failure "Cannot recompose AGENTS.md after Homeboy reconciliation: wp_run_as_site_owner printed the redacted compose stderr above (#628)."
   fi
 }
 
@@ -812,5 +781,5 @@ print_homeboy_verification_commands() {
   echo "  homeboy project show <project-id>"
   echo "  homeboy project components list <project-id>"
   echo "  $(wp_cli_transport_display) datamachine memory compose AGENTS.md$verification_wp_flags"
-  echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; use --provider claude-code and the carried ai-provider-for-claude-code path for Claude Code; add --run to execute"
+  echo "  ./scripts/verify-homeboy-codebox-canary.sh --workspace <repo-or-worktree> --secret-env <ENV_NAME> --agents-api <path> --agent-runtime <path> --agent-runtime-tools <path> --provider-plugin-path <path>  # opt-in model-backed Codebox canary; add --run to execute"
 }

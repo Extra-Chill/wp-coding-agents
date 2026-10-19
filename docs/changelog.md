@@ -1,5 +1,49 @@
 # Changelog
 
+## [3.0.2] - 2026-10-17
+
+### Fixed
+- wordpress platform resolves runtime modules through the managed symlinked entrypoint
+
+## [3.0.1] - 2026-10-17
+
+### Changed
+- Internal improvements
+
+## [3.0.0] - 2026-10-17
+
+### Added
+- opt-in --wordpress-chat-agent activation for the WordPress runtime-chat pipeline
+- route Pi sessions through the WP AI Gateway
+- wordpress chat platform plugin over the inbound queue and run write abilities
+- route runtime-backed agents' chat turns through the inbound queue
+- self-serve identity linking via link-chat-identity
+- make wordpress-context a thin adapter over resolve-chat-person
+- carry ROADIE_PI_TITLE_MODEL like ROADIE_PI_MODEL
+- give seats their per-person MCP servers from the context
+- derive the chat seat tier from the Data Machine agent access role
+- render the remote pool admin key (roadie#238)
+
+### Changed
+- allow an explicit bump on manual dispatch
+- boot-test the Roadie pin and route breaking releases through a PR
+- seed roadie-fork-workspace fixture runs through agent-task cook
+- remove the Codex and Claude Code runtimes
+- configure Roadie as Pi-only and pin v0.67.1
+
+### Fixed
+- isolate bridge-render.sh from ambient host config and secrets roots
+- answers to a waiting run resume the same run
+- wordpress platform follows only the main session's lifecycle
+- refresh-roadie-pin can detect breaking releases and retry its PR
+- name the cause of a failed WordPress context lookup and make its timeout configurable
+- gate dependent upgrade steps on a timed-out Roadie bridge install
+- converge managed ROADIE_PLUGINS on existing systemd units
+- surface AGENTS.md compose failures when the webroot is not writable
+- resolve the managed homeboy binary for the AGENTS.md homeboy section
+- read homeboy list rows from data.entities
+- remove the managed Codex projection when Codex is not the runtime
+
 ## [2.3.0] - 2026-10-14
 
 ### Added

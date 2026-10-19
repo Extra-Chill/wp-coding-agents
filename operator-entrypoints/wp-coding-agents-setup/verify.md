@@ -81,26 +81,6 @@ curl -I https://yourdomain.com
 opencode --version
 ```
 
-### `verify-runtime-claude-code`
-
-```bash
-claude --version
-```
-
-### `verify-runtime-codex`
-
-```bash
-codex --version
-test -f /path/to/site/AGENTS.md
-test -f /path/to/site/AGENTS.override.md
-grep -q 'WP_CODING_AGENTS_CODEX_MEMORY_START' /path/to/site/AGENTS.override.md
-test ! -e /path/to/site/.agents/skills/upgrade-wp-coding-agents   # retired skill removed
-```
-
-### `verify-runtime-multiple`
-
-Run the selected runtime checks for each runtime in the compiled profile. If the setup used auto-detection, compare the detected runtime list from setup output with installed runtime binaries.
-
 ## Bridge Overlays
 
 ### `verify-bridge-roadie`
@@ -245,9 +225,9 @@ Actionable failure interpretation:
 
 This canary is stronger than the basic Homeboy overlay: the overlay proves configured provider and project/component inspection, while the canary proves the Codebox executor returned durable run, log, changed-files, and patch evidence for a repo-aware task.
 
-### `verify-codex-codebox-provider`
+### `verify-codebox-provider`
 
-Use this only for the Codebox minion provider-auth path. Do not configure WP AI Gateway just because Codex is involved.
+Use this only for the Codebox minion provider-auth path. Do not configure WP AI Gateway for it.
 
 ```bash
 wp plugin list | grep -E 'php-ai-client|ai-provider-for-openai|wp-codebox'
@@ -255,7 +235,7 @@ wp plugin is-active ai-provider-for-openai
 wp plugin is-active wp-codebox
 ```
 
-If provider login/status commands exist, run them. If they do not exist yet, report that Codex auth belongs upstream in the provider stack rather than adding local token shims.
+If provider login/status commands exist, run them. If they do not exist yet, report that provider auth belongs upstream in the provider stack rather than adding local token shims.
 
 ### `verify-wp-ai-gateway`
 
@@ -276,7 +256,7 @@ curl -sS "$WP_AI_GATEWAY_BASE_URL/models" \
 curl -sS "$WP_AI_GATEWAY_BASE_URL/chat/completions" \
   -H "Authorization: Bearer $WP_AI_GATEWAY_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"<codex-model>","messages":[{"role":"user","content":"Reply with ok."}]}'
+  -d '{"model":"<model>","messages":[{"role":"user","content":"Reply with ok."}]}'
 ```
 
 ## Reporting

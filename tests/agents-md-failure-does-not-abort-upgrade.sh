@@ -29,9 +29,7 @@ fi
 # Every phase reached after regenerate_agents_md. If the abort returns, these
 # stop appearing in the transcript.
 PHASES_AFTER=(
-  runtime_guidance_sync_managed_codex_projection
-  sync_claude_code_runtime
-  sync_runtime_signature
+  runtime_guidance_retire_codex_projection
   sync_runtime_instructions
   opencode_project_subagents_optional
   update_chat_bridge_systemd
@@ -59,7 +57,8 @@ PHASES_AFTER=(
 
   # Phases before the failing one, plus the unconditional ones.
   for phase in reconcile_provider_and_service_state sync_cli_transport_runtime \
-    update_ai_gateway sync_chat_bridge_config systems_capabilities_apply self_upgrade_apply \
+    wordpress_chat_write_env update_ai_gateway update_wordpress_chat \
+    sync_chat_bridge_config systems_capabilities_apply self_upgrade_apply \
     check_opencode_json_drift ai_gateway_configure_opencode sync_skills \
     "${PHASES_AFTER[@]}"; do
     echo "${phase}() { echo \"RAN ${phase}\"; }"

@@ -33,9 +33,8 @@ Human
         │
         ▼
 Coding runtime
-  ├─ OpenCode
-  ├─ Claude Code
-  └─ Codex
+  ├─ Pi (through Roadie)
+  └─ OpenCode
         │
         ▼
 WordPress + Data Machine
@@ -53,7 +52,7 @@ Data Machine is the always-present composition layer. It owns the persistent age
 The agent should know only what it can use.
 
 - **Data Machine** is always present and composes `AGENTS.md`, `SOUL.md`, `MEMORY.md`, `USER.md`, and shared site guidance.
-- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions, Claude Code `@` includes, or Codex's managed `AGENTS.override.md`.
+- **Coding runtimes** add only their runtime-specific configuration, such as OpenCode instructions. Other terminal tools (Codex, Claude Code, Pi) read the composed `AGENTS.md` directly.
 - **Chat bridges** describe the human communication surface when that bridge is selected.
 - **Developer orchestration layers** add guidance only when installed and verified.
 - **Unavailable tools** do not get stub instructions, fallback recipes, or negative constraints.
@@ -71,12 +70,7 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local
 cd ~/Studio/my-site && opencode
 ```
 
-Use Codex as the terminal runtime when you want the site context in a Codex session without a chat bridge:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-cd ~/Studio/my-site && codex
-```
+Any terminal coding tool that reads `AGENTS.md` (Pi, Codex, Claude Code via the `CLAUDE.md` symlink) gets the same site context when started from the site root. wp-coding-agents does not install or configure those tools.
 
 ### Chat-Connected Agent
 
@@ -113,12 +107,9 @@ When an optional orchestrator is available, its own presence-gated AGENTS sectio
 | WordPress | Site runtime, plugin host, WP-CLI surface | Existing local install or installed on VPS |
 | Data Machine | Agent identity, memory, composed guidance, abilities, flows, jobs | Always installed |
 | OpenCode | Coding runtime | Selected or auto-detected |
-| Claude Code | Coding runtime | Selected or auto-detected |
-| Codex | Coding runtime | Selected or auto-detected |
 | wp-coding-agents | Source policy, declared repository authority, runtime permissions, setup, and upgrade | Always installed |
-| Roadie | Discord bridge for OpenCode sessions | Optional chat bridge (the only one) |
+| Roadie | Discord bridge running Pi agent sessions | Optional chat bridge (the only one) |
 | Homeboy | Optional repo-aware task/lab orchestration, native Rust worktree lifecycle, and Cook | Enabled with `--with-homeboy` when available |
-| AI Provider for Claude Code | WP AI Client provider backed by Claude Code OAuth credentials | Installed when Claude Code is selected or detected |
 
 ## Installation
 
@@ -133,13 +124,7 @@ cd wp-coding-agents
 EXISTING_WP=~/Studio/my-site ./setup.sh --local
 ```
 
-Select a runtime explicitly when needed:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-```
+OpenCode is the only managed runtime, so `--runtime opencode` is the default. The Codex and Claude Code runtimes were removed ([#751](https://github.com/Extra-Chill/wp-coding-agents/issues/751)): `--runtime codex|claude-code`, or an installation profile that recorded either one, fails with a migration note. Use Pi with Roadie, or run those tools in a terminal against the composed `AGENTS.md`.
 
 ### VPS
 
@@ -274,7 +259,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 
 | Flag | Description |
 | --- | --- |
-| `--runtime <name>` | Coding runtime: `opencode`, `claude-code`, or `codex`. Auto-detected when omitted. |
+| `--runtime <name>` | Coding runtime: `opencode` (the default and only value). `codex` and `claude-code` were removed in #751. |
 | `--source-mode <name>` | `workspace` (default) or `owned`. See [Source Mode](#source-mode). `--posture` is a deprecated alias. |
 | `--workspace-repository <absolute-git-checkout>` | Existing primary Git checkout authority for workspace mode. Repeatable. |
 | `--workspace-repository-clone <git-remote> <absolute-destination>` | Materialize and declare a missing primary checkout. Existing destinations are validated and never overwritten; credential-free declarations persist for upgrade recovery. Repeatable. |
@@ -288,10 +273,10 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--roadie-unit <unit>` | Target a Roadie systemd instance, such as `roadie-example.service`. |
 | `--roadie-data-dir <path>` | Override that Roadie instance's state directory. |
 | `--roadie-lock-port <port>` | Override that Roadie instance's lock port. |
-| `--chat <bridge>` | Chat bridge: `roadie` (the only bridge; OpenCode runtime). Claude Code and Codex run without a managed chat bridge. |
+| `--chat <bridge>` | Chat bridge: `roadie` (the only bridge). |
 | `--no-chat` | Skip chat bridge setup. |
 | `--with-homeboy` | Enable optional Homeboy project/lab integration when available. |
-| `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for OpenCode runtimes. |
+| `--with-ai-gateway` | Enable optional [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) setup for Pi (Roadie sessions); an existing `opencode.json` gains the same provider. Without it, Pi stays on Roadie's credential pool. |
 | `--ai-gateway-provider <id>` | WordPress AI Client backend provider for the gateway route (default: `openai`). |
 | `--ai-gateway-model <id>` | Backend model for the gateway route (default: `gpt-4o-mini`). |
 | `--ai-gateway-opencode-model <id>` | OpenCode-facing gateway model ID (default: `site-default`). |
@@ -481,12 +466,8 @@ permissions and the generated guidance from the source mode and these
 declarations, so the prose cannot tell the agent to do something the
 permissions then block.
 
-Managed is currently supported on the `opencode` runtime only. OpenCode
-evaluates permissions with `findLast` over rules in config key order, so a
-narrow allow written after a broad deny wins. Claude Code treats deny as
-absolute and Codex has no documented precedence for overlapping filesystem
-entries, so both refuse owned mode rather than emit a permission set whose
-behavior on a production site is unverified.
+OpenCode evaluates permissions with `findLast` over rules in config key
+order, so a narrow allow written after a broad deny wins.
 
 The chosen mode is recorded on the install, so `./upgrade.sh` converges to it
 without repeating the flag. Pass `--source-mode` to either script to change it.
@@ -507,20 +488,14 @@ an instance explicitly. The single-instance defaults are `roadie.service` and
 
 OpenCode uses `opencode.json` with Data Machine-composed instruction files. Roadie is the chat bridge for OpenCode when chat is enabled.
 
-Pass `--with-ai-gateway` to opt OpenCode into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, and writes an OpenAI-compatible `provider.wp-ai-gateway` entry so clients receive only the gateway token while upstream credentials stay in WordPress. Native OpenCode auth is untouched unless gateway mode is opted in.
+Pass `--with-ai-gateway` to opt the agent runtime into this site's [WP AI Gateway](https://github.com/Automattic/wp-ai-gateway) endpoint. Setup installs the gateway/provider stack, configures the backend route via WP-CLI, mints (or reuses) a gateway token, merges a `wp-ai-gateway` provider into Pi's `models.json` (pointing the Roadie unit's `ROADIE_PI_MODEL` at it), and writes an OpenAI-compatible `provider.wp-ai-gateway` entry into any existing `opencode.json`. Clients receive only the gateway token while upstream credentials stay in WordPress. Without the flag, Pi sessions stay on Roadie's pooled subscription credentials.
 
 ```bash
 EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime opencode \
   --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
 ```
 
-### Claude Code
-
-Claude Code uses `CLAUDE.md` with generated `@` includes. A SessionStart hook refreshes the Data Machine memory includes for each session.
-
-When Claude Code is selected or detected, `wp-coding-agents` installs the carried `ai-provider-for-claude-code` plugin so WordPress AI Client consumers can use the local Claude Code OAuth-backed provider when appropriate.
-
-Both the standalone OpenCode OAuth plugin and the carried PHP provider resolve their
+The direct (non-Roadie) OpenCode Claude Pro/Max OAuth plugin resolves its
 `claude-cli/<version>` client identity from the public npm registry's stable
 `@anthropic-ai/claude-code` release. The installed Claude CLI is optional. Successful
 lookups are cached for six hours and refreshed on subsequent requests, including
@@ -528,53 +503,31 @@ in long-running sessions. Registry requests have a three-second timeout, send no
 OAuth credentials, and do not follow redirects. An unavailable or invalid registry
 response retains the last good version and retries after five minutes; a fresh
 offline install uses the bundled bootstrap version until discovery succeeds.
-
 OpenCode stores this public metadata in
-`${XDG_CACHE_HOME:-~/.cache}/opencode/claude-code-version.json`; WordPress stores it
-in the non-autoloaded `ai_provider_claude_code_client_version` option. Warm requests
-use the process cache. `OPENCODE_ANTHROPIC_USER_AGENT` and
-`AI_PROVIDER_CLAUDE_CODE_USER_AGENT` still override discovery entirely (the PHP
-constant takes precedence over the environment variable).
+`${XDG_CACHE_HOME:-~/.cache}/opencode/claude-code-version.json`.
+`OPENCODE_ANTHROPIC_USER_AGENT` overrides discovery entirely.
 
-### Codex
+### Codex and Claude Code
 
-Codex reads `AGENTS.override.md` from the WordPress site root when present, before falling back to `AGENTS.md`. Because Codex does not load arbitrary instruction files from an `instructions` array or Claude-style `@` includes, setup and upgrade generate a Codex-owned `AGENTS.override.md` from the shared `AGENTS.md` plus the local Data Machine memory files.
-
-Keeping the Codex memory mirror in `AGENTS.override.md` avoids polluting the shared `AGENTS.md` that OpenCode also reads. On a site with both runtimes, OpenCode keeps using `AGENTS.md` plus `opencode.json` instructions, while Codex gets the same site guidance and memory through its generated override.
-
-Setup registers Codex thread attribution when available, and leaves global Codex config and auth state alone.
-
-Codex does not currently have a managed chat bridge in this repo, so setup defaults to terminal/manual operation:
-
-```bash
-EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime codex
-cd ~/Studio/my-site && codex
-```
+These are no longer managed runtimes ([#751](https://github.com/Extra-Chill/wp-coding-agents/issues/751)). Run them in a terminal from the site root; they read the composed `AGENTS.md` (Claude Code through the `CLAUDE.md` symlink). Upgrade removes a stale managed `AGENTS.override.md` left by the old Codex projection (a user-owned one without the managed marker is left alone).
 
 ### Roadie
 
-[Roadie](https://github.com/Extra-Chill/roadie) is the Discord surface and the only managed chat bridge. Setup installs the pinned Roadie release (`bridges/roadie/roadie-version`) and its [Pi](https://pi.dev) agent backend (`bridges/roadie/pi-version`, `@earendil-works/pi-coding-agent`), each moved to its newest release hourly by its `Refresh … pin` workflow (Pi within its major version). VPS installs use root-owned prefixes under `/usr/local/lib/wp-coding-agents/`; local installs use the user's global npm. The unit runs `ROADIE_BACKEND=pi`, with `ROADIE_PI_BIN` and `ROADIE_PI_MODEL` (the site's `opencode.json` model, served by the same Roadie credential pool), only after `pi --version` passes Roadie's 1.x gate as the service user; otherwise it runs `ROADIE_BACKEND=opencode`, so a failed Pi install never leaves Roadie crash-looping. Sessions OpenCode already owns keep running on OpenCode. With `--roadie-pool-url <url>` (and the bot's client key from `roadie credentials client add` on the pool host, passed once as `ROADIE_POOL_KEY` and stored as `<secrets>/pool-key`, mode 0600) the bot keeps no accounts and bills its Pi sessions through a shared pool host (`roadie credentials serve`); without the key it keeps its local pool and reports the gap. `--roadie-pool-url local` switches back. Roadie runs with `ROADIE_MANAGED=1` so it never upgrades itself, and keeps secrets as files under `/etc/wp-coding-agents/roadie/` (`bot-token`, and a `send-token` the web user reads so scheduled dispatch can `roadie send` through the running bot without sudo). Roadie resumes runs that a restart interrupted.
+[Roadie](https://github.com/Extra-Chill/roadie) is the Discord surface and the only managed chat bridge. Setup installs the pinned Roadie release (`bridges/roadie/roadie-version`) and its [Pi](https://pi.dev) agent backend (`bridges/roadie/pi-version`, `@earendil-works/pi-coding-agent`), each moved to its newest release hourly by its `Refresh … pin` workflow (Pi within its major version). VPS installs use root-owned prefixes under `/usr/local/lib/wp-coding-agents/`; local installs use the user's global npm. Pi is Roadie's only agent backend (Roadie v0.67.0 removed OpenCode), so the unit sets no `ROADIE_BACKEND`. It carries `ROADIE_PI_BIN` once `pi --version` passes Roadie's 1.x gate as the service user; when Pi does not verify, setup and upgrade report it, and Roadie looks for `pi` on `PATH` and fails at startup with its own error. `ROADIE_PI_MODEL` comes from the operator: pass `ROADIE_PI_MODEL=<provider/model>` to setup or upgrade, and an installed unit keeps the value it already carries. Without one, Pi uses `defaultProvider`/`defaultModel` from `settings.json` in Roadie's Pi agent dir (`<data-dir>/pi-agent`). `ROADIE_PI_TITLE_MODEL=<provider/model>` names a small model for thread titles, passed and kept the same way; without one, titles use the session model. `opencode.json` is not read for Roadie. With `--roadie-pool-url <url>` (and the bot's client key from `roadie credentials client add` on the pool host, passed once as `ROADIE_POOL_KEY` and stored as `<secrets>/pool-key`, mode 0600) the bot keeps no accounts and bills its Pi sessions through a shared pool host (`roadie credentials serve`); without the key it keeps its local pool and reports the gap. An admin client key (`client add <name> --admin`, passed once as `ROADIE_POOL_ADMIN_KEY` and stored as `<secrets>/pool-admin-key`) adds `ROADIE_POOL_ADMIN_KEY_FILE`, so `/credentials` and `/login` manage the pool host's accounts. `--roadie-pool-url local` switches back. Roadie runs with `ROADIE_MANAGED=1` so it never upgrades itself, and keeps secrets as files under `/etc/wp-coding-agents/roadie/` (`bot-token`, and a `send-token` the web user reads so scheduled dispatch can `roadie send` through the running bot without sudo). Roadie resumes runs that a restart interrupted.
 
-Managed installs replace Roadie's generic prompt sections with a small bridge prompt (`ROADIE_PROMPT_CONFIG`) so orchestration, workspace, tunnel, and preview guidance come from the installed components that own those capabilities. The managed OpenCode plugins (Data Machine memory sync, the command ownership guard, and Homeboy session attribution) are synced into Roadie's config directory. See [managed Roadie context](docs/roadie-managed-context.md).
+Managed installs replace Roadie's generic prompt sections with a small bridge prompt (`ROADIE_PROMPT_CONFIG`) so orchestration, workspace, tunnel, and preview guidance come from the installed components that own those capabilities. The managed Roadie plugins (`host-upgrade`, `wordpress-context`, `wordpress-platform`, `fork-workspace`) are synced into Roadie's config directory. `wordpress-platform` registers WordPress itself as a Roadie chat platform: turns queued by the runtime-backed `agents/chat` handler arrive through the inbound-event connector, and the session's output is written back into the WordPress conversation run through the claim-token-bound `agents/*` write abilities. See [managed Roadie context](docs/roadie-managed-context.md).
 
-**Migrating from Kimaki.** An upgrade on a Kimaki install migrates it in place: Kimaki is stopped, its session database is copied with an SQLite online backup and integrity check, attachments and projects are copied, the bot token, lock port, and agent slug are carried over, and the Kimaki unit is disabled. The subscription accounts move too: OpenCode's rotation pools (`<provider>-oauth-accounts.json`) and logins (`auth.json`) are imported into Roadie's shared credential pool (`roadie credentials import-opencode`), in the same order with the same active account, so nobody logs in again. Model choices follow: each direct model on those providers (`anthropic/claude-opus-5-5`, ...) in `opencode.json` and the stored channel, session and global choices gets a Roadie rotation of exactly that model (`roadie/anthropic-claude-opus-5-5`), and the choices point at it. Same model, now rotating across that provider's accounts; no routing policy is installed, and a rotation that already exists is kept. Add cross-provider fallbacks with `roadie credentials rotation set <name> <provider/model>...`. API-key providers are left as they are. This happens only while Kimaki is stopped, because refresh tokens rotate on use and two live copies invalidate each other. The Kimaki unit and `~/.kimaki` are left untouched as the rollback; a failed migration (database or accounts) restarts Kimaki.
+**Migrating from Kimaki.** An upgrade on a Kimaki install migrates it in place: Kimaki is stopped, its session database is copied with an SQLite online backup and integrity check, attachments and projects are copied, the bot token, lock port, and agent slug are carried over, and the Kimaki unit is disabled. The subscription accounts move too: OpenCode's rotation pools (`<provider>-oauth-accounts.json`) and logins (`auth.json`) are imported into Roadie's shared credential pool (`roadie credentials import-opencode`), in the same order with the same active account, so nobody logs in again. Model choices follow: each direct model on those providers (`anthropic/claude-opus-5-5`, ...) in the stored channel, session and global choices gets a Roadie rotation of exactly that model (`roadie/anthropic-claude-opus-5-5`), and the choices point at it. Same model, now rotating across that provider's accounts; no routing policy is installed, and a rotation that already exists is kept. Add cross-provider fallbacks with `roadie credentials rotation set <name> <provider/model>...`. API-key providers are left as they are. This happens only while Kimaki is stopped, because refresh tokens rotate on use and two live copies invalidate each other. The Kimaki unit and `~/.kimaki` are left untouched as the rollback; a failed migration (database or accounts) restarts Kimaki.
 
 Discord access is reconciled too, once the gateway is healthy: Roadie grants session access to the guild owner, Administrator, Manage Server, or a role named `Roadie` (case-insensitive), and Kimaki-era users hold a `kimaki` role, which Roadie stopped reading when it made a clean break from Kimaki install compatibility (roadie#32) — without this step every non-owner user is told to find a Roadie role that does not exist (#705). The migration renames `kimaki` to `Roadie` with the bot token when the bot has Manage Roles; otherwise, or when a `Roadie` role already exists, the upgrade summary carries the exact action (rename it by hand, or assign the existing role). The upgrade pass replays the reconciliation for installs cut over before this fix.
 
-To roll back, export the pool's current tokens back first (Roadie has refreshed them since, so Kimaki's copies are stale), then restore `opencode.json` from its `opencode.json.before-roadie-*` backup and swap the services. The upgrade summary prints the exact command:
+To roll back, swap the services: `systemctl disable --now roadie && systemctl enable --now kimaki`. Roadie has refreshed the subscription tokens since the migration, so Kimaki's copies are stale; log in again in OpenCode (`opencode auth login`) after the swap.
 
-```bash
-sudo -u <service-user> -H ROADIE_DATA_DIR=<service-home>/.roadie \
-  /usr/local/lib/wp-coding-agents/roadie/bin/roadie credentials export-opencode \
-  --opencode-data <service-home>/.local/share/opencode --pool shared
-systemctl disable --now roadie && systemctl enable --now kimaki
-```
+After the cutover, add accounts with Roadie's `/login` (or `/credentials login-anthropic`): that adds to the shared credential pool.
 
-After the cutover, add accounts with Roadie's `/login` (or `/credentials login-anthropic`): that adds to the shared credential pool. On upgrade, `opencode.json` `model`/`small_model` values still naming `subrouter/<preset>` move to `roadie/<preset>` once that rotation exists in the pool; until then Roadie keeps serving the `subrouter/` spelling from the pool.
+**Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)).
 
-**Telegram and cc-connect were removed.** Roadie is the only bridge. Installs that used the Telegram or cc-connect bridges lose managed support: upgrade warns, leaves the existing service running as is, and no longer installs, configures, or updates it. New installs cannot select them. This lasts until Roadie supports more platforms ([Extra-Chill/roadie#14](https://github.com/Extra-Chill/roadie/issues/14)). Claude Code and Codex run without a managed chat bridge.
-
-Inbound events queue independently of a runtime. The queue intentionally has no Roadie connector yet: a connector needs a durable conversation-to-runtime mapping, and missing mappings fail closed.
+Inbound events queue independently of a runtime. Agents explicitly configured as runtime-backed route their `agents/chat` turns into the same queue: the mu-plugin registers an agents-api `wp_agent_chat_handler` for each agent slug listed under the `runtime-chat` entry of the inbound adapter config (`array( 'runtime-chat' => array( 'agents' => array( '<agent-slug>' => '<runtime-id>' ) ) )`, via the config filter or constant), validates permission as the authenticated WP user, enqueues exactly one durable event per turn (conversation_id = the WP `session_id`, with the message, attachments, acting user, and run_id), and returns a pending run. Unconfigured agents are untouched, and vendor and runtime names live only in installer-written config. The WP session is durably mapped to a runtime conversation ID on the first turn; a continuing session without a mapping fails closed. Answers to interactive questions arrive as further turns on the mapped session, and cancellation flows through the same queue via `wp_agent_chat_run_cancel_handler`. The runtime side claims events for its `runtime_id` with the existing `claim`/`acknowledge`/`retry` contract and acknowledges only after it accepts the turn; writing results back to the pending run depends on [Automattic/agents-api#585](https://github.com/Automattic/agents-api/issues/585).
 
 The optional signed Slack adapter is configured through the inbound adapter config filter or constant with a signing secret, runtime ID, and explicit `allowed_team_ids` plus `allowed_channel_ids` allowlists.
 
@@ -595,7 +548,7 @@ Data Machine manages the agent's persistent files:
 | `MEMORY.md` | Agent | Persistent project knowledge |
 | `USER.md` | User | Human profile and preferences |
 
-The selected runtime reads this memory at session start. Direct OpenCode installs reference the files from `opencode.json`, Claude Code uses generated `@` includes, and Codex receives the same file contents through a generated site-root `AGENTS.override.md`. Under the Roadie bridge no static file references are synced: Roadie's `wordpress-context` plugin supplies the memory per session and speaker (`docs/roadie-user-context.md`), so OpenCode sessions get current context without file wiring. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
+The selected runtime reads this memory at session start. Direct OpenCode installs reference the files from `opencode.json`. Under the Roadie bridge no static file references are synced: Roadie's `wordpress-context` plugin supplies the memory per session and speaker (`docs/roadie-user-context.md`), so Roadie's Pi sessions get current context without file wiring. The agent can update memory through Data Machine instead of relying on runtime-specific memory features.
 
 ## Abilities And Dispatch
 
@@ -678,7 +631,7 @@ Run `./upgrade.sh --help` for upgrade flags.
 
 - [Data Machine](https://github.com/Extra-Chill/data-machine) — WordPress-native agent memory, abilities, flows, and jobs.
 - [Homeboy](https://github.com/Extra-Chill/homeboy) — Optional orchestration/lab layer for repo-aware coding workflows.
-- [Roadie](https://github.com/Extra-Chill/roadie) — Discord bridge used by OpenCode installs.
+- [Roadie](https://github.com/Extra-Chill/roadie) — Discord bridge (Pi agent backend), installed with the OpenCode runtime.
 
 ## Contributing
 

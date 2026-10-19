@@ -8,7 +8,6 @@
 #   Fresh VPS:        SITE_DOMAIN=example.com ./setup.sh
 #   Existing WP:      EXISTING_WP=/var/www/mysite ./setup.sh --existing
 #   Local (macOS):    EXISTING_WP=/path/to/wordpress ./setup.sh --local
-#   Claude Code:      ./setup.sh --runtime claude-code
 #   Without Discord:  ./setup.sh --no-chat
 #
 # Data Machine is the substrate wp-coding-agents composes on top of — memory
@@ -23,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -77,7 +76,6 @@ WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 RUNTIME=""
-CHAT_BRIDGE_EXPLICIT=false
 HOMEBOY_MODE="auto"
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
@@ -151,7 +149,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --chat)
       CHAT_BRIDGE="$2"
-      CHAT_BRIDGE_EXPLICIT=true
       shift 2
       ;;
     --skip-ssl)
@@ -253,6 +250,10 @@ while [[ $# -gt 0 ]]; do
       ROTATE_AI_GATEWAY_TOKEN=true
       shift
       ;;
+    --wordpress-chat-agent)
+      WORDPRESS_CHAT_AGENT="$2"
+      shift 2
+      ;;
     --no-homeboy)
       HOMEBOY_MODE="disabled"
       shift
@@ -267,6 +268,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --runtime)
+      reject_removed_runtime "$2" --runtime
       RUNTIME="$2"
       shift 2
       ;;
@@ -369,8 +371,6 @@ USAGE:
   Fresh VPS:          SITE_DOMAIN=example.com ./setup.sh
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
   Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
-  With Claude Code:   ./setup.sh --runtime claude-code --existing
-  With Codex:         ./setup.sh --runtime codex --existing --no-chat
 
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
@@ -438,8 +438,11 @@ OPTIONS:
                      Bill through a remote credential pool host
                      (roadie credentials serve). The client key comes from
                      ROADIE_POOL_KEY (env, never argv) or an existing
-                     <secrets>/pool-key file. Pass "local" to return to the
-                     bot's own pool.
+                     <secrets>/pool-key file. An optional admin client key
+                     (client add <name> --admin) from ROADIE_POOL_ADMIN_KEY
+                     or <secrets>/pool-admin-key lets /credentials and /login
+                     manage the host's accounts. Pass "local" to return to
+                     the bot's own pool.
   --no-chat          Skip the chat bridge
   --chat <bridge>    Chat bridge to install. The only bridge is roadie (Discord),
                      installed by default for the opencode runtime
@@ -470,10 +473,13 @@ OPTIONS:
   --wordpress-service-workers <n>
                       Concurrent PHP workers for the local service (default: 4).
                       One slow request no longer blocks every page.
-  --with-ai-gateway  Opt in to WP AI Gateway setup for OpenCode runtimes.
+  --with-ai-gateway  Opt in to WP AI Gateway setup for Pi (Roadie sessions).
                      Installs/activates the gateway/provider stack, configures
-                     the gateway route, mints/reuses a gateway token, and adds
-                     an OpenAI-compatible provider to opencode.json.
+                     the gateway route, mints/reuses a gateway token, merges a
+                     gateway provider into Pi's models.json, and points the
+                     Roadie unit's ROADIE_PI_MODEL at it. Without the flag, Pi
+                     stays on Roadie's credential pool. An existing
+                     opencode.json also gains an OpenAI-compatible provider.
   --ai-gateway-provider <id>
                      Backend WordPress AI Client provider for site-default
                      routing (default: openai)
@@ -492,6 +498,15 @@ OPTIONS:
   --rotate-ai-gateway-token
                       Mint a new gateway token instead of reusing the existing
                       .opencode/wp-ai-gateway.env value
+  --wordpress-chat-agent <slug>
+                      Opt in to WordPress-native chat for one agent: writes the
+                      runtime-chat adapter config (agent slug -> runtime ID),
+                      mints and reuses a shared signing secret in a 0600 env
+                      file, runs the inbound-event-connector as a managed
+                      service next to Roadie, adds wordpress to the Roadie
+                      platform list, and ensures a wordpress:<context> channel
+                      entry. Recorded durably; upgrades converge without
+                      repeating the flag.
   --no-claude-code-auth
                       Skip the managed direct OpenCode Claude Pro/Max OAuth
                       auth plugin. Installed by default for direct OpenCode
@@ -536,6 +551,10 @@ ENVIRONMENT VARIABLES:
   ROADIE_UNIT               Roadie systemd unit (default: roadie.service)
   ROADIE_DATA_DIR           Roadie state directory
   ROADIE_LOCK_PORT          Roadie lock port
+  ROADIE_PI_MODEL           Pi model for Roadie sessions (provider/model);
+                            default: Pi's settings.json defaultModel
+  ROADIE_PI_TITLE_MODEL     Small Pi model for thread titles (provider/model);
+                            default: the session model
   EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
   MCP_SERVERS        JSON object merged into runtime config (requires jq)
   WP_CLI_TRANSPORT_JSON
@@ -562,36 +581,11 @@ fi
 # Runtime resolution
 # ============================================================================
 
-# Auto-detect runtime(s).
-#
-# RUNTIME is the "primary" runtime — the one that drives runtime_install,
-# runtime_generate_config, runtime_install_hooks, and the chat-bridge default.
-# First-match cascade: claude-code > opencode > codex.
-#
-# DETECTED_RUNTIMES is the list of ALL runtimes whose binary is present. On a
-# machine with claude, opencode, and codex installed, retired managed skills are
-# removed from every detected runtime's skills dir (see lib/skills.sh).
-# Explicit --runtime <name> narrows both lists to that single runtime.
-if [ -n "$RUNTIME" ]; then
-  # User passed --runtime explicitly — respect it, single-runtime mode.
-  DETECTED_RUNTIMES=("$RUNTIME")
-else
-  if command -v claude &>/dev/null; then
-    DETECTED_RUNTIMES+=("claude-code")
-  fi
-  if command -v opencode &>/dev/null; then
-    DETECTED_RUNTIMES+=("opencode")
-  fi
-  if command -v codex &>/dev/null; then
-    DETECTED_RUNTIMES+=("codex")
-  fi
-  if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
-    # Nothing installed yet — default to opencode (will be installed).
-    DETECTED_RUNTIMES=("opencode")
-  fi
-  # Primary = first match in the cascade above.
-  RUNTIME="${DETECTED_RUNTIMES[0]}"
-fi
+# OpenCode is the only managed runtime. Codex and Claude Code were removed in
+# #751: they read the composed AGENTS.md natively when run in a terminal, so a
+# request for either one fails during argument parsing.
+RUNTIME="${RUNTIME:-opencode}"
+DETECTED_RUNTIMES=("$RUNTIME")
 
 # Source the selected runtime
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
@@ -600,23 +594,10 @@ if [ ! -f "$RUNTIME_FILE" ]; then
 fi
 source "$RUNTIME_FILE"
 
-# Set default chat bridge based on runtime
-# Roadie is the only chat bridge, and it runs the OpenCode runtime.
+# Roadie is the only chat bridge.
 if [ "$INSTALL_CHAT" = true ]; then
-  if [ "$RUNTIME" != "opencode" ]; then
-    if [ "$CHAT_BRIDGE_EXPLICIT" = true ]; then
-      error "The chat bridge (Roadie) requires --runtime opencode; use --no-chat with $RUNTIME."
-    fi
-    INSTALL_CHAT=false
-    CHAT_BRIDGE=""
-  else
-    CHAT_BRIDGE="${CHAT_BRIDGE:-roadie}"
-    [ "$CHAT_BRIDGE" = roadie ] || error "Unsupported chat bridge '$CHAT_BRIDGE'. The only bridge is roadie."
-  fi
-fi
-
-if [ "$EXTERNAL_WORDPRESS" = true ] && [ "$RUNTIME" != "opencode" ]; then
-  error "--external-wordpress currently requires --runtime opencode"
+  CHAT_BRIDGE="${CHAT_BRIDGE:-roadie}"
+  [ "$CHAT_BRIDGE" = roadie ] || error "Unsupported chat bridge '$CHAT_BRIDGE'. The only bridge is roadie."
 fi
 
 # ============================================================================
@@ -642,7 +623,6 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
-source_policy_assert_runtime_supports_mode
 
 # Owned mode defaults to a non-root service user (#327). Must run after the mode
 # resolves and before create_service_user / setup_service_permissions, both of
@@ -692,6 +672,9 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then
   source_policy_record_writable_paths
   source_policy_record_log_paths
   ai_gateway_apply
+  # The shared WordPress chat secret must exist before any bridge render
+  # references its env file or inlines its values (#779).
+  wordpress_chat_write_env
 fi
 
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
@@ -710,7 +693,7 @@ fi
 [ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
 [ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
 [ "$RUNTIME_ONLY" != true ] && remove_retired_skills
-if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; else inbound_event_connector_install; fi; fi
+if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; wordpress_chat_apply; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same
 # way a live change will.
 if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then source_reconcile_sync; source_reconcile_run; fi

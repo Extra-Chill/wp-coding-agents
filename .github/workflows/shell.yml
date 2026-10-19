@@ -159,6 +159,8 @@ jobs:
         run: bash tests/inbound-event-bridge.sh
       - name: Run tests/smoke-inbound-event-bridge.php
         run: php tests/smoke-inbound-event-bridge.php
+      - name: Run tests/smoke-runtime-chat-handler.php
+        run: php tests/smoke-runtime-chat-handler.php
       - name: Run tests/inbound-event-connector.py
         run: python3 tests/inbound-event-connector.py
 
@@ -177,6 +179,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/ai-gateway.sh
         run: ./tests/ai-gateway.sh
+
+  wordpress-chat-activation:
+    name: WordPress chat opt-in activation (#779)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/wordpress-chat-activation.sh
+        run: ./tests/wordpress-chat-activation.sh
 
   cli-channel-binary-path:
     name: Roadie CLI channel reachable by the web user (#198)
@@ -209,6 +219,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/roadie-managed-env.sh
         run: ./tests/roadie-managed-env.sh
+
+  roadie-speaker-context-gate:
+    name: --speaker-context gated on the service plugin set (#729)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/roadie-speaker-context-gate.sh
+        run: ./tests/roadie-speaker-context-gate.sh
 
   runtime-guard:
     name: runtime deactivation guard (#328)
@@ -255,18 +273,6 @@ jobs:
         run: ./tests/opencode-local-plugin-path.sh
       - name: Run tests/repair-opencode-json.sh
         run: ./tests/repair-opencode-json.sh
-      - name: Run tests/claude-code-permissions.sh
-        run: ./tests/claude-code-permissions.sh
-      - name: Run tests/codex-permissions.sh
-        run: ./tests/codex-permissions.sh
-
-  claude-code-hook-scope:
-    name: Claude Code hook agent scoping
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/claude-code-hook-scope.sh
-        run: ./tests/claude-code-hook-scope.sh
 
   # Suites that had no CI job until #335. Run as a matrix so adding a test is a
   # one-line change and tests/ci-coverage.sh stays satisfied; invoked through
@@ -282,9 +288,8 @@ jobs:
           - webroot-backup-hygiene
           - agents-md-failure-does-not-abort-upgrade
           - agents-md-compose-site-owner
-          - carried-claude-code-plugin
+          - carried-plugins
           - ci-coverage
-          - codex-runtime
           - datamachine-worker
           - detect-php-version
           - detect-site-domain
@@ -301,10 +306,13 @@ jobs:
           - roadie-application-config
           - roadie-fork-workspace
           - roadie-wordpress-context
+          - roadie-wordpress-platform
           - roadie-kimaki-migration
           - roadie-multi-instance
           - roadie-provision
           - roadie-pi-backend
+          - roadie-boot-smoke
+          - roadie-release-breaking
           - roadie-remote-pool
           - refresh-roadie-pin
           - refresh-pi-pin
@@ -331,6 +339,8 @@ jobs:
           - runtime-guidance-desired-state
           - convergence-orchestrator
           - bridge-service-adapters
+          - bridge-reconcile-progress
+          - bridge-failure-gates-dependent-steps
           - integration-adapters
           - upgrade-opencode-auth-plugin-sync
           - wordpress-service
@@ -342,19 +352,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace'
+        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace' || matrix.test == 'roadie-boot-smoke'
         with:
           node-version: 24
       - name: Install verified Homeboy workspace fixture
         if: matrix.test == 'roadie-fork-workspace'
-        # The installer fetches `latest` unless the tag and version are set, so
-        # the URL alone never pinned anything. 0.421.0 is the last release with
-        # `agent-task submit`, which the fixture uses to seed active-scope runs
-        # (removed in 0.422.0 by Extra-Chill/homeboy#15859).
-        env:
-          HOMEBOY_UPGRADE_RELEASE_TAG: v0.421.0
-          HOMEBOY_UPGRADE_RELEASE_VERSION: 0.421.0
-        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/download/v0.421.0/homeboy-installer.sh | sh
+        # The fixture seeds active-scope ownership through its own wrapper
+        # command, so any current Homeboy release provides the worktree surface
+        # the test drives.
+        run: curl -fsSL https://github.com/Extra-Chill/homeboy/releases/latest/download/homeboy-installer.sh | sh
       - name: Install sqlite3 for the Kimaki migration test
         if: matrix.test == 'roadie-kimaki-migration'
         run: command -v sqlite3 || (sudo apt-get update && sudo apt-get install -y sqlite3)

@@ -15,13 +15,11 @@
 #                managed agentic hosting, where a non-technical owner should
 #                never have to deal with pull requests.
 #
-# That single choice has to be enforced in four unrelated places — three runtime
-# permission surfaces and the generated AGENTS.md prose. Before this file the
-# same three globs were hardcoded in all of them independently:
+# That single choice has to be enforced in several unrelated places — the
+# runtime permission surface and the generated AGENTS.md prose. Before this file
+# the same globs were hardcoded in all of them independently:
 #
 #   runtimes/opencode.sh        permission.edit
-#   runtimes/claude-code.sh     permissions.deny
-#   runtimes/codex.sh           permissions filesystem profile
 #   lib/repair-opencode-json.py reconciliation of permission.edit
 #   lib/agents-md-guidance.sh   the prose telling the agent what it may touch
 #
@@ -688,37 +686,6 @@ source_policy_remove_owned_manifest() {
   fi
 }
 
-# Runtimes whose permission model can express "deny a directory, then allow
-# specific paths inside it".
-#
-# OpenCode can: permission evaluation is `findLast` over a ruleset built in JSON
-# key order (packages/opencode/src/permission/index.ts), so a narrower allow
-# written AFTER a broad deny wins. Key order is therefore load-bearing.
-#
-# Claude Code cannot: deny is absolute and an allow never overrides it, so the
-# same shape would leave the owned paths unusable. Codex filesystem profiles
-# have no documented precedence for overlapping entries either. Rather than emit
-# a permission set whose behavior is unverified on a live production site, those
-# runtimes refuse owned source mode outright.
-source_policy_runtime_supports_owned() {
-  case "${1:-${RUNTIME:-}}" in
-    opencode) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-source_policy_assert_runtime_supports_mode() {
-  if ! source_policy_is_owned; then
-    return 0
-  fi
-
-  if source_policy_runtime_supports_owned "${RUNTIME:-}"; then
-    return 0
-  fi
-
-  error "Owned source mode is not supported on the '${RUNTIME:-unknown}' runtime yet — only 'opencode' can express scoped source permissions safely. See lib/source-policy.sh."
-}
-
 # Whether a tracked workspace (and therefore git/GitHub) is part of this
 # install's architecture.
 #
@@ -992,8 +959,8 @@ source_policy_edit_rules() {
   done < <(source_policy_writable_paths)
 }
 
-# Render one rule path for a runtime that uses glob patterns (OpenCode,
-# Claude Code). Directories get /**; files stay literal so they anchor to the
+# Render one rule path for a runtime that uses glob patterns (OpenCode).
+# Directories get /**; files stay literal so they anchor to the
 # site root instead of matching same-named files inside components.
 source_policy_pattern() {
   local path="$1" kind="$2"

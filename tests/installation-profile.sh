@@ -97,10 +97,10 @@ fi
 test "$INSTALL_CHAT" = true
 
 # Explicit command-line intent remains authoritative over persisted defaults.
-RUNTIME=codex
+RUNTIME=explicit-runtime
 AGENT_SLUG=reviewer
 installation_profile_load
-test "$RUNTIME" = codex
+test "$RUNTIME" = explicit-runtime
 test "$AGENT_SLUG" = reviewer
 
 # Disabled optional components round-trip as intent rather than being inferred
@@ -132,7 +132,7 @@ test "$(cat "$TMP/outside/installation-profile")" = sentinel
 # aborting the whole upgrade; explicit intent and detection still apply.
 rm -f "$SITE_PATH/.wp-coding-agents"
 mkdir -p "$SITE_PATH/.wp-coding-agents"
-printf 'runtime=codex\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
+printf 'runtime=opencode\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
 chmod 000 "$SITE_PATH/.wp-coding-agents/installation-profile"
 if [ "$(id -u)" -ne 0 ]; then
   RUNTIME=""
@@ -144,5 +144,35 @@ if [ "$(id -u)" -ne 0 ]; then
   esac
 fi
 chmod 600 "$SITE_PATH/.wp-coding-agents/installation-profile"
+
+# The Codex and Claude Code runtimes were removed (#751). An explicit --runtime
+# and a recorded profile runtime naming either one fail with a migration note;
+# there is no compatibility path.
+assert_removed_runtime() {
+  local label="$1" origin="$2" runtime="$3" output status
+  shift 3
+  set +e
+  output="$(env -i HOME="$HOME" PATH="$PATH" "$@" 2>&1)"
+  status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    echo "FAIL: $label accepted removed runtime $runtime" >&2
+    exit 1
+  fi
+  case "$output" in
+    *"$origin '$runtime' was removed (wp-coding-agents#751)"*"Use Pi with Roadie"*"AGENTS.md"*) ;;
+    *) echo "FAIL: $label did not name #751 for $runtime: $output" >&2; exit 1 ;;
+  esac
+}
+REMOVED_SITE="$TMP/removed-runtime-site"
+mkdir -p "$REMOVED_SITE/.wp-coding-agents"
+touch "$REMOVED_SITE/wp-config.php"
+for removed in codex claude-code; do
+  assert_removed_runtime "setup.sh --runtime" --runtime "$removed" bash "$ROOT_DIR/setup.sh" --runtime "$removed" --dry-run
+  assert_removed_runtime "upgrade.sh --runtime" --runtime "$removed" bash "$ROOT_DIR/upgrade.sh" --runtime "$removed" --dry-run
+  printf 'runtime=%s\n' "$removed" > "$REMOVED_SITE/.wp-coding-agents/installation-profile"
+  assert_removed_runtime "upgrade.sh recorded profile" "Recorded installation-profile runtime" "$removed" \
+    bash "$ROOT_DIR/upgrade.sh" --local --wp-path "$REMOVED_SITE" --dry-run
+done
 
 echo "PASS: credential-free installation profile persists declarative intent"

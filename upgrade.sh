@@ -59,7 +59,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -173,6 +173,7 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
+    --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
     --workspace-repository) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository "$2"; shift 2 ;;
     --workspace-repository-clone) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository_clone "$2" "$3"; shift 3 ;;
@@ -182,7 +183,7 @@ while [[ $# -gt 0 ]]; do
     --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
     --systems-capabilities) SYSTEMS_CAPABILITIES_PROFILE="$2"; shift 2 ;;
     --systems-capabilities-only) SYSTEMS_CAPABILITIES_ONLY=true; shift ;;
-    --runtime)       RUNTIME="$2"; shift 2 ;;
+    --runtime)       reject_removed_runtime "$2" --runtime; RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
     --project-agent-bundle) OPENCODE_AGENT_BUNDLE="$2"; shift 2 ;;
@@ -287,7 +288,9 @@ USAGE:
                                  Override the selected Roadie lock port
   ./upgrade.sh --roadie-pool-url <url|local>
                                  Bill through a remote credential pool host
-                                 (key: ROADIE_POOL_KEY env or <secrets>/pool-key);
+                                 (key: ROADIE_POOL_KEY env or <secrets>/pool-key;
+                                 optional admin key for /credentials and /login:
+                                 ROADIE_POOL_ADMIN_KEY env or <secrets>/pool-admin-key);
                                  "local" returns to the bot's own pool
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
@@ -295,10 +298,24 @@ USAGE:
   ./upgrade.sh --non-root       Force non-root service identity (User=opencode)
   ./upgrade.sh --with-ai-gateway
                                 Opt in to additive WP AI Gateway integration
-                                for OpenCode: install/activate gateway stack,
-                                configure route, reuse existing token env, and
-                                merge a wp-ai-gateway OpenAI-compatible provider
-                                 into opencode.json.
+                                for Pi: install/activate gateway stack,
+                                configure route, reuse existing token env,
+                                merge a wp-ai-gateway provider into Pi's
+                                models.json, and set the Roadie unit's Pi
+                                model to the gateway model. An existing
+                                opencode.json gains the same provider.
+                                Without the flag, Pi stays on Roadie's
+                                credential pool.
+  ./upgrade.sh --wordpress-chat-agent <slug>
+                                Opt in to WordPress-native chat for one agent:
+                                writes the runtime-chat adapter config (slug ->
+                                runtime ID), mints/reuses a shared signing
+                                secret in a 0600 env file, runs the
+                                inbound-event-connector as a managed service
+                                next to Roadie, adds wordpress to the Roadie
+                                platform list, and ensures a wordpress:<context>
+                                channel entry. Once enabled, later upgrades
+                                converge without repeating the flag.
   ./upgrade.sh --with-datamachine-worker
                                  Opt in to the managed bounded Data Machine
                                  worker. The choice persists across upgrades.
@@ -393,9 +410,10 @@ OPT-IN TOUCHES:
     so the array matches exactly what setup would produce today.
   - WP AI Gateway (--with-ai-gateway) — installs/updates wp-ai-gateway and
     ai-provider-for-openai, configures the gateway route, writes/reuses
-    .opencode/wp-ai-gateway.env, and additively merges provider.wp-ai-gateway
-    into opencode.json. Existing gateway tokens are reused unless
-    --rotate-ai-gateway-token is also passed.
+    .opencode/wp-ai-gateway.env, merges the gateway provider into Pi's
+    models.json (and provider.wp-ai-gateway into an existing opencode.json),
+    and points ROADIE_PI_MODEL at the gateway model. Existing gateway tokens
+    are reused unless --rotate-ai-gateway-token is also passed.
   - OpenCode Claude Code auth — installs a managed OpenCode plugin under
     .opencode/plugins and adds it to opencode.json so direct OpenCode can
     authenticate with Claude Pro/Max OAuth. Roadie installs never carry it:
@@ -462,28 +480,12 @@ else
   # Load declarative setup intent before runtime selection and source-policy
   # resolution. The profile never contains transport argv, tokens, or secrets.
   installation_profile_load
-  # Auto-detect runtime(s). Same model as setup.sh: DETECTED_RUNTIMES is the
-  # full list (drives multi-runtime skills install); RUNTIME is the primary
-  # (first-match cascade: claude-code > opencode > codex). Explicit --runtime
-  # narrows to a single runtime.
-  if [ -n "$RUNTIME" ]; then
-    DETECTED_RUNTIMES=("$RUNTIME")
-  else
-    if command -v claude &>/dev/null; then
-      DETECTED_RUNTIMES+=("claude-code")
-    fi
-    if command -v opencode &>/dev/null; then
-      DETECTED_RUNTIMES+=("opencode")
-    fi
-    if command -v codex &>/dev/null; then
-      DETECTED_RUNTIMES+=("codex")
-    fi
-    if [ ${#DETECTED_RUNTIMES[@]} -eq 0 ]; then
-      warn "No runtime binary found — defaulting to opencode"
-      DETECTED_RUNTIMES=("opencode")
-    fi
-    RUNTIME="${DETECTED_RUNTIMES[0]}"
-  fi
+  # OpenCode is the only managed runtime. Codex and Claude Code were removed
+  # in #751. --runtime rejects them during argument parsing; a recorded
+  # profile runtime naming either one fails here with no compatibility path.
+  reject_removed_runtime "${RUNTIME:-}" "Recorded installation-profile runtime"
+  RUNTIME="${RUNTIME:-opencode}"
+  DETECTED_RUNTIMES=("$RUNTIME")
 
 RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
 if [ ! -f "$RUNTIME_FILE" ]; then
@@ -510,7 +512,6 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
-source_policy_assert_runtime_supports_mode
 if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode
@@ -586,11 +587,13 @@ upgrade_harden_wp_config_permissions
 # Converge the site root's own directory mode (#644). setup's one-time
 # recursive grant does not survive an external directory replacement, and the
 # service identity needs group-write at the root for AGENTS.md composition.
-# Same guard as the credentials hardener: ordinary non-root VPS upgrades only.
-# Root repairs the bit directly; the service user gets a single root-repair
-# result instead of every later write failing.
+# BOTH upgrade identities converge this (#628): a non-root upgrade that
+# cannot chmod a foreign-owned root gets one clear root-repair record
+# instead of every later write failing, and a root-run upgrade (the default
+# `sudo ./upgrade.sh` on a VPS) — which composes as the site owner through
+# sudo — repairs the bit directly so the atomic rename can proceed.
 upgrade_ensure_site_root_group_write() {
-  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] && [ "${RUN_AS_ROOT:-}" = false ] && \
+  if [ "${LOCAL_MODE:-false}" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ] && \
      [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && \
      [ "$SKILLS_ONLY" != true ] && \
      [ "$RECONCILE_SERVICES_ONLY" != true ]; then
@@ -821,6 +824,12 @@ update_ai_gateway() {
   ai_gateway_apply
 }
 
+update_wordpress_chat() {
+  _run_filter_active reconciliation || return 0
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
+  wordpress_chat_apply
+}
+
 # ============================================================================
 # Phase 3: Sync chat-bridge config (Roadie: release, secrets, managed config)
 # ============================================================================
@@ -843,9 +852,7 @@ sync_chat_bridge_config() {
 #      and chat bridge. Only applies when runtime is opencode.
 #   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that
 #      breaks Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated
-#      to a top-level `instructions` array. This check runs for ALL runtimes
-#      because opencode.json can exist even when the primary runtime is
-#      claude-code.
+#      to a top-level `instructions` array.
 #   3. Data Machine instruction paths.
 #   4. OpenCode edit denies for installed WordPress source.
 #
@@ -915,6 +922,17 @@ upgrade_install_opencode_claude_code_auth_plugin() {
 check_opencode_json_drift() {
   _run_filter_active opencode-json || return 0
 
+  # The bridge record owns the pinned Roadie install. When it failed (npm
+  # install killed at its deadline, #725), the installed bridge may still be
+  # the previous release, and everything this phase writes — the model-route
+  # rewrite toward `roadie/*` provider routes and the retired-plugin removal
+  # — assumes the new one. Applying it would point a running old Roadie at
+  # routes it cannot serve. Skip both, loudly.
+  if [ "${BRIDGE_RECONCILE_FAILED:-false}" = true ]; then
+    warn "Phase 3b: skipped — the chat-bridge reconcile failed, so the model-route rewrite and plugin retirement did not apply (they assume the new Roadie, #725)."
+    warn "  Do not restart the bridge; re-run the upgrade once the failure above is fixed."
+    return 0
+  fi
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
   # (the managed Roadie plugins), and
@@ -978,17 +996,9 @@ check_opencode_json_drift() {
     CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
     claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
   fi
-  # Under Roadie, model/small_model values still naming subrouter/<preset>
-  # move to roadie/<preset> when Roadie's shared pool has that rotation (#709).
-  if [ "$BRIDGE_ARG" = roadie ] && [ -n "${ROADIE_DATA_DIR:-}" ]; then
-    claude_code_auth_args+=(--roadie-rotations-file "$ROADIE_DATA_DIR/credentials/shared/rotation.json")
-  fi
 
-  # Runtime arg for repair-opencode-json.py: always `opencode` when the file
-  # exists. The primary RUNTIME may be `claude-code`, but the presence of
-  # opencode.json on disk means opencode IS in use — otherwise the file wouldn't
-  # be there. expected_plugins() skips plugin-array drift entirely for
-  # non-opencode runtimes, which would silently mask real drift here.
+  # Runtime arg for repair-opencode-json.py: OpenCode is the only managed
+  # runtime, and opencode.json on disk means it is in use.
   local RUNTIME_ARG="opencode"
 
   local MANAGED_INSTRUCTIONS_FILE=""
@@ -1262,6 +1272,10 @@ regenerate_agents_md() {
     webroot_backup_prune_managed "$SITE_PATH"
   else
     warn "  datamachine memory compose failed"
+    # wp_run_as_site_owner prints the redacted compose stderr above this
+    # (#628): an unwritable site root makes Data Machine refuse the atomic
+    # rename, and that refusal is what names the repair.
+    warn "  Most often the site root is not writable by the compose identity; the summary's site-root group-write entry names the one-time repair."
     # Restore a partial write, or remove a newly-created partial file.
     agents_md_guidance_restore_precompose_state "$AGENTS_MD" "$BACKUP" "$HAD_AGENTS_MD"
     rm -f "$BACKUP"
@@ -1269,18 +1283,21 @@ regenerate_agents_md() {
     return 1
   fi
 
-  # Symlink CLAUDE.md → AGENTS.md so Claude-model OpenCode sessions get the same DM context.
-  # OpenCode reads both filenames from the cwd glob (AGENTS.md, CLAUDE.md, CONTEXT.md),
-  # Claude Code reads only CLAUDE.md. Symlink keeps both runtimes covered without
+  # Symlink CLAUDE.md → AGENTS.md so Claude-model sessions get the same DM context.
+  # OpenCode and Pi read CLAUDE.md as well as AGENTS.md. The symlink avoids
   # duplicating content or risking drift on AGENTS.md regeneration. Relative target
   # ensures the symlink survives directory moves.
   # See: Extra-Chill/wp-coding-agents#108
   if [ -f "$AGENTS_MD" ] && _runtime_detected opencode; then
-    # Skip if CLAUDE.md exists as a regular file (e.g. claude-code runtime
-    # generates its own CLAUDE.md from a template — don't clobber it).
+    # Skip if CLAUDE.md exists as a regular file — it is user-owned.
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
-      (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
-      log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+      # The rename creates a directory entry, so like compose it needs write
+      # access to $SITE_PATH itself — not to AGENTS.md (#628).
+      if (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md); then
+        log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+      else
+        warn "  Could not symlink CLAUDE.md → AGENTS.md: $SITE_PATH is not writable by this identity; restoring the site root's group-write (see the summary) restores it."
+      fi
     else
       log "  CLAUDE.md exists as a regular file — leaving it alone (runtime-managed)"
     fi
@@ -1294,45 +1311,6 @@ _runtime_detected() {
     [ "$runtime" = "$candidate" ] && return 0
   done
   [ "${RUNTIME:-}" = "$candidate" ]
-}
-
-# ============================================================================
-# Phase 5b: Sync Claude Code runtime (SessionStart hook + CLAUDE.md)
-#   Claude Code installs aren't covered by the chat-bridge phases: opencode.json
-#   drift, Roadie plugins, and systemd units don't apply to them. Their managed
-#   surface is the SessionStart hook (.claude/hooks/dm-agent-sync.sh), its
-#   agent-scope sidecar, the settings.json hook registration, and the
-#   template-generated CLAUDE.md. Without this phase those silently rot: a stale
-#   hook keeps exit 0-ing and CLAUDE.md never gets its Data Machine memory
-#   block, so the agent boots with no personality/memory. This mirrors what
-#   setup.sh installs and keeps claude-code a first-class upgrade target
-#   alongside opencode.
-# ============================================================================
-
-sync_claude_code_runtime() {
-  : # Runtime hooks and configuration are shared adapter records.
-}
-
-sync_runtime_signature() {
-  _run_filter_active patch || return 0
-
-  _runtime_detected codex || return 0
-
-  local codex_runtime_file="$SCRIPT_DIR/runtimes/codex.sh"
-  if ! declare -F _codex_register_runtime_signature >/dev/null; then
-    # shellcheck disable=SC1090
-    source "$codex_runtime_file"
-  fi
-
-  if declare -F _codex_register_runtime_signature >/dev/null; then
-    log "Phase 5c: Removing retired Codex runtime registry..."
-    _codex_register_runtime_signature
-  fi
-
-  if [ "$RUNTIME" != "codex" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
-    # shellcheck disable=SC1090
-    source "$RUNTIME_FILE"
-  fi
 }
 
 sync_runtime_instructions() {
@@ -1468,11 +1446,12 @@ print_summary() {
     warn "  $AGENT_STATE_OWNERSHIP_ROOT_REPAIR_COMMAND"
   fi
 
-  if declare -F ai_gateway_enabled_for_opencode >/dev/null && ai_gateway_enabled_for_opencode; then
+  if declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled; then
     echo ""
     log "WP AI Gateway:"
     log "  Base URL:  $(ai_gateway_base_url)"
     log "  Env file:  $(ai_gateway_env_file)"
+    log "  Pi model:  $(ai_gateway_pi_model)"
     log "  Model:     ${AI_GATEWAY_PROVIDER_ID}/${AI_GATEWAY_MODEL_ID}"
     log "  API model: $(ai_gateway_api_model_id)"
     log "  Route:     ${AI_GATEWAY_ROUTE_PROVIDER} / ${AI_GATEWAY_ROUTE_MODEL}"
@@ -1512,6 +1491,17 @@ _resolve_bridge_env() {
 # Print the correct restart command for the detected chat bridge × environment.
 _print_bridge_restart_hint() {
   [ -n "$CHAT_BRIDGE" ] || return 0
+
+  # A failed bridge reconcile may leave the previous Roadie installed while
+  # config for the new release is already on disk; restarting then would
+  # point every session at provider routes the installed bridge cannot
+  # serve (#725).
+  if [ "${BRIDGE_RECONCILE_FAILED:-false}" = true ]; then
+    warn "Do NOT restart $(bridge_display_name) — the chat-bridge reconcile failed above and the pinned release may not be installed."
+    warn "Re-run the upgrade once the failure is fixed, then restart."
+    echo ""
+    return 0
+  fi
 
   local env display cmd
   env=$(_resolve_bridge_env)
@@ -1572,7 +1562,17 @@ PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
 AGENTS_MD_EXIT_STATUS=0
 OPENCODE_PROJECTION_EXIT_STATUS=0
+# The bridge record carries the pinned Roadie install (bridges/<bridge>).
+# When its reconcile fails, dependent steps that assume the new Roadie must
+# not apply — and the restart hint must be withheld (#725).
+BRIDGE_RECONCILE_FAILED=false
 update_data_machine_plugins || PLUGIN_ONLY_EXIT_STATUS=$?
+if [ "$PLUGINS_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
+  # The shared WordPress chat secret must exist before the bridge renders
+  # reference its env file or inline its values (#779). No-op unless the
+  # activation flag was passed or a previous opt-in wrote the env file.
+  wordpress_chat_write_env
+fi
 if [ "$PLUGINS_ONLY" != true ]; then
   CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/upgrade.sh"
   CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "$SITE_PATH")"
@@ -1585,9 +1585,15 @@ if [ "$PLUGINS_ONLY" != true ]; then
     convergence_run "$INSTALLATION_OPERATION_UPGRADE" || CONVERGENCE_EXIT_STATUS=$?
   fi
 fi
+if [ "$PLUGINS_ONLY" != true ]; then
+  case " ${RECONCILER_FAILED_RECORDS[*]:-} " in
+    *' bridges.'*) BRIDGE_RECONCILE_FAILED=true ;;
+  esac
+fi
 reconcile_provider_and_service_state
 sync_cli_transport_runtime
 update_ai_gateway
+update_wordpress_chat
 sync_chat_bridge_config
 if _run_filter_active systemd; then
   systems_capabilities_apply
@@ -1607,10 +1613,8 @@ sync_skills
 # reconciliation halfway through.
 regenerate_agents_md || AGENTS_MD_EXIT_STATUS=$?
 if _run_filter_active agents-md; then
-  runtime_guidance_sync_managed_codex_projection
+  runtime_guidance_retire_codex_projection
 fi
-sync_claude_code_runtime
-sync_runtime_signature
 sync_runtime_instructions
 if [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   opencode_project_subagents_optional || OPENCODE_PROJECTION_EXIT_STATUS=$?

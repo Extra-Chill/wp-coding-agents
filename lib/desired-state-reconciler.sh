@@ -74,10 +74,6 @@ installation_profile_normalize() {
   INSTALLATION_PROFILE_CARRIED_PLUGINS=()
   if [ "$INSTALLATION_PROFILE_EXTERNAL_WORDPRESS" != true ]; then
     INSTALLATION_PROFILE_CARRIED_PLUGINS+=(wp-coding-agents-integration)
-    local runtime
-    for runtime in "${DETECTED_RUNTIMES[@]:-${INSTALLATION_PROFILE_RUNTIME}}"; do
-      [ "$runtime" = claude-code ] && INSTALLATION_PROFILE_CARRIED_PLUGINS+=(ai-provider-for-claude-code)
-    done
   fi
   if [ "$operation" = "$INSTALLATION_OPERATION_PLUGINS_ONLY" ]; then
     INSTALLATION_PROFILE_COMPONENTS=(plugins)
@@ -204,6 +200,7 @@ reconciler_plan_reset() {
   RECONCILER_COMPLETED_RECORDS=()
   RECONCILER_CHANGED_RECORDS=()
   RECONCILER_UNCHANGED_RECORDS=()
+  RECONCILER_FAILED_RECORDS=()
   RECONCILER_STARTED_AT=""
 }
 
@@ -244,6 +241,7 @@ reconciler_apply_plan() {
         else
           step_status=$?
           status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+          RECONCILER_FAILED_RECORDS+=("$record")
           if [ "$step_status" -eq 124 ]; then
             warn "[desired-state] record=$record operation=$operation verify=timeout timeout=${timeout}s replay=$replay"
           else
@@ -263,6 +261,7 @@ reconciler_apply_plan() {
     else
       step_status=$?
       status="${PLUGIN_UPDATE_EXIT_PARTIAL:-75}"
+      RECONCILER_FAILED_RECORDS+=("$record")
       if [ "${RECONCILER_STEP_CHANGED:-false}" = true ]; then
         RECONCILER_CHANGED_RECORDS+=("$record")
         log "[desired-state] record=$record operation=$operation apply=partial changed=true replay=$replay"
@@ -282,12 +281,30 @@ reconciler_replay_command() {
   printf '%q%s' "$script" " ${RECONCILER_REPLAY_ARGUMENTS:-}"
 }
 
+# GNU and BSD/macOS stat use incompatible format flags; the progress monitor
+# must work on both hosts, so probe instead of requiring the common dialect.
+reconciler_file_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || printf '0\n'
+}
+
 # Each adapter runs in its own process group. The only child-shell state accepted
 # by the parent is this credential-safe outcome file, never the environment.
 reconciler_run_bounded() {
   local record="$1" operation="$2" timeout="$3" command="$4" phase="${5:-apply}"
   local total="${DESIRED_STATE_TOTAL_TIMEOUT_SECONDS:-480}" now elapsed remaining
   local started status=0 temp_dir outcome_file pid pgid elapsed restore_monitor=false
+  # A step may advertise a progress file: while the child keeps touching it,
+  # the fixed step deadline is extended — a cold global npm install (Roadie
+  # pin bump, #725) legitimately runs far past 420s while making steady
+  # progress. The extension is earned only by fresh touches within the grace
+  # window and capped hard, so a hung step that once made progress still
+  # terminates, and a step without a heartbeat behaves exactly as before.
+  local progress_file=""
+  local progress_grace="${DESIRED_STATE_PROGRESS_GRACE_SECONDS:-60}"
+  local progress_max="${DESIRED_STATE_PROGRESS_MAX_SECONDS:-1800}"
+  local last_progress_mtime=0 mtime
+  case "$progress_grace" in ''|*[!0-9]*|0) progress_grace=60 ;; esac
+  case "$progress_max" in ''|*[!0-9]*|0) progress_max=1800 ;; esac
   # Each bounded record owns its result; a prior record must not leak a change
   # into an aggregate or phase deadline that runs no current child outcome.
   RECONCILER_STEP_CHANGED=false
@@ -301,6 +318,11 @@ reconciler_run_bounded() {
   [ "$remaining" -lt "$timeout" ] && timeout="$remaining"
   temp_dir="$(mktemp -d)" || return 1
   outcome_file="$temp_dir/outcome"
+  # Read by the apply child (shell variables cross the subshell fork); the
+  # child touches it while its work is visibly making progress.
+  progress_file="$temp_dir/progress"
+  RECONCILER_STEP_PROGRESS_FILE="$progress_file"
+  rm -f "$progress_file"
   started="$(date +%s)"
   case "$-" in *m*) ;; *) set -m; restore_monitor=true ;; esac
   ( RECONCILER_STEP_CHANGED=false; "$command"; status=$?; printf 'changed=%s\n' "$RECONCILER_STEP_CHANGED" > "$outcome_file"; exit "$status" ) &
@@ -309,7 +331,17 @@ reconciler_run_bounded() {
   pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$(( $(date +%s) - started ))
+    if [ -e "$progress_file" ]; then
+      mtime="$(reconciler_file_mtime "$progress_file")"
+      [ "$mtime" -gt "$last_progress_mtime" ] && last_progress_mtime="$mtime"
+    fi
     if [ "$elapsed" -ge "$timeout" ]; then
+      if [ "$elapsed" -lt "$progress_max" ] && [ "$last_progress_mtime" -gt 0 ] \
+        && [ $(( $(date +%s) - last_progress_mtime )) -lt "$progress_grace" ]; then
+        warn "[desired-state] record=$record operation=$operation $phase=progress elapsed=${elapsed}s timeout=${timeout}s extending"
+        timeout=$((elapsed + progress_grace))
+        continue
+      fi
       warn "[desired-state] record=$record operation=$operation $phase=deadline-exceeded elapsed=${elapsed}s timeout=${timeout}s"
       if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -TERM -- "-$pgid" 2>/dev/null || true; else kill -TERM "$pid" 2>/dev/null || true; fi
       sleep "${PLUGIN_UPDATE_KILL_GRACE_SECONDS:-2}"
@@ -317,6 +349,7 @@ reconciler_run_bounded() {
         if [ -n "$pgid" ] && [ "$pgid" = "$pid" ]; then kill -KILL -- "-$pgid" 2>/dev/null || true; else kill -KILL "$pid" 2>/dev/null || true; fi
       fi
       wait "$pid" 2>/dev/null || true
+      RECONCILER_STEP_PROGRESS_FILE=""
       rm -rf "$temp_dir"
       return 124
     fi
@@ -329,6 +362,7 @@ reconciler_run_bounded() {
   if [ -f "$outcome_file" ]; then
     case "$(<"$outcome_file")" in changed=true) RECONCILER_STEP_CHANGED=true ;; esac
   fi
+  RECONCILER_STEP_PROGRESS_FILE=""
   rm -rf "$temp_dir"
   return "$status"
 }

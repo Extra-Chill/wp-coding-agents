@@ -47,6 +47,7 @@ Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
 Environment=HOST_CUSTOM=preserved
 Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/srv/operator/extra.mjs
+Environment=ROADIE_SHELL_ENV="{\"stale\":\"pre-roadie-186\"}"
 ExecStart=/usr/bin/roadie --data-dir /root/.roadie --auto-restart
 EOF
 
@@ -89,7 +90,7 @@ else
 fi
 
 UNIT="$SYSTEMD_UNIT_DIR/roadie.service"
-MANAGED_KEYS="ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 ROADIE_BACKEND=opencode ROADIE_PROMPT_CONFIG=/opt/roadie-config/prompt-config.yaml ROADIE_SERVICE_TOKEN_FILE=$TMP/secrets/roadie/send-token"
+MANAGED_KEYS="ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 ROADIE_PROMPT_CONFIG=/opt/roadie-config/prompt-config.yaml ROADIE_SERVICE_TOKEN_FILE=$TMP/secrets/roadie/send-token"
 check_managed_once() {
   local key
   for key in $MANAGED_KEYS; do
@@ -148,6 +149,11 @@ if [ "$SHELL_ENV_JSON" = "$EXPECTED_SHELL_ENV_JSON" ]; then
   check 0 "unit ROADIE_SHELL_ENV matches the template builder"
 else
   check 1 "unit ROADIE_SHELL_ENV matches the template builder ($SHELL_ENV_JSON)"
+fi
+if grep -q 'stale' "$UNIT"; then
+  check 1 "stale ROADIE_SHELL_ENV is replaced (#729)"
+else
+  check 0 "stale ROADIE_SHELL_ENV is replaced (#729)"
 fi
 ROADIE_BIN_UNDER_TEST="$(roadie_bin)"
 SHELL_ENV_JSON="$SHELL_ENV_JSON" ROADIE_BIN_UNDER_TEST="$ROADIE_BIN_UNDER_TEST" python3 - <<'PY'
@@ -232,10 +238,11 @@ for key in ROADIE_MANAGED ROADIE_NO_DEFAULT_CHANNEL; do
     check 1 "launchd plist sets $key=1"
   fi
 done
-if printf '%s' "$PLIST" | grep -A1 "<key>ROADIE_BACKEND</key>" | grep -q '<string>opencode</string>'; then
-  check 0 "launchd plist sets ROADIE_BACKEND=opencode"
+# Pi is Roadie's only backend (roadie#177): no backend selector is rendered.
+if printf '%s' "$PLIST" | grep -q "<key>ROADIE_BACKEND</key>"; then
+  check 1 "launchd plist sets no ROADIE_BACKEND"
 else
-  check 1 "launchd plist sets ROADIE_BACKEND=opencode"
+  check 0 "launchd plist sets no ROADIE_BACKEND"
 fi
 for key in ROADIE_PROMPT_CONFIG ROADIE_SERVICE_TOKEN_FILE; do
   if printf '%s' "$PLIST" | grep -q "<key>$key</key>"; then
@@ -318,8 +325,9 @@ fi
 
 echo "==> the service user's OpenCode wins over a distro copy"
 
-# Roadie spawns `opencode` from PATH. A stale /usr/bin/opencode must not
-# shadow the one the OpenCode installer puts in ~/.opencode/bin.
+# Agent shells inherit the service PATH and may run the standalone OpenCode
+# runtime. A stale /usr/bin/opencode must not shadow the one the OpenCode
+# installer puts in ~/.opencode/bin.
 FAKE_HOME="$TMP/home-opencode"
 mkdir -p "$FAKE_HOME/.opencode/bin"
 printf '#!/bin/sh\n' > "$FAKE_HOME/.opencode/bin/opencode"
