@@ -795,6 +795,91 @@ RETIRED_ROADIE_PLUGIN_MODULES=(
   wordpress-context.php
 )
 
+# The WordPress identity plugins (wordpress-context.mjs, wordpress-platform.mjs)
+# call Data Machine's datamachine/resolve-chat-person ability, first shipped in
+# Data Machine v0.184.0 (#711). Installing them against an older Data Machine
+# denies every chat user on the next restart (#793), and Data Machine installed
+# from a release zip is not updated by upgrade.sh. So before the bridge touches
+# the plugin files or ROADIE_PLUGINS, the target site must provide the ability.
+ROADIE_IDENTITY_ABILITY=datamachine/resolve-chat-person
+ROADIE_IDENTITY_MIN_DATAMACHINE=0.184.0
+
+_roadie_wordpress_context_file() {
+  printf '%s/wordpress-context.json\n' "$(roadie_config_dir)"
+}
+
+# Legacy `people` entries (`<platform>:<space>:<actor>` -> userId) are no longer
+# read; print the chat-identity links that replace them. Links are per
+# platform, not per guild, so the actor id is the key's last segment.
+_roadie_print_legacy_people_links() {
+  local context_file="$1" commands
+  commands="$(python3 - "$context_file" <<'PY' 2>/dev/null
+import json, sys
+try:
+    people = json.load(open(sys.argv[1])).get("people")
+except Exception:
+    sys.exit(0)
+if not isinstance(people, dict):
+    sys.exit(0)
+seen = []
+for key, entry in people.items():
+    parts = str(key).split(":")
+    if len(parts) < 2 or not parts[0] or not parts[-1]:
+        continue
+    user = entry.get("userId") if isinstance(entry, dict) else None
+    if user in (None, ""):
+        continue
+    command = "wp datamachine chat-identity link %s %s --target-user=%s" % (parts[0], parts[-1], user)
+    if command not in seen:
+        seen.append(command)
+print("\n".join(seen))
+PY
+)"
+  [ -n "$commands" ] || return 0
+  warn "  $context_file still has a legacy \`people\` map, which Roadie no longer reads."
+  warn "  Link each chat actor in Data Machine (run in $SITE_PATH), then delete the \`people\` block:"
+  local command
+  while IFS= read -r command; do
+    warn "    $command"
+  done <<< "$commands"
+  PENDING_ITEMS+=("Roadie: link legacy wordpress-context.json people with wp datamachine chat-identity link (see upgrade log)")
+}
+
+# Gate for the Roadie WordPress identity plugins. No wordpress-context.json
+# means the plugins are inert, so there is nothing to verify. Returns non-zero
+# (and the caller must stop before switching plugin files or ROADIE_PLUGINS)
+# when the site does not provide the ability or cannot be asked.
+_roadie_require_identity_ability() {
+  local context_file output status=0 prefix="" target
+  context_file="$(_roadie_wordpress_context_file)"
+  [ -f "$context_file" ] || return 0
+  [ "${DRY_RUN:-false}" != true ] || prefix="[dry-run] "
+
+  _roadie_print_legacy_people_links "$context_file"
+
+  # wp_cmd targets WORDPRESS_PATH on the external-WordPress profile.
+  target="$SITE_PATH"
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || target="${WORDPRESS_PATH:-$SITE_PATH}"
+
+  # Read-only probe, so it runs under --dry-run too: a dry run must predict the
+  # real failure.
+  output="$(DRY_RUN=false wp_cmd eval "echo ( function_exists( 'wp_get_ability' ) && wp_get_ability( '$ROADIE_IDENTITY_ABILITY' ) ) ? 'ability:present' : 'ability:missing';" 2>&1)" || status=$?
+  if [ "$status" -eq 0 ] && [[ "$output" == *ability:present* ]]; then
+    return 0
+  fi
+
+  if [ "$status" -ne 0 ] || [[ "$output" != *ability:missing* ]]; then
+    warn "  ${prefix}Roadie bridge step failed: could not verify the $ROADIE_IDENTITY_ABILITY ability on $target via WP-CLI."
+    [ -z "$output" ] || warn "  WP-CLI said: $(printf '%s' "$output" | tail -n 3)"
+  else
+    warn "  ${prefix}Roadie bridge step failed: $target does not provide the $ROADIE_IDENTITY_ABILITY ability."
+  fi
+  warn "  Roadie's WordPress identity plugins need Data Machine >= v$ROADIE_IDENTITY_MIN_DATAMACHINE. Update it, then re-run the upgrade:"
+  warn "    $(wp_cli_transport_display) plugin install https://github.com/Extra-Chill/data-machine/releases/latest/download/data-machine.zip --force --path=$target${WP_ROOT_FLAG:+ $WP_ROOT_FLAG}"
+  warn "  Roadie plugin files and ROADIE_PLUGINS were left unchanged. Do not restart Roadie until this passes."
+  return 1
+}
+
 # Copy the wp-coding-agents-owned assets (Roadie prompt config and plugins)
 # into the durable config dir. Idempotent; reports what changed.
 _roadie_sync_assets() {
@@ -1471,6 +1556,7 @@ PY
 # ============================================================================
 
 bridge_install() {
+  _roadie_require_identity_ability || return 1
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_pi
@@ -1749,6 +1835,7 @@ PY
 
 bridge_sync_config() {
   log "Phase 2: Syncing Roadie config ($(roadie_config_dir))..."
+  _roadie_require_identity_ability || return 1
   _roadie_provision_package
   ROADIE_BIN="$(roadie_bin)"
   _roadie_select_pi

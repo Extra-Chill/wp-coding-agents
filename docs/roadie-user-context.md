@@ -38,10 +38,10 @@ platform. Links are not scoped by server, guild or workspace, so moving the
 bot to another server needs no change:
 
 ```sh
-wp datamachine chat-identity link discord <discord-user-id> --user=<user>
-wp datamachine chat-identity link slack <slack-user-id> --user=<user>
+wp datamachine chat-identity link discord <discord-user-id> --target-user=<user>
+wp datamachine chat-identity link slack <slack-user-id> --target-user=<user>
 wp datamachine chat-identity list
-wp datamachine chat-identity unlink discord --user=<user>
+wp datamachine chat-identity unlink discord --target-user=<user>
 ```
 
 Display names never resolve identity. Unlinked actors are denied when this
@@ -52,6 +52,13 @@ canonical `datamachine_can_access_agent` filter also applies.
 The old `people` block (`<platform>:<space>:<actor>` → `userId`,
 `capabilities`) is no longer read. A leftover block grants nothing and logs a
 warning; link each entry with the command above, then delete the block.
+The upgrade prints the exact `chat-identity link` command for each entry.
+
+The plugins need Data Machine v0.184.0 or later. When wordpress-context.json
+exists, the Roadie bridge step checks through WP-CLI that the site provides
+`datamachine/resolve-chat-person`; if it does not, the step fails and leaves
+the installed Roadie plugin files and `ROADIE_PLUGINS` unchanged. Update Data
+Machine, then re-run the upgrade.
 
 ## Calling the ability
 
