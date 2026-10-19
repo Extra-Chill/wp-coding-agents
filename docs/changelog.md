@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.1.4] - 2026-10-19
+
+### Fixed
+- fail the upgrade when the Roadie install did not land
+
 ## [3.1.3] - 2026-10-19
 
 ### Changed
