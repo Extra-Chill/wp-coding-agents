@@ -339,6 +339,12 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				return new WP_Error( 'wp_coding_agents_cli_dispatch_unknown_channel', sprintf( 'No CLI channel registered for "%s".', $channel ) );
 			}
 
+			return self::execute_config( $config, $input );
+		}
+
+		/** Execute trusted integration-owned argv, never caller-supplied dispatch input. */
+		public static function execute_config( array $config, array $input ) {
+			$channel = (string) ( $input['channel'] ?? '' );
 			$recipient    = isset( $input['recipient'] ) && is_scalar( $input['recipient'] ) ? (string) $input['recipient'] : '';
 			$command_args = WpCodingAgents_Cli_Channel_Registry::substitute_tokens( $config['args'], $input );
 			array_unshift( $command_args, $config['command'] );
@@ -348,7 +354,11 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 			$configured_env = isset( $config['env'] ) && is_array( $config['env'] ) ? $config['env'] : array();
 			$env            = self::build_env_map( $configured_env );
 
-			return self::dispatch_sync( $channel, $recipient, $command_args, $cwd, $env, $timeout, $configured_env );
+			$result = self::dispatch_sync( $channel, $recipient, $command_args, $cwd, $env, $timeout, $configured_env );
+			if ( is_array( $result ) && empty( $config['capture_output'] ) ) {
+				unset( $result['metadata']['stdout'] );
+			}
+			return $result;
 		}
 
 		/**
@@ -437,6 +447,7 @@ if ( ! class_exists( 'WpCodingAgents_Cli_Channel_Transport', false ) ) {
 				'recipient'  => $recipient,
 				'message_id' => null,
 				'metadata'   => array(
+					'stdout'      => $stdout,
 					'mode'        => 'synchronous-session-isolated',
 					'pid'         => $pid,
 					'exit_code'   => $exit_code,

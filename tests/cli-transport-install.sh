@@ -65,6 +65,13 @@ else
   echo "  ok   transport mu-plugin matches template"
 fi
 
+if ! cmp -s "$SCRIPT_DIR/templates/wp-coding-agents-onboarding.php" "${MU_FILE%/*}/wp-coding-agents-onboarding.php"; then
+  echo "  FAIL onboarding mu-plugin does not match template"
+  FAILED=$((FAILED + 1))
+else
+  echo "  ok   onboarding mu-plugin installed"
+fi
+
 assert_mode_0664
 assert_group
 
