@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.2.0] - 2026-10-20
+
+### Added
+- host opt-ins declared in a reviewed git repo
+
 ## [3.1.4] - 2026-10-19
 
 ### Fixed
