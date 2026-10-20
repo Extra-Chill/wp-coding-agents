@@ -254,6 +254,22 @@ while [[ $# -gt 0 ]]; do
       WORDPRESS_CHAT_AGENT="$2"
       shift 2
       ;;
+    --no-wordpress-chat)
+      WORDPRESS_CHAT_DISABLE=true
+      shift
+      ;;
+    --host-config-repo)
+      HOST_CONFIG_REPO="$2"
+      shift 2
+      ;;
+    --host-config-path)
+      HOST_CONFIG_PATH="$2"
+      shift 2
+      ;;
+    --host-config-ref)
+      HOST_CONFIG_REF="$2"
+      shift 2
+      ;;
     --no-homeboy)
       HOMEBOY_MODE="disabled"
       shift
@@ -507,6 +523,18 @@ OPTIONS:
                       platform list, and ensures a wordpress:<context> channel
                       entry. Recorded durably; upgrades converge without
                       repeating the flag.
+  --no-wordpress-chat
+                      Disable WordPress-native chat: stop and remove the
+                      inbound-event-connector service, delete the durable env
+                      file, and drop wordpress from the Roadie platform list.
+  --host-config-repo <git-url>
+  --host-config-path <path-in-repo>
+  --host-config-ref <branch>
+                      Record where the agent self-upgrade reads host-declared
+                      opt-in flags from: a reviewed git repo fetched into a
+                      root-owned bare mirror and read at the merged ref
+                      (default main), never a working tree. Persisted in
+                      /etc/wp-coding-agents/self-upgrade.conf across upgrades.
   --no-claude-code-auth
                       Skip the managed direct OpenCode Claude Pro/Max OAuth
                       auth plugin. Installed by default for direct OpenCode

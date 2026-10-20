@@ -249,4 +249,53 @@ python3 -c 'import plistlib,sys; plistlib.load(open(sys.argv[1],"rb"))' "$plist"
 grep -q 'bootstrap' "$TMP/launchctl-calls" || fail "connector plist not bootstrapped"
 ok "connector launchd plist rendered with the inlined delivery env"
 
+# ---------------------------------------------------------------------------
+# 7. --no-wordpress-chat (#799): removing the host-config key removes the
+#    effect — the connector unit is stopped/disabled/removed, the durable env
+#    file goes away, and the render drops wordpress from the platform list.
+# ---------------------------------------------------------------------------
+LOCAL_MODE=false
+WORDPRESS_CHAT_DISABLE=true
+wordpress_chat_enabled && fail "--no-wordpress-chat does not override the durable env file"
+( WORDPRESS_CHAT_AGENT=intelligence wordpress_chat_apply ) >/dev/null 2>&1 \
+  && fail "--no-wordpress-chat combined with --wordpress-chat-agent did not error"
+ok "--no-wordpress-chat overrides the env file and conflicts with the opt-in flag"
+
+wordpress_chat_apply
+[ -e "$WORDPRESS_CHAT_ENV_FILE" ] && fail "disable did not remove the env file"
+[ -e "$unit_file" ] && fail "disable did not remove the connector unit"
+grep -q '^stop wp-coding-agents-inbound-connector.service$' "$TMP/systemctl-calls" || fail "connector unit not stopped"
+grep -q '^disable wp-coding-agents-inbound-connector.service$' "$TMP/systemctl-calls" || fail "connector unit not disabled"
+ok "disable stops and disables the connector unit and removes the env file"
+
+# The render after disabling is byte-identical to a never-enabled render
+# taken at the same point: wordpress is gone from the platform list, the env
+# file reference with it. (A fresh baseline, because unrelated state — pool
+# files, channels.yaml — accumulated since the section-1 render.)
+WORDPRESS_CHAT_DISABLE=false
+never_enabled_env="$(_roadie_append_env_files "$(_roadie_template_env /usr/bin)")"
+WORDPRESS_CHAT_DISABLE=true
+after_disable_env="$(_roadie_append_env_files "$(_roadie_template_env /usr/bin)")"
+[ "$after_disable_env" = "$never_enabled_env" ] || fail "render after disable differs from the never-enabled render"
+grep -q 'ROADIE_PLATFORM' <<<"$after_disable_env" && fail "platform list still carries wordpress after disable"
+grep -q 'wordpress-chat' <<<"$after_disable_env" && fail "env block still references the wordpress-chat env file after disable"
+WORDPRESS_CHAT_DISABLE=false
+wordpress_chat_enabled && fail "opt-in resurrected after disable (env file should be gone)"
+ok "after disable the Roadie render and enablement match a never-enabled host"
+
+# Idempotent on a host that never opted in: nothing to remove, no failure.
+WORDPRESS_CHAT_DISABLE=true
+wordpress_chat_apply || fail "disable pass on a never-enabled host failed"
+WORDPRESS_CHAT_DISABLE=false
+ok "disable is idempotent and inert without a prior opt-in"
+
+# launchd variant: the plist from section 6 is booted out and removed.
+mkdir -p "$(dirname "$WORDPRESS_CHAT_ENV_FILE")"
+printf 'WP_CODING_AGENTS_INBOUND_WORDPRESS_ENABLED=1\n' > "$WORDPRESS_CHAT_ENV_FILE"
+( LOCAL_MODE=true; PLATFORM=mac; WORDPRESS_CHAT_DISABLE=true; wordpress_chat_disable )
+[ -e "$plist" ] && fail "disable did not remove the launchd plist"
+[ -e "$WORDPRESS_CHAT_ENV_FILE" ] && fail "local disable did not remove the env file"
+grep -q 'bootout' "$TMP/launchctl-calls" || fail "launchd connector not booted out"
+ok "local mac disable boots out and removes the connector plist and env file"
+
 echo "wordpress-chat-activation: $PASS checks passed"

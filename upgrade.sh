@@ -174,6 +174,10 @@ while [[ $# -gt 0 ]]; do
     --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
+    --no-wordpress-chat) WORDPRESS_CHAT_DISABLE=true; shift ;;
+    --host-config-repo) HOST_CONFIG_REPO="$2"; shift 2 ;;
+    --host-config-path) HOST_CONFIG_PATH="$2"; shift 2 ;;
+    --host-config-ref) HOST_CONFIG_REF="$2"; shift 2 ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
     --workspace-repository) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository "$2"; shift 2 ;;
     --workspace-repository-clone) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository_clone "$2" "$3"; shift 3 ;;
@@ -316,6 +320,19 @@ USAGE:
                                 platform list, and ensures a wordpress:<context>
                                 channel entry. Once enabled, later upgrades
                                 converge without repeating the flag.
+  ./upgrade.sh --no-wordpress-chat
+                                Disable WordPress-native chat: stop and remove
+                                the inbound-event-connector service, delete the
+                                durable env file, and drop wordpress from the
+                                rendered Roadie platform list.
+  ./upgrade.sh --host-config-repo <git-url>
+  ./upgrade.sh --host-config-path <path-in-repo>
+  ./upgrade.sh --host-config-ref <branch>
+                                Record where the agent self-upgrade reads
+                                host-declared opt-in flags from: a reviewed git
+                                repo fetched into a root-owned bare mirror and
+                                read at the merged ref (default main), never a
+                                working tree. Values persist across upgrades.
   ./upgrade.sh --with-datamachine-worker
                                  Opt in to the managed bounded Data Machine
                                  worker. The choice persists across upgrades.
