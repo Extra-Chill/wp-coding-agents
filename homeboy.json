@@ -9,6 +9,45 @@
       "pattern": "^([0-9.]+)$"
     }
   ],
+  "dependency_stack": [
+    {
+      "upstream": "roadie",
+      "downstream": "wp-coding-agents",
+      "package": "@extrachill/roadie",
+      "source": {
+        "github_release": "Extra-Chill/roadie"
+      },
+      "lock": {
+        "kind": "version-file",
+        "path": "bridges/roadie/roadie-version"
+      }
+    },
+    {
+      "upstream": "pi",
+      "downstream": "wp-coding-agents",
+      "package": "@earendil-works/pi-coding-agent",
+      "source": {
+        "npm": "@earendil-works/pi-coding-agent"
+      },
+      "lock": {
+        "kind": "version-file",
+        "path": "bridges/roadie/pi-version"
+      },
+      "policy": {
+        "max": "same-major"
+      }
+    }
+  ],
+  "scripts": {
+    "lint": [
+      "find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -r -n 1 bash -n"
+    ],
+    "test": [
+      "bash tests/roadie-provision.sh",
+      "bash tests/roadie-boot-smoke.sh",
+      "bash tests/roadie-pi-backend.sh"
+    ]
+  },
   "release": {
     "owner": "ci"
   }
