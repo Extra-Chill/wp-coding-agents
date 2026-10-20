@@ -1,0 +1,18 @@
+name: Dependency refresh
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+# The reusable workflow owns the shared release concurrency lock.
+jobs:
+  refresh:
+    uses: Extra-Chill/homeboy-action/.github/workflows/deps-refresh.yml@v2
+    secrets: inherit
