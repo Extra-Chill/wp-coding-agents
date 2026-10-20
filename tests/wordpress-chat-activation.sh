@@ -266,7 +266,8 @@ wordpress_chat_apply
 [ -e "$unit_file" ] && fail "disable did not remove the connector unit"
 grep -q '^stop wp-coding-agents-inbound-connector.service$' "$TMP/systemctl-calls" || fail "connector unit not stopped"
 grep -q '^disable wp-coding-agents-inbound-connector.service$' "$TMP/systemctl-calls" || fail "connector unit not disabled"
-ok "disable stops and disables the connector unit and removes the env file"
+[ -e "$(wordpress_chat_adapter_config_path)" ] && fail "disable left the runtime-chat binding mu-plugin"
+ok "disable stops and disables the connector unit and removes the env file and runtime-chat binding"
 
 # The render after disabling is byte-identical to a never-enabled render
 # taken at the same point: wordpress is gone from the platform list, the env

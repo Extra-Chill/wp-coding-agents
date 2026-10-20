@@ -96,6 +96,16 @@ wordpress_chat_disable() {
     systemctl daemon-reload 2>/dev/null || true
     log "WordPress chat: stopped and removed connector unit $unit"
   fi
+  # The runtime-chat binding routes the agent's WordPress chats to the runtime;
+  # left behind, chats would queue for a connector that no longer exists.
+  if [ -n "${SITE_PATH:-}" ]; then
+    local adapter_config
+    adapter_config="$(wordpress_chat_adapter_config_path)"
+    if [ -f "$adapter_config" ]; then
+      rm -f "$adapter_config"
+      log "WordPress chat: removed runtime-chat binding $adapter_config"
+    fi
+  fi
   if [ -f "$env_file" ]; then
     rm -f "$env_file"
     log "WordPress chat: disabled (removed $env_file)"
