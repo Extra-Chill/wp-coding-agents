@@ -26,6 +26,10 @@
 # is inert and rendered service output stays byte-identical to today's.
 
 WORDPRESS_CHAT_AGENT="${WORDPRESS_CHAT_AGENT:-}"
+# --no-wordpress-chat (#799): the opt-in persists through the env file, so a
+# host-config-driven upgrade needs an explicit disable that removes the
+# durable record, not just the flag.
+WORDPRESS_CHAT_DISABLE="${WORDPRESS_CHAT_DISABLE:-false}"
 WORDPRESS_CHAT_SECRET_ENV_NAME="WP_CODING_AGENTS_INBOUND_WORDPRESS_SIGNING_SECRET"
 
 # Instance suffix derived from the Roadie unit, so a second instance
@@ -55,9 +59,59 @@ wordpress_chat_read_env_value() {
 
 # Enabled by the flag this run, or durably by the env file a previous opt-in
 # wrote. The second branch is what keeps upgrades converging without the flag.
+# An explicit disable overrides both, so the Roadie render drops `wordpress`
+# from the platform list in the same pass that removes the env file.
 wordpress_chat_enabled() {
+  [ "${WORDPRESS_CHAT_DISABLE:-false}" != true ] || return 1
   [ -n "${WORDPRESS_CHAT_AGENT:-}" ] && return 0
   [ "$(wordpress_chat_read_env_value WP_CODING_AGENTS_INBOUND_WORDPRESS_ENABLED "$(wordpress_chat_env_file)")" = 1 ]
+}
+
+# Tear down the opt-in: stop and disable the connector unit, remove the
+# durable env file, and (via wordpress_chat_enabled returning false) drop
+# `wordpress` from the rendered Roadie platform list. Idempotent; a host
+# without the opt-in is untouched.
+wordpress_chat_disable() {
+  local env_file unit unit_dir
+  env_file="$(wordpress_chat_env_file)"
+  unit="$(wordpress_chat_connector_unit)"
+  unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE:-}[dry-run]${NC:-} Would disable WordPress chat: stop/disable $unit, remove $env_file"
+    return 0
+  fi
+  if [ "${LOCAL_MODE:-false}" = true ] && [ "${PLATFORM:-}" = mac ]; then
+    local label plist
+    label="$(wordpress_chat_connector_label)"
+    plist="${WORDPRESS_CHAT_LAUNCHD_DIR:-$HOME/Library/LaunchAgents}/$label.plist"
+    if [ -f "$plist" ]; then
+      launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
+      rm -f "$plist"
+      log "WordPress chat: removed connector agent $label"
+    fi
+  elif [ "${LOCAL_MODE:-false}" != true ] && [ -f "$unit_dir/$unit" ]; then
+    systemctl stop "$unit" 2>/dev/null || true
+    systemctl disable "$unit" 2>/dev/null || true
+    rm -f "$unit_dir/$unit"
+    systemctl daemon-reload 2>/dev/null || true
+    log "WordPress chat: stopped and removed connector unit $unit"
+  fi
+  # The runtime-chat binding routes the agent's WordPress chats to the runtime;
+  # left behind, chats would queue for a connector that no longer exists.
+  if [ -n "${SITE_PATH:-}" ]; then
+    local adapter_config
+    adapter_config="$(wordpress_chat_adapter_config_path)"
+    if [ -f "$adapter_config" ]; then
+      rm -f "$adapter_config"
+      log "WordPress chat: removed runtime-chat binding $adapter_config"
+    fi
+  fi
+  if [ -f "$env_file" ]; then
+    rm -f "$env_file"
+    log "WordPress chat: disabled (removed $env_file)"
+    [ -z "${UPDATED_ITEMS+x}" ] || UPDATED_ITEMS+=("WordPress chat disabled ($env_file removed)")
+  fi
+  return 0
 }
 
 wordpress_chat_agent_slug() {
@@ -422,6 +476,12 @@ wordpress_chat_install_connector_service() {
 
 # One idempotent pass, called from setup and upgrade. No-op unless opted in.
 wordpress_chat_apply() {
+  if [ "${WORDPRESS_CHAT_DISABLE:-false}" = true ]; then
+    [ -z "${WORDPRESS_CHAT_AGENT:-}" ] \
+      || error "--no-wordpress-chat conflicts with --wordpress-chat-agent"
+    wordpress_chat_disable
+    return 0
+  fi
   wordpress_chat_enabled || return 0
   if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
     warn "  --wordpress-chat-agent is not managed on the external WordPress profile; start the installed inbound-event-connector from the runtime environment instead"

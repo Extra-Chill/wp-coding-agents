@@ -42,6 +42,7 @@ export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 readonly PROGRAM=wp-coding-agents-upgrade
 readonly CONFIG=/etc/wp-coding-agents/self-upgrade.conf
 readonly STATE=/var/lib/wp-coding-agents/self-upgrade.last
+readonly HOST_CONFIG_MIRROR=/var/lib/wp-coding-agents/host-config.git
 readonly UNIT=wp-coding-agents-upgrade
 readonly SELF=/usr/local/sbin/wp-coding-agents-upgrade
 
@@ -91,6 +92,19 @@ load_config() {
   case "$SITE_PATH" in /*) ;; *) die "SITE_PATH must be an absolute path" 2 ;; esac
   [[ "$TRUST_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "invalid TRUST_REF" 2
   [ -d "$CHECKOUT/.git" ] || die "$CHECKOUT is not a git checkout" 2
+  # Host-declared opt-ins (#799): optional. When HOST_CONFIG_REPO is set, the
+  # repo/path/ref triple names one reviewed file of KEY=value opt-ins.
+  HOST_CONFIG_REPO="$(config_value HOST_CONFIG_REPO)"
+  HOST_CONFIG_PATH="$(config_value HOST_CONFIG_PATH)"
+  HOST_CONFIG_REF="$(config_value HOST_CONFIG_REF)"
+  HOST_CONFIG_REF="${HOST_CONFIG_REF:-main}"
+  if [ -n "$HOST_CONFIG_REPO" ]; then
+    case "$HOST_CONFIG_REPO" in -*) die "HOST_CONFIG_REPO must not start with '-'" 2 ;; esac
+    [ -n "$HOST_CONFIG_PATH" ] || die "HOST_CONFIG_REPO is set but HOST_CONFIG_PATH is not" 2
+    [[ "$HOST_CONFIG_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "invalid HOST_CONFIG_REF" 2
+    [[ "$HOST_CONFIG_PATH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || die "invalid HOST_CONFIG_PATH" 2
+    case "/$HOST_CONFIG_PATH/" in */../*) die "invalid HOST_CONFIG_PATH" 2 ;; esac
+  fi
   local path="$CHECKOUT"
   while [ -n "$path" ] && [ "$path" != / ]; do
     root_locked "$path" || die "$path must be root-owned and not group/other-writable" 2
@@ -131,6 +145,77 @@ record() {
   mv "$STATE.tmp" "$STATE"
 }
 
+# --- Host-declared opt-ins (#799) ------------------------------------------
+# Optional upgrade.sh flags are declared in a reviewed git repo, never on the
+# agent's command line and never in an agent-writable file. The trust anchor
+# is a merged remote ref, same model as the checkout above: the repo is
+# fetched into a root-owned bare mirror and the file is read with
+# `git show <ref>:<path>`. A working tree is never consulted, so editing a
+# checkout on disk has no effect on what runs as root.
+
+host_config_fetch() {
+  mkdir -p "$(dirname "$HOST_CONFIG_MIRROR")"
+  if [ ! -d "$HOST_CONFIG_MIRROR" ]; then
+    git init --quiet --bare "$HOST_CONFIG_MIRROR" || return 1
+  fi
+  root_locked "$HOST_CONFIG_MIRROR" \
+    || { log "$HOST_CONFIG_MIRROR must be root-owned and not group/other-writable"; return 1; }
+  git --git-dir="$HOST_CONFIG_MIRROR" fetch --quiet "$HOST_CONFIG_REPO" \
+    "+refs/heads/$HOST_CONFIG_REF:refs/heads/$HOST_CONFIG_REF"
+}
+
+# Read the declared file from the mirror's ref — the object store, not a
+# working tree.
+host_config_read() {
+  git --git-dir="$HOST_CONFIG_MIRROR" show "refs/heads/$HOST_CONFIG_REF:$HOST_CONFIG_PATH"
+}
+
+# KEY=value lines against an allowlist of keys. Never sourced, never eval'd.
+# Any unknown key, malformed line, or invalid value is a parse failure and
+# upgrade.sh must not run. Sets HOST_CONFIG_FLAGS.
+host_config_parse() {
+  local content="$1" line key value chat_agent=
+  HOST_CONFIG_FLAGS=()
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in
+      *=*) key="${line%%=*}" value="${line#*=}" ;;
+      *) log "host config: malformed line (expected KEY=value): $line"; return 1 ;;
+    esac
+    case "$key" in
+      WORDPRESS_CHAT_AGENT)
+        [[ "$value" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] \
+          || { log "host config: invalid WORDPRESS_CHAT_AGENT value"; return 1; }
+        chat_agent="$value"
+        ;;
+      *) log "host config: unknown key '$key'"; return 1 ;;
+    esac
+  done <<< "$content"
+  if [ -n "$chat_agent" ]; then
+    HOST_CONFIG_FLAGS+=(--wordpress-chat-agent "$chat_agent")
+  else
+    # Removing a key from the reviewed repo must remove its effect: the
+    # opt-in otherwise persists through its durable env file.
+    HOST_CONFIG_FLAGS+=(--no-wordpress-chat)
+  fi
+}
+
+# Fetch, read and validate the host config; fail closed before upgrade.sh
+# runs. Without HOST_CONFIG_REPO this is a no-op and behavior is unchanged.
+host_config_collect_flags() {
+  HOST_CONFIG_FLAGS=()
+  [ -n "${HOST_CONFIG_REPO:-}" ] || return 0
+  local content
+  host_config_fetch \
+    || { record host-config-fetch-failed; die "host config fetch failed ($HOST_CONFIG_REPO at $HOST_CONFIG_REF)"; }
+  content="$(host_config_read)" \
+    || { record host-config-missing; die "host config missing: $HOST_CONFIG_PATH at $HOST_CONFIG_REF"; }
+  host_config_parse "$content" \
+    || { record host-config-invalid; die "host config rejected; upgrade.sh not run"; }
+  log "host config: $HOST_CONFIG_PATH at $HOST_CONFIG_REF -> ${HOST_CONFIG_FLAGS[*]}"
+}
+
 # Restart the enabled Roadie units that serve this site. Kimaki units are
 # disabled by the migration, so they are never restarted here.
 restart_bridges() {
@@ -159,8 +244,10 @@ cmd_apply() {
   git -C "$CHECKOUT" checkout --quiet --force --detach "origin/$TRUST_REF" \
     || { record checkout-failed; die "checkout of origin/$TRUST_REF failed"; }
   commit="$(git -C "$CHECKOUT" rev-parse --short HEAD)"
+  host_config_collect_flags
   log "upgrading $SITE_PATH from $CHECKOUT at $commit (origin/$TRUST_REF)"
-  (cd "$CHECKOUT" && env PATH="$child_path" ./upgrade.sh --wp-path "$SITE_PATH") || rc=$?
+  (cd "$CHECKOUT" && env PATH="$child_path" ./upgrade.sh --wp-path "$SITE_PATH" \
+    ${HOST_CONFIG_FLAGS[@]+"${HOST_CONFIG_FLAGS[@]}"}) || rc=$?
   if [ "$rc" -ne 0 ]; then
     record "$rc" "$commit"
     die "upgrade.sh exited $rc at $commit; bridges not restarted" 1

@@ -76,6 +76,24 @@ reset; mkdir -p "$TMP/etc"; printf 'SITE_PATH=/var/www/other\n' > "$SELF_UPGRADE
 run_apply "$SCRIPT_DIR_REAL"
 grep -q "other" "$SELF_UPGRADE_CONFIG" && [ ! -e "$SELF_UPGRADE_BIN" ]; check $? "a second site does not take over the first site's config"
 
+echo "==> host config keys persist across upgrades (#799)"
+reset
+( HOST_CONFIG_REPO=ssh://git@example.invalid/host-config.git HOST_CONFIG_PATH=hosts/agent1.conf HOST_CONFIG_REF=main
+  run_apply "$SCRIPT_DIR_REAL" )
+grep -qx 'HOST_CONFIG_REPO=ssh://git@example.invalid/host-config.git' "$SELF_UPGRADE_CONFIG"; check $? "host config repo recorded"
+grep -qx 'HOST_CONFIG_PATH=hosts/agent1.conf' "$SELF_UPGRADE_CONFIG"; check $? "host config path recorded"
+grep -qx 'HOST_CONFIG_REF=main' "$SELF_UPGRADE_CONFIG"; check $? "host config ref recorded"
+run_apply "$SCRIPT_DIR_REAL"   # a later upgrade without the flags
+grep -qx 'HOST_CONFIG_REPO=ssh://git@example.invalid/host-config.git' "$SELF_UPGRADE_CONFIG" \
+  && grep -qx 'HOST_CONFIG_PATH=hosts/agent1.conf' "$SELF_UPGRADE_CONFIG" \
+  && grep -qx 'HOST_CONFIG_REF=main' "$SELF_UPGRADE_CONFIG"; check $? "host config keys preserved on a flagless upgrade"
+grep -qx "SITE_PATH=/var/www/site" "$SELF_UPGRADE_CONFIG"; check $? "site path still recorded alongside host config"
+GRANT="$GRANTS_SUDOERS_DIR/wp-coding-agents-self-upgrade"
+[ "$(cat "$GRANT")" = "opencode ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" ]; check $? "grant is unchanged by host config (still exactly start and status)"
+reset
+run_apply "$SCRIPT_DIR_REAL"
+[ "$(cat "$SELF_UPGRADE_CONFIG")" = "$(printf 'CHECKOUT=%s\nSITE_PATH=/var/www/site\nTRUST_REF=main' "$SCRIPT_DIR_REAL")" ]; check $? "no host config keys appear without the flags"
+
 echo "==> wrapper argument and privilege surface"
 W="$SCRIPT_DIR_REAL/scripts/wp-coding-agents-upgrade"
 bash -n "$W"; check $? "wrapper parses"
@@ -107,6 +125,82 @@ if [ -d /usr/local ]; then
   ( DENIED_PREFIX=/usr/local; PATH="$BOOTSTRAP_PATH" installer_path ) >"$TMP/path.out" 2>&1
   [ $? -eq 2 ]; check $? "an unlocked parent of executable prefixes is refused"
 fi
+
+echo "==> host-declared opt-ins come from the mirror's merged ref (#799)"
+# Hermetic: a local bare repo is HOST_CONFIG_REPO, the mirror lives in TMP,
+# and the wrapper's host_config_* functions are driven directly with die,
+# record, and root_locked stubbed.
+eval "$(sed -n '/^host_config_fetch() {/,/^}/p' "$W")"
+eval "$(sed -n '/^host_config_read() {/,/^}/p' "$W")"
+eval "$(sed -n '/^host_config_parse() {/,/^}/p' "$W")"
+eval "$(sed -n '/^host_config_collect_flags() {/,/^}/p' "$W")"
+log() { :; }
+record() { printf '%s\n' "$1" > "$TMP/record"; }
+die() { printf '%s\n' "$1" >&2; exit "${2:-1}"; }
+root_locked() { return 0; }
+export GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+GIT="git -c user.email=t@test -c user.name=t"
+HSRC="$TMP/host-src"
+mkdir -p "$HSRC/hosts"
+git init -q -b main "$HSRC" 2>/dev/null || { git init -q "$HSRC"; git -C "$HSRC" checkout -q -b main; }
+printf '# reviewed opt-ins\nWORDPRESS_CHAT_AGENT=intelligence\n' > "$HSRC/hosts/agent1.conf"
+$GIT -C "$HSRC" add -A && $GIT -C "$HSRC" commit -qm 'opt in'
+git clone -q --bare "$HSRC" "$TMP/host-config-origin.git"
+HOST_CONFIG_REPO="$TMP/host-config-origin.git"
+HOST_CONFIG_PATH=hosts/agent1.conf
+HOST_CONFIG_REF=main
+HOST_CONFIG_MIRROR="$TMP/var/host-config.git"
+
+# Collect in a subshell (die exits it) and print the flags it produced.
+collect() { ( host_config_collect_flags >/dev/null 2>&1 && printf '%s\n' "${HOST_CONFIG_FLAGS[@]}" ); }
+
+[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a valid host config adds --wordpress-chat-agent <slug>"
+[ -d "$HOST_CONFIG_MIRROR" ] && [ ! -e "$HOST_CONFIG_MIRROR/hosts/agent1.conf" ]; check $? "mirror is bare: no working tree to edit"
+
+# The trust anchor is the merged remote ref. Edits to a checkout — even
+# committed ones that were never pushed — have no effect on what is read.
+printf 'WORDPRESS_CHAT_AGENT=attacker\n' > "$HSRC/hosts/agent1.conf"
+[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "an edited checkout has no effect (uncommitted)"
+$GIT -C "$HSRC" commit -qam 'local only'
+[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a committed-but-unpushed change has no effect"
+
+push_content() { printf '%s\n' "$1" > "$HSRC/hosts/agent1.conf"; $GIT -C "$HSRC" commit -qam update; git -C "$HSRC" push -q "$HOST_CONFIG_REPO" main; }
+
+# Fail closed: unknown keys, bad slugs, metacharacters, malformed lines.
+refused() { rm -f "$TMP/record"; ( host_config_collect_flags ) >/dev/null 2>&1 && return 1; grep -qx host-config-invalid "$TMP/record"; }
+push_content 'EVIL_KEY=1'
+refused; check $? "an unknown key fails closed (recorded host-config-invalid)"
+push_content 'WORDPRESS_CHAT_AGENT=Bad_Slug'
+refused; check $? "an uppercase slug fails closed"
+push_content 'WORDPRESS_CHAT_AGENT=a;rm -rf /'
+refused; check $? "shell metacharacters in the value fail closed"
+push_content 'not a key value line'
+refused; check $? "a malformed line fails closed"
+push_content 'WORDPRESS_CHAT_AGENT=$(reboot)'
+refused; check $? "a command substitution in the value fails closed"
+
+# Removing the key must remove its effect: the absent key disables.
+push_content '# opt-in removed'
+[ "$(collect)" = "--no-wordpress-chat" ]; check $? "an absent key passes --no-wordpress-chat"
+
+# Missing file, ref, or repo are hard failures recorded through record.
+hard_fail() { rm -f "$TMP/record"; ( host_config_collect_flags ) >/dev/null 2>&1 && return 1; grep -qx "$1" "$TMP/record"; }
+( HOST_CONFIG_PATH=hosts/missing.conf; hard_fail host-config-missing ); check $? "a missing file in the repo fails hard"
+( HOST_CONFIG_REF=no-such-branch; hard_fail host-config-fetch-failed ); check $? "a missing ref fails hard"
+( HOST_CONFIG_REPO="$TMP/no-such-repo.git" HOST_CONFIG_MIRROR="$TMP/var/other-mirror.git"; hard_fail host-config-fetch-failed ); check $? "a missing repo fails hard"
+
+# Without HOST_CONFIG_REPO the collect pass is a no-op: behavior unchanged.
+flags_when_unset="$( HOST_CONFIG_REPO=""; host_config_collect_flags && printf '%s' "${HOST_CONFIG_FLAGS[*]-}" )"
+[ -z "$flags_when_unset" ]; check $? "no host config repo: no flags, behavior unchanged"
+
+# The wrapper wires it fail-closed: flags are collected before upgrade.sh and
+# the invocation carries them; the file is read from the mirror, never a tree.
+grep -q 'host_config_collect_flags' "$W"; check $? "cmd_apply collects host config flags"
+apply_body="$(sed -n '/^cmd_apply() {/,/^}/p' "$W")"
+printf '%s\n' "$apply_body" | grep -n 'host_config_collect_flags\|./upgrade.sh' | sort -n | head -1 | grep -q host_config_collect_flags; check $? "flags are collected before upgrade.sh runs"
+printf '%s\n' "$apply_body" | grep -q 'HOST_CONFIG_FLAGS\[@\]'; check $? "upgrade.sh invocation carries the validated flags"
+grep -q 'git --git-dir="\$HOST_CONFIG_MIRROR" show "refs/heads/\$HOST_CONFIG_REF:\$HOST_CONFIG_PATH"' "$W"; check $? "the file is read with git show from the bare mirror's ref"
+grep -q 'source\|eval' <<< "$(sed -n '/^host_config_parse() {/,/^}/p' "$W")"; [ $? -ne 0 ]; check $? "the host config file is never sourced or eval'd"
 
 echo
 if [ "$FAIL" -gt 0 ]; then echo "FAIL: $FAIL assertion(s)"; exit 1; fi

@@ -31,8 +31,37 @@ self_upgrade_checkout_locked() {
   done
 }
 
+# Last recorded value of a key in the existing config, if any. KEY=value
+# lines only; never sourced.
+self_upgrade_existing_config_value() {
+  sed -n "s/^$1=//p" "$SELF_UPGRADE_CONFIG" 2>/dev/null | tail -1
+}
+
+# Host config keys (#799): --host-config-repo/--host-config-path/
+# --host-config-ref on this run win; otherwise the values recorded by an
+# earlier run are preserved, the same way SITE_PATH persists. No repository
+# names live in code — they are config only.
+self_upgrade_host_config_repo() {
+  printf '%s\n' "${HOST_CONFIG_REPO:-$(self_upgrade_existing_config_value HOST_CONFIG_REPO)}"
+}
+self_upgrade_host_config_path() {
+  printf '%s\n' "${HOST_CONFIG_PATH:-$(self_upgrade_existing_config_value HOST_CONFIG_PATH)}"
+}
+self_upgrade_host_config_ref() {
+  printf '%s\n' "${HOST_CONFIG_REF:-$(self_upgrade_existing_config_value HOST_CONFIG_REF)}"
+}
+
 self_upgrade_config_content() {
   printf 'CHECKOUT=%s\nSITE_PATH=%s\nTRUST_REF=%s\n' "$SCRIPT_DIR" "$SITE_PATH" "$SELF_UPGRADE_TRUST_REF"
+  local repo path ref
+  repo="$(self_upgrade_host_config_repo)"
+  path="$(self_upgrade_host_config_path)"
+  ref="$(self_upgrade_host_config_ref)"
+  if [ -n "$repo" ]; then
+    printf 'HOST_CONFIG_REPO=%s\n' "$repo"
+    [ -z "$path" ] || printf 'HOST_CONFIG_PATH=%s\n' "$path"
+    printf 'HOST_CONFIG_REF=%s\n' "${ref:-main}"
+  fi
 }
 
 self_upgrade_grant_content() {
