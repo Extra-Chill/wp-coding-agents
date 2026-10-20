@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.3.0] - 2026-10-20
+
+### Added
+- refresh Roadie and Pi pins through Homeboy's declared dependency_stack
+
 ## [3.2.0] - 2026-10-20
 
 ### Added
