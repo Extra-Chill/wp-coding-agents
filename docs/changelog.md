@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.4.0] - 2026-10-20
+
+### Added
+- release non-breaking Roadie and Pi pin refreshes automatically
+
 ## [3.3.0] - 2026-10-20
 
 ### Added
