@@ -49,6 +49,7 @@
     ]
   },
   "release": {
-    "owner": "ci"
+    "owner": "ci",
+    "refresh_dependencies": true
   }
 }
