@@ -1626,13 +1626,31 @@ _roadie_manual_command() {
     "$(_roadie_shell_quote "$ROADIE_DATA_DIR")"
 }
 
+# Lock port the web-user `roadie send` must use to reach the running bot.
+# Roadie serves the default lock port (29988) when its data dir is the service
+# user's own ~/.roadie, and a port hashed from the path otherwise. The CLI
+# channel runs with HOME=/tmp, so the caller cannot recognize the service's
+# default data dir and would hash it to a port nobody listens on. Pin the
+# default port in that case; an explicit ROADIE_LOCK_PORT always wins, and a
+# custom data dir hashes identically for both users.
+_roadie_cli_channel_lock_port() {
+  if [ -n "${ROADIE_LOCK_PORT:-}" ]; then
+    printf '%s\n' "$ROADIE_LOCK_PORT"
+    return 0
+  fi
+  local service_home="${SERVICE_HOME:-$HOME}"
+  case "${ROADIE_DATA_DIR:-}" in
+    ""|"$service_home/.roadie"|"$service_home/.roadie/") printf '29988\n' ;;
+  esac
+}
+
 # Register `roadie send` with the wp-coding-agents CLI transport so that
 # `agents/dispatch-message` can deliver to a Discord channel. The transport
 # runs as the web user, which cannot open the Roadie data dir; Roadie then
 # posts to the running bot with the send token instead.
 _roadie_register_cli_channel() {
   local env_json
-  env_json=$(python3 - "$(_roadie_send_token_file)" "${ROADIE_DATA_DIR:-}" "${ROADIE_LOCK_PORT:-}" <<'PY'
+  env_json=$(python3 - "$(_roadie_send_token_file)" "${ROADIE_DATA_DIR:-}" "$(_roadie_cli_channel_lock_port)" <<'PY'
 import json, sys
 token_file, data_dir, lock_port = sys.argv[1:4]
 env = {"ROADIE_SERVICE_TOKEN_FILE": token_file, "HOME": "/tmp"}

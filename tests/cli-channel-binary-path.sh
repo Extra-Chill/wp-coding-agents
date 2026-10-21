@@ -87,6 +87,40 @@ esac
   || fail "data dir: '$(env_value ROADIE_DATA_DIR roadie)'"
 [ "$(env_value ROADIE_LOCK_PORT roadie)" = 29988 ] && ok "lock port passed" || fail "lock port: '$(env_value ROADIE_LOCK_PORT roadie)'"
 
+echo "==> VPS install without an explicit lock port pins the default port for the service's own data dir"
+# The bot (HOME=/home/opencode) treats ~/.roadie as its default data dir and
+# serves port 29988. The web-user caller runs with HOME=/tmp, so without a
+# pinned port it would hash the data dir path to a port nobody listens on.
+rm -f "$TMP/cli-channel."*.args
+(
+  unset ROADIE_LOCK_PORT
+  LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
+    ROADIE_DATA_DIR=/home/opencode/.roadie \
+    ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
+    ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
+    _roadie_register_cli_channel
+)
+[ "$(env_value ROADIE_LOCK_PORT roadie)" = 29988 ] \
+  && ok "default data dir pins the default lock port" \
+  || fail "default data dir lock port: '$(env_value ROADIE_LOCK_PORT roadie)'"
+[ "$(env_value ROADIE_LOCK_PORT roadie-notify)" = 29988 ] \
+  && ok "notify channel pins the default lock port" \
+  || fail "notify lock port: '$(env_value ROADIE_LOCK_PORT roadie-notify)'"
+
+echo "==> custom data dir without an explicit lock port leaves the port to Roadie's path hash"
+rm -f "$TMP/cli-channel."*.args
+(
+  unset ROADIE_LOCK_PORT
+  LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
+    ROADIE_DATA_DIR=/home/opencode/.roadie-site-b \
+    ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
+    ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
+    _roadie_register_cli_channel
+)
+[ -z "$(env_value ROADIE_LOCK_PORT roadie)" ] \
+  && ok "custom data dir does not pin a port" \
+  || fail "custom data dir pinned: '$(env_value ROADIE_LOCK_PORT roadie)'"
+
 echo "==> local install registers the PATH binary"
 rm -f "$TMP/cli-channel."*.args
 mkdir -p "$TMP/bin"
