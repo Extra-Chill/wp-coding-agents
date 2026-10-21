@@ -11,6 +11,28 @@ graphs install only through `--project-agent-bundle <slug>`; selecting a
 WordPress agent for context does not project its chat model into native
 subagents. See [OpenCode agent ownership](docs/opencode-agent-ownership.md).
 
+## Set It Up With Your Agent
+
+Already use a coding agent? Paste this into it and fill in the `[BRACKETS]`. It walks you through the install one step at a time.
+
+```text
+Help me set up wp-coding-agents so an AI agent lives in my WordPress site and I can talk to it from Discord.
+
+Read the README first: https://github.com/Extra-Chill/wp-coding-agents
+Also skim Roadie (the Discord bridge): https://github.com/Extra-Chill/roadie
+
+My setup: [LOCAL WordPress at PATH  -or-  a fresh VPS for DOMAIN]. Model access: [API key / Claude or ChatGPT subscription].
+
+Walk me through it one step at a time:
+1. Clone wp-coding-agents and pick the right setup.sh mode (--local with EXISTING_WP, add --chat roadie for Discord; plain SITE_DOMAIN=... on a VPS).
+2. Explain what each component it installs is for (Data Machine, the agent runtime, Roadie) before installing it.
+3. Help me create the Discord bot and bind one private channel to my site directory, where only I can talk to it.
+4. Show me where the agent's SOUL.md and MEMORY.md live, and help me write a first SOUL.md about my site.
+5. Test it: from Discord, ask it to list my plugins and summarize my latest posts.
+
+Confirm with me before any step that touches a live site, stores a credential, or opens a port.
+```
+
 ## Who It Is For
 
 Use `wp-coding-agents` when you want:
