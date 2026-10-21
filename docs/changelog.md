@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.5.0] - 2026-10-21
+
+### Added
+- dispatch personal onboarding intros asynchronously
+
+### Changed
+- Update @extrachill/roadie to 0.73.13
+
+### Fixed
+- use Node 24 for release post-refresh tests
+
 ## [3.4.0] - 2026-10-20
 
 ### Added
