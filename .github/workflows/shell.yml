@@ -135,6 +135,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Run tests/onboarding-intro.sh
+        run: ./tests/onboarding-intro.sh
       - name: Run tests/cli-transport-install.sh
         run: ./tests/cli-transport-install.sh
       - name: Run tests/wp-cli-transport-resolution.sh

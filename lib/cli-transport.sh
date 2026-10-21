@@ -9,12 +9,18 @@ cli_transport_mu_plugin_path() {
 }
 
 cli_transport_install() {
+  _cli_transport_install_template wp-coding-agents-onboarding.php || return 1
+  _cli_transport_install_template wp-coding-agents-cli-transport.php
+}
+
+_cli_transport_install_template() {
   local file template dir
   file="$(cli_transport_mu_plugin_path)" || {
     warn "  cli_transport_install: SITE_PATH not set — skipping"
     return 1
   }
-  template="$SCRIPT_DIR/templates/wp-coding-agents-cli-transport.php"
+  file="${file%/*}/$1"
+  template="$SCRIPT_DIR/templates/$1"
   if [ ! -f "$template" ]; then
     warn "  cli_transport_install: missing template $template"
     return 1
