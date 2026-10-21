@@ -46,6 +46,8 @@ jobs:
   release:
     uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
     with:
+      # Boot smoke needs Node 24 when the release refreshes dependency pins.
+      node-version: '24'
       dry-run: ${{ inputs.dry-run || false }}
       # Homeboy skips implicit majors (major-requires-flag); an operator
       # dispatch with bump=major is the explicit flag.
