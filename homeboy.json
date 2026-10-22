@@ -3,6 +3,11 @@
   "changelog_target": "docs/changelog.md",
   "id": "wp-coding-agents",
   "remote_path": "",
+  "runtimes": {
+    "node": {
+      "version": "24"
+    }
+  },
   "version_targets": [
     {
       "file": "VERSION",
