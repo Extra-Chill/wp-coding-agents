@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.2] - 2026-10-22
+
+### Changed
+- declare the Node 24 runtime the Roadie gates need
+
 ## [3.5.1] - 2026-10-22
 
 ### Fixed
