@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.1] - 2026-10-22
+
+### Fixed
+- pin the default lock port for the web-user CLI channel
+
 ## [3.5.0] - 2026-10-21
 
 ### Added
