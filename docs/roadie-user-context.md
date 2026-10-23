@@ -117,7 +117,7 @@ server is simply absent.
 ## Self-serve identity linking
 
 A person nobody has linked yet can link themselves by signing in at the site
-from chat (Roadie `/link` or the **Link your account** prompt, roadie#292).
+from chat (Roadie `/connect` or the **Link your account** prompt, roadie#292; `/connect` links first, then lists tool accounts).
 Enable it per context by naming one of its `mcpServers`:
 
 ```json
