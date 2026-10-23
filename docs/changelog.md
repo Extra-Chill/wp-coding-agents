@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.3] - 2026-10-23
+
+### Changed
+- Internal improvements
+- Update @extrachill/roadie to 0.78.1
+
 ## [3.5.2] - 2026-10-22
 
 ### Changed
