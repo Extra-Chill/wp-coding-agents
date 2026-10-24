@@ -1,0 +1,26 @@
+[
+  {
+    "artifact_id": "73f57cf0-f51c-4d0e-96d9-e0419433b20c",
+    "path": "artifact-bytes/73f57cf0-f51c-4d0e-96d9-e0419433b20c-73f57cf0-f51c-4d0e-96d9-e0419433b20c-command-1-stdout.log",
+    "sha256": "1648c2c75a820493131f95649bbd9d0211e2af3203b3db564d422341e210b800",
+    "size_bytes": 1342
+  },
+  {
+    "artifact_id": "97adf55c-e433-4163-87b0-de6c9fcc7a8e",
+    "path": "artifact-bytes/97adf55c-e433-4163-87b0-de6c9fcc7a8e-97adf55c-e433-4163-87b0-de6c9fcc7a8e-command-1-stderr.log",
+    "sha256": "868b5ea0129feb81b7909425a08c6b7e4e681c17b347232254a8826cdaff21de",
+    "size_bytes": 23
+  },
+  {
+    "artifact_id": "c806059d-914c-4b68-a430-b3c28514aba4",
+    "path": "artifact-bytes/c806059d-914c-4b68-a430-b3c28514aba4-c806059d-914c-4b68-a430-b3c28514aba4-command-2-stdout.log",
+    "sha256": "7d9ea82e8819b43d7f6e575fc15ec8bfe3f56b078edb84ef885f2e724caf22ff",
+    "size_bytes": 487
+  },
+  {
+    "artifact_id": "d4748544-36b6-4c65-bdf4-00d2f89ac37c",
+    "path": "artifact-bytes/d4748544-36b6-4c65-bdf4-00d2f89ac37c-d4748544-36b6-4c65-bdf4-00d2f89ac37c-command-3-stdout.log",
+    "sha256": "0d8239cbaa602f9b4c52375dc2b8188833ad7a9ba7ae7b15acef8d410e842daf",
+    "size_bytes": 2451
+  }
+]
