@@ -1,0 +1,12 @@
+{
+  "format": "homeboy-observations",
+  "version": 1,
+  "created_at": "2026-10-25T22:40:35.514580681+00:00",
+  "homeboy_version": "0.433.34",
+  "run_count": 2,
+  "artifact_count": 4,
+  "artifact_byte_count": 4,
+  "trace_span_count": 0,
+  "finding_count": 0,
+  "test_failure_count": 0
+}

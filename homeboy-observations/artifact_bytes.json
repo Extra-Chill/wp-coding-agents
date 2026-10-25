@@ -1,0 +1,26 @@
+[
+  {
+    "artifact_id": "6d92e5d8-833f-4595-8955-89e1f8c0dd72",
+    "path": "artifact-bytes/6d92e5d8-833f-4595-8955-89e1f8c0dd72-6d92e5d8-833f-4595-8955-89e1f8c0dd72-command-1-stdout.log",
+    "sha256": "12926f89d361a9a9377f00c1f8d9443784514cde3cade586bc67230fec67648a",
+    "size_bytes": 1342
+  },
+  {
+    "artifact_id": "99510596-49cd-4db4-a63b-0660cb04003e",
+    "path": "artifact-bytes/99510596-49cd-4db4-a63b-0660cb04003e-99510596-49cd-4db4-a63b-0660cb04003e-command-1-stderr.log",
+    "sha256": "868b5ea0129feb81b7909425a08c6b7e4e681c17b347232254a8826cdaff21de",
+    "size_bytes": 23
+  },
+  {
+    "artifact_id": "206a8d53-2075-42e3-9ad3-317be6029cd8",
+    "path": "artifact-bytes/206a8d53-2075-42e3-9ad3-317be6029cd8-206a8d53-2075-42e3-9ad3-317be6029cd8-command-2-stdout.log",
+    "sha256": "94b096f827df9a52972c00ab0c45d82c95cc9275c6089266927533ba37e56b93",
+    "size_bytes": 487
+  },
+  {
+    "artifact_id": "ee8735d4-abe4-463c-a7ec-8d1ec6be68cf",
+    "path": "artifact-bytes/ee8735d4-abe4-463c-a7ec-8d1ec6be68cf-ee8735d4-abe4-463c-a7ec-8d1ec6be68cf-command-3-stdout.log",
+    "sha256": "0d8239cbaa602f9b4c52375dc2b8188833ad7a9ba7ae7b15acef8d410e842daf",
+    "size_bytes": 2451
+  }
+]

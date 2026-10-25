@@ -1,0 +1,159 @@
+[
+  {
+    "id": "33277e1b-5e14-4fff-82aa-a4094a7a1677",
+    "kind": "test",
+    "component_id": "wp-coding-agents",
+    "started_at": "2026-10-25T22:39:53.173855209+00:00",
+    "finished_at": "2026-10-25T22:40:32.480181870+00:00",
+    "status": "pass",
+    "command": "homeboy test wp-coding-agents",
+    "cwd": "/home/runner/work/wp-coding-agents/wp-coding-agents",
+    "homeboy_version": "0.433.34",
+    "git_sha": "249bb6c",
+    "rig_id": null,
+    "metadata_json": {
+      "analysis_clusters": 0,
+      "analyze": false,
+      "baseline": {
+        "baseline": false,
+        "ignore_baseline": false,
+        "ratchet": false
+      },
+      "baseline_regression": null,
+      "changed_since": null,
+      "coverage": null,
+      "coverage_min": null,
+      "differential": false,
+      "differential_base": "origin/main",
+      "exit_code": 0,
+      "failure_count": 0,
+      "json_summary": false,
+      "mode": "self-check",
+      "observation_status": "passed",
+      "passthrough_args": [],
+      "populate_differential_baseline": false,
+      "skip_lint": false,
+      "source_path": "/home/runner/work/wp-coding-agents/wp-coding-agents",
+      "summary": null,
+      "test_counts": null,
+      "test_inventory_rejection": null,
+      "test_scope": null,
+      "validation_progress": {
+        "active_command": null,
+        "command_count": 3,
+        "commands": [
+          {
+            "command": "bash tests/roadie-provision.sh",
+            "exit_code": 0,
+            "finished_at": "2026-10-25T22:39:58.537272477+00:00",
+            "index": 0,
+            "label": "test command 1",
+            "started_at": "2026-10-25T22:39:53.174965640+00:00",
+            "status": "passed",
+            "stderr_artifact": "validation-progress/command-1-stderr.log",
+            "stdout_artifact": "validation-progress/command-1-stdout.log"
+          },
+          {
+            "command": "bash tests/roadie-boot-smoke.sh",
+            "exit_code": 0,
+            "finished_at": "2026-10-25T22:40:29.921590328+00:00",
+            "index": 1,
+            "label": "test command 2",
+            "started_at": "2026-10-25T22:39:58.537670452+00:00",
+            "status": "passed",
+            "stderr_artifact": null,
+            "stdout_artifact": "validation-progress/command-2-stdout.log"
+          },
+          {
+            "command": "bash tests/roadie-pi-backend.sh",
+            "exit_code": 0,
+            "finished_at": "2026-10-25T22:40:32.478480507+00:00",
+            "index": 2,
+            "label": "test command 3",
+            "started_at": "2026-10-25T22:40:29.922059428+00:00",
+            "status": "passed",
+            "stderr_artifact": null,
+            "stdout_artifact": "validation-progress/command-3-stdout.log"
+          }
+        ],
+        "completed_count": 3,
+        "failed_count": 0,
+        "last_completed_command": {
+          "command": "bash tests/roadie-pi-backend.sh",
+          "exit_code": 0,
+          "index": 2,
+          "label": "test command 3",
+          "status": "passed"
+        },
+        "next_command": null,
+        "schema": "homeboy.validation_progress.v1",
+        "status": "passed"
+      }
+    }
+  },
+  {
+    "id": "1bae6061-b516-4a90-91b8-9c714db3c143",
+    "kind": "lint",
+    "component_id": "wp-coding-agents",
+    "started_at": "2026-10-25T22:39:48.737960139+00:00",
+    "finished_at": "2026-10-25T22:39:49.135381655+00:00",
+    "status": "pass",
+    "command": "homeboy lint wp-coding-agents --path /home/runner/work/wp-coding-agents/wp-coding-agents",
+    "cwd": "/home/runner/work/wp-coding-agents/wp-coding-agents",
+    "homeboy_version": "0.433.34",
+    "git_sha": null,
+    "rig_id": null,
+    "metadata_json": {
+      "exit_code": 0,
+      "finding_count": 0,
+      "producer_summaries": [
+        {
+          "finding_count": 0,
+          "metadata": {
+            "exit_code": 0,
+            "source_sidecar": "lint-findings",
+            "source_sidecar_path": "lint-findings.json"
+          },
+          "source": {
+            "kind": "sidecar",
+            "label": "lint-findings",
+            "path": "lint-findings.json"
+          },
+          "status": "passed",
+          "step": "self-check",
+          "tool": "lint"
+        }
+      ],
+      "source": "homeboy review lint",
+      "validation_progress": {
+        "active_command": null,
+        "command_count": 1,
+        "commands": [
+          {
+            "command": "find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -r -n 1 bash -n",
+            "exit_code": 0,
+            "finished_at": "2026-10-25T22:39:49.134856965+00:00",
+            "index": 0,
+            "label": "lint command 1",
+            "started_at": "2026-10-25T22:39:48.738399924+00:00",
+            "status": "passed",
+            "stderr_artifact": null,
+            "stdout_artifact": null
+          }
+        ],
+        "completed_count": 1,
+        "failed_count": 0,
+        "last_completed_command": {
+          "command": "find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -r -n 1 bash -n",
+          "exit_code": 0,
+          "index": 0,
+          "label": "lint command 1",
+          "status": "passed"
+        },
+        "next_command": null,
+        "schema": "homeboy.validation_progress.v1",
+        "status": "passed"
+      }
+    }
+  }
+]
