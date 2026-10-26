@@ -43,6 +43,8 @@ guidance_render() {
 
   printf '%s\n' '## WordPress Source'
   printf '\n'
+  printf '%s\n' 'This site is your home: it holds your memory, wiki, configuration and runtime state. Run imports, fixtures, smoke tests and other work that creates content or switches themes in a disposable site: WP Codebox, or a throwaway Studio site created for the run and removed afterwards.'
+  printf '\n'
   printf '%s\n' 'The WordPress running this site is on disk underneath you. Read it to verify core APIs, hooks, conventions, and runtime behavior instead of relying on assumptions:'
   printf '\n'
   printf '%s\n' '- `wp-includes/` — core internals: the hook system, query, HTTP, database, and template APIs.'

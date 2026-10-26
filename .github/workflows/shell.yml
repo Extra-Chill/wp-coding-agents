@@ -238,6 +238,14 @@ jobs:
       - name: Run tests/roadie-identity-ability-gate.sh
         run: ./tests/roadie-identity-ability-gate.sh
 
+  site-identity-guard:
+    name: agent home site identity guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/site-identity-guard.sh
+        run: ./tests/site-identity-guard.sh
+
   runtime-guard:
     name: runtime deactivation guard (#328)
     runs-on: ubuntu-latest
