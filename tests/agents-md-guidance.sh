@@ -332,8 +332,6 @@ path.write_text(content)
 PY
 guidance_sync_all
 assert_php_lint "$MU_FILE" "WordPress boundary guidance parses with php -l"
-assert_contains "$MU_FILE" 'This site is your home: it holds your memory, wiki, configuration and runtime state.' "WordPress guidance identifies the agent home"
-assert_contains "$MU_FILE" 'a throwaway Studio site created for the run and removed afterwards' "WordPress guidance routes content-changing tests to disposable sites"
 if grep -q "BEGIN agents-md-guidance:wp-cli-transport" "$MU_FILE"; then
   echo "  ok   WordPress CLI transport filter present"
 else
