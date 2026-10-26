@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.5] - 2026-10-26
+
+### Changed
+- Revert "Protect the agent home site's identity from automated changes (#824)"
+- Update @extrachill/roadie to 0.82.1
+
 ## [3.5.4] - 2026-10-26
 
 ### Changed
