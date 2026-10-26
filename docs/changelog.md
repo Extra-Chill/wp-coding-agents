@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.6] - 2026-10-26
+
+### Fixed
+- map chat speaker to HOMEBOY_REQUESTER
+
 ## [3.5.5] - 2026-10-26
 
 ### Changed
