@@ -63,6 +63,13 @@ runtime_guidance_desired_state_detect() {
     RUNTIME_GUIDANCE_DESIRED_RUNTIME_FUNCTIONS+=(runtime_guard_sync)
   fi
 
+  # The home-site identity guard applies in every local source mode.
+  if [ "${INSTALLATION_PROFILE_EXTERNAL_WORDPRESS:-${EXTERNAL_WORDPRESS:-false}}" != true ] && \
+     runtime_guidance_desired_state_has_component runtime && \
+     declare -F site_identity_guard_sync >/dev/null 2>&1; then
+    RUNTIME_GUIDANCE_DESIRED_RUNTIME_FUNCTIONS+=(site_identity_guard_sync)
+  fi
+
   if [ "${#RUNTIME_GUIDANCE_DESIRED_RUNTIME_FUNCTIONS[@]}" -gt 0 ]; then
     runtime_guidance_desired_state_add "runtime.${runtime}" runtime.reconcile runtime_guidance_desired_state_apply_runtime
   fi
