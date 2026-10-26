@@ -47,7 +47,7 @@ Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
 Environment=HOST_CUSTOM=preserved
 Environment=ROADIE_PLUGINS=/opt/roadie-config/roadie-plugins/host-upgrade.mjs,/srv/operator/extra.mjs
-Environment=ROADIE_SHELL_ENV="{\"stale\":\"pre-roadie-186\"}"
+Environment=ROADIE_SHELL_ENV="{\"HOMEBOY_CALLER_CONTEXT\":\"roadie:session:{session_id}\",\"HOMEBOY_SESSION_THREAD_ID\":\"{thread_id}\",\"HOMEBOY_SESSION_SEND_COMMAND\":\"/usr/bin/roadie send\",\"stale\":\"pre-requester\"}"
 ExecStart=/usr/bin/roadie --data-dir /root/.roadie --auto-restart
 EOF
 
@@ -163,6 +163,7 @@ import sys
 
 expected = {
     "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
+    "HOMEBOY_REQUESTER": "{person_id}",
     "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
     "HOMEBOY_SESSION_SEND_COMMAND": f"{os.environ['ROADIE_BIN_UNDER_TEST']} send",
 }
@@ -170,7 +171,7 @@ actual = json.loads(os.environ["SHELL_ENV_JSON"])
 if actual != expected:
     sys.exit(f"unexpected ROADIE_SHELL_ENV mapping: {actual}")
 PY
-check $? "ROADIE_SHELL_ENV maps HOMEBOY_SESSION_* onto the Roadie session fields"
+check $? "upgraded ROADIE_SHELL_ENV adds HOMEBOY_REQUESTER and preserves existing session templates"
 if [ "$(grep -c '^Environment=ROADIE_SHELL_ENV=' "$UNIT")" -eq 1 ]; then
   check 0 "ROADIE_SHELL_ENV appears exactly once"
 else

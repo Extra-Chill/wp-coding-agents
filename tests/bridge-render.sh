@@ -178,6 +178,33 @@ fi
 
 export HOME="$HOME_SAVE"
 
+# Check the full attribution contract independently of snapshot update mode.
+python3 - "$TMPDIR_NEW" <<'PY'
+import json
+import pathlib
+import sys
+import xml.etree.ElementTree as ET
+
+root = pathlib.Path(sys.argv[1])
+unit = (root / "roadie-systemd").read_text()
+line = next(line for line in unit.splitlines() if line.startswith("Environment=ROADIE_SHELL_ENV="))
+systemd_env = json.loads(line.split("=", 2)[2][1:-1].replace('\\"', '"'))
+plist = ET.parse(root / "roadie-launchd").getroot()
+env = plist.find("./dict/dict")
+children = list(env)
+launchd_env = json.loads(next(children[i + 1].text for i, child in enumerate(children) if child.text == "ROADIE_SHELL_ENV"))
+for actual, binary in (
+    (systemd_env, "/usr/local/lib/wp-coding-agents/roadie/bin/roadie"),
+    (launchd_env, "/opt/homebrew/bin/roadie"),
+):
+    assert actual == {
+        "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
+        "HOMEBOY_REQUESTER": "{person_id}",
+        "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
+        "HOMEBOY_SESSION_SEND_COMMAND": f"{binary} send",
+    }, actual
+PY
+
 # ---------------------------------------------------------------------------
 # Verbose dump
 # ---------------------------------------------------------------------------

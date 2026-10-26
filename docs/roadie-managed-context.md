@@ -47,7 +47,7 @@ Roadie's configurable agent-shell environment (roadie#186) replaces
 `session-attribution.ts`. The managed service env carries
 
 ```
-ROADIE_SHELL_ENV={"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_SESSION_SEND_COMMAND":"<roadie bin> send","HOMEBOY_SESSION_THREAD_ID":"{thread_id}"}
+ROADIE_SHELL_ENV={"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_REQUESTER":"{person_id}","HOMEBOY_SESSION_SEND_COMMAND":"<roadie bin> send","HOMEBOY_SESSION_THREAD_ID":"{thread_id}"}
 ```
 
 in both the systemd unit and the launchd plist. Roadie substitutes
@@ -57,6 +57,12 @@ plugin's `roadie session discord-url` lookup — and leaves a variable unset
 when its fields have no value for the turn, which preserves the plugin's fork
 rule (a forked shell never inherits the parent's caller context). The bot
 token is still never exported.
+
+`HOMEBOY_REQUESTER` maps `{person_id}` to the speaker's linked WordPress
+identity (for example, `wordpress:/var/www/extrachill.com:38`). It stays unset
+when the turn has no linked person; no actor fallback is configured. Homeboy
+receives this opaque identity through its bridge-neutral environment contract.
+The mapping is managed and regenerated on upgrade, so existing units gain it.
 
 Differences from the plugin: `HOMEBOY_SESSION_SEND_COMMAND` uses the resolved
 roadie binary (unset if the path contains whitespace, so delivery falls back
@@ -74,7 +80,9 @@ bash tests/repair-opencode-json.sh
 ```
 
 `tests/roadie-managed-env.sh` asserts the rendered systemd unit and launchd
-plist both carry `ROADIE_SHELL_ENV` with the `HOMEBOY_SESSION_*` mapping.
+plist both carry `ROADIE_SHELL_ENV` with `HOMEBOY_REQUESTER`,
+`HOMEBOY_CALLER_CONTEXT`, and the unchanged `HOMEBOY_SESSION_*` mapping,
+including when upgrading an existing unit.
 `tests/opencode-local-plugin-path.sh` asserts a Roadie install generates no
 `plugin` array and no plugin files, while a direct OpenCode install keeps
 `claude-code-auth.ts`.

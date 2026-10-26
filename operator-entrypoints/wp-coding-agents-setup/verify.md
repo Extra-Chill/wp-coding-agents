@@ -123,10 +123,12 @@ VPS Roadie:
 for plugin in dm-agent-sync.ts roadie-command-guard.ts session-attribution.ts; do test ! -e "/opt/roadie-config/plugins/$plugin" || echo "stale $plugin — rerun upgrade to remove"; done
 test -f /opt/roadie-config/prompt-config.yaml || echo "missing prompt-config.yaml"
 systemctl cat roadie | grep -Fq ROADIE_SHELL_ENV || echo "missing ROADIE_SHELL_ENV session attribution"
+systemctl cat roadie | grep -F ROADIE_SHELL_ENV | grep -F HOMEBOY_REQUESTER | grep -Fq '{person_id}' || echo "missing HOMEBOY_REQUESTER person attribution"
 ```
 
 If `prompt-config.yaml` is missing or `ROADIE_SHELL_ENV` is absent from the
-service env, rerun setup or upgrade before trusting a new OpenCode session.
+service env (or its `HOMEBOY_REQUESTER` → `{person_id}` mapping is missing),
+rerun setup or upgrade before trusting a new OpenCode session.
 
 ### `verify-bridge-none`
 
