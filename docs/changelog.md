@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.11] - 2026-10-29
+
+### Changed
+- Route Homeboy guidance runner health and Cook recovery to current CLI verbs
+
 ## [3.5.10] - 2026-10-29
 
 ### Changed
