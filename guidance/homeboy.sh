@@ -356,16 +356,16 @@ Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, re
 - Review a candidate: `homeboy review`
 - Inspect runs and evidence: `homeboy runs`
 - Multi-step, gated, or repeating workflows: `homeboy workflow`
-- Component and runner health: `homeboy status` and `homeboy runner status`
+- Component and runner health: `homeboy status` and `homeboy runner doctor`
 
 **Operator boundary**
 `homeboy release` and `homeboy deploy` run when the user asks.
 
 **Control-plane recovery**
 Homeboy remains the normal owner of tracked coding work. If Cook fails to admit a task:
-1. Validate the selected route with `homeboy agent-task cook --preview` using the task's repository, tracker URL, and verification gates.
-2. Check `homeboy agent-task providers`, `homeboy status`, and `homeboy runner status`. Use `homeboy agent-task cook --help-full` for the configured alternative-route syntax.
-3. Recover the runner or control-plane through its documented Homeboy operation, then retry Cook within its configured attempt and provider-rotation budget.
+1. Validate the selected route with `homeboy agent-task cook --preview` using the task's repository, tracker URL, and verification gates; `--preview` also lists the ready backend routes.
+2. Check `homeboy agent-task providers`, `homeboy agent-task capacity` (live capacity and reset times per route), `homeboy status`, and `homeboy runner doctor`. Use `homeboy agent-task cook --help-full` for the configured alternative-route syntax.
+3. Recover with the dedicated verbs: `homeboy agent-task diagnose <run>` returns the root cause and next actions, `homeboy agent-task recover <run>` performs the next recovery step for a stopped Cook, and `homeboy agent-task doctor --runner <runner>` checks and repairs runner provider/runtime readiness. Then retry Cook within its configured attempt and provider-rotation budget.
 4. After that budget is exhausted, request explicit operator authorization before invoking a coding runtime directly.
 
 Authorized direct fallback stays exceptional. Work in an isolated Git worktree linked to the tracker; run and record deterministic verification; then follow commit, push, review, pull-request, and AI-disclosure policy. Record that finalization occurred outside Homeboy and keep the runtime command plus session evidence with the tracker.
