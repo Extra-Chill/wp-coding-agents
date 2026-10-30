@@ -304,7 +304,6 @@ function compile(profile) {
       systems_capabilities: systemsCapabilities.profile || "none",
       source_mode: source.mode,
       workspace_repositories: source.repositories,
-      workspace_repository_clones: source.entries.filter((repository) => repository.remote),
     },
     commands: {
       dry_run: formatCommand(env, command, true),

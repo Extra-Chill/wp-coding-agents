@@ -29,10 +29,10 @@ Homeboy is an optional orchestration axis, not a source mode. When it is unavail
 
 ## Repository contract
 
-The desired-state profile carries an explicit list of repository roots for workspace mode. Existing checkouts are declared by absolute path. A repository object with `path` and credential-free `remote` fields additionally authorizes setup and upgrade to clone that primary checkout when the destination is missing.
+The desired-state profile carries an explicit list of repository roots for workspace mode. Existing checkouts are declared by absolute path. Only paths are recorded. A setup-time repository object with `path` and a credential-free `remote` also tells setup to clone that checkout when the destination is missing; the remote is used once and never stored.
 
 - Each entry is an absolute path to one primary Git checkout accessible to the coding runtime. Filesystem aliases are resolved when proving checkout-root identity.
-- Materialization creates only a missing destination. An existing destination must already be the primary checkout root and its `origin` must exactly match the declaration; setup and upgrade never replace it.
+- Checkouts are operator-owned. Setup clones only a missing destination and declares an existing primary checkout root as it stands, whatever its `origin`. Upgrade never clones, re-validates, or replaces a checkout.
 - Materialization rejects direct symlink destinations and user-controlled symlink ancestors. Privileged materialization additionally requires root-owned ancestors that are not group/world-writable; root-owned aliases in protected system directories remain valid.
 - The list is the sole repository authority for runtime permissions, guidance, verification, and optional Homeboy component attachment.
 - The WordPress site root is read-only reference unless it is separately and explicitly listed as a repository root. Local path coincidence is not authority.
@@ -79,7 +79,7 @@ The following are not target resident capabilities: repository discovery; file m
 
 ## Failure behavior
 
-- Missing materialized repositories are restored from their declarations during setup or upgrade. Missing path-only repositories and invalid destinations make workspace verification unhealthy and leave installed WordPress source read-only.
+- A missing or invalid repository path makes only that repository unhealthy in verification and leaves installed WordPress source read-only. Re-run setup with `--workspace-repository-clone` to restore a missing checkout.
 - Missing Homeboy leaves native primary-checkout workflow available and all orchestrated-worktree guidance absent.
 - Homeboy configured but unhealthy fails the Homeboy seam explicitly; WordPress does not assume its lifecycle operations.
 - An unavailable external WordPress transport blocks WordPress operations but does not change local repository authority.

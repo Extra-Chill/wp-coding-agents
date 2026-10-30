@@ -132,9 +132,7 @@ IS_STUDIO=false
 CHAT_BRIDGE=""
 HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
 WITH_HOMEBOY="${WITH_HOMEBOY:-false}"
-WORKSPACE_REPOSITORY_CLONES=""
 WORKSPACE_REPOSITORIES_EXPLICIT=false
-WORKSPACE_REPOSITORY_CLONES_EXPLICIT=false
 # True when the operator forced the identity via --root / --non-root.
 # Suppresses adopt_service_identity_from_units (existing-unit adoption).
 SERVICE_USER_FORCED=false
@@ -180,7 +178,6 @@ while [[ $# -gt 0 ]]; do
     --host-config-ref) HOST_CONFIG_REF="$2"; shift 2 ;;
     --source-mode|--posture) SOURCE_MODE="$2"; SOURCE_MODE_EXPLICIT=true; shift 2 ;;
     --workspace-repository) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository "$2"; shift 2 ;;
-    --workspace-repository-clone) source_policy_begin_workspace_repository_declarations; source_policy_add_workspace_repository_clone "$2" "$3"; shift 3 ;;
     --not-owned)     owned_discovery_add_exclusion "$2"; shift 2 ;;
     --owned-source|--managed-source) OWNED_SOURCES="${OWNED_SOURCES}${OWNED_SOURCES:+ }$2"; OWNED_SOURCES_EXPLICIT=true; shift 2 ;;
     --owned-writable|--managed-writable) OWNED_WRITABLE="${OWNED_WRITABLE}${OWNED_WRITABLE:+ }$2"; OWNED_WRITABLE_EXPLICIT=true; shift 2 ;;
@@ -270,7 +267,6 @@ USAGE:
                                  it. Exits without running other phases.
    ./upgrade.sh --source-mode <name>
    ./upgrade.sh --workspace-repository <absolute-git-checkout>
-   ./upgrade.sh --workspace-repository-clone <git-remote> <absolute-destination>
                                Where code changes land: workspace | owned
                                (default: the mode recorded at setup time).
                                Two shapes, not two levels. --posture is
@@ -521,7 +517,6 @@ detect_environment
 source_policy_resolve_mode
 if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
-  source_policy_materialize_workspace_repositories
   source_policy_validate_workspace_repositories
 fi
 source_policy_resolve_owned_sources
