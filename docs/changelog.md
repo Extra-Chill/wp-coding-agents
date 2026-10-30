@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.5.14] - 2026-10-30
+
+### Changed
+- Update @extrachill/roadie to 0.83.11
+
+### Fixed
+- lead the Homeboy section with its purpose
+
 ## [3.5.13] - 2026-10-30
 
 ### Fixed
