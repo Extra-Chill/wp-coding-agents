@@ -39,15 +39,31 @@ mkdir -p "$SERVICE_HOME" "$HOMEBOY_DAEMON_SYSTEMD_DIR" "$(dirname "$WP_CODING_AG
 bridge_load roadie
 ROADIE_SYSTEM_PREFIX="$TMP/roadie-prefix"
 ROADIE_LOCK_PORT=29988
+mkdir -p "$TMP/verify"
+# When systemd-analyze is available (#838), the rendered unit must parse with
+# every Environment= assignment intact — no "Invalid environment assignment".
+unit_parses_without_assignment_warnings() {
+  command -v systemd-analyze >/dev/null 2>&1 || return 0
+  local out
+  printf '%s\n' "$1" > "$TMP/verify/homeboy-daemon.service"
+  out="$(systemd-analyze verify "$TMP/verify/homeboy-daemon.service" 2>&1 || true)"
+  case "$out" in *"Invalid environment assignment"*) fail "systemd rejects the rendered environment: $out" ;; esac
+}
 unit="$(homeboy_daemon_render_systemd_service)"
-grep -qx "Environment=HOMEBOY_SESSION_SEND_COMMAND=$ROADIE_SYSTEM_PREFIX/bin/roadie send" <<< "$unit" || fail "unit does not carry the bridge session sender"
-grep -qx "Environment=ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token" <<< "$unit" || fail "unit does not carry sender authentication"
-grep -q "PATH=.*$ROADIE_SYSTEM_PREFIX/bin" <<< "$unit" || fail "sender binary directory is not on PATH"
+grep -Fqx "Environment=\"HOMEBOY_SESSION_SEND_COMMAND=$ROADIE_SYSTEM_PREFIX/bin/roadie send\"" <<< "$unit" || fail "unit does not carry the bridge session sender quoted for systemd"
+grep -Fqx "Environment=\"ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token\"" <<< "$unit" || fail "unit does not carry sender authentication"
+grep -Fqx "Environment=\"PATH=$TMP/prefix/wp-coding-agents/bin:$ROADIE_SYSTEM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin\"" <<< "$unit" || fail "sender binary directory is not on PATH"
+unit_parses_without_assignment_warnings "$unit"
+# A sender carrying quotes, backslashes, and spaces must survive systemd's quoting.
+bridge_session_sender_command() { printf '%s/we ird\"bin\\path send\n' "$TMP"; }
+unit="$(homeboy_daemon_render_systemd_service)"
+grep -Fqx "Environment=\"HOMEBOY_SESSION_SEND_COMMAND=$TMP/we ird\\\"bin\\\\path send\"" <<< "$unit" || fail "unit does not escape the session sender for systemd"
+unit_parses_without_assignment_warnings "$unit"
 unset -f bridge_session_sender_command bridge_session_sender_env
 unit="$(homeboy_daemon_render_systemd_service)"
 ! grep -q '^Environment=HOMEBOY_SESSION_SEND_COMMAND=' <<< "$unit" || fail "unit sets a sender without a bridge"
 grep -qx "User=wpagent" <<< "$unit" || fail "unit does not run as the service user"
-grep -qx "Environment=HOME=$SERVICE_HOME" <<< "$unit" || fail "unit HOME is not the service home"
+grep -qx "Environment=\"HOME=$SERVICE_HOME\"" <<< "$unit" || fail "unit HOME is not the service home"
 grep -qx "ExecStart=$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN daemon serve" <<< "$unit" || fail "unit does not serve the managed binary in the foreground"
 grep -qx "Restart=always" <<< "$unit" || fail "unit is not always restarted"
 grep -qx "StartLimitIntervalSec=0" <<< "$unit" || fail "unit can give up while another daemon owns the lock"
@@ -55,7 +71,7 @@ grep -qx "WantedBy=multi-user.target" <<< "$unit" || fail "unit is not enabled a
 case "$unit" in *roadie*|*kimaki*) fail "daemon unit names a chat bridge" ;; esac
 grep -q "HOMEBOY_DATA_DIR" <<< "$unit" && fail "unit sets HOMEBOY_DATA_DIR without a workspace root"
 unit="$(HOMEBOY_DATA_DIR=/srv/workspace/.homeboy homeboy_daemon_render_systemd_service)"
-grep -qx "Environment=HOMEBOY_DATA_DIR=/srv/workspace/.homeboy" <<< "$unit" || fail "unit does not carry the workspace Homeboy data root"
+grep -Fqx "Environment=\"HOMEBOY_DATA_DIR=/srv/workspace/.homeboy\"" <<< "$unit" || fail "unit does not carry the workspace Homeboy data root"
 
 # --- Applicability -------------------------------------------------------------
 homeboy_daemon_service_applicable && fail "unit applies before the managed binary exists"

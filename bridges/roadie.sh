@@ -462,8 +462,12 @@ roadie_bin() {
 
 bridge_session_sender_command() { printf '%s send\n' "$(roadie_bin)"; }
 
+# Extra Environment= lines the supervised daemon unit carries alongside the
+# session sender. Rendered verbatim into homeboy-daemon.service, so anything
+# that can carry whitespace must arrive systemd-quoted. The secrets root is
+# operator-configurable (ROADIE_SECRETS_ROOT) and the lock port is numeric.
 bridge_session_sender_env() {
-  printf 'Environment=ROADIE_SERVICE_TOKEN_FILE=%s\n' "$(_roadie_send_token_file)"
+  printf 'Environment=%s\n' "$(systemd_quote "ROADIE_SERVICE_TOKEN_FILE=$(_roadie_send_token_file)")"
   [ -z "${ROADIE_LOCK_PORT:-}" ] || printf 'Environment=ROADIE_LOCK_PORT=%s\n' "$ROADIE_LOCK_PORT"
 }
 

@@ -42,6 +42,10 @@ homeboy_daemon_render_systemd_service() {
     fi
   fi
   path="$(dirname "$bin")${sender_dir:+:$sender_dir}:/usr/local/bin:/usr/bin:/bin"
+# HOME, PATH, and the session sender can all carry whitespace (operator-set
+# paths, or a sender command like "<roadie> send"), so systemd's quoting wraps
+# them; assignments that cannot contain whitespace stay simple. The sender's
+# own extra Environment= lines arrive pre-formatted from the bridge.
   cat <<EOF
 [Unit]
 Description=Homeboy daemon (wp-coding-agents)
@@ -54,9 +58,9 @@ StartLimitIntervalSec=0
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SERVICE_HOME
-Environment=HOME=$SERVICE_HOME$(homeboy_data_dir_systemd_env)
-Environment=PATH=$path
-${sender:+Environment=HOMEBOY_SESSION_SEND_COMMAND=$sender
+Environment=$(systemd_quote "HOME=$SERVICE_HOME")$(homeboy_data_dir_systemd_env)
+Environment=$(systemd_quote "PATH=$path")
+${sender:+Environment=$(systemd_quote "HOMEBOY_SESSION_SEND_COMMAND=$sender")
 }${sender_env:+$sender_env
 }
 ExecStart=$bin daemon serve
