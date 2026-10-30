@@ -348,7 +348,7 @@ _guidance_homeboy_live_block() {
 __WP_CODING_AGENTS_PROVENANCE__
 ## Homeboy
 
-Homeboy orchestrates coding agents, deterministic gates, evidence, promotion, review, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook.
+Homeboy makes agentic engineering work more deterministic. A coding agent's output varies from run to run; Homeboy surrounds it with fixed structure: isolated worktrees, deterministic gates, durable evidence, and gated pull-request finalization. Humans, CI, and agents use the same Homeboy commands for checks, reviews, releases, and deployments. Homeboy owns the native Rust worktree lifecycle and Cook.
 
 **Default routing**
 - One tracked change: `homeboy agent-task cook`
