@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.13] - 2026-10-30
+
+### Fixed
+- quote space-capable Environment= values in homeboy-daemon.service
+
 ## [3.5.12] - 2026-10-30
 
 ### Fixed
