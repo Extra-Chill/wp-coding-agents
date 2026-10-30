@@ -116,6 +116,22 @@ xml_escape() {
   printf '%s' "$value"
 }
 
+# systemd_quote <assignment> — quote a whole KEY=VALUE assignment for an
+# Environment= line in a systemd unit.
+#
+# systemd splits an unquoted Environment= value on whitespace, so a value like
+# "/path/to/roadie send" reaches the process as two assignments and the
+# subcommand is silently dropped (#838). Values that can carry whitespace —
+# paths and command lines — are therefore written double-quoted, with " and \\
+# escaped per systemd's syntax. Numeric or fixed values that cannot contain
+# whitespace stay unquoted so the common lines remain unchanged.
+systemd_quote() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf '"%s"' "$value"
+}
+
 file_mode() {
   file_metadata_stat_dialect || return
   case "$WP_CODING_AGENTS_STAT_DIALECT" in
@@ -439,8 +455,10 @@ initialize_roadie_overrides() {
 
 # Appended to a unit's HOME line: a newline plus the Homeboy data-root
 # Environment= line, or nothing when unset so units without it stay unchanged.
+# The workspace root is an operator-set path, so the assignment is quoted to
+# survive systemd's whitespace splitting.
 homeboy_data_dir_systemd_env() {
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
-    printf '\nEnvironment=HOMEBOY_DATA_DIR=%s' "$HOMEBOY_DATA_DIR"
+    printf '\nEnvironment=%s' "$(systemd_quote "HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR")"
   fi
 }
