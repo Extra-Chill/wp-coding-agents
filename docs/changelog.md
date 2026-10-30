@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.12] - 2026-10-30
+
+### Fixed
+- leave workspace checkouts operator-owned after setup
+
 ## [3.5.11] - 2026-10-29
 
 ### Changed
