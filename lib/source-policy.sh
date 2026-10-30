@@ -723,15 +723,6 @@ source_policy_workspace_repositories() {
   done
 }
 
-source_policy_workspace_clone_specs_encode() {
-  printf '%s' "${WORKSPACE_REPOSITORY_CLONES:-}" | python3 -c 'import base64, sys; print(base64.urlsafe_b64encode(sys.stdin.buffer.read()).decode("ascii").rstrip("="))'
-}
-
-source_policy_workspace_clone_specs_decode() {
-  [ -n "${1:-}" ] || return 0
-  printf '%s' "$1" | python3 -c 'import base64, sys; data = sys.stdin.buffer.read(); sys.stdout.buffer.write(base64.urlsafe_b64decode(data + b"=" * (-len(data) % 4)))'
-}
-
 source_policy_validate_workspace_repository_clone() {
   local remote="$1" repository="$2" authority userinfo
   [ -n "$remote" ] || { error "--workspace-repository-clone requires a Git remote URL"; return 1; }
@@ -775,7 +766,6 @@ source_policy_begin_workspace_repository_declarations() {
     WORKSPACE_REPOSITORIES=""
     WORKSPACE_REPOSITORY_CLONES=""
     WORKSPACE_REPOSITORIES_EXPLICIT=true
-    WORKSPACE_REPOSITORY_CLONES_EXPLICIT=true
   fi
 }
 
@@ -833,12 +823,15 @@ source_policy_add_workspace_repository_clone() {
     *":$repository:"*) ;;
     *) WORKSPACE_REPOSITORIES="${WORKSPACE_REPOSITORIES:+$WORKSPACE_REPOSITORIES:}$repository" ;;
   esac
-  WORKSPACE_REPOSITORY_CLONES_EXPLICIT=true
 }
 
+# Setup-only bootstrap: clone each missing --workspace-repository-clone
+# destination. Clone specs live only for this setup invocation; checkouts are
+# operator-owned afterwards, so an existing destination is declared as it
+# stands (any origin) and upgrade never revisits it.
 source_policy_materialize_workspace_repositories() {
   source_policy_workspace_enabled || return 0
-  local remote repository parent root actual_remote canonical_repository
+  local remote repository parent root canonical_repository
   while IFS=$'\t' read -r remote repository; do
     [ -n "$repository" ] || continue
     source_policy_validate_workspace_repository_clone "$remote" "$repository"
@@ -853,11 +846,6 @@ source_policy_materialize_workspace_repositories() {
       canonical_repository="$(cd "$repository" && pwd -P)" || return 1
       [ "$(cd "$root" && pwd -P)" = "$canonical_repository" ] || {
         error "Workspace repository destination is not the primary checkout root: $repository"
-        return 1
-      }
-      actual_remote="$(git -C "$repository" config --get remote.origin.url 2>/dev/null || true)"
-      [ "$actual_remote" = "$remote" ] || {
-        error "Workspace repository origin does not match its declaration: $repository"
         return 1
       }
       continue

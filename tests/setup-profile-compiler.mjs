@@ -179,9 +179,6 @@ for (const selection of ["auto"]) {
   })
   assert.match(plan.commands.apply, /--workspace-repository-clone https:\/\/github\.com\/example\/project\.git '[/]work[/]new checkout'/)
   assert.deepEqual(plan.summary.workspace_repositories, ["/work/new checkout"])
-  assert.deepEqual(plan.summary.workspace_repository_clones, [
-    { path: "/work/new checkout", remote: "https://github.com/example/project.git" },
-  ])
 }
 
 for (const source of [

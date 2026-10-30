@@ -81,7 +81,6 @@ SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
 WORKSPACE_REPOSITORY_CLONES=""
 WORKSPACE_REPOSITORIES_EXPLICIT=false
-WORKSPACE_REPOSITORY_CLONES_EXPLICIT=false
 OWNED_SOURCES=""
 OWNED_SOURCES_EXPLICIT=false
 OWNED_WRITABLE=""
@@ -421,10 +420,11 @@ OPTIONS:
                        Declares a repository authority for workspace mode.
                        Repeatable; no repository path is inferred.
    --workspace-repository-clone <git-remote> <absolute-destination>
-                       Declares and materializes a missing primary checkout.
-                       Repeatable. Existing destinations are validated and
-                       never overwritten. The credential-free declaration is
-                       recorded so upgrade can restore a missing checkout.
+                       Declares a primary checkout, cloning it first when the
+                       destination is missing. Repeatable. An existing
+                       checkout is declared as it stands and never
+                       overwritten. Setup-only: the checkout is
+                       operator-owned afterwards and upgrade never revisits it.
   --not-owned <slug> Plugin or theme slug that is NOT the site's despite
                      classifying as owned — a premium or vendor plugin,
                      typically. Repeatable. Recorded on the install.

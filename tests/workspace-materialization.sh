@@ -1,5 +1,6 @@
 #!/bin/bash
-# Primary repository materialization is host setup state, never WordPress state.
+# Workspace checkouts are operator-owned: setup clones a missing one once;
+# upgrade and the installation profile never carry or enforce clone specs.
 set -eu
 
 ROOT_SCOPE="$(dirname "$(dirname "${BASH_SOURCE[0]}")")"
@@ -14,7 +15,7 @@ for selected in ROADIE_ONLY PLUGINS_ONLY SKILLS_ONLY AGENTS_MD_ONLY RECONCILE_SE
   scope_calls=""
   eval "$scope_phase"
   if [ "$selected" = full ]; then
-    test "$scope_calls" = 'materialize validate ' || exit 1
+    test "$scope_calls" = 'validate ' || { printf 'FAIL: upgrade revisits workspace checkouts: %s\n' "$scope_calls" >&2; exit 1; }
   else
     test -z "$scope_calls" || { printf 'FAIL: %s crossed into repository provisioning\n' "$selected" >&2; exit 1; }
   fi
@@ -45,7 +46,6 @@ SOURCE_MODE=workspace
 WORKSPACE_REPOSITORIES=""
 WORKSPACE_REPOSITORY_CLONES=""
 WORKSPACE_REPOSITORIES_EXPLICIT=false
-WORKSPACE_REPOSITORY_CLONES_EXPLICIT=false
 DRY_RUN=false
 LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
@@ -67,39 +67,30 @@ source_policy_materialize_workspace_repositories
 installation_profile_normalize "$INSTALLATION_OPERATION_SETUP"
 installation_profile_write
 PROFILE="$(installation_profile_file)"
-grep -q '^workspace_repository_clones=' "$PROFILE"
-if grep -q "$ORIGIN" "$PROFILE"; then
-  echo "FAIL: clone declaration was not encoded" >&2
+if grep -q -e '^workspace_repository_clones=' -e "$ORIGIN" "$PROFILE"; then
+  echo "FAIL: the installation profile carries clone specs" >&2
   exit 1
 fi
 
+# A profile written before clone specs were retired still loads; its stale
+# clone key is ignored and declares only the repository path.
+printf 'workspace_repository_clones=%s\n' "$(printf '%s\t%s' "$TMP/stale-origin.git" "$DESTINATION" | base64)" >> "$PROFILE"
 WORKSPACE_REPOSITORIES=""
 WORKSPACE_REPOSITORY_CLONES=""
-WORKSPACE_REPOSITORY_CLONES_EXPLICIT=false
 SOURCE_MODE_EXPLICIT=false
 installation_profile_load
 test "$WORKSPACE_REPOSITORIES" = "$DESTINATION"
-case "$WORKSPACE_REPOSITORY_CLONES" in
-  "$ORIGIN"$'\t'"$DESTINATION") ;;
-  *) echo "FAIL: clone declaration did not round-trip" >&2; exit 1 ;;
-esac
-
-rm -rf "$DESTINATION"
-source_policy_materialize_workspace_repositories
-test -f "$DESTINATION/plugin.php"
-
-git -C "$DESTINATION" config remote.origin.url "$TMP/wrong-origin.git"
-if bash -c 'source "$1/lib/common.sh"; source "$1/lib/source-policy.sh"; SOURCE_MODE=workspace; WORKSPACE_REPOSITORY_CLONES="$2"$'\''\t'\''"$3"; source_policy_materialize_workspace_repositories' _ "$ROOT" "$ORIGIN" "$DESTINATION" >/dev/null 2>&1; then
-  echo "FAIL: existing checkout with the wrong origin was accepted" >&2
-  exit 1
-fi
-git -C "$DESTINATION" config remote.origin.url "$ORIGIN"
-
-source_policy_begin_workspace_repository_declarations
-source_policy_add_workspace_repository "$SEED"
-installation_profile_load
 test -z "$WORKSPACE_REPOSITORY_CLONES"
-test "$WORKSPACE_REPOSITORIES" = "$(cd "$SEED" && pwd -P)"
+
+# An existing checkout is declared as it stands, whatever its origin, and is
+# left untouched.
+git -C "$DESTINATION" remote set-url origin "$TMP/operator-chosen-origin.git"
+HEAD_BEFORE="$(git -C "$DESTINATION" rev-parse HEAD)"
+WORKSPACE_REPOSITORY_CLONES=""
+source_policy_add_workspace_repository_clone "$ORIGIN" "$DESTINATION"
+source_policy_materialize_workspace_repositories
+test "$(git -C "$DESTINATION" config --get remote.origin.url)" = "$TMP/operator-chosen-origin.git"
+test "$(git -C "$DESTINATION" rev-parse HEAD)" = "$HEAD_BEFORE"
 
 WORKSPACE_REPOSITORIES=""
 WORKSPACE_REPOSITORY_CLONES="$ORIGIN"$'\t'"$DESTINATION"
@@ -131,4 +122,4 @@ if bash -c 'source "$1/lib/common.sh"; source "$1/lib/source-policy.sh"; SOURCE_
   exit 1
 fi
 
-echo "PASS: workspace repositories materialize from persisted host intent"
+echo "PASS: setup bootstraps missing checkouts; upgrade and the profile leave checkouts operator-owned"

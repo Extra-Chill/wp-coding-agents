@@ -36,7 +36,6 @@ installation_profile_value() {
     chat_bridge) printf '%s' "$INSTALLATION_PROFILE_CHAT_BRIDGE" ;;
     homeboy_mode) printf '%s' "$INSTALLATION_PROFILE_HOMEBOY_MODE" ;;
     workspace_repositories) printf '%s' "$INSTALLATION_PROFILE_WORKSPACE_REPOSITORIES" ;;
-    workspace_repository_clones) printf '%s' "$INSTALLATION_PROFILE_WORKSPACE_REPOSITORY_CLONES" ;;
     components) printf '%s' "${INSTALLATION_PROFILE_COMPONENTS[*]}" ;;
     plugin_candidates) printf '%s' "${INSTALLATION_PROFILE_PLUGIN_CANDIDATES[*]}" ;;
     *) return 1 ;;
@@ -66,10 +65,6 @@ installation_profile_normalize() {
   fi
   INSTALLATION_PROFILE_HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
   INSTALLATION_PROFILE_WORKSPACE_REPOSITORIES="${WORKSPACE_REPOSITORIES:-}"
-  INSTALLATION_PROFILE_WORKSPACE_REPOSITORY_CLONES=""
-  if [ -n "${WORKSPACE_REPOSITORY_CLONES:-}" ]; then
-    INSTALLATION_PROFILE_WORKSPACE_REPOSITORY_CLONES="$(source_policy_workspace_clone_specs_encode)"
-  fi
   INSTALLATION_PROFILE_PLUGIN_CANDIDATES=(data-machine wp-codebox)
   INSTALLATION_PROFILE_CARRIED_PLUGINS=()
   if [ "$INSTALLATION_PROFILE_EXTERNAL_WORDPRESS" != true ]; then
@@ -123,7 +118,7 @@ installation_profile_write() {
     local key
     umask 077
     : > "$tmp"
-    for key in operation site_path local_mode external_wordpress studio source_mode runtime agent_slug install_chat chat_bridge homeboy_mode workspace_repositories workspace_repository_clones components plugin_candidates; do
+    for key in operation site_path local_mode external_wordpress studio source_mode runtime agent_slug install_chat chat_bridge homeboy_mode workspace_repositories components plugin_candidates; do
       printf '%s=%s\n' "$key" "$(installation_profile_value "$key")" >> "$tmp"
     done
     mv "$tmp" "$file"
@@ -180,11 +175,6 @@ installation_profile_load() {
       chat_bridge) [ -n "${CHAT_BRIDGE:-}" ] || CHAT_BRIDGE="$value" ;;
       homeboy_mode) [ "${HOMEBOY_MODE:-auto}" != auto ] || HOMEBOY_MODE="$value" ;;
       workspace_repositories) [ "${WORKSPACE_REPOSITORIES_EXPLICIT:-false}" = true ] || WORKSPACE_REPOSITORIES="$value" ;;
-      workspace_repository_clones)
-        if [ "${WORKSPACE_REPOSITORIES_EXPLICIT:-false}" != true ] && [ -n "$value" ]; then
-          WORKSPACE_REPOSITORY_CLONES="$(source_policy_workspace_clone_specs_decode "$value")"
-        fi
-        ;;
     esac
   done < "$file"
 }

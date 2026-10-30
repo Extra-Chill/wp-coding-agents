@@ -284,7 +284,7 @@ operator-entrypoints/wp-coding-agents-setup/setup.md
 | `--runtime <name>` | Coding runtime: `opencode` (the default and only value). `codex` and `claude-code` were removed in #751. |
 | `--source-mode <name>` | `workspace` (default) or `owned`. See [Source Mode](#source-mode). `--posture` is a deprecated alias. |
 | `--workspace-repository <absolute-git-checkout>` | Existing primary Git checkout authority for workspace mode. Repeatable. |
-| `--workspace-repository-clone <git-remote> <absolute-destination>` | Materialize and declare a missing primary checkout. Existing destinations are validated and never overwritten; credential-free declarations persist for upgrade recovery. Repeatable. |
+| `--workspace-repository-clone <git-remote> <absolute-destination>` | Setup only: clone a missing primary checkout and declare it. An existing checkout is declared as it stands and never overwritten. Checkouts are operator-owned afterwards; upgrade never revisits them. Repeatable. |
 | `--owned-source <path>` | wp-content path the site owns and may edit under `--source-mode owned`. Repeatable. |
 | `--owned-writable <path>` | Denied path to re-open for editing (e.g. `wp-config.php`). Not captured. Repeatable. `wp-config.php` may be opted in with either source mode; it is made group-writable for `www-data`. |
 | `--log-path <path>` | Absolute path outside the site root the agent may read. Repeatable. |
