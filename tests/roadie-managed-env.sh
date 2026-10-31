@@ -163,7 +163,7 @@ import sys
 
 expected = {
     "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
-    "HOMEBOY_REQUESTER": "{person_id}",
+    "HOMEBOY_REQUESTER": "{actor_name}",
     "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
     "HOMEBOY_SESSION_SEND_COMMAND": f"{os.environ['ROADIE_BIN_UNDER_TEST']} send",
 }

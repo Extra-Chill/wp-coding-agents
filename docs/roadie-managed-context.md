@@ -47,7 +47,7 @@ Roadie's configurable agent-shell environment (roadie#186) replaces
 `session-attribution.ts`. The managed service env carries
 
 ```
-ROADIE_SHELL_ENV={"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_REQUESTER":"{person_id}","HOMEBOY_SESSION_SEND_COMMAND":"<roadie bin> send","HOMEBOY_SESSION_THREAD_ID":"{thread_id}"}
+ROADIE_SHELL_ENV={"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_REQUESTER":"{actor_name}","HOMEBOY_SESSION_SEND_COMMAND":"<roadie bin> send","HOMEBOY_SESSION_THREAD_ID":"{thread_id}"}
 ```
 
 in both the systemd unit and the launchd plist. Roadie substitutes
@@ -58,10 +58,13 @@ when its fields have no value for the turn, which preserves the plugin's fork
 rule (a forked shell never inherits the parent's caller context). The bot
 token is still never exported.
 
-`HOMEBOY_REQUESTER` maps `{person_id}` to the speaker's linked WordPress
-identity (for example, `wordpress:/var/www/extrachill.com:38`). It stays unset
-when the turn has no linked person; no actor fallback is configured. Homeboy
-receives this opaque identity through its bridge-neutral environment contract.
+`HOMEBOY_REQUESTER` maps `{actor_name}` (Roadie 0.84.0+) to the speaker's chat
+display name, for example `chubes`. Homeboy renders it verbatim as
+`Requested by: ...` in published pull requests, so it must be a human-readable
+label, not an internal key: `{person_id}` (`wordpress:<site path>:<user id>`)
+would leak the server's filesystem layout into public PRs. It stays unset when
+the turn has no human speaker. The value is display-only attribution, never
+authority; permissions still flow through the WordPress person filter.
 The mapping is managed and regenerated on upgrade, so existing units gain it.
 
 Differences from the plugin: `HOMEBOY_SESSION_SEND_COMMAND` uses the resolved
