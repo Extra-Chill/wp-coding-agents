@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.18] - 2026-10-31
+
+### Changed
+- Pin Roadie 0.84.1 with fork-safe reworded fork notes
+
 ## [3.5.17] - 2026-10-31
 
 ### Fixed
