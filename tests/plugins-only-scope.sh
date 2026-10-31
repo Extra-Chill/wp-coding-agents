@@ -112,6 +112,7 @@ bridge_update_launchd() { printf 'changed\n' >> "$LOCAL_SERVICE"; }
 bridge_update_systemd() { printf 'changed\n' >> "$VPS_SERVICE"; }
 
 update_plugin_to_latest_tag() { printf '%s\n' "$1" >> "$TMP/plugins"; }
+update_plugin_from_release_zip() { printf '%s\n' "$1" >> "$TMP/plugins"; }
 installation_profile_normalize "$INSTALLATION_OPERATION_PLUGINS_ONLY"
 update_data_machine_plugins
 reconcile_provider_and_service_state
