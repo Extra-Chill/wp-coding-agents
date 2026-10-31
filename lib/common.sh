@@ -12,18 +12,6 @@ warn() { echo -e "${YELLOW}[wp-coding-agents]${NC} $1"; }
 error() { echo -e "${RED}[wp-coding-agents]${NC} $1"; exit 1; }
 info() { echo -e "${BLUE}[wp-coding-agents]${NC} $1"; }
 
-# Codex and Claude Code are no longer managed runtimes (#751). Both tools read
-# the composed AGENTS.md natively when run in a terminal, so wp-coding-agents
-# neither installs nor configures them. A request for either one, whether from
-# --runtime or a recorded installation-profile runtime, fails here.
-reject_removed_runtime() {
-  local runtime="$1" origin="${2:---runtime}"
-  case "$runtime" in
-    codex|claude-code)
-      error "$origin '$runtime' was removed (wp-coding-agents#751). Use Pi with Roadie, or run $runtime yourself in a terminal against the site's composed AGENTS.md."
-      ;;
-  esac
-}
 
 run_cmd() {
   if [ "$DRY_RUN" = true ]; then
@@ -328,7 +316,6 @@ write_file() {
 # under the web tree (mu-plugins, AGENTS.md + backups, runtime plugins,
 # installed skills). These files are written by whichever identity ran
 # setup/upgrade — root (cron/systemd, VPS upgrades), the service user
-# (opencode, local dev), or www-data (WP-CLI fallback) — and then need to
 # be *rewritten* by a different one of those identities on the next sync.
 # Forcing 0644 (see issue #133) fixed the world-read bit PHP-FPM needs, but
 # left files non-group-writable, so the next writer (a different uid than

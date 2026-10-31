@@ -49,7 +49,6 @@
 #   {message}    — the message body to deliver
 #
 # `env_json` (optional) is a JSON object literal of environment variables to
-# stamp onto the spawned CLI's process env (e.g. '{"HOME":"/home/opencode"}').
 # The transport overlays these on top of the inherited env, so a bridge can
 # pin a writable HOME / data-dir regardless of the caller's environment. This
 # is the seam that fixes scheduled (WP-cron / PHP-FPM) dispatch, where the
@@ -112,7 +111,6 @@ cli_channel_ensure_mu_plugin_file() {
   # Write the scaffold, then normalize mode/group regardless of the
   # caller's umask or identity (root cron/systemd contexts default to
   # umask 0077, which strips the world-read bit PHP-FPM needs — issue
-  # #133 — and root/opencode/www-data writers each leave a different
   # owner, which without a shared group-writable mode breaks the next
   # writer — issue #258).
   cat > "$file" <<'PHP'
@@ -262,8 +260,6 @@ PY
 
 # _cli_channel_json_object_to_php_array <json_object_literal>
 #
-# Convert a JSON object of string=>string pairs like {"HOME":"/home/opencode"}
-# into a PHP associative-array literal [ 'HOME' => '/home/opencode' ]. Uses
 # python3 when available (handles escaping properly); falls back to a naive
 # transform for the simple case (no embedded quotes), which is all we ship —
 # env values here are filesystem paths in installer-controlled config.

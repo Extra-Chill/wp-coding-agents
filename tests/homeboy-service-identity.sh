@@ -35,7 +35,7 @@ ok() { printf '  ok   %s\n' "$1"; PASS=$((PASS + 1)); }
 
 SERVICE_HOME="$TMP/service"
 SERVICE_USER="$(command id -un)"
-[ "$SERVICE_USER" != root ] || SERVICE_USER="opencode"
+[ "$SERVICE_USER" != root ] || SERVICE_USER="pi"
 WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$TMP/wp-coding-agents/bin/homeboy"
 export WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
 LOCAL_MODE=false

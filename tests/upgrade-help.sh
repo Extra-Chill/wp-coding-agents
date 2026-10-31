@@ -75,8 +75,8 @@ else
 fi
 
 echo "==> migration default user still resolves to a real value"
-if ! grep -q "(default: opencode)\." "$OUT"; then
-  echo "  FAIL expected literal 'opencode' substituted for the migration default user"
+if ! grep -q "(default: agent)\." "$OUT"; then
+  echo "  FAIL expected literal 'agent' substituted for the migration default user"
   FAILED=1
 else
   echo "  ok   default user resolved"

@@ -41,7 +41,7 @@ LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=true
 SOURCE_MODE=workspace
-RUNTIME=opencode
+RUNTIME=pi
 CHAT_BRIDGE=""
 HOMEBOY_MODE=enabled
 INSTALL_CHAT=false
@@ -56,18 +56,11 @@ KIMAKI_DATA_DIR="$TMP/kimaki"
 DM_WORKSPACE_DIR="$TMP/not-authoritative"
 DM_AGENT_FILES=""
 WITH_CLAUDE_CODE_AUTH=false
-OPENCODE_MODEL=""
-OPENCODE_SMALL_MODEL=""
+PI_MODEL=""
+PI_SMALL_MODEL=""
 SCRIPT_DIR="$ROOT"
-source "$ROOT/runtimes/opencode.sh"
-runtime_generate_config
-
-python3 - "$SITE/opencode.json" "$REPOSITORY" <<'PY' || fail "generated OpenCode configuration omitted repository access"
-import json, sys
-data = json.load(open(sys.argv[1]))
-assert data["permission"]["external_directory"][sys.argv[2] + "/**"] == "allow"
-assert data["permission"]["edit"]["wp-content/plugins/**"] == "deny"
-PY
+# Pi works directly in the repository; no OpenCode permission file is generated.
+[ ! -e "$SITE/opencode.json" ] || fail "legacy runtime config generated"
 
 source "$ROOT/guidance/wordpress-source.workspace.sh"
 GUIDANCE="$(guidance_render)"
@@ -91,17 +84,6 @@ case "$3" in wp_coding_agents_source_mode) echo workspace ;; esac
 SH
 chmod +x "$BIN/wp"
 PATH="$BIN:$PATH" "$ROOT/verify.sh" --site-path "$SITE" --quiet || fail "verify rejected the healthy workspace fixture"
-
-python3 - "$SITE/opencode.json" "$REPOSITORY" <<'PY'
-import json, sys
-path, repository = sys.argv[1:]
-data = json.load(open(path))
-del data["permission"]["external_directory"][repository + "/**"]
-json.dump(data, open(path, "w"))
-PY
-if PATH="$BIN:$PATH" "$ROOT/verify.sh" --site-path "$SITE" --quiet; then
-  fail "verify missed a repository permission disagreement"
-fi
 
 cat > "$BIN/homeboy" <<'SH'
 #!/bin/bash

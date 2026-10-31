@@ -11,17 +11,11 @@ disables every built-in section and appends the compact bridge contract, so
 Roadie's generic worktree, tunnel, and session-fanout guidance never reaches
 the model. Nothing is filtered after the fact: the sections are not generated.
 
-Kimaki installs needed an OpenCode plugin (`dm-context-filter`) that rewrote the
 assembled request and refused dispatch when a later hook reinjected generic
 instructions. Roadie's prompt config replaces it; upgrades drop the plugin
-entry from `opencode.json`.
 
-## No OpenCode plugins (#718)
 
-A wp-coding-agents Roadie install ships **no OpenCode plugins**. The four the
 bridge used to install into `roadie-config/plugins` and wire into
-`opencode.json` are retired in favor of Roadie-native primitives; upgrades
-remove the files and drop their `opencode.json` entries (additively — user
 plugins survive):
 
 | Retired plugin | Roadie-native replacement |
@@ -29,13 +23,11 @@ plugins survive):
 | `dm-agent-sync.ts` | Roadie's `wordpress-context` plugin / `--context-provider` supplies Data Machine memory per session and speaker |
 | `roadie-command-guard.ts` | Project-channel creation is gone from Roadie (roadie#187): channels come only from `ROADIE_CHANNELS_CONFIG` |
 | `session-attribution.ts` | Roadie's `--shell-env` / `ROADIE_SHELL_ENV` templates (roadie#186), rendered into the managed service env |
-| `claude-code-auth.ts` | Nothing to replace: it registered nothing under Roadie — Roadie's credential pools serve Anthropic. Kept for direct non-Roadie OpenCode installs. |
 
 ### Memory
 
 `dm-agent-sync.ts` only refreshed memory before a session's first message.
 Memory delivery itself is unchanged: setup and upgrade still sync Data
-Machine's injectable files into `opencode.json` `instructions`, and with
 `wordpress-context.json` configured, all Data Machine memory comes from Roadie's
 `wordpress-context` plugin instead (`--speaker-context`) for Roadie's Pi sessions. Freshness now follows
 Data Machine's own composition (or a manual `wp datamachine memory compose`)
@@ -78,14 +70,10 @@ that.
 
 ```bash
 bash tests/roadie-managed-env.sh
-bash tests/opencode-local-plugin-path.sh
-bash tests/repair-opencode-json.sh
 ```
 
 `tests/roadie-managed-env.sh` asserts the rendered systemd unit and launchd
 plist both carry `ROADIE_SHELL_ENV` with `HOMEBOY_REQUESTER`,
 `HOMEBOY_CALLER_CONTEXT`, and the unchanged `HOMEBOY_SESSION_*` mapping,
 including when upgrading an existing unit.
-`tests/opencode-local-plugin-path.sh` asserts a Roadie install generates no
-`plugin` array and no plugin files, while a direct OpenCode install keeps
 `claude-code-auth.ts`.

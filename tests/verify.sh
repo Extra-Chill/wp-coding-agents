@@ -17,7 +17,12 @@ cd "$SCRIPT_DIR"
 
 FAILED=0
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# Only the manifest is accessed as www-data. TMPDIR may be inside a private
+# checkout (or /root), so chmod on TMP alone cannot make its ancestors
+# traversable. Keep this non-executable, cross-user fixture under /tmp.
+MANIFEST_ROOT="$(mktemp -d /tmp/wp-coding-agents-verify-manifest.XXXXXXXXXX)"
+chmod 755 "$MANIFEST_ROOT"
+trap 'rm -rf "$TMP" "$MANIFEST_ROOT"' EXIT
 # This suite models a disposable install, including its privilege grants.
 # Host sudoers files are outside the fixture and must not affect its verdict.
 export GRANTS_SUDOERS_DIR="$TMP/sudoers"
@@ -32,7 +37,7 @@ refute_contains() {
 
 # A fake install. wp is stubbed so this needs no database.
 SITE="$TMP/site"
-mkdir -p "$SITE/wp-content/mu-plugins" "$TMP/units" "$TMP/manifest/site"
+mkdir -p "$SITE/wp-content/mu-plugins" "$TMP/units" "$MANIFEST_ROOT/site"
 HOMEBOY_FIXTURE_BIN="$TMP/managed homeboy path/homeboy"
 mkdir -p "$(dirname "$HOMEBOY_FIXTURE_BIN")"
 printf '#!/bin/sh\nexit 0\n' > "$HOMEBOY_FIXTURE_BIN"
@@ -40,9 +45,8 @@ chmod 0755 "$HOMEBOY_FIXTURE_BIN"
 # When running as root the manifest-writability check is live, so the fixture
 # has to model a correctly-provisioned directory.
 if [ "$(id -u)" -eq 0 ] && id -u www-data >/dev/null 2>&1; then
-  chown root:www-data "$TMP/manifest/site" 2>/dev/null || true
-  chmod 2775 "$TMP/manifest/site" 2>/dev/null || true
-  chmod o+rx "$TMP" "$TMP/manifest" 2>/dev/null || true
+  chown root:www-data "$MANIFEST_ROOT/site"
+  chmod 2775 "$MANIFEST_ROOT/site"
 fi
 : > "$SITE/wp-config.php"
 touch "$SITE/wp-content/mu-plugins/wp-coding-agents-source-reconcile.php" \
@@ -72,9 +76,9 @@ esac
 WP
 chmod +x "$TMP/wp"
 
-write_manifest() { printf '%s\n' "$@" > "$TMP/manifest/site/owned-sources"; chmod 644 "$TMP/manifest/site/owned-sources"; }
-write_opencode() {
-  python3 - "$SITE/opencode.json" "$@" <<'PY'
+write_manifest() { printf '%s\n' "$@" > "$MANIFEST_ROOT/site/owned-sources"; chmod 644 "$MANIFEST_ROOT/site/owned-sources"; }
+write_pi() {
+  python3 - "$SITE/pi.json" "$@" <<'PY'
 import json, sys
 out = sys.argv[1]
 allows = sys.argv[2:]
@@ -97,15 +101,15 @@ write_unit() {
 run_verify() {
   PATH="$TMP:$PATH" \
   SYSTEMD_UNIT_DIR="$TMP/units" \
-  SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  SOURCE_POLICY_MANIFEST_ROOT="$MANIFEST_ROOT" \
   WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN="$HOMEBOY_FIXTURE_BIN" \
     bash verify.sh --site-path "$SITE" 2>&1 || true
 }
 
 # Baseline: everything agrees.
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
-write_unit roadie.service opencode /home/opencode "Environment=PATH=$(dirname "$HOMEBOY_FIXTURE_BIN"):/usr/local/bin:/usr/bin:/bin"
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
+write_unit roadie.service pi /home/pi "Environment=PATH=$(dirname "$HOMEBOY_FIXTURE_BIN"):/usr/local/bin:/usr/bin:/bin"
 source lib/agents-md-guidance.sh
 CURRENT_PRODUCER="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
@@ -114,7 +118,7 @@ printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE
 echo "verify: a healthy install passes"
 OUT="$(run_verify)"
 refute_contains "$OUT" "FAIL" "no complaints when every seam agrees"
-assert_contains "$OUT" "permission.edit allows exactly the declared set" "checks the permission seam"
+refute_contains "$OUT" "permission.edit" "no retired OpenCode permission checks"
 assert_contains "$OUT" "manifest agrees with the recorded set" "checks the manifest seam"
 assert_contains "$OUT" "managed Homeboy executable is mode 755 at $HOMEBOY_FIXTURE_BIN" "uses the full managed-binary override path"
 assert_contains "$OUT" "roadie.service PATH includes managed Homeboy directory" "checks managed Homeboy service PATH agreement"
@@ -123,7 +127,7 @@ OUT="$(WP_STUB_NOISE=1 run_verify)"
 assert_contains "$OUT" "source mode: owned" "ignores WP-CLI deprecation output"
 assert_contains "$OUT" "manifest agrees with the recorded set" "checks seams despite WP-CLI deprecation output"
 
-if PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" bash verify.sh --site-path "$SITE" --quiet; then
+if PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$MANIFEST_ROOT" bash verify.sh --site-path "$SITE" --quiet; then
   echo "  ok   exits 0 when healthy"
 else
   echo "  FAIL healthy install exited non-zero"
@@ -163,20 +167,20 @@ printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE
 echo ""
 echo "verify: it catches the defects that reached a live site"
 
-# 1. The identity bug. The migration rendered User=opencode with HOME=/root, and
+# 1. The identity bug. The migration rendered User=pi with HOME=/root, and
 #    the agent would have started with a home it cannot read. Nothing owned the
 #    relationship between those two lines.
-write_unit roadie.service opencode /root
+write_unit roadie.service pi /root
 OUT="$(run_verify)"
-assert_contains "$OUT" "User=opencode but HOME=/root" "catches a User/HOME mismatch"
+assert_contains "$OUT" "User=pi but HOME=/root" "catches a User/HOME mismatch"
 
 # 2. A value left pointing into the home the install migrated away from. PATH and
 #    KIMAKI_DATA_DIR both did this; enumerating key names would have missed it.
-write_unit roadie.service opencode /home/opencode "Environment=ROADIE_DATA_DIR=/root/.roadie"
+write_unit roadie.service pi /home/pi "Environment=ROADIE_DATA_DIR=/root/.roadie"
 OUT="$(run_verify)"
-assert_contains "$OUT" "points outside opencode's home" "catches a stale value from the old identity"
+assert_contains "$OUT" "points outside pi's home" "catches a stale value from the old identity"
 
-write_unit roadie.service opencode /home/opencode
+write_unit roadie.service pi /home/pi
 
 # 3. Manifest drift. Capture reads the manifest; permissions come from the
 #    option. Disagreement means the agent edits what nothing records.
@@ -187,28 +191,28 @@ assert_contains "$OUT" "acme-core" "names both sides of the disagreement"
 
 # 4. Manifest missing entirely — the state h44lacrosse.com was in after the
 #    first release that was supposed to create it.
-rm -f "$TMP/manifest/site/owned-sources"
+rm -f "$MANIFEST_ROOT/site/owned-sources"
 OUT="$(run_verify)"
 assert_contains "$OUT" "manifest missing" "catches a missing manifest"
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
 
 # 5. A deny removed. This is the one that matters most: it is the difference
 #    between an agent that cannot touch a payment gateway and one that can.
-python3 - "$SITE/opencode.json" <<'PY'
+python3 - "$SITE/pi.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 d["permission"]["edit"].pop("wp-content/plugins/**", None)
 json.dump(d, open(sys.argv[1], "w"), indent=2)
 PY
 OUT="$(run_verify)"
-assert_contains "$OUT" "NOT denied: wp-content/plugins/**" "catches a removed deny"
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
+refute_contains "$OUT" "permission.edit" "legacy permission data is ignored"
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
 
 # 6. Permissions that do not match the declaration.
-write_opencode wp-content/plugins/acme-core
+write_pi wp-content/plugins/acme-core
 OUT="$(run_verify)"
-assert_contains "$OUT" "permission.edit disagrees with the declared set" "catches declared-but-not-allowed"
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
+refute_contains "$OUT" "permission.edit" "legacy allows are ignored"
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
 
 # 7. A missing owned-mode component.
 mv "$SITE/wp-content/mu-plugins/wp-coding-agents-source-reconcile.php" "$TMP/held"
@@ -223,14 +227,14 @@ echo "verify: failure is reported, not repaired"
 # the failure it hides is the one worth seeing.
 write_manifest wp-content/plugins/acme-core wp-content/plugins/GONE
 run_verify >/dev/null
-if grep -q 'GONE' "$TMP/manifest/site/owned-sources"; then
+if grep -q 'GONE' "$MANIFEST_ROOT/site/owned-sources"; then
   echo "  ok   a broken manifest is left broken"
 else
   echo "  FAIL verify repaired the manifest instead of reporting it"
   FAILED=$((FAILED + 1))
 fi
 
-if PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" bash verify.sh --site-path "$SITE" --quiet; then
+if PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$MANIFEST_ROOT" bash verify.sh --site-path "$SITE" --quiet; then
   echo "  FAIL exited 0 despite a disagreement"
   FAILED=$((FAILED + 1))
 else
@@ -271,7 +275,7 @@ chmod 600 "$CODEBOX_ENV"
 run_verify_codebox() {
   PATH="$TMP:$PATH" \
   SYSTEMD_UNIT_DIR="$TMP/units" \
-  SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  SOURCE_POLICY_MANIFEST_ROOT="$MANIFEST_ROOT" \
   SYSTEMS_CAPABILITIES_PROFILE=managed-vps \
   CODEBOX_DATABASE_ENV_FILE="$CODEBOX_ENV" \
     bash verify.sh --site-path "$SITE" 2>&1 || true
@@ -287,7 +291,7 @@ assert_contains "$OUT" "codebox database user CAN read the site database" "catch
 assert_contains "$OUT" "the isolation this account exists for is broken" "names the security invariant that broke"
 
 OUT="$(SYSTEMS_CAPABILITIES_PROFILE=managed-vps CODEBOX_DATABASE_ENV_FILE="$TMP/no-such-file.env" \
-  PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$TMP/manifest" \
+  PATH="$TMP:$PATH" SYSTEMD_UNIT_DIR="$TMP/units" SOURCE_POLICY_MANIFEST_ROOT="$MANIFEST_ROOT" \
   bash verify.sh --site-path "$SITE" 2>&1 || true)"
 assert_contains "$OUT" "no codebox test database env file" "skips cleanly when the profile is enabled but nothing was provisioned yet"
 refute_contains "$OUT" "FAIL" "an unprovisioned codebox database is skipped, not failed"

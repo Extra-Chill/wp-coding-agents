@@ -10,7 +10,7 @@
 #   2. Managed output AGREES WITH ITSELF. The whole reason lib/source-policy.sh
 #      exists is that the AGENTS.md prose and the enforced runtime permissions
 #      used to be written independently and drifted: h44lacrosse.com shipped an
-#      agent told to edit live theme and plugin files while its opencode.json
+#      agent told to edit live theme and plugin files while its pi.json
 #      denied exactly those two paths. An owned-mode install that says "editable"
 #      in prose and "deny" in permissions is the bug, not a cosmetic mismatch.
 set -eu
@@ -150,7 +150,7 @@ check_rule "wp-content/themes/acme=allow"      "owned mode allows a declared own
 check_rule "wp-content/plugins/acme-core=allow" "owned mode allows a declared owned plugin"
 check_rule "wp-config.php=deny"                "owned mode still denies wp-config.php by default"
 
-# ORDER is the precedence mechanism for OpenCode findLast.
+# ORDER is the precedence mechanism for Pi findLast.
 DENY_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins	dir	deny$' | cut -d: -f1)
 ALLOW_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins/acme-core	dir	allow$' | cut -d: -f1)
 if [ "$DENY_POS" -lt "$ALLOW_POS" ]; then
@@ -186,7 +186,7 @@ echo "==> the agent can read the logs it needs to recover the site"
 # ===========================================================================
 
 # We are strict about editing core, and were accidentally strict about READING
-# the one thing needed to recover from a fatal: OpenCode gates paths outside
+# the one thing needed to recover from a fatal: Pi gates paths outside
 # the site root behind external_directory, which defaults to "ask" — and an
 # autonomous agent has nobody to ask (#322).
 SOURCE_LOG_PATHS_EXPLICIT=true
@@ -195,7 +195,7 @@ source_policy_resolve_log_paths 2>/dev/null
 assert_eq "$(source_policy_log_paths | tr '\n' ' ')" "/var/log/nginx " \
   "log paths must be absolute or they silently do nothing"
 # The read-only-ness of a granted log path is enforced where external_directory
-# is written — see the opencode section below.
+# is written — see the pi section below.
 
 SOURCE_MODE=nonsense
 OWNED_SOURCES=""; OWNED_WRITABLE=""
@@ -204,100 +204,7 @@ refute_rule "wp-content/plugins=allow" "unknown mode never grants write"
 SOURCE_LOG_PATHS_EXPLICIT=false; SOURCE_LOG_PATHS=""
 
 # ===========================================================================
-echo "==> opencode.json permission surface follows the source mode"
-# ===========================================================================
-
-_opencode_config_for() {
-  local mode="$1" out="$2" sources="${3:-}" logs="${4:-}"
-  (
-    TMP="$(mktemp -d)"
-    trap 'rm -rf "$TMP"' EXIT
-    SITE_PATH="$TMP/site"
-    KIMAKI_DATA_DIR="$TMP/kimaki-data"
-    mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR" "$TMP/workspace"
-    git -C "$TMP/workspace" init -q
-    export SCRIPT_DIR SITE_PATH KIMAKI_DATA_DIR
-    export CHAT_BRIDGE="kimaki" LOCAL_MODE=true DRY_RUN=false
-    export OPENCODE_MODEL="" OPENCODE_SMALL_MODEL=""
-    export WORKSPACE_REPOSITORIES="$TMP/workspace"
-    export DM_AGENT_FILES=""
-    export WITH_CLAUDE_CODE_AUTH=false RUNTIME="opencode"
-    UPDATED_ITEMS=()
-    SOURCE_MODE="$mode"
-    OWNED_SOURCES="$sources"
-    OWNED_WRITABLE=""
-    SOURCE_LOG_PATHS="$logs"
-    # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/runtimes/opencode.sh"
-    runtime_generate_config
-    cp "$SITE_PATH/opencode.json" "$out"
-  )
-}
-
-ENG_JSON="$(mktemp)"; MGD_JSON="$(mktemp)"
-trap 'rm -f "$ENG_JSON" "$MGD_JSON"' EXIT
-_opencode_config_for workspace "$ENG_JSON"
-_opencode_config_for owned "$MGD_JSON" "wp-content/themes/acme
-wp-content/plugins/acme-core" "/var/log/site"
-
-ENG_EDIT="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$ENG_JSON")"
-assert_contains "$ENG_EDIT" 'wp-admin/**' "workspace mode denies wp-admin"
-assert_contains "$ENG_EDIT" 'wp-config.php' "workspace mode denies wp-config.php"
-assert_contains "$ENG_EDIT" 'wp-content/mu-plugins/**' "workspace mode denies mu-plugins"
-refute_contains "$ENG_EDIT" 'wp-content/uploads' "workspace mode leaves uploads alone"
-assert_eq "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["permission"]["edit"]; print(sorted(set(d.values())))' "$ENG_JSON")" \
-  "['deny']" "workspace mode grants no edit allow anywhere in the installed tree"
-
-MGD_EDIT_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")"
-MGD_KEYS="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$MGD_JSON")"
-assert_contains "$MGD_EDIT_JSON" '"wp-content/plugins/**": "deny"' \
-  "managed never opens the whole plugins directory"
-assert_contains "$MGD_EDIT_JSON" '"wp-content/themes/acme/**": "allow"' \
-  "owned mode allows the declared owned theme"
-# sort_keys would destroy the property under test; compare positions instead.
-assert_eq "$(python3 -c '
-import json,sys
-k=list(json.load(open(sys.argv[1]))["permission"]["edit"])
-print(k.index("wp-content/themes/**") < k.index("wp-content/themes/acme/**"))' "$MGD_JSON")" \
-  "True" "owned mode emits the broad deny before the narrower allow"
-assert_contains "$MGD_EDIT_JSON" '"/var/log/site": "deny"' \
-  "a readable log path is denied for editing as a literal"
-assert_contains "$MGD_EDIT_JSON" '"/var/log/site/**": "deny"' \
-  "a readable log path is denied for editing as a subtree"
-
-assert_eq "$(python3 -c 'import json,sys; print("yes" if "external_directory" in json.load(open(sys.argv[1]))["permission"] else "no")' "$ENG_JSON")" \
-  "yes" "workspace mode grants the workspace directory"
-MGD_EXT="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permission"].get("external_directory",{})))' "$MGD_JSON")"
-refute_contains "$MGD_EXT" 'workspace' "owned mode grants no workspace directory (there is none)"
-assert_contains "$MGD_EXT" '"/var/log/site/**": "allow"' \
-  "managed grants read on the declared log directory"
-# A log path may be a single FILE (/var/log/php-fpm.log). Appending /** alone
-# matches nothing there — a grant that looks present and does nothing.
-assert_contains "$MGD_EXT" '"/var/log/site": "allow"' \
-  "the literal log path is granted too, so a file path actually works"
-
-EMPTY_WORKSPACE_JSON="$(mktemp)"
-(
-  TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
-  SITE_PATH="$TMP/site"
-  KIMAKI_DATA_DIR="$TMP/kimaki"
-  mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
-  CHAT_BRIDGE=kimaki LOCAL_MODE=true DRY_RUN=false \
-    OPENCODE_MODEL="" OPENCODE_SMALL_MODEL="" WITH_CLAUDE_CODE_AUTH=false \
-    SOURCE_MODE=workspace WORKSPACE_REPOSITORIES="" DM_AGENT_FILES=""
-  UPDATED_ITEMS=()
-  source "$SCRIPT_DIR/lib/source-policy.sh"
-  source "$SCRIPT_DIR/runtimes/opencode.sh"
-  runtime_generate_config
-  cp "$SITE_PATH/opencode.json" "$EMPTY_WORKSPACE_JSON"
-)
-assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["permission"].get("external_directory",{}))' "$EMPTY_WORKSPACE_JSON")" \
-  "{}" "workspace mode with no declared checkout grants no external mutable target"
-rm -f "$EMPTY_WORKSPACE_JSON"
-
-# ===========================================================================
-echo "==> AGENTS.md guidance agrees with the enforced permissions"
+echo "==> AGENTS.md guidance agrees with the source policy"
 # ===========================================================================
 
 # shellcheck disable=SC1091
@@ -390,58 +297,6 @@ else
 fi
 
 # ===========================================================================
-echo "==> opencode.json reconciler honours the source mode"
-# ===========================================================================
-
-# #316: the reconciler owned permission.edit only, so a workspace->owned
-# upgrade kept a stale workspace grant and declared log paths never landed.
-# The upgrade path is the one every real install takes.
-EXT_OUT="$(python3 - <<'PYX'
-import importlib.util, json, pathlib
-spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-data = {"permission": {"external_directory": {
-    "/var/lib/datamachine/workspace/**": "allow",
-    "./operator-added": "allow",
-}}}
-print(json.dumps(mod.expected_external_directory(data, "", ["/var/log/site", "/var/log/one.log"])))
-PYX
-)"
-refute_contains "$EXT_OUT" 'datamachine/workspace' \
-  "owned reconcile drops the stale workspace grant"
-assert_contains "$EXT_OUT" '"./operator-added": "allow"' \
-  "owned reconcile preserves operator-added external grants"
-assert_contains "$EXT_OUT" '"/var/log/one.log": "allow"' \
-  "a log path naming a file is granted as a literal, not only as a subtree"
-
-RECON_IN="$(mktemp)"
-cat > "$RECON_IN" <<'JSON'
-{"permission":{"edit":{"wp-content/plugins/**":"deny","wp-content/themes/**":"deny","wp-includes/**":"deny","custom/**":"ask"}}}
-JSON
-RECON_OUT="$(python3 - "$RECON_IN" <<'PYX'
-import importlib.util, json, sys, pathlib
-spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-data = json.load(open(sys.argv[1]))
-# json.dumps preserves insertion order, which is the property under test.
-print(json.dumps(mod.expected_edit_permission(data, "owned", ["wp-content/plugins/acme-core"])))
-PYX
-)"
-assert_contains "$RECON_OUT" '"custom/**": "ask"' \
-  "reconciler preserves operator rules"
-assert_contains "$RECON_OUT" '"wp-content/plugins/acme-core/**": "allow"' \
-  "reconciler writes the owned-source allow"
-assert_contains "$RECON_OUT" '"wp-admin/**": "deny"' \
-  "reconciler denies wp-admin"
-assert_eq "$(python3 -c '
-import json,sys
-k=list(json.loads(sys.argv[1]))
-print(k.index("wp-content/plugins/**") < k.index("wp-content/plugins/acme-core/**"))' "$RECON_OUT")" \
-  "True" "reconciler emits denies before owned allows"
-rm -f "$RECON_IN"
-
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
 

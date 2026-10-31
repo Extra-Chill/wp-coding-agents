@@ -17,6 +17,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
+ROADIE_CONFIG_DIR="$TMP/roadie-config"
 trap 'rm -rf "$TMP"' EXIT
 
 FAIL=0
@@ -33,6 +34,15 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/roadie.sh"
+
+# Bridge sync/install must verify a fixture, never Pi installed on the host.
+mkdir -p "$TMP/pi/bin"
+printf '#!/bin/sh\nprintf "1.4.0\\n"\n' > "$TMP/pi/bin/pi"
+chmod +x "$TMP/pi/bin/pi"
+_roadie_provision_pi() { :; }
+_roadie_pi_bin() { printf '%s/pi/bin/pi\n' "$TMP"; }
+_roadie_pi_run() { "$@"; }
+unset ROADIE_PI_VERIFIED
 
 log() { :; }
 warn() { :; }
@@ -68,7 +78,7 @@ mkdir -p "$SYSTEMD_UNIT_DIR" "$KIMAKI_DATA/attachments" "$KIMAKI_DATA/projects/d
 
 cat > "$SYSTEMD_UNIT_DIR/kimaki.service" <<EOF
 [Service]
-User=opencode
+User=pi
 Environment=HOME=$SERVICE_HOME
 Environment=KIMAKI_DATA_DIR=$KIMAKI_DATA
 Environment=KIMAKI_BOT_TOKEN=bot-token-from-unit
@@ -139,7 +149,7 @@ check $? "OAuth model choices routed through per-model rotations; API-key model 
 [ "$(sqlite3 "$DB" "SELECT model_id FROM session_models WHERE session_id='s1'")" = anthropic/claude-opus-5-5 ]; check $? "Kimaki database keeps its model choices (rollback)"
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/rotations.json"
 check $? "rotations derived from the stored choices only, one model each"
-# Roadie runs Pi (roadie#177): opencode.json belongs to the standalone runtime.
+# Roadie runs Pi: legacy Kimaki runtime config is left untouched.
 [ "$(cat "$SITE_PATH/opencode.json")" = "$SITE_OPENCODE_JSON" ]; check $? "opencode.json left untouched"
 if ls "$SITE_PATH"/opencode.json.before-roadie-* >/dev/null 2>&1; then check 1 "no opencode.json backup"; else check 0 "no opencode.json backup"; fi
 

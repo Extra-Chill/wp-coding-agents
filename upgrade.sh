@@ -9,7 +9,6 @@
 #      in place (state copied, Kimaki unit disabled and kept as rollback).
 #   2. Update setup-installed Data Machine plugins and WP Codebox
 #      (subtree-packaged) to their latest tagged releases.
-#   3. Sync Roadie: pinned release, secrets, managed OpenCode plugins and the
 #      Roadie prompt config.
 #        VPS:   /opt/roadie-config (plugins + prompt-config.yaml)
 #        Local: $ROADIE_DATA_DIR/roadie-config/
@@ -36,14 +35,11 @@
 #   configured repository checkouts, agent memory files, or the running
 #   chat-bridge service.
 #
-#   opencode.json is touched by default in additive mode: retired managed
-#   plugin entries get dropped (a Roadie install ships no OpenCode plugins,
 #   wp-coding-agents#718), and legacy `agent.build.prompt`/`agent.plan.prompt`
 #   keys get migrated to a top-level `instructions` array (fixes Anthropic
 #   Claude Max OAuth, see wp-coding-agents#60). User-added plugin entries are
 #   left alone.
 #
-#   --repair-opencode-json upgrades the repair to full reconciliation:
 #   the `plugin` array is replaced with exactly what setup would produce
 #   today, removing any unexpected entries in addition to the additive
 #   behaviour above. Use this when you've intentionally pruned plugins
@@ -59,7 +55,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -76,12 +72,6 @@ source "$SCRIPT_DIR/services/datamachine-worker.sh"
 source "$SCRIPT_DIR/services/homeboy-daemon.sh"
 source "$SCRIPT_DIR/services/wordpress-service.sh"
 
-# Discover available runtimes
-AVAILABLE_RUNTIMES=()
-for runtime_file in "$SCRIPT_DIR"/runtimes/*.sh; do
-  [ -f "$runtime_file" ] || continue
-  AVAILABLE_RUNTIMES+=("$(basename "$runtime_file" .sh)")
-done
 
 # ============================================================================
 # Parse arguments
@@ -93,17 +83,14 @@ PLUGINS_ONLY=false
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
 RECONCILE_SERVICES_ONLY=false
-REPAIR_OPENCODE_JSON=false
 SKIP_PLUGINS=false
 WITH_AI_GATEWAY=false
-WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 WORDPRESS_SERVICE_REQUEST=""
 WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
 SHOW_HELP=false
-OPENCODE_AGENT_BUNDLE=""
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
 OWNED_SOURCES=""
@@ -125,9 +112,7 @@ REQUIRE_ROOT_DURING_DETECT=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 MODE="existing"
-RUNTIME=""
 AGENT_SLUG="${AGENT_SLUG:-}"
-DETECTED_RUNTIMES=()
 IS_STUDIO=false
 CHAT_BRIDGE=""
 HOMEBOY_MODE="${HOMEBOY_MODE:-auto}"
@@ -153,7 +138,6 @@ while [[ $# -gt 0 ]]; do
     --skills-only)   SKILLS_ONLY=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
     --reconcile-services) RECONCILE_SERVICES_ONLY=true; shift ;;
-    --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --skip-plugins)  SKIP_PLUGINS=true; shift ;;
     --with-ai-gateway) WITH_AI_GATEWAY=true; shift ;;
     --with-datamachine-worker) DATAMACHINE_WORKER_REQUEST=enabled; shift ;;
@@ -163,12 +147,8 @@ while [[ $# -gt 0 ]]; do
     --wordpress-service-host) WORDPRESS_SERVICE_HOST="$2"; shift 2 ;;
     --wordpress-service-port) WORDPRESS_SERVICE_PORT="$2"; shift 2 ;;
     --wordpress-service-workers) WORDPRESS_SERVICE_WORKERS="$2"; shift 2 ;;
-    --with-claude-code-auth) WITH_CLAUDE_CODE_AUTH=true; shift ;;
-    --no-claude-code-auth) WITH_CLAUDE_CODE_AUTH=false; shift ;;
     --ai-gateway-provider) AI_GATEWAY_ROUTE_PROVIDER="$2"; shift 2 ;;
     --ai-gateway-model) AI_GATEWAY_ROUTE_MODEL="$2"; shift 2 ;;
-    --ai-gateway-opencode-provider) AI_GATEWAY_PROVIDER_ID="$2"; shift 2 ;;
-    --ai-gateway-opencode-model) AI_GATEWAY_MODEL_ID="$2"; shift 2 ;;
     --ai-gateway-api-model) AI_GATEWAY_API_MODEL_ID="$2"; shift 2 ;;
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
@@ -184,10 +164,9 @@ while [[ $# -gt 0 ]]; do
     --log-path) SOURCE_LOG_PATHS="${SOURCE_LOG_PATHS}${SOURCE_LOG_PATHS:+ }$2"; SOURCE_LOG_PATHS_EXPLICIT=true; shift 2 ;;
     --systems-capabilities) SYSTEMS_CAPABILITIES_PROFILE="$2"; shift 2 ;;
     --systems-capabilities-only) SYSTEMS_CAPABILITIES_ONLY=true; shift ;;
-    --runtime)       reject_removed_runtime "$2" --runtime; RUNTIME="$2"; shift 2 ;;
+    --runtime|--runtime=*) error "--runtime was removed with OpenCode (#751). Pi is the only runtime." ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --agent-slug)    AGENT_SLUG="$2"; AGENT_SLUG_EXPLICIT=true; shift 2 ;;
-    --project-agent-bundle) OPENCODE_AGENT_BUNDLE="$2"; shift 2 ;;
     --roadie-unit)   ROADIE_UNIT="$2"; ROADIE_UNIT_EXPLICIT=true; shift 2 ;;
     --roadie-data-dir) ROADIE_DATA_DIR="$2"; ROADIE_DATA_DIR_EXPLICIT=true; shift 2 ;;
     --roadie-lock-port) ROADIE_LOCK_PORT="$2"; ROADIE_LOCK_PORT_EXPLICIT=true; shift 2 ;;
@@ -224,9 +203,6 @@ wp-coding-agents upgrade script
 Safely upgrade a live install without touching user state.
 
 USAGE:
-  ./upgrade.sh --project-agent-bundle <slug>
-                                Explicitly install a portable specialist graph.
-                                Ordinary upgrades preserve operator-owned agents.
   ./upgrade.sh                  Run all phases (auto-detects local vs VPS)
   ./upgrade.sh --dry-run        Preview what would change
   ./upgrade.sh --roadie-only    Only sync the Roadie chat-bridge config
@@ -242,17 +218,6 @@ USAGE:
   ./upgrade.sh --skills-only    Only remove retired managed skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
   ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
-  ./upgrade.sh --repair-opencode-json
-                                Full reconciliation of opencode.json:
-                                - plugin array → match current setup exactly
-                                  (adds missing + removes unexpected)
-                                - agent.build.prompt → instructions array
-                                  (fixes Anthropic Claude Max OAuth, #60)
-                                Writes a .backup.<ts> alongside.
-                                Default upgrade behaviour is additive repair:
-                                only adds missing managed entries, never
-                                removes user-added plugins.
-  ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --systems-capabilities managed-vps
                                  Provision or repair the opt-in managed VPS
                                  systems-capability profile.
@@ -295,7 +260,7 @@ USAGE:
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
   ./upgrade.sh --root           Force root service identity (skips adoption
                                 of the existing unit's User=)
-  ./upgrade.sh --non-root       Force non-root service identity (User=opencode)
+  ./upgrade.sh --non-root       Force non-root service identity (User=pi)
   ./upgrade.sh --with-ai-gateway
                                 Opt in to additive WP AI Gateway integration
                                 for Pi: install/activate gateway stack,
@@ -303,7 +268,6 @@ USAGE:
                                 merge a wp-ai-gateway provider into Pi's
                                 models.json, and set the Roadie unit's Pi
                                 model to the gateway model. An existing
-                                opencode.json gains the same provider.
                                 Without the flag, Pi stays on Roadie's
                                 credential pool.
   ./upgrade.sh --wordpress-chat-agent <slug>
@@ -348,13 +312,9 @@ USAGE:
                                 Explicitly mint a replacement gateway token.
   ./upgrade.sh --with-ai-gateway --ai-gateway-provider openai --ai-gateway-model gpt-4o-mini
                                  Configure the WordPress gateway backend route.
-  ./upgrade.sh --with-ai-gateway --ai-gateway-opencode-provider openai --ai-gateway-opencode-model gpt-5.6-sol --ai-gateway-api-model site-default
+  ./upgrade.sh --with-ai-gateway --ai-gateway-pi-provider openai --ai-gateway-pi-model gpt-5.6-sol --ai-gateway-api-model site-default
                                  Show the resolved provider/model identity in
-                                 OpenCode while routing through site-default.
-  ./upgrade.sh --no-claude-code-auth
-                                Skip direct OpenCode Claude Pro/Max auth.
-                                The managed auth plugin is installed by default
-                                for OpenCode runtimes.
+                                 Pi while routing through site-default.
 
 SERVICE IDENTITY:
   By default the upgrade adopts the service user from the EXISTING
@@ -406,34 +366,16 @@ DEFAULT TOUCHES:
   - Carried provider plugins, Homeboy provider configuration, chat-bridge
     configuration, and service templates are reconciled during a full upgrade
     or explicitly with --reconcile-services.
-  - opencode.json — additive repair. Drops the retired Roadie plugin
-    entries (a Roadie install ships no OpenCode plugins, #718) and migrates "agent.build.prompt" to top-level "instructions"
-    (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
-    Preserves all other keys. Writes a .backup.<ts> under
-    .wp-coding-agents/backups/, outside the served tree.
-  - Legacy AGENTS.md.backup.* / opencode.json.backup.* in the site root —
     removed. Those are internal config written into the public document
     root by older versions (#615). AGENTS.md rollback now uses a temp file
-    discarded on success; opencode.json backups live under
     .wp-coding-agents/backups/.
 
 OPT-IN TOUCHES:
-  - opencode.json (--repair-opencode-json) — full reconcile. In addition
-    to the additive behaviour above, removes unexpected plugin entries
-    so the array matches exactly what setup would produce today.
   - WP AI Gateway (--with-ai-gateway) — installs/updates wp-ai-gateway and
     ai-provider-for-openai, configures the gateway route, writes/reuses
-    .opencode/wp-ai-gateway.env, merges the gateway provider into Pi's
-    models.json (and provider.wp-ai-gateway into an existing opencode.json),
+    .wp-coding-agents/wp-ai-gateway.env, merges the gateway provider into Pi's
     and points ROADIE_PI_MODEL at the gateway model. Existing gateway tokens
     are reused unless --rotate-ai-gateway-token is also passed.
-  - OpenCode Claude Code auth — installs a managed OpenCode plugin under
-    .opencode/plugins and adds it to opencode.json so direct OpenCode can
-    authenticate with Claude Pro/Max OAuth. Roadie installs never carry it:
-    account rotation belongs to Roadie's credential pools there, so the
-    plugin only serves direct non-Roadie OpenCode runs, and a Roadie upgrade
-    removes the retired file and its opencode.json entry (#718). Use
-    --no-claude-code-auth to skip.
 HELP
   printf '%s\n' "${HELP_TEXT//__SERVICE_MIGRATION_DEFAULT_USER__/$SERVICE_MIGRATION_DEFAULT_USER}"
   exit 0
@@ -493,18 +435,6 @@ else
   # Load declarative setup intent before runtime selection and source-policy
   # resolution. The profile never contains transport argv, tokens, or secrets.
   installation_profile_load
-  # OpenCode is the only managed runtime. Codex and Claude Code were removed
-  # in #751. --runtime rejects them during argument parsing; a recorded
-  # profile runtime naming either one fails here with no compatibility path.
-  reject_removed_runtime "${RUNTIME:-}" "Recorded installation-profile runtime"
-  RUNTIME="${RUNTIME:-opencode}"
-  DETECTED_RUNTIMES=("$RUNTIME")
-
-RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
-if [ ! -f "$RUNTIME_FILE" ]; then
-  error "Unknown runtime: $RUNTIME. Available: ${AVAILABLE_RUNTIMES[*]}"
-fi
-source "$RUNTIME_FILE"
 
 # Run detect_environment first — it auto-sets LOCAL_MODE=true on macOS,
 # which the chat bridge detection below depends on to pick the right branch.
@@ -541,8 +471,7 @@ systems_capabilities_resolve_profile
 # BRIDGE_DETECTION_ORDER in _dispatch.sh (Roadie, including Kimaki installs to
 # migrate).
 #
-# Roadie runs the OpenCode runtime; other runtimes have no chat bridge.
-if [ "$RUNTIME" != "opencode" ] || [ "$INSTALL_CHAT" != true ]; then
+if [ "$INSTALL_CHAT" != true ]; then
   CHAT_BRIDGE=""
 elif [ -n "$CHAT_BRIDGE" ]; then
   log "Using chat bridge from installation profile: $CHAT_BRIDGE"
@@ -577,7 +506,6 @@ installation_profile_normalize "$INSTALLATION_OPERATION_UPGRADE"
 
 # On upgrade, the installed unit's User= is the source of truth for the
 # service identity. upgrade.sh defaults RUN_AS_ROOT=true, which on a
-# non-root install (User=opencode) made Phase 5 silently rewrite the unit
 # to User=root — root-owned state files, broken next non-root start, and
 # the root-homed-path dispatch trap (#198/#93) all over again. See #204.
 # --root / --non-root force an explicit identity and skip adoption.
@@ -640,7 +568,6 @@ if [ "$MIGRATE_NON_ROOT" = false ] && [ "$LOCAL_MODE" = false ] && \
   error "This install currently runs as root. --non-root only re-renders the unit; it would not create the service user or carry the agent's state across, leaving the service pointed at an empty home. Use --migrate-non-root to move it properly."
 fi
 
-log "Runtime:     $RUNTIME"
 log "Chat bridge: ${CHAT_BRIDGE:-none detected}"
 log "Site path:   $SITE_PATH"
 log "Service:     $SERVICE_USER"
@@ -725,9 +652,6 @@ upgrade_ensure_site_root_group_write
 # services must execute the service-owned copy instead.
 homeboy_provision_service_bin
 
-# Set true when opencode.json is found to have plugin-array drift and the
-# --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
-OPENCODE_JSON_DRIFT=false
 
 
 # ============================================================================
@@ -742,7 +666,6 @@ _run_filter_active() {
   if [ "$ROADIE_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; then
     case "$phase" in
       roadie)    [ "$ROADIE_ONLY" = true ] || [ "$RECONCILE_SERVICES_ONLY" = true ]; return $? ;;
-      opencode-json) [ "$ROADIE_ONLY" = true ]; return $? ;;
       plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
       skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
       agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
@@ -852,332 +775,6 @@ sync_chat_bridge_config() {
 
 
 # ============================================================================
-# Phase 3b: Detect + optionally repair opencode.json drift
-#
-# opencode.json is user-owned. Additive repair preserves user entries while
-# synchronizing wp-coding-agents-owned plugins, instructions, migrations, and
-# protected WordPress edit rules; full repair additionally removes unexpected
-# managed-array entries.
-#
-# Drift vectors checked:
-#   1. `plugin` array — matches expected plugins for the detected runtime
-#      and chat bridge. Only applies when runtime is opencode.
-#   2. `agent.build.prompt` / `agent.plan.prompt` — legacy format that
-#      breaks Anthropic Claude Max OAuth (see wp-coding-agents#60). Migrated
-#      to a top-level `instructions` array.
-#   3. Data Machine instruction paths.
-#   4. OpenCode edit denies for installed WordPress source.
-#
-# With --repair-opencode-json, all drift vectors are repaired surgically.
-# All other keys are preserved. A .backup.<ts> is written alongside.
-# ============================================================================
-
-upgrade_opencode_claude_code_auth_plugin_path() {
-  printf '%s/.opencode/plugins/claude-code-auth.ts' "$SITE_PATH"
-}
-
-# The auth plugin registers nothing under Roadie — Roadie serves Anthropic
-# from its own credential pools (#718) — so it is a direct non-Roadie
-# OpenCode install opt-in only, and a Roadie install sheds both the file and
-# its opencode.json entry.
-upgrade_claude_code_auth_retired_for_bridge() {
-  [ "${CHAT_BRIDGE:-none}" = roadie ]
-}
-
-upgrade_install_opencode_claude_code_auth_plugin() {
-  if upgrade_claude_code_auth_retired_for_bridge; then
-    local retired_plugin
-    retired_plugin="$(upgrade_opencode_claude_code_auth_plugin_path)"
-    if [ -e "$retired_plugin" ]; then
-      if [ "${DRY_RUN:-false}" = true ]; then
-        echo -e "${BLUE}[dry-run]${NC} Would remove retired $retired_plugin (registers nothing under Roadie, #718)"
-      else
-        rm -f "$retired_plugin"
-        log "  Removed retired $retired_plugin (registers nothing under Roadie; opencode.json entry dropped by the drift repair)"
-        UPDATED_ITEMS+=("retired .opencode/plugins/claude-code-auth.ts (Roadie credential pools serve Anthropic, #718)")
-      fi
-    fi
-    return 0
-  fi
-  [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ] || return 0
-
-  local plugin_path source_path
-  plugin_path="$(upgrade_opencode_claude_code_auth_plugin_path)"
-  source_path="$SCRIPT_DIR/runtimes/opencode/plugins/claude-code-auth.ts"
-
-  install_source_sync_managed_file \
-    "$source_path" \
-    "$plugin_path" \
-    "OpenCode Claude Code auth plugin"
-
-  # OpenCode loads both user-global and project-local plugins. Older releases
-  # were sometimes installed globally by hand/configuration; reconcile only
-  # the known wp-coding-agents legacy artifact, never arbitrary user plugins.
-  local global_plugin="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/claude-code-auth.ts"
-  # The header and exported initializer identify our old global artifact.
-  # Never follow a symlink or replace another implementation with this name.
-  # Sync even if the operator temporarily patched its version: matching an
-  # obsolete version literal alone misses exactly that recovery scenario.
-  if [ -f "$global_plugin" ] && [ ! -L "$global_plugin" ] && \
-    grep -Fq '// claude-code-auth.ts - OpenCode Anthropic auth via Claude Code OAuth.' "$global_plugin" && \
-    grep -Fq 'const claudeCodeAuthPlugin: Plugin = async (input) => {' "$global_plugin" && \
-    grep -Fq 'export { claudeCodeAuthPlugin };' "$global_plugin"; then
-    install_source_sync_managed_file \
-      "$source_path" \
-      "$global_plugin" \
-      "legacy global OpenCode Claude Code auth plugin"
-  elif [ -e "$global_plugin" ]; then
-    warn "Global OpenCode Claude auth plugin at $global_plugin is not a recognized wp-coding-agents artifact; inspect its Anthropic auth loader before restarting Roadie"
-  fi
-}
-
-check_opencode_json_drift() {
-  _run_filter_active opencode-json || return 0
-
-  # The bridge record owns the pinned Roadie install. When it failed (npm
-  # install killed at its deadline, #725), the installed bridge may still be
-  # the previous release, and everything this phase writes — the model-route
-  # rewrite toward `roadie/*` provider routes and the retired-plugin removal
-  # — assumes the new one. Applying it would point a running old Roadie at
-  # routes it cannot serve. Skip both, loudly.
-  if [ "${BRIDGE_RECONCILE_FAILED:-false}" = true ]; then
-    warn "Phase 3b: skipped — the chat-bridge reconcile failed, so the model-route rewrite and plugin retirement did not apply (they assume the new Roadie, #725)."
-    warn "  Do not restart the bridge; re-run the upgrade once the failure above is fixed."
-    return 0
-  fi
-  # Runs whenever opencode.json exists on disk. Default behaviour is
-  # additive repair: managed plugin entries the user is missing get added
-  # (the managed Roadie plugins), and
-  # legacy agent.build.prompt / agent.plan.prompt get migrated to a
-  # top-level `instructions` array (fixes Anthropic Claude Max OAuth,
-  # wp-coding-agents#60).
-  #
-  # User-added plugin entries are left alone in additive mode. If any are
-  # present after the repair the user is told to re-run with
-  # --repair-opencode-json for the full reconciliation, which removes
-  # unexpected entries too.
-  #
-  # Why additive is the default: the managed plugins carry policy (the Roadie
-  # command guard). Installs that predate a plugin must not be left without it
-  # just because the user never knew to pass an opt-in flag (#67).
-
-  local OPENCODE_JSON_FILE="$SITE_PATH/opencode.json"
-  if [ ! -f "$OPENCODE_JSON_FILE" ]; then
-    return 0
-  fi
-
-  local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
-
-  # Owned-source allow rules the reconciler must (re)write. Empty under
-  # engineering, so the argument list is unchanged there.
-  local _owned_source_args=()
-  local _owned_path
-  while IFS= read -r _owned_path; do
-    [ -n "$_owned_path" ] || continue
-    _owned_source_args+=(--owned-source "$_owned_path")
-  done < <(source_policy_owned_sources)
-  while IFS= read -r _owned_path; do
-    [ -n "$_owned_path" ] || continue
-    _owned_source_args+=(--owned-writable "$_owned_path")
-  done < <(source_policy_writable_paths)
-  while IFS= read -r _owned_path; do
-    [ -n "$_owned_path" ] || continue
-    _owned_source_args+=(--log-path "$_owned_path")
-  done < <(source_policy_log_paths)
-  while IFS= read -r _owned_path; do
-    [ -n "$_owned_path" ] || continue
-    _owned_source_args+=(--workspace-dir "$_owned_path")
-  done < <(source_policy_workspace_repositories)
-  if [ ! -f "$HELPER" ]; then
-    warn "Phase 3b: $HELPER not found — skipping drift check"
-    return 0
-  fi
-
-  local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
-
-  # Resolve independently because desired-state bridge sync runs in a child
-  # process and cannot return shell variables to this parent process.
-  local PLUGINS_DIR="${RESOLVED_ROADIE_PLUGINS_DIR:-/opt/roadie-config/plugins}"
-  if declare -F bridge_managed_plugins_dir >/dev/null 2>&1; then
-    PLUGINS_DIR="$(bridge_managed_plugins_dir)"
-  fi
-  upgrade_install_opencode_claude_code_auth_plugin
-  local CLAUDE_CODE_AUTH_PLUGIN=""
-  local claude_code_auth_args=()
-  if ! upgrade_claude_code_auth_retired_for_bridge && [ "${WITH_CLAUDE_CODE_AUTH:-false}" = true ]; then
-    CLAUDE_CODE_AUTH_PLUGIN="$(upgrade_opencode_claude_code_auth_plugin_path)"
-    claude_code_auth_args=(--claude-code-auth-plugin "$CLAUDE_CODE_AUTH_PLUGIN")
-  fi
-
-  # Runtime arg for repair-opencode-json.py: OpenCode is the only managed
-  # runtime, and opencode.json on disk means it is in use.
-  local RUNTIME_ARG="opencode"
-
-  local MANAGED_INSTRUCTIONS_FILE=""
-  local AGENT_FOR_INSTRUCTIONS=""
-  AGENT_FOR_INSTRUCTIONS=$(python3 - "$OPENCODE_JSON_FILE" <<'PY' 2>/dev/null || true
-import json
-import re
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    data = json.load(handle)
-
-for item in data.get("instructions", []):
-    if not isinstance(item, str):
-        continue
-    match = re.search(r"(?:^|/)agents/([^/]+)/", item)
-    if match:
-        print(match.group(1))
-        break
-PY
-)
-  if [ -n "$AGENT_FOR_INSTRUCTIONS" ]; then
-    local injectable_raw injectable_json
-    injectable_raw=$(wp_cmd datamachine memory injectable-files --format=json --agent="$AGENT_FOR_INSTRUCTIONS" 2>/dev/null || echo "")
-    injectable_json=$(echo "$injectable_raw" | sed -n '/^\[/,/^\]/p')
-    if [ -n "$injectable_json" ]; then
-      MANAGED_INSTRUCTIONS_FILE=$(mktemp)
-      echo "$injectable_json" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for item in data:
-    path = item.get('path')
-    if path:
-        print(path)
-" > "$MANAGED_INSTRUCTIONS_FILE"
-    fi
-  fi
-
-  # Mode: --apply (full reconcile, opt-in) or --additive (default).
-  local MODE_FLAG="--additive"
-  local MODE_LABEL="additive repair"
-  if [ "$REPAIR_OPENCODE_JSON" = true ]; then
-    MODE_FLAG="--apply"
-    MODE_LABEL="full repair"
-  fi
-
-  log "Phase 3b: opencode.json $MODE_LABEL..."
-
-  if [ "$DRY_RUN" = true ]; then
-    local owned_arg_display=""
-    if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
-      owned_arg_display=" --managed-instructions-file $MANAGED_INSTRUCTIONS_FILE"
-    fi
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --source-mode ${SOURCE_MODE:-workspace} --roadie-plugins-dir $PLUGINS_DIR${claude_code_auth_args[*]:+ ${claude_code_auth_args[*]}}$owned_arg_display $MODE_FLAG"
-    local dry_out
-    local managed_args=()
-    if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
-      managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
-    fi
-    if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
-      managed_args+=(--speaker-context)
-    fi
-    dry_out=$(python3 "$HELPER" \
-      --file "$OPENCODE_JSON_FILE" \
-      --runtime "$RUNTIME_ARG" \
-      --chat-bridge "$BRIDGE_ARG" \
-      --source-mode "${SOURCE_MODE:-workspace}" \
-      "${_owned_source_args[@]}" \
-      --roadie-plugins-dir "$PLUGINS_DIR" \
-      "${claude_code_auth_args[@]}" \
-      "${managed_args[@]}" 2>&1 || true)
-    echo "$dry_out" | sed 's/^/    /'
-    [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
-    return 0
-  fi
-
-  local repair_out repair_rc
-  local managed_args=()
-  if [ -n "$MANAGED_INSTRUCTIONS_FILE" ]; then
-    managed_args=(--managed-instructions-file "$MANAGED_INSTRUCTIONS_FILE")
-  fi
-  if declare -F roadie_speaker_context_enabled >/dev/null && roadie_speaker_context_enabled; then
-    managed_args+=(--speaker-context)
-  fi
-  repair_out=$(python3 "$HELPER" \
-    --file "$OPENCODE_JSON_FILE" \
-    --runtime "$RUNTIME_ARG" \
-    --chat-bridge "$BRIDGE_ARG" \
-    --source-mode "${SOURCE_MODE:-workspace}" \
-    "${_owned_source_args[@]}" \
-    --roadie-plugins-dir "$PLUGINS_DIR" \
-    "${claude_code_auth_args[@]}" \
-    "${managed_args[@]}" \
-    "$MODE_FLAG" \
-    --backup-dir "$SITE_PATH/.wp-coding-agents/backups" \
-    --backup-suffix "$TIMESTAMP" 2>&1) && repair_rc=0 || repair_rc=$?
-  [ -z "$MANAGED_INSTRUCTIONS_FILE" ] || rm -f "$MANAGED_INSTRUCTIONS_FILE"
-
-  # repair-opencode-json.py writes both the target file and its own backup
-  # via plain Python open() — inherits the caller's umask/identity same as
-  # every other service-file writer in this repo. Normalize both.
-  service_file_normalize_perms "$OPENCODE_JSON_FILE"
-  service_file_normalize_perms "$SITE_PATH/.wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP"
-
-  local repair_status prompt_migration instruction_sync
-  repair_status=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
-  prompt_migration=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('prompt_migration','?'))" 2>/dev/null || echo "?")
-  instruction_sync=$(echo "$repair_out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('instruction_sync','?'))" 2>/dev/null || echo "?")
-
-  case "$repair_status" in
-    ok)
-      log "  opencode.json already correct"
-      ;;
-    additive_repaired)
-      log "  opencode.json repaired additively (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
-      log "  $repair_out"
-      if [ "$prompt_migration" = "migrated" ]; then
-        UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
-      fi
-      if [ "$instruction_sync" = "synced" ]; then
-        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
-      fi
-      if echo "$repair_out" | grep -q '"added": \["'; then
-        UPDATED_ITEMS+=("opencode.json plugin array (added missing managed entries)")
-      fi
-      ;;
-    needs_full_repair)
-      warn "  opencode.json additively repaired, but unexpected plugin entries remain"
-      warn "  Run './upgrade.sh --repair-opencode-json' to remove them (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
-      warn "  $repair_out"
-      if [ "$prompt_migration" = "migrated" ]; then
-        UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
-      fi
-      if [ "$instruction_sync" = "synced" ]; then
-        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
-      fi
-      UPDATED_ITEMS+=("opencode.json plugin array (added managed entries; unexpected entries still present)")
-      OPENCODE_JSON_DRIFT=true
-      ;;
-    repaired)
-      log "  opencode.json fully repaired (backup: .wp-coding-agents/backups/$(basename "$OPENCODE_JSON_FILE").backup.$TIMESTAMP)"
-      log "  $repair_out"
-      if [ "$prompt_migration" = "migrated" ]; then
-        UPDATED_ITEMS+=("opencode.json prompt → instructions migration")
-      fi
-      if [ "$instruction_sync" = "synced" ]; then
-        UPDATED_ITEMS+=("opencode.json Data Machine instructions")
-      fi
-      UPDATED_ITEMS+=("opencode.json plugin array (repaired)")
-      ;;
-    drift)
-      # Only reachable if we passed neither --apply nor --additive, which
-      # shouldn't happen with the dispatch above. Defensive.
-      warn "Phase 3b: opencode.json has drift — $repair_out"
-      OPENCODE_JSON_DRIFT=true
-      ;;
-    skipped)
-      log "  $repair_out"
-      ;;
-    *)
-      warn "  repair-opencode-json.py returned status=$repair_status (rc=$repair_rc)"
-      warn "  $repair_out"
-      ;;
-  esac
-}
-
-# ============================================================================
 # Phase 4: Remove retired managed skills (the upgrade skill is replaced by
 # `roadie upgrade` / /upgrade-and-restart, see lib/self-upgrade.sh)
 # ============================================================================
@@ -1214,9 +811,7 @@ regenerate_agents_md() {
     echo -e "${BLUE}[dry-run]${NC} Would sync WordPress coding-agent boundary guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would sync Homeboy AGENTS.md CLI guidance mu-plugin"
     echo -e "${BLUE}[dry-run]${NC} Would run (as ${SERVICE_USER:-caller}): $(wp_cli_transport_display) datamachine memory compose AGENTS.md"
-    if _runtime_detected opencode; then
-      echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
-    fi
+    echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     return 0
   fi
 
@@ -1296,17 +891,16 @@ regenerate_agents_md() {
   fi
 
   # Symlink CLAUDE.md → AGENTS.md so Claude-model sessions get the same DM context.
-  # OpenCode and Pi read CLAUDE.md as well as AGENTS.md. The symlink avoids
   # duplicating content or risking drift on AGENTS.md regeneration. Relative target
   # ensures the symlink survives directory moves.
   # See: Extra-Chill/wp-coding-agents#108
-  if [ -f "$AGENTS_MD" ] && _runtime_detected opencode; then
+  if [ -f "$AGENTS_MD" ]; then
     # Skip if CLAUDE.md exists as a regular file — it is user-owned.
     if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
       # The rename creates a directory entry, so like compose it needs write
       # access to $SITE_PATH itself — not to AGENTS.md (#628).
       if (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md); then
-        log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+        log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model pi sessions)"
       else
         warn "  Could not symlink CLAUDE.md → AGENTS.md: $SITE_PATH is not writable by this identity; restoring the site root's group-write (see the summary) restores it."
       fi
@@ -1316,14 +910,6 @@ regenerate_agents_md() {
   fi
 }
 
-_runtime_detected() {
-  local candidate="$1"
-  local runtime
-  for runtime in "${DETECTED_RUNTIMES[@]:-}"; do
-    [ "$runtime" = "$candidate" ] && return 0
-  done
-  [ "${RUNTIME:-}" = "$candidate" ]
-}
 
 sync_runtime_instructions() {
   : # Runtime instructions are shared adapter records.
@@ -1352,49 +938,6 @@ reconcile_datamachine_worker_service() {
 
 reconcile_wordpress_service() {
   : # Migrated optional service runs through convergence_run.
-}
-
-# ============================================================================
-# Phase 7: Remove the retired runtime registry
-#
-# Removes the generated registry consumed only by Data Machine Code. Homeboy
-# has no replacement WordPress hook contract.
-#
-# This phase also used to strip a legacy opencode-claude-auth bash wrapper.
-# That integration was retired in #117 on 2026-05-03, and the strip could only
-# ever fire on an install that had skipped every upgrade since — so it was
-# removed rather than carried as a check that runs forever and never matches.
-# The repo-level guards against reintroducing the plugin live in
-# tests/opencode-claude-auth-retired.sh and are the durable half of #117.
-# ============================================================================
-
-refresh_opencode_runtime_signature_phase() {
-  _run_filter_active patch || return 0
-
-  if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "roadie" ]; then
-    log "Phase 7: Skipping (runtime is $RUNTIME and chat bridge is ${CHAT_BRIDGE:-none})"
-    return 0
-  fi
-
-  log "Phase 7: Removing retired runtime registry..."
-
-  if ! declare -F _opencode_register_runtime_signature >/dev/null; then
-    # Source runtime file for the helper without running a full install.
-    # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/runtimes/opencode.sh"
-  fi
-
-  if declare -F _opencode_register_runtime_signature >/dev/null; then
-    _opencode_register_runtime_signature
-  fi
-
-  # This phase may source runtimes/opencode.sh for helper access even when the
-  # primary runtime is something else. Restore the selected runtime functions
-  # so summary/verification paths still come from the active runtime.
-  if [ "$RUNTIME" != "opencode" ] && [ -n "${RUNTIME_FILE:-}" ] && [ -f "$RUNTIME_FILE" ]; then
-    # shellcheck disable=SC1090
-    source "$RUNTIME_FILE"
-  fi
 }
 
 # ============================================================================
@@ -1445,12 +988,6 @@ print_summary() {
     done
   fi
 
-  if [ "$OPENCODE_JSON_DRIFT" = true ]; then
-    echo ""
-    warn "opencode.json: managed entries were added, but unexpected plugins remain."
-    warn "  Re-run with: ./upgrade.sh --repair-opencode-json"
-    warn "  to remove them (the backup from this run is preserved)."
-  fi
 
   if [ "${AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED:-false}" = true ]; then
     echo ""
@@ -1573,7 +1110,6 @@ _print_plugins_only_verify_block() {
 PLUGIN_ONLY_EXIT_STATUS=0
 CONVERGENCE_EXIT_STATUS=0
 AGENTS_MD_EXIT_STATUS=0
-OPENCODE_PROJECTION_EXIT_STATUS=0
 # The bridge record carries the pinned Roadie install (bridges/<bridge>).
 # When its reconcile fails, dependent steps that assume the new Roadie must
 # not apply — and the restart hint must be withheld (#725).
@@ -1611,10 +1147,6 @@ if _run_filter_active systemd; then
   systems_capabilities_apply
   self_upgrade_apply
 fi
-check_opencode_json_drift
-if _run_filter_active reconciliation; then
-  ai_gateway_configure_opencode
-fi
 sync_skills
 # Captured, not aborted. This is the only phase function here with a non-zero
 # return path, and under `set -e` a bare call made one stale memory file end the
@@ -1628,14 +1160,10 @@ if _run_filter_active agents-md; then
   runtime_guidance_retire_codex_projection
 fi
 sync_runtime_instructions
-if [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
-  opencode_project_subagents_optional || OPENCODE_PROJECTION_EXIT_STATUS=$?
-fi
 update_chat_bridge_systemd
 update_chat_bridge_launchd
 reconcile_wordpress_service
 reconcile_datamachine_worker_service
-refresh_opencode_runtime_signature_phase
 if [ "$PLUGINS_ONLY" != true ]; then
   installation_profile_write
 fi
@@ -1649,7 +1177,4 @@ if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
 fi
 if [ "$AGENTS_MD_EXIT_STATUS" -ne 0 ]; then
   exit "$AGENTS_MD_EXIT_STATUS"
-fi
-if [ "$OPENCODE_PROJECTION_EXIT_STATUS" -ne 0 ]; then
-  exit "$OPENCODE_PROJECTION_EXIT_STATUS"
 fi

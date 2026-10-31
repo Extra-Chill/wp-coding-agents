@@ -22,7 +22,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/home/chubes/.local/bin:/opt/homebrew/bin:/home/chubes/.opencode/bin:/home/chubes/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>/home/chubes/.local/bin:/opt/homebrew/bin:/home/chubes/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>ROADIE_DATA_DIR</key>
         <string>/home/chubes/.roadie</string>
         <key>ROADIE_MANAGED</key>

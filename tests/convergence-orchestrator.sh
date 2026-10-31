@@ -68,7 +68,7 @@ for mode in local vps workspace owned; do
   [ "$mode" = local ] && LOCAL_MODE=true
   [ "$mode" = workspace ] && IS_STUDIO=true
   [ "$mode" = owned ] && SOURCE_MODE=owned
-  RUNTIME=opencode; CHAT_BRIDGE=kimaki; HOMEBOY_MODE=disabled; INSTALL_CHAT=true
+  RUNTIME=pi; CHAT_BRIDGE=kimaki; HOMEBOY_MODE=disabled; INSTALL_CHAT=true
   WORDPRESS_SERVICE_REQUEST=""; DATAMACHINE_WORKER_REQUEST=""; TRACE="$TMP/$mode.trace"
   setup_graph="$(graph_for "$INSTALLATION_OPERATION_SETUP")"
   upgrade_graph="$(graph_for "$INSTALLATION_OPERATION_UPGRADE")"
@@ -78,7 +78,7 @@ done
 # External mode retains only runtime-local records and never creates optional
 # local integration/service records.
 SITE_PATH="$TMP/external"; mkdir -p "$SITE_PATH"; LOCAL_MODE=true; EXTERNAL_WORDPRESS=true
-IS_STUDIO=false; SOURCE_MODE=workspace; RUNTIME=opencode; CHAT_BRIDGE=kimaki; HOMEBOY_MODE=auto
+IS_STUDIO=false; SOURCE_MODE=workspace; RUNTIME=pi; CHAT_BRIDGE=kimaki; HOMEBOY_MODE=auto
 INSTALL_CHAT=true; TRACE="$TMP/external.trace"
 external_graph="$(graph_for "$INSTALLATION_OPERATION_SETUP")"
 case "$external_graph" in *"services."*|*"integrations."*) error "external graph included local optional effect" ;; esac

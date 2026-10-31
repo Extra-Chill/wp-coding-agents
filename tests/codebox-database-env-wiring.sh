@@ -21,6 +21,16 @@ source "$SCRIPT_DIR/lib/codebox-database.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 source "$SCRIPT_DIR/bridges/roadie.sh"
 
+# Exercise the real version gate without installing Pi or using a host binary.
+mkdir -p "$TMP/pi/bin"
+printf '#!/bin/sh\nprintf "1.4.0\\n"\n' > "$TMP/pi/bin/pi"
+chmod +x "$TMP/pi/bin/pi"
+_roadie_provision_pi() { :; }
+_roadie_pi_bin() { printf '%s/pi/bin/pi\n' "$TMP"; }
+# Unit fixtures use root; CI need not have sudo or run as that identity.
+_roadie_pi_run() { "$@"; }
+unset ROADIE_PI_VERIFIED
+
 FAILED=0
 check() {
   if [ "$1" -eq 0 ]; then

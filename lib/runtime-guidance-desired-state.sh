@@ -29,7 +29,7 @@ runtime_guidance_desired_state_detect() {
   RUNTIME_GUIDANCE_DESIRED_APPLIES=()
   RUNTIME_GUIDANCE_DESIRED_VERIFIES=()
 
-  local runtime="${INSTALLATION_PROFILE_RUNTIME:-${RUNTIME:-}}"
+  local runtime=pi
   # Guidance comes first: runtime instruction generation may compose AGENTS.md
   # immediately after its runtime-specific files are installed.
   if [ "${INSTALLATION_PROFILE_EXTERNAL_WORDPRESS:-${EXTERNAL_WORDPRESS:-false}}" != true ] && \
@@ -82,14 +82,14 @@ runtime_guidance_desired_state_plan() {
         "${RUNTIME_GUIDANCE_DESIRED_APPLIES[$index]}"
     done
     if declare -F runtime_generate_instructions >/dev/null 2>&1; then
-      reconciler_plan_add "runtime.${INSTALLATION_PROFILE_RUNTIME}.instructions" \
+      reconciler_plan_add "runtime.pi.instructions" \
         runtime.reconcile.instructions runtime_guidance_desired_state_apply_instructions
     fi
     return 0
   fi
   for index in "${!RUNTIME_GUIDANCE_DESIRED_RECORDS[@]}"; do
     timeout=""
-    if [ "${RUNTIME_GUIDANCE_DESIRED_RECORDS[$index]}" = "runtime.${INSTALLATION_PROFILE_RUNTIME}" ]; then
+    if [ "${RUNTIME_GUIDANCE_DESIRED_RECORDS[$index]}" = "runtime.pi" ]; then
       timeout="${DESIRED_STATE_RUNTIME_TIMEOUT_SECONDS:-360}"
     fi
     reconciler_plan_add \

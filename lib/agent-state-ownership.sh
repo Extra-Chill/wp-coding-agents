@@ -32,8 +32,7 @@ agent_state_ownership_roots() {
   local candidate
   for candidate in \
     "${RESOLVED_ROADIE_CONFIG_DIR:-/opt/roadie-config}" \
-    "${site:+$site/.wp-coding-agents}" \
-    "${site:+$site/.opencode}"; do
+    "${site:+$site/.wp-coding-agents}"; do
     [ -n "$candidate" ] || continue
     [ -e "$candidate" ] || continue
     [ -L "$candidate" ] && continue

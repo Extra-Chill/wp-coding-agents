@@ -4,7 +4,7 @@
 #
 # The Roadie context provider is the wordpress-context Roadie plugin, carried
 # in ROADIE_PLUGINS. If a unit pre-dates the managed plugin merge and still
-# runs without it, removing the memory mapping from opencode.json leaves
+# runs without it, removing the memory mapping from pi.json leaves
 # sessions with no SOUL/MEMORY/SITE/RULES/USER at all — the failure seen on
 # chubes.net. The gate must hold the managed memory in place until the unit's
 # plugin list contains the plugin, and stay enabled for fresh installs where

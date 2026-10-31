@@ -55,6 +55,7 @@ IS_STUDIO=false
 WP_CODING_AGENTS_TEST_EUID=0
 # Pi selection is covered by roadie-pi-backend.sh; keep it out of the way.
 ROADIE_PI_VERIFIED=none
+_roadie_select_pi() { ROADIE_PI_BIN=/fixture/pi; }
 ROADIE_BIN="$(roadie_bin)"
 UNIT="$SYSTEMD_UNIT_DIR/roadie.service"
 KEY_FILE="$TMP/secrets/roadie/pool-key"

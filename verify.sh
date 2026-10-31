@@ -50,6 +50,7 @@ SITE_PATH="${SITE_PATH:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --runtime|--runtime=*) error "--runtime was removed with OpenCode (#751). Pi is the only runtime." ;;
     --site-path) SITE_PATH="$2"; shift 2 ;;
     --quiet)     QUIET=true; shift ;;
     --json)      JSON=true; QUIET=true; shift ;;
@@ -213,8 +214,6 @@ else
 
   if [ -z "$DECLARED_WORKSPACE_REPOSITORIES" ]; then
     skip "no declared workspace repositories — cannot validate repository authority"
-  elif [ ! -f "$SITE_PATH/opencode.json" ]; then
-    fail "workspace repositories are declared but opencode.json is missing — the runtime has no configured repository access"
   else
     while IFS= read -r repository; do
       [ -n "$repository" ] || continue
@@ -222,17 +221,7 @@ else
         fail "declared workspace repository $repository is not a reachable Git checkout"
         continue
       fi
-      if python3 - "$SITE_PATH/opencode.json" "$repository" <<'PY' >/dev/null 2>&1
-import json, sys
-data = json.load(open(sys.argv[1]))
-rules = data.get("permission", {}).get("external_directory", {})
-sys.exit(0 if rules.get(sys.argv[2] + "/**") == "allow" else 1)
-PY
-      then
-        pass "declared repository $repository is a Git checkout and OpenCode may access it"
-      else
-        fail "declared repository $repository is a Git checkout but opencode.json does not allow it — native edits and Git cannot reach the declared authority"
-      fi
+      pass "declared repository $repository is a Git checkout"
     done < <(printf '%s\n' "$DECLARED_WORKSPACE_REPOSITORIES" | tr ':' '\n')
   fi
 fi
@@ -284,51 +273,6 @@ else
     esac
   fi
 
-  # The permission surface has to grant exactly what was declared. Declared but
-  # denied is an agent that cannot do its job; denied but allowed is an agent
-  # editing something nothing captures.
-  OPENCODE_JSON="$SITE_PATH/opencode.json"
-  if [ ! -f "$OPENCODE_JSON" ]; then
-    skip "no opencode.json — cannot compare permissions"
-  else
-    ALLOWED="$(python3 - "$OPENCODE_JSON" <<'PY' 2>/dev/null
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-rules = d.get("permission", {}).get("edit", {})
-if not isinstance(rules, dict):
-    sys.exit(0)
-for pattern, action in rules.items():
-    if action == "allow" and pattern.endswith("/**"):
-        print(pattern[:-3])
-PY
-)"
-    ALLOWED="$(printf '%s' "$ALLOWED" | sed '/^[[:space:]]*$/d' | sort)"
-    if [ "$ALLOWED" = "$RECORDED" ]; then
-      pass "permission.edit allows exactly the declared set"
-    else
-      fail "permission.edit disagrees with the declared set
-          declared: $(printf '%s' "$RECORDED" | tr '\n' ' ')
-          allowed:  $(printf '%s' "$ALLOWED" | tr '\n' ' ')"
-    fi
-
-    # These denies are what keep the agent off a payment gateway. Their absence
-    # is the failure worth waking up for.
-    for root in "wp-content/plugins/**" "wp-content/themes/**" "wp-admin/**" "wp-includes/**" "wp-config.php"; do
-      if python3 - "$OPENCODE_JSON" "$root" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-sys.exit(0 if d.get("permission", {}).get("edit", {}).get(sys.argv[2]) == "deny" else 1)
-PY
-      then
-        pass "denied: $root"
-      else
-        fail "NOT denied: $root — third-party code and core are writable by the edit tool"
-      fi
-    done
-  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -439,18 +383,6 @@ else
     fi
   done
 
-  # opencode.json must stay writable by the runtime user, or the reactive
-  # reconcile updates the option and the manifest while the permission surface
-  # silently freezes. That is not hypothetical: file_put_contents()+rename()
-  # creates a new inode owned by whoever ran it, so a reconcile run as root left
-  # this root:root 0644 and every later one failed without saying so.
-  if [ -f "$OPENCODE_JSON" ]; then
-    OJ_MODE="$(file_mode "$OPENCODE_JSON")"
-    case "$OJ_MODE" in
-      *[67]*) pass "opencode.json is group-writable ($OJ_MODE) — the runtime can update permissions" ;;
-      *) fail "opencode.json mode $OJ_MODE is not group-writable — the reactive reconcile cannot update the permission surface" ;;
-    esac
-  fi
 
   # A reconcile that cannot write is a reconcile that reports success and
   # changes nothing.

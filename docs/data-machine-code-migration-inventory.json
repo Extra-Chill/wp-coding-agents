@@ -541,27 +541,12 @@
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_worktree_runtime_signatures", "datamachine_code_worktree_context_projection_targets", "datamachine_code_worktree_context_projection_cleanup", "data-machine-code"],
       "current_owner": "wp-coding-agents producer over DMC hooks",
-      "current_consumers": ["DMC worktree lifecycle", "OpenCode signature registrations"],
+      "current_consumers": ["Legacy generated runtime attribution hooks (retired runtime; cleanup remains)"],
       "persistence": "Generated wp-coding-agents-runtimes.php and projected checkout files",
       "target_owner": "Homeboy",
       "disposition": "replace",
       "migration_issue": "#528, #530",
       "verification_gate": "Owning-layer attribution/projection tests pass and old generated hooks/files are cleaned"
-    },
-    {
-      "id": "wca-opencode-signature",
-      "subsystem": null,
-      "surface": "OpenCode run-id signature and workspace external-directory permission",
-      "source": { "repository": "wp-coding-agents", "path": "runtimes/opencode.sh", "symbol_or_command": "_opencode_register_runtime_signature; DM_WORKSPACE_DIR" },
-      "evidence_kind": "runtime",
-      "contracts": ["data-machine-code"],
-      "current_owner": "wp-coding-agents",
-      "current_consumers": ["DMC attribution and OpenCode native file access"],
-      "persistence": "Generated OpenCode configuration",
-      "target_owner": "wp-coding-agents",
-      "disposition": "replace",
-      "migration_issue": "#526, #528",
-      "verification_gate": "OpenCode reaches configured repositories without DMC and emits attribution only to an active owner"
     },
     {
       "id": "wca-kimaki-signature",

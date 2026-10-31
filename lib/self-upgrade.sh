@@ -21,7 +21,8 @@ self_upgrade_euid() { printf '%s\n' "${WP_CODING_AGENTS_TEST_EUID:-$(id -u)}"; }
 # Root-owned and not writable by group or other, for the path and every parent.
 self_upgrade_checkout_locked() {
   local path="$1" owner mode
-  [ -d "$path/.git" ] || return 1
+  # Linked worktrees have a .git file rather than a directory.
+  [ -e "$path/.git" ] || return 1
   while [ -n "$path" ] && [ "$path" != / ]; do
     owner="$(file_owner "$path" 2>/dev/null || true)"
     mode="$(file_mode "$path" 2>/dev/null || true)"

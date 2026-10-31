@@ -47,11 +47,11 @@ setup_host() {
   mkdir -p "$SYSTEMD_UNIT_DIR" "$KIMAKI_RETIRE_SUDOERS_DIR" "$TMP/bin" "$TMP/lib" "$KIMAKI_DATA"
   printf '[Service]\nExecStart=/usr/bin/kimaki\n' > "$SYSTEMD_UNIT_DIR/kimaki.service"
   printf '[Service]\nExecStart=/usr/bin/roadie\n' > "$SYSTEMD_UNIT_DIR/roadie.service"
-  echo 'opencode ALL=(opencode) NOPASSWD: /usr/local/lib/wp-coding-agents/kimaki-dispatch-target *' > "$KIMAKI_RETIRE_SUDOERS_DIR/wp-coding-agents-kimaki-dispatch"
-  echo 'opencode ALL=(root) NOPASSWD: /usr/bin/systemctl restart kimaki.service' > "$KIMAKI_RETIRE_SUDOERS_DIR/wp-coding-agents-kimaki-restart"
-  printf '# hand-added\nopencode ALL=(root) NOPASSWD: /usr/bin/kimaki upgrade, /usr/bin/kimaki upgrade --skip-restart\n' > "$KIMAKI_RETIRE_SUDOERS_DIR/kimaki-upgrade"
-  echo 'opencode ALL=(root) NOPASSWD: /usr/local/sbin/homeboy-upgrade *' > "$KIMAKI_RETIRE_SUDOERS_DIR/homeboy-upgrade"
-  printf 'opencode ALL=(root) NOPASSWD: /usr/bin/kimaki upgrade\nopencode ALL=(root) NOPASSWD: /usr/bin/true\n' > "$KIMAKI_RETIRE_SUDOERS_DIR/mixed"
+  echo 'pi ALL=(pi) NOPASSWD: /usr/local/lib/wp-coding-agents/kimaki-dispatch-target *' > "$KIMAKI_RETIRE_SUDOERS_DIR/wp-coding-agents-kimaki-dispatch"
+  echo 'pi ALL=(root) NOPASSWD: /usr/bin/systemctl restart kimaki.service' > "$KIMAKI_RETIRE_SUDOERS_DIR/wp-coding-agents-kimaki-restart"
+  printf '# hand-added\npi ALL=(root) NOPASSWD: /usr/bin/kimaki upgrade, /usr/bin/kimaki upgrade --skip-restart\n' > "$KIMAKI_RETIRE_SUDOERS_DIR/kimaki-upgrade"
+  echo 'pi ALL=(root) NOPASSWD: /usr/local/sbin/homeboy-upgrade *' > "$KIMAKI_RETIRE_SUDOERS_DIR/homeboy-upgrade"
+  printf 'pi ALL=(root) NOPASSWD: /usr/bin/kimaki upgrade\npi ALL=(root) NOPASSWD: /usr/bin/true\n' > "$KIMAKI_RETIRE_SUDOERS_DIR/mixed"
   touch "$TMP/bin/wp-coding-agents-kimaki-dispatch" "$TMP/lib/kimaki-dispatch-target" "$KIMAKI_DATA/discord-sessions.db"
 }
 

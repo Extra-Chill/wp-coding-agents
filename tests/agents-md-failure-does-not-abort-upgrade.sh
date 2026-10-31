@@ -31,12 +31,10 @@ fi
 PHASES_AFTER=(
   runtime_guidance_retire_codex_projection
   sync_runtime_instructions
-  opencode_project_subagents_optional
   update_chat_bridge_systemd
   update_chat_bridge_launchd
   reconcile_wordpress_service
   reconcile_datamachine_worker_service
-  refresh_opencode_runtime_signature_phase
   installation_profile_write
   print_summary
 )
@@ -59,7 +57,7 @@ PHASES_AFTER=(
   for phase in reconcile_provider_and_service_state sync_cli_transport_runtime \
     wordpress_chat_write_env update_ai_gateway update_wordpress_chat \
     sync_chat_bridge_config systems_capabilities_apply self_upgrade_apply \
-    check_opencode_json_drift ai_gateway_configure_opencode sync_skills \
+    check_pi_json_drift ai_gateway_configure_pi sync_skills \
     "${PHASES_AFTER[@]}"; do
     echo "${phase}() { echo \"RAN ${phase}\"; }"
   done

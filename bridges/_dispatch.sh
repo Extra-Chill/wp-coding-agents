@@ -45,7 +45,6 @@
 #
 # Caller contract — bridge files expect the same per-install globals the
 # legacy lib/chat-bridge.sh / lib/chat-bridges.sh did (SERVICE_USER,
-# SERVICE_HOME, SITE_PATH, ROADIE_BIN, ROADIE_DATA_DIR, OPENCODE_BIN, etc.). Subshell exports them automatically; no
 # extra wiring needed.
 
 # Resolve the bridges/ directory once. SCRIPT_DIR is the wp-coding-agents
@@ -171,7 +170,6 @@ _merge_systemd_env_lines() {
   # value is built from, and those values are not operator edits: they describe
   # an identity that no longer exists.
   #
-  # Measured on h44lacrosse.com: the migration produced User=opencode alongside
   # Environment=HOME=/root and ROADIE_DATA_DIR=/root/.kimaki. Starting that unit
   # runs the agent as a user that cannot read either path — /root is 0700 — so
   # it comes up with no session database and no runtime state. The same defect
@@ -304,7 +302,6 @@ _preserve_systemd_umask() {
 #
 # On upgrade, the EXISTING installed unit is the source of truth for the
 # service identity — not the script's default. upgrade.sh historically
-# hardcoded RUN_AS_ROOT=true, so on a non-root install (User=opencode)
 # Phase 5 re-rendered the unit with User=root: a silent service-identity
 # flip that creates root-owned state files, breaks the next non-root
 # start, and re-introduces the root-homed-path trap (#198/#93). See #204.

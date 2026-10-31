@@ -19,6 +19,16 @@ source "$SCRIPT_DIR/lib/homeboy.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 source "$SCRIPT_DIR/bridges/roadie.sh"
 
+# Exercise the real version gate without installing Pi or using a host binary.
+mkdir -p "$TMP/pi/bin"
+printf '#!/bin/sh\nprintf "1.4.0\\n"\n' > "$TMP/pi/bin/pi"
+chmod +x "$TMP/pi/bin/pi"
+_roadie_provision_pi() { :; }
+_roadie_pi_bin() { printf '%s/pi/bin/pi\n' "$TMP"; }
+# Unit fixtures use root; CI need not have sudo or run as that identity.
+_roadie_pi_run() { "$@"; }
+unset ROADIE_PI_VERIFIED
+
 FAILED=0
 check() {
   if [ "$1" -eq 0 ]; then
@@ -133,7 +143,7 @@ fi
 
 echo "==> session attribution travels as ROADIE_SHELL_ENV templates"
 
-# The retired session-attribution.ts OpenCode plugin is replaced by Roadie's
+# The retired session-attribution.ts Pi plugin is replaced by Roadie's
 # --shell-env / ROADIE_SHELL_ENV templates (roadie#186, wp-coding-agents#718).
 # The managed service env must map the HOMEBOY_* contract names onto Roadie's
 # session fields in both render sites.
@@ -190,11 +200,11 @@ fi
 echo "==> upgrade keeps managed Homeboy ahead of user-tool dirs"
 
 # A managed non-root unit whose home has ~/.local/bin (holding a stale legacy
-# Homeboy seed) and ~/.opencode/bin. Upgrade prepends those user-tool dirs; the
+# Homeboy seed) and ~/.local/bin. Upgrade prepends those user-tool dirs; the
 # managed Homeboy dir must still lead so `homeboy` resolves to it.
 USER_HOME="$TMP/home"
 MANAGED_DIR="$TMP/prefix/wp-coding-agents/bin"
-mkdir -p "$USER_HOME/.local/bin" "$USER_HOME/.opencode/bin" "$MANAGED_DIR"
+mkdir -p "$USER_HOME/.local/bin" "$USER_HOME/.local/bin" "$MANAGED_DIR"
 printf '#!/bin/sh\n' > "$USER_HOME/.local/bin/homeboy"
 printf '#!/bin/sh\n' > "$MANAGED_DIR/homeboy"
 chmod 0755 "$USER_HOME/.local/bin/homeboy" "$MANAGED_DIR/homeboy"
@@ -222,7 +232,7 @@ RESOLVED="$(env PATH="$UNIT_PATH" /bin/sh -c 'command -v homeboy')"
 if [ "$RESOLVED" = "$MANAGED_DIR/homeboy" ]; then rc=0; else rc=1; fi
 check "$rc" "homeboy resolves to the managed binary, not the legacy seed"
 case ":$UNIT_PATH:" in
-  *":$USER_HOME/.opencode/bin:"*) check 0 "user-tool dirs are still added" ;;
+  *":$USER_HOME/.local/bin:"*) check 0 "user-tool dirs are still added" ;;
   *) check 1 "user-tool dirs are still added" ;;
 esac
 unset WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN
@@ -324,23 +334,23 @@ else
   check 1 "systemd env quotes compact argv JSON so systemd keeps the quotes"
 fi
 
-echo "==> the service user's OpenCode wins over a distro copy"
+echo "==> the service user's Pi wins over a distro copy"
 
-# Agent shells inherit the service PATH and may run the standalone OpenCode
-# runtime. A stale /usr/bin/opencode must not shadow the one the OpenCode
-# installer puts in ~/.opencode/bin.
-FAKE_HOME="$TMP/home-opencode"
-mkdir -p "$FAKE_HOME/.opencode/bin"
-printf '#!/bin/sh\n' > "$FAKE_HOME/.opencode/bin/opencode"
-chmod +x "$FAKE_HOME/.opencode/bin/opencode"
-# First PATH dir that could supply `opencode`: the user's, or a system dir.
-first_opencode_dir() {
+# Agent shells inherit the service PATH and may run the standalone Pi
+# runtime. A stale /usr/bin/pi must not shadow the one the Pi
+# installer puts in ~/.local/bin.
+FAKE_HOME="$TMP/home-pi"
+mkdir -p "$FAKE_HOME/.local/bin"
+printf '#!/bin/sh\n' > "$FAKE_HOME/.local/bin/pi"
+chmod +x "$FAKE_HOME/.local/bin/pi"
+# First PATH dir that could supply `pi`: the user's, or a system dir.
+first_pi_dir() {
   printf '%s\n' "$1" | tr ':' '\n' \
-    | grep -m1 -xE "$FAKE_HOME/\.opencode/bin|/usr/bin|/bin|/usr/local/bin" || true
+    | grep -m1 -xE "$FAKE_HOME/\.local/bin|/usr/bin|/bin|/usr/local/bin" || true
 }
-FRESH_PATH="$(SERVICE_HOME="$FAKE_HOME" SERVICE_USER=opencode ROADIE_BIN=/usr/bin/roadie _roadie_path_value)"
-[ "$(first_opencode_dir "$FRESH_PATH")" = "$FAKE_HOME/.opencode/bin" ]
-check $? "fresh unit PATH puts ~/.opencode/bin before system dirs"
+FRESH_PATH="$(SERVICE_HOME="$FAKE_HOME" SERVICE_USER=pi ROADIE_BIN=/usr/bin/roadie _roadie_path_value)"
+[ "$(first_pi_dir "$FRESH_PATH")" = "$FAKE_HOME/.local/bin" ]
+check $? "fresh unit PATH puts ~/.local/bin before system dirs"
 
 # An installed unit written without it gets it first on upgrade.
 SAVED_HOME="$SERVICE_HOME"
@@ -348,9 +358,9 @@ SERVICE_HOME="$FAKE_HOME"
 sed -i "s|^Environment=PATH=.*|Environment=PATH=/usr/local/bin:/usr/bin:/bin|" "$UNIT"
 bridge_update_systemd >/dev/null 2>&1
 UPGRADED_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT")"
-[ "${UPGRADED_PATH%%:*}" = "$FAKE_HOME/.opencode/bin" ]
-check $? "upgrade moves ~/.opencode/bin to the front of an installed unit's PATH"
-[ "$(grep -o "$FAKE_HOME/.opencode/bin" <<< "$UPGRADED_PATH" | wc -l)" -eq 1 ]
+[ "${UPGRADED_PATH%%:*}" = "$FAKE_HOME/.local/bin" ]
+check $? "upgrade moves ~/.local/bin to the front of an installed unit's PATH"
+[ "$(grep -o "$FAKE_HOME/.local/bin" <<< "$UPGRADED_PATH" | wc -l)" -eq 1 ]
 check $? "and only once"
 
 # The same cutover also lost pnpm. Exercise actual executable lookup through

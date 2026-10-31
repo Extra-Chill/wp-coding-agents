@@ -74,23 +74,6 @@ function ensureKnown(value, known, label) {
   }
 }
 
-// Codex and Claude Code are no longer managed runtimes (#751). Both read the
-// composed AGENTS.md natively when run in a terminal.
-const REMOVED_RUNTIMES = ["codex", "claude-code"]
-
-function normalizeRuntime(profile, availableRuntimes) {
-  const runtime = profile.runtime ?? {}
-  const selection = runtime.selection || "auto"
-  if (REMOVED_RUNTIMES.includes(selection)) {
-    throw new Error(
-      `runtime.selection '${selection}' was removed (wp-coding-agents#751). Use Pi with Roadie, or run ${selection} yourself in a terminal against the site's composed AGENTS.md.`
-    )
-  }
-
-  ensureKnown(selection, availableRuntimes, "runtime")
-  return { selection, requested: selection === "auto" ? [] : [selection], flag: selection === "auto" ? null : selection }
-}
-
 // Kimaki was replaced by Roadie; saved profiles that name it select Roadie,
 // matching upgrade.sh's bridge mapping.
 const BRIDGE_ALIASES = { kimaki: "roadie" }
@@ -159,7 +142,6 @@ function normalizeSource(profile) {
 }
 
 function compile(profile) {
-  const availableRuntimes = discoveredNames("runtimes")
   const availableBridges = discoveredNames("bridges", ".sh", new Set(["_dispatch"]))
   const warnings = []
   const env = {}
@@ -221,15 +203,17 @@ function compile(profile) {
     env.WP_CLI_TRANSPORT_JSON = '["studio","wp"]'
   }
 
-  const runtime = normalizeRuntime(profile, availableRuntimes)
+  const selection = profile.runtime?.selection || "auto"
+  if (["opencode", "codex", "claude-code"].includes(selection)) {
+    throw new Error(`runtime.selection '${selection}' was removed (wp-coding-agents#751). Use Pi with Roadie.`)
+  }
+  if (!["auto", "pi"].includes(selection)) {
+    throw new Error(`Unknown runtime: ${selection} (wp-coding-agents#751). Use Pi with Roadie.`)
+  }
+  const runtime = { selection: "pi", requested: ["pi"] }
+  if (selection === "pi") addFlag(command, "--runtime", "pi")
   if (profile.codex_path !== undefined) {
     throw new Error("codex_path was renamed provider_path when the Codex runtime was removed (wp-coding-agents#751)")
-  }
-  if (installTarget === "external-runtime" && runtime.selection !== "opencode") {
-    throw new Error("External runtime setup currently requires runtime.selection=opencode")
-  }
-  if (runtime.flag) {
-    addFlag(command, "--runtime", runtime.flag)
   }
 
   if (!source.legacy) {
@@ -284,9 +268,6 @@ function compile(profile) {
     verification.add("verify-bridge-none")
   } else if (effectiveBridge !== "auto") {
     verification.add(`verify-bridge-${effectiveBridge}`)
-    if (effectiveBridge === "roadie" && (runtimeNames.includes("opencode") || runtime.selection === "auto")) {
-      verification.add("verify-bridge-roadie-opencode-plugins")
-    }
   }
 
   if (overlays.homeboy) verification.add("verify-homeboy")

@@ -50,11 +50,11 @@ DRY_RUN=false
 LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=false
-RUNTIME=opencode
+RUNTIME=pi
 INSTALL_CHAT=false
 CHAT_BRIDGE=""
 HOMEBOY_MODE=disabled
-DETECTED_RUNTIMES=(opencode)
+DETECTED_RUNTIMES=(pi)
 
 source_policy_add_workspace_repository_clone "$ORIGIN" "$DESTINATION"
 source_policy_materialize_workspace_repositories

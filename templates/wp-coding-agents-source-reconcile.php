@@ -286,7 +286,6 @@ function wp_coding_agents_reconcile_sources( $force = false, $fresh = false ) {
 	update_option( WP_CODING_AGENTS_INVENTORY_OPTION, $hash, false );
 
 	wp_coding_agents_write_manifest( $owned );
-	wp_coding_agents_write_edit_permissions( $owned );
 
 	/**
 	 * Fires after the owned set has been reconciled.
@@ -303,7 +302,6 @@ function wp_coding_agents_reconcile_sources( $force = false, $fresh = false ) {
  *
  * file_put_contents()+rename() creates a NEW inode owned by whoever ran it, at
  * the process umask. When this reconcile runs as root during an upgrade it
- * therefore replaced opencode.json with a root:root 0644 file — and the runtime
  * user could no longer write it, so every LATER reconcile silently failed to
  * update the permissions it exists to update.
  *
@@ -358,64 +356,6 @@ function wp_coding_agents_write_manifest( array $owned ) {
 function wp_coding_agents_site_key() {
 	$host = wp_parse_url( home_url(), PHP_URL_HOST );
 	return $host ? $host : 'default';
-}
-
-/**
- * Rewrite permission.edit so the agent may edit exactly what it owns.
- *
- * KEY ORDER IS THE PRECEDENCE MECHANISM. OpenCode evaluates with findLast over
- * a ruleset built in JSON key order, so the broad denies have to be written
- * before the allows that carve exceptions out of them. Emitting the allows
- * first silently inverts the policy.
- *
- * @param string[] $owned
- * @return bool
- */
-function wp_coding_agents_write_edit_permissions( array $owned ) {
-	$file = trailingslashit( ABSPATH ) . 'opencode.json';
-	if ( ! is_readable( $file ) || ! is_writable( $file ) ) {
-		return false;
-	}
-	$data = json_decode( (string) file_get_contents( $file ), true );
-	if ( ! is_array( $data ) || ! isset( $data['permission']['edit'] ) || ! is_array( $data['permission']['edit'] ) ) {
-		return false;
-	}
-
-	$managed = array();
-	foreach ( $data['permission']['edit'] as $pattern => $action ) {
-		// Drop stale owned-source allows this install no longer declares, so a
-		// component that stops being owned stops being editable.
-		$is_stale_allow = 'allow' === $action
-			&& ( 0 === strpos( $pattern, 'wp-content/plugins/' ) || 0 === strpos( $pattern, 'wp-content/themes/' ) )
-			&& '/**' === substr( $pattern, -3 );
-		if ( $is_stale_allow ) {
-			continue;
-		}
-		$managed[ $pattern ] = $action;
-	}
-
-	foreach ( $owned as $path ) {
-		$managed[ $path . '/**' ] = 'allow';
-	}
-
-	if ( $managed === $data['permission']['edit'] ) {
-		return true;
-	}
-
-	$data['permission']['edit'] = $managed;
-	$encoded                    = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-	if ( false === $encoded ) {
-		return false;
-	}
-	$tmp = $file . '.tmp';
-	if ( false === file_put_contents( $tmp, $encoded . "\n" ) ) {
-		return false;
-	}
-	if ( ! rename( $tmp, $file ) ) {
-		return false;
-	}
-	wp_coding_agents_normalize_written_file( $file );
-	return true;
 }
 
 // ---------------------------------------------------------------------------

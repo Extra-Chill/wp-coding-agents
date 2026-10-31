@@ -17,7 +17,7 @@ checkouts, external worktrees), historical error text (last_error, error),
 and conversation payloads (session_events) are never touched. Application is
 idempotent: rows already pointing at the target map to themselves.
 
-OpenCode owns its session directories. Their dependencies are reported as
+Legacy Kimaki backend data owns its session directories. Their dependencies are reported as
 cleanup blockers rather than changing another runtime's persistent storage.
 
   relocate-project-paths.py apply --db <db>
@@ -130,8 +130,7 @@ def apply(args):
                     print(f"thread_sessions: {count} session mapping(s) kept")
     finally:
         connection.close()
-    # Backend session directories belong to OpenCode. Preserve their identities
-    # and report a cleanup blocker instead of silently orphaning their history.
+    # Preserve legacy Kimaki backend history; only report cleanup blockers.
     if args.opencode_db and Path(args.opencode_db).is_file():
         backend = sqlite3.connect(Path(args.opencode_db).resolve().as_uri() + "?mode=ro", uri=True)
         try:

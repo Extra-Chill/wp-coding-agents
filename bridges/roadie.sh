@@ -7,7 +7,6 @@
 #
 #   Kimaki workaround                         Roadie
 #   ----------------------------------------  ----------------------------------
-#   pkill stale opencode serve (ExecStartPre)  orphan cleanup on start
 #   restart-continuation.py (ExecStartPost)    resumes interrupted runs itself
 #   post-upgrade.sh prompt patch + skill pass  ROADIE_PROMPT_CONFIG, host skills
 #   self-upgrade suppression                   ROADIE_MANAGED=1
@@ -428,11 +427,17 @@ _roadie_verify_pi() {
 # managed binary once it verifies; otherwise it is left out and Roadie looks
 # for `pi` on PATH, failing at startup with its own error when none works.
 _roadie_select_pi() {
+  if [ "${DRY_RUN:-false}" = true ]; then
+    ROADIE_PI_BIN="$(_roadie_pi_bin)"
+    return 0
+  fi
   _roadie_verify_pi
   if [ "$ROADIE_PI_VERIFIED" != none ]; then
     ROADIE_PI_BIN="$ROADIE_PI_VERIFIED"
   else
     ROADIE_PI_BIN=""
+    error "Pi could not be installed or verified; refusing to configure Roadie."
+    return 1
   fi
 }
 
@@ -694,7 +699,6 @@ roadie_config_dir() {
   fi
 }
 
-# OpenCode plugin dir the Roadie bridge used to install into. All four
 # retired (#718); upgrade keeps resolving it only to remove stale files.
 bridge_managed_plugins_dir() {
   printf '%s/plugins\n' "$(roadie_config_dir)"
@@ -748,7 +752,6 @@ roadie_speaker_context_enabled() {
   [ "${CHAT_BRIDGE:-}" = roadie ] || return 1
   [ -f "$(roadie_config_dir)/wordpress-context.json" ] || return 1
   # The context provider is the wordpress-context Roadie plugin, so managed
-  # memory may only leave opencode.json when the service really runs that
   # plugin (#729). A unit whose ROADIE_PLUGINS pre-dates the managed merge
   # would otherwise lose SOUL/MEMORY/SITE/RULES/USER memory entirely: the
   # mapping removed from instructions, the plugin never loaded. No service
@@ -788,22 +791,13 @@ roadie_channels_config_file() {
   printf '%s\n' "$file"
 }
 
-# OpenCode plugins the Roadie bridge used to install into the config dir and
-# wire into opencode.json. All retired in favor of Roadie-native primitives
 # (wp-coding-agents#718): memory flows through the wordpress-context Roadie
 # plugin / --context-provider, project channels came from
 # ROADIE_CHANNELS_CONFIG only (roadie#187), shell attribution comes from
 # --shell-env / ROADIE_SHELL_ENV templates (roadie#186), and claude-code-auth
 # registers nothing under Roadie (credential pools serve Anthropic).
-RETIRED_ROADIE_OPENCODE_PLUGINS=(
-  dm-agent-sync.ts
-  roadie-command-guard.ts
-  session-attribution.ts
-)
 
 # Roadie plugin modules this bridge no longer ships. runtime-config.mjs fed
-# opencode.json into Roadie's `opencode_server_config` hook, which left with
-# Roadie's OpenCode backend (roadie#177, v0.67.0). wordpress-context.php was
 # the wordpress-context plugin's own resolver; the plugin now calls Data
 # Machine's resolve-chat-person ability instead (#711).
 RETIRED_ROADIE_PLUGIN_MODULES=(
@@ -935,7 +929,6 @@ _roadie_sync_assets() {
   done
 
   # accounts.mjs was the subrouter account mover; Roadie's own
-  # `credentials import-opencode` replaced it, and the
   # subrouter package it loaded is leaving the Roadie package (#709).
   if [ -f "$config_dir/accounts.mjs" ]; then
     if [ "${DRY_RUN:-false}" = true ]; then
@@ -943,24 +936,12 @@ _roadie_sync_assets() {
     else
       rm -f "$config_dir/accounts.mjs"
       log "  Removed retired $config_dir/accounts.mjs"
-      UPDATED_ITEMS+=("roadie-config/accounts.mjs removed (use roadie credentials import-opencode)")
+      UPDATED_ITEMS+=("roadie-config/accounts.mjs removed")
     fi
   fi
 
-  # The retired OpenCode plugins leave the config dir too; opencode.json
-  # entries are dropped by lib/repair-opencode-json.py, which agrees with
   # this list.
   local retired
-  for retired in "${RETIRED_ROADIE_OPENCODE_PLUGINS[@]}"; do
-    [ -e "$plugins_dir/$retired" ] || continue
-    if [ "${DRY_RUN:-false}" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would remove retired $plugins_dir/$retired"
-      continue
-    fi
-    rm -f "$plugins_dir/$retired"
-    log "  Removed retired $plugins_dir/$retired"
-    UPDATED_ITEMS+=("roadie-config/plugins/$retired removed (Roadie-native replacement, #718)")
-  done
 
   local modules_dir
   modules_dir="$(roadie_plugins_dir)"
@@ -985,7 +966,7 @@ _roadie_sync_assets() {
 #   2. SQLite online backup of discord-sessions.db into the Roadie data dir
 #      (a plain copy can catch the WAL mid-write); copy the remaining state
 #   3. carry KIMAKI_BOT_TOKEN / KIMAKI_LOCK_PORT / DATAMACHINE_* over
-#   4. move the subscription accounts (OpenCode's rotation pools) into
+#   4. move Kimaki's existing subscription accounts (OpenCode-format auth) into
 #      Roadie's shared credential pool. Only while Kimaki is stopped:
 #      refresh tokens rotate on use, so two live copies invalidate each other.
 #   5. route model choices on those providers through Roadie rotations: one
@@ -1011,7 +992,8 @@ _roadie_kimaki_unit() {
   [ -f "$unit_dir/$unit" ] && printf '%s\n' "$unit"
 }
 
-# OpenCode's data dir for the service user (auth.json and the account pools).
+
+# Legacy Kimaki auth data, read only for the one-time credential migration.
 _roadie_opencode_data_dir() {
   if [ "${LOCAL_MODE:-false}" = true ]; then
     printf '%s/opencode\n' "${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -1035,7 +1017,8 @@ _roadie_credentials() {
   fi
 }
 
-# Move OpenCode's subscription accounts into Roadie's shared credential pool.
+
+# Move Kimaki's OpenCode-format accounts into Roadie's shared credential pool.
 _roadie_accounts_import() {
   _roadie_credentials import-opencode --opencode-data "$(_roadie_opencode_data_dir)" --pool shared
 }
@@ -1299,8 +1282,6 @@ roadie_migrate_from_kimaki() {
   done <<< "$rotations_out"
 
   # Point those choices at the rotations, in the Roadie copy of the database
-  # (before Roadie first starts). opencode.json is left alone: Roadie runs Pi,
-  # and the `roadie/*` provider does not exist for a standalone OpenCode.
   if ! models_out="$(python3 "$SCRIPT_DIR/bridges/roadie/repoint-models.py" apply \
          --db "$target_db" 2>&1)"; then
     printf '%s\n' "$models_out" >&2
@@ -1575,7 +1556,7 @@ bridge_install() {
   _roadie_require_identity_ability || return 1
   _roadie_provision_package || return 1
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_pi
+  _roadie_select_pi || return $?
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   roadie_migrate_from_kimaki
@@ -1712,12 +1693,10 @@ _roadie_path_value() {
   node_bin_dir=$(_resolve_node_bin_dir "$ROADIE_BIN")
   homeboy_bin_dir="$(_roadie_managed_homeboy_dir)"
   # The service user's own tool dirs come before the system ones. Agent shells
-  # inherit this PATH and may run the standalone OpenCode runtime (Homeboy
-  # coding tasks): its installer puts the binary in ~/.opencode/bin, and a
   # stale distro copy in /usr/bin would otherwise win.
   local home_dirs=()
   if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
-    home_dirs=("$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.opencode/bin" "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
+    home_dirs=("$SERVICE_HOME/.local/bin"  "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
   fi
   # Ahead of the Roadie and node dirs too: either can be /usr/bin.
   _compose_path_value "$homeboy_bin_dir" "${home_dirs[@]}" "$roadie_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin
@@ -1872,7 +1851,7 @@ bridge_sync_config() {
   _roadie_require_identity_ability || return 1
   _roadie_provision_package || return 1
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_pi
+  _roadie_select_pi || return $?
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   _roadie_install_secrets
@@ -1976,7 +1955,7 @@ bridge_update_systemd() {
   fi
 
   ROADIE_BIN="$(roadie_bin)"
-  _roadie_select_pi
+  _roadie_select_pi || return $?
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   local path_value current_env merged_env
@@ -1989,7 +1968,6 @@ bridge_update_systemd() {
   # ROADIE_PI_MODEL / ROADIE_PI_TITLE_MODEL were resolved from this unit (or
   # the operator) already.
   # ROADIE_BACKEND is no longer rendered (Pi is Roadie's only backend, and any
-  # value but `pi` stops Roadie v0.67+), so a stale `opencode` is dropped here.
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
     ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
@@ -2007,11 +1985,10 @@ bridge_update_systemd() {
   current_env=$(_ensure_systemd_path_contains "$current_env" "$(dirname "$ROADIE_BIN")")
   # Converge existing units too: preserving PATH verbatim kept pnpm missing
   # after the Kimaki cutover. Add available user-tool dirs without dropping
-  # operator entries, and keep the installed OpenCode ahead of distro copies.
   if [ -n "${SERVICE_HOME:-}" ]; then
     local tool_dir
     for tool_dir in "$SERVICE_HOME/.bun/bin" "$SERVICE_HOME/.local/share/pnpm" \
-      "$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.opencode/bin"; do
+      "$SERVICE_HOME/.local/bin" ; do
       [ -d "$tool_dir" ] || continue
       current_env=$(_ensure_systemd_path_first "$current_env" "$tool_dir")
     done
@@ -2058,7 +2035,7 @@ bridge_update_launchd() {
 
   ROADIE_BIN="$(roadie_bin)"
   _roadie_install_upgrade_launchd "$HOME/Library/LaunchAgents"
-  _roadie_select_pi
+  _roadie_select_pi || return $?
   # Report a missing pool key here: the renderers run in subshells.
   _roadie_remote_pool_ready >/dev/null || true
   if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
@@ -2139,7 +2116,7 @@ bridge_render_launchd() {
   # The resolved Homeboy dir leads, mirroring _roadie_path_value: a legacy
   # ~/.local/bin/homeboy seed must not shadow the installed binary that the
   # fork-workspace plugin execs from this PATH.
-  path_value="$(_compose_path_value "$(_roadie_launchd_homeboy_dir)" "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir" "$HOME/.opencode/bin" "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
+  path_value="$(_compose_path_value "$(_roadie_launchd_homeboy_dir)" "$HOME/.local/bin" "$roadie_bin_dir" "$node_bin_dir"  "$HOME/.bun/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)"
   datamachine_wp_transport_json=$(xml_escape "$(_roadie_datamachine_wp_transport_json)")
   shell_env_json=$(xml_escape "$(_roadie_shell_env_value)")
   plist_document <<EOF
@@ -2240,7 +2217,6 @@ PY
 }
 
 # Session attribution for agent shells: Roadie's --shell-env / ROADIE_SHELL_ENV
-# templates (roadie#186) replace the retired session-attribution.ts OpenCode
 # plugin (wp-coding-agents#718). The mapping keeps Homeboy's bridge-neutral
 # contract (Extra-Chill/homeboy-extensions#2910):
 #

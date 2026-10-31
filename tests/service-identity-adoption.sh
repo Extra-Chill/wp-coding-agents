@@ -2,7 +2,7 @@
 # tests/service-identity-adoption.sh — Regression coverage for issue #204.
 #
 # upgrade.sh hardcodes RUN_AS_ROOT=true. On a non-root install
-# (roadie.service has User=opencode) Phase 5 re-rendered the unit with
+# (roadie.service has User=pi) Phase 5 re-rendered the unit with
 # User=root — a silent service-identity flip that creates root-owned state
 # files, breaks the next non-root start, and re-introduces the
 # root-homed-path dispatch trap (#198/#93). It also dropped the existing
@@ -11,7 +11,7 @@
 # Asserts:
 #   1. adopt_service_identity_from_units reads User= from the existing unit
 #      and re-derives SERVICE_USER / SERVICE_HOME / ROADIE_DATA_DIR /
-#      RUN_AS_ROOT to match (root-default script + opencode unit → opencode).
+#      RUN_AS_ROOT to match (root-default script + pi unit → pi).
 #   2. upgrade.sh can defer the root check until after adoption, while setup.sh
 #      keeps the root check during detection.
 #   3. Adoption is a no-op when the unit already matches the script default.
@@ -19,7 +19,7 @@
 #   5. Adoption is skipped in LOCAL_MODE (no systemd).
 #   6. _preserve_systemd_umask carries an existing UMask= line into the
 #      re-rendered env block, and is a no-op when the unit has none.
-#   7. End-to-end: a re-render after adoption keeps User=opencode and
+#   7. End-to-end: a re-render after adoption keeps User=pi and
 #      UMask=0002 — the exact production diff from #204 must NOT appear.
 set -eu
 
@@ -68,10 +68,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=opencode
+User=pi
 WorkingDirectory=/var/www/site
 UMask=0002
-Environment=HOME=/home/opencode
+Environment=HOME=/home/pi
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/kimaki
 Restart=always
@@ -86,7 +86,7 @@ export SYSTEMD_UNIT_DIR="$UNIT_DIR"
 bridge_systemd_units() { echo "roadie.service"; }
 
 # ---------------------------------------------------------------------------
-echo "==> adoption: root default + opencode unit -> opencode"
+echo "==> adoption: root default + pi unit -> pi"
 LOCAL_MODE=false
 SERVICE_USER_FORCED=false
 SERVICE_USER="root"
@@ -96,7 +96,7 @@ RUN_AS_ROOT=true
 
 adopt_service_identity_from_units
 
-assert "SERVICE_USER adopted from unit"        "$([ "$SERVICE_USER" = "opencode" ]; echo $?)"
+assert "SERVICE_USER adopted from unit"        "$([ "$SERVICE_USER" = "pi" ]; echo $?)"
 assert "RUN_AS_ROOT flipped to false"          "$([ "$RUN_AS_ROOT" = "false" ]; echo $?)"
 assert "SERVICE_HOME re-derived"               "$([ "$SERVICE_HOME" != "/root" ]; echo $?)"
 assert "ROADIE_DATA_DIR re-derived"            "$([ "$ROADIE_DATA_DIR" != "/root/.roadie" ]; echo $?)"
@@ -119,15 +119,15 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "==> adoption: no-op when unit matches script default"
-SERVICE_USER="opencode"
-SERVICE_HOME="/home/opencode"
-ROADIE_DATA_DIR="/home/opencode/.roadie"
+SERVICE_USER="pi"
+SERVICE_HOME="/home/pi"
+ROADIE_DATA_DIR="/home/pi/.roadie"
 RUN_AS_ROOT=false
 
 adopt_service_identity_from_units
 
-assert "matching user unchanged"               "$([ "$SERVICE_USER" = "opencode" ]; echo $?)"
-assert "matching home unchanged"               "$([ "$SERVICE_HOME" = "/home/opencode" ]; echo $?)"
+assert "matching user unchanged"               "$([ "$SERVICE_USER" = "pi" ]; echo $?)"
+assert "matching home unchanged"               "$([ "$SERVICE_HOME" = "/home/pi" ]; echo $?)"
 
 # ---------------------------------------------------------------------------
 echo "==> adoption: skipped when SERVICE_USER_FORCED=true"
@@ -154,23 +154,23 @@ LOCAL_MODE=false
 
 # ---------------------------------------------------------------------------
 echo "==> umask preservation"
-ENV_BLOCK="Environment=HOME=/home/opencode
+ENV_BLOCK="Environment=HOME=/home/pi
 Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
 PRESERVED=$(_preserve_systemd_umask "$UNIT_DIR/roadie.service" "$ENV_BLOCK")
 assert "UMask carried into env block"          "$(echo "$PRESERVED" | grep -q '^UMask=0002$'; echo $?)"
-assert "env lines retained alongside UMask"    "$(echo "$PRESERVED" | grep -q '^Environment=HOME=/home/opencode$'; echo $?)"
+assert "env lines retained alongside UMask"    "$(echo "$PRESERVED" | grep -q '^Environment=HOME=/home/pi$'; echo $?)"
 
 cat > "$UNIT_DIR/no-umask.service" <<'EOF'
 [Service]
-User=opencode
-Environment=HOME=/home/opencode
+User=pi
+Environment=HOME=/home/pi
 EOF
 UNCHANGED=$(_preserve_systemd_umask "$UNIT_DIR/no-umask.service" "$ENV_BLOCK")
 assert "no UMask -> env block unchanged"       "$([ "$UNCHANGED" = "$ENV_BLOCK" ]; echo $?)"
 
 # ---------------------------------------------------------------------------
-echo "==> end-to-end: re-render after adoption keeps User=opencode + UMask"
+echo "==> end-to-end: re-render after adoption keeps User=pi + UMask"
 # Simulate the upgrade flow: root defaults, adoption, then render the kimaki
 # unit the way bridge_update_systemd does and assert the #204 diff is gone.
 SERVICE_USER="root"
@@ -189,7 +189,7 @@ CURRENT_ENV=$(grep '^Environment=' "$UNIT_DIR/roadie.service" || true)
 MERGED_ENV=$(_preserve_systemd_umask "$UNIT_DIR/roadie.service" "$CURRENT_ENV")
 RENDERED=$(bridge_render_systemd roadie.service "$MERGED_ENV")
 
-assert "rendered unit keeps User=opencode"     "$(echo "$RENDERED" | grep -q '^User=opencode$'; echo $?)"
+assert "rendered unit keeps User=pi"     "$(echo "$RENDERED" | grep -q '^User=pi$'; echo $?)"
 assert "rendered unit does NOT flip to root"   "$(echo "$RENDERED" | grep -q '^User=root$'; echo $((1 - $?)))"
 assert "rendered unit keeps UMask=0002"        "$(echo "$RENDERED" | grep -q '^UMask=0002$'; echo $?)"
 
