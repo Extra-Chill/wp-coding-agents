@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.6.0] - 2026-10-31
+
+### Added
+- delete the OpenCode runtime; Pi is the only runtime
+
 ## [3.5.18] - 2026-10-31
 
 ### Changed
