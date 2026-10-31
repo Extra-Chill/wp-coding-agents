@@ -2245,7 +2245,7 @@ PY
 # contract (Extra-Chill/homeboy-extensions#2910):
 #
 #   HOMEBOY_CALLER_CONTEXT        roadie:session:{session_id}
-#   HOMEBOY_REQUESTER             {person_id} (linked WordPress identity)
+#   HOMEBOY_REQUESTER             {actor_name} (speaker display name, PR attribution)
 #   HOMEBOY_SESSION_THREAD_ID     {thread_id}
 #   HOMEBOY_SESSION_SEND_COMMAND  <roadie bin> send (static template)
 #
@@ -2266,7 +2266,7 @@ import json, sys
 bin_path = sys.argv[1]
 shell_env = {
     "HOMEBOY_CALLER_CONTEXT": "roadie:session:{session_id}",
-    "HOMEBOY_REQUESTER": "{person_id}",
+    "HOMEBOY_REQUESTER": "{actor_name}",
     "HOMEBOY_SESSION_THREAD_ID": "{thread_id}",
 }
 # Mirror the retired plugin's guard: a binary path containing whitespace

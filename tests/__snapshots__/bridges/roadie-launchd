@@ -40,7 +40,7 @@
         <key>DATAMACHINE_WP_TRANSPORT_JSON</key>
         <string>["wp"]</string>
         <key>ROADIE_SHELL_ENV</key>
-        <string>{"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_REQUESTER":"{person_id}","HOMEBOY_SESSION_THREAD_ID":"{thread_id}","HOMEBOY_SESSION_SEND_COMMAND":"/opt/homebrew/bin/roadie send"}</string>
+        <string>{"HOMEBOY_CALLER_CONTEXT":"roadie:session:{session_id}","HOMEBOY_REQUESTER":"{actor_name}","HOMEBOY_SESSION_THREAD_ID":"{thread_id}","HOMEBOY_SESSION_SEND_COMMAND":"/opt/homebrew/bin/roadie send"}</string>
         <key>DATAMACHINE_AGENT_SLUG</key>
         <string>intelligence-chubes4</string>
     </dict>
