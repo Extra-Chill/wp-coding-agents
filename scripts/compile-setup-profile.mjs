@@ -203,7 +203,15 @@ function compile(profile) {
     env.WP_CLI_TRANSPORT_JSON = '["studio","wp"]'
   }
 
+  const selection = profile.runtime?.selection || "auto"
+  if (["opencode", "codex", "claude-code"].includes(selection)) {
+    throw new Error(`runtime.selection '${selection}' was removed (wp-coding-agents#751). Use Pi with Roadie.`)
+  }
+  if (!["auto", "pi"].includes(selection)) {
+    throw new Error(`Unknown runtime: ${selection} (wp-coding-agents#751). Use Pi with Roadie.`)
+  }
   const runtime = { selection: "pi", requested: ["pi"] }
+  if (selection === "pi") addFlag(command, "--runtime", "pi")
   if (profile.codex_path !== undefined) {
     throw new Error("codex_path was renamed provider_path when the Codex runtime was removed (wp-coding-agents#751)")
   }

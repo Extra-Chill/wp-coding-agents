@@ -67,7 +67,7 @@ function compile(profile) {
   assert.match(result.stderr, /requires a colocated VPS install/)
 }
 
-for (const selection of ["auto"]) {
+for (const selection of ["auto", "opencode", "unknown"]) {
   const result = spawnSync("node", ["scripts/compile-setup-profile.mjs"], {
     input: JSON.stringify({
       install_target: "external-runtime",
@@ -82,8 +82,15 @@ for (const selection of ["auto"]) {
     }),
     encoding: "utf8",
   })
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /requires runtime\.selection=pi/)
+  if (selection === "auto") {
+    assert.equal(result.status, 0, result.stderr)
+    const plan = JSON.parse(result.stdout)
+    assert.equal(plan.summary.runtime_axis, "pi")
+    assert.ok(plan.verification.overlays.includes("verify-runtime-pi"))
+  } else {
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /#751/)
+  }
 }
 
 {
@@ -103,7 +110,7 @@ for (const selection of ["auto"]) {
   )
   assert.ok(plan.verification.overlays.includes("verify-wordpress-studio"))
   assert.ok(plan.verification.overlays.includes("verify-runtime-pi"))
-  assert.ok(plan.verification.overlays.includes("verify-bridge-roadie-pi-plugins"))
+  assert.ok(plan.verification.overlays.includes("verify-bridge-roadie"))
   assert.ok(plan.verification.overlays.includes("verify-homeboy"))
 }
 

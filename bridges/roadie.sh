@@ -966,6 +966,7 @@ _roadie_sync_assets() {
 #   2. SQLite online backup of discord-sessions.db into the Roadie data dir
 #      (a plain copy can catch the WAL mid-write); copy the remaining state
 #   3. carry KIMAKI_BOT_TOKEN / KIMAKI_LOCK_PORT / DATAMACHINE_* over
+#   4. move Kimaki's existing subscription accounts (OpenCode-format auth) into
 #      Roadie's shared credential pool. Only while Kimaki is stopped:
 #      refresh tokens rotate on use, so two live copies invalidate each other.
 #   5. route model choices on those providers through Roadie rotations: one
@@ -992,6 +993,15 @@ _roadie_kimaki_unit() {
 }
 
 
+# Legacy Kimaki auth data, read only for the one-time credential migration.
+_roadie_opencode_data_dir() {
+  if [ "${LOCAL_MODE:-false}" = true ]; then
+    printf '%s/opencode\n' "${XDG_DATA_HOME:-$HOME/.local/share}"
+  else
+    printf '%s/.local/share/opencode\n' "$SERVICE_HOME"
+  fi
+}
+
 # Run `roadie credentials ...` as the service user against the bridge's data
 # dir, so the pool is created under (and owned by) the service home. Called
 # from upgrade/migration shells, never an agent tool shell, so the agent-mode
@@ -1007,6 +1017,11 @@ _roadie_credentials() {
   fi
 }
 
+
+# Move Kimaki's OpenCode-format accounts into Roadie's shared credential pool.
+_roadie_accounts_import() {
+  _roadie_credentials import-opencode --opencode-data "$(_roadie_opencode_data_dir)" --pool shared
+}
 
 # The shared pool's rotation file (name -> ordered provider/model list).
 _roadie_rotation_file() {
@@ -1098,7 +1113,7 @@ _roadie_relocate_existing_copy_bindings() {
   [ -d "$ROADIE_DATA_DIR/projects" ] || return 0
   local args=(apply --db "$ROADIE_DATA_DIR/discord-sessions.db"
     --source-root "$kimaki_data/projects" --target-root "$ROADIE_DATA_DIR/projects"
-    --require-target-exists)
+    --opencode-db "$(_roadie_opencode_data_dir)/opencode.db" --require-target-exists)
   [ "${DRY_RUN:-false}" != true ] || args+=(--dry-run)
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     # Same deliberate redirect as _roadie_accounts_import: the calling shell opens
@@ -1247,6 +1262,15 @@ roadie_migrate_from_kimaki() {
     _roadie_restore_kimaki "${kimaki_unit:-}"
     error "Reading stored model choices failed; Kimaki state left untouched and Kimaki restarted"
   fi
+  if ! accounts_out="$(_roadie_accounts_import 2>&1)"; then
+    printf '%s\n' "$accounts_out" >&2
+    rm -f "$target_db"
+    _roadie_restore_kimaki "${kimaki_unit:-}"
+    error "Moving subscription accounts into the Roadie credential pool failed; Kimaki state left untouched and Kimaki restarted"
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && log "  pool: $entry"
+  done <<< "$accounts_out"
   if ! rotations_out="$(_roadie_ensure_rotations "$rotations_json" 2>&1)"; then
     printf '%s\n' "$rotations_out" >&2
     rm -f "$target_db"
@@ -1284,6 +1308,7 @@ roadie_migrate_from_kimaki() {
   ROADIE_MIGRATED_THIS_RUN=1
   ROADIE_MIGRATION_KIMAKI_UNIT="${kimaki_unit:-}"
   UPDATED_ITEMS+=("migrated Kimaki → Roadie ($kimaki_data kept as rollback)")
+  UPDATED_ITEMS+=("subscription accounts moved into the Roadie credential pool; Roadie refreshes them, so a rollback to Kimaki needs a fresh OpenCode login")
   UPDATED_ITEMS+=("model choices routed through Roadie rotations; add fallbacks with 'roadie credentials rotation set'")
 }
 

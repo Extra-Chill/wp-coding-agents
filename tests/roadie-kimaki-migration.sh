@@ -17,6 +17,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
+ROADIE_CONFIG_DIR="$TMP/roadie-config"
 trap 'rm -rf "$TMP"' EXIT
 
 FAIL=0
@@ -33,6 +34,15 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/bridges/roadie.sh"
+
+# Bridge sync/install must verify a fixture, never Pi installed on the host.
+mkdir -p "$TMP/pi/bin"
+printf '#!/bin/sh\nprintf "1.4.0\\n"\n' > "$TMP/pi/bin/pi"
+chmod +x "$TMP/pi/bin/pi"
+_roadie_provision_pi() { :; }
+_roadie_pi_bin() { printf '%s/pi/bin/pi\n' "$TMP"; }
+_roadie_pi_run() { "$@"; }
+unset ROADIE_PI_VERIFIED
 
 log() { :; }
 warn() { :; }
@@ -102,8 +112,8 @@ sqlite3 "$DB" "CREATE TABLE scheduled_task_runs(id INTEGER PRIMARY KEY AUTOINCRE
     VALUES (1,'failed','$KIMAKI_DATA/projects/demo','run died in $KIMAKI_DATA/projects/demo/sub');"
 SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH" "$TMP/site-external"
-SITE_PI_JSON='{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}'
-printf '%s\n' "$SITE_PI_JSON" > "$SITE_PATH/pi.json"
+SITE_OPENCODE_JSON='{"model":"anthropic/claude-opus-5-5","small_model":"anthropic/claude-sonnet-5-5","plugin":["x"]}'
+printf '%s\n' "$SITE_OPENCODE_JSON" > "$SITE_PATH/opencode.json"
 printf 'png' > "$KIMAKI_DATA/attachments/a.png"
 printf 'x' > "$KIMAKI_DATA/projects/demo/state"
 DATA_BEFORE="$(cd "$KIMAKI_DATA" && find . -type f -exec cksum {} + | sort)"
@@ -132,16 +142,16 @@ line() { grep -nx "$1" "$TMP/systemctl.log" | head -1 | cut -d: -f1; }
 [ -n "$(line 'accounts import')" ] && [ "$(line 'stop kimaki.service')" -lt "$(line 'accounts import')" ] && [ "$(line 'accounts import')" -lt "$(line 'disable kimaki.service')" ]
 check $? "accounts move into the Roadie pool while Kimaki is stopped, before it is disabled"
 [ "$(line 'accounts import')" -lt "$(line 'rotations')" ]; check $? "rotations are created after the accounts are imported"
-printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "fresh Pi login"; check $? "summary says a rollback needs a fresh login"
+printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -q "fresh OpenCode login"; check $? "summary says a rollback needs a fresh login"
 NEW_DB="$ROADIE_DATA_DIR/discord-sessions.db"
 [ "$(sqlite3 "$NEW_DB" "SELECT model_id||'|'||ifnull(variant,'') FROM session_models ORDER BY session_id" | tr '\n' ' ')" = "roadie/anthropic-claude-opus-5-5| roadie/openai-gpt-6.1-sol| zai-coding-plan/glm-5.2| " ]
 check $? "OAuth model choices routed through per-model rotations; API-key model kept"
 [ "$(sqlite3 "$DB" "SELECT model_id FROM session_models WHERE session_id='s1'")" = anthropic/claude-opus-5-5 ]; check $? "Kimaki database keeps its model choices (rollback)"
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d=={'anthropic-claude-opus-5-5':['anthropic/claude-opus-5-5'],'openai-gpt-6.1-sol':['openai/gpt-6.1-sol']}, d" "$TMP/rotations.json"
 check $? "rotations derived from the stored choices only, one model each"
-# Roadie runs Pi (roadie#177): pi.json belongs to the standalone runtime.
-[ "$(cat "$SITE_PATH/pi.json")" = "$SITE_PI_JSON" ]; check $? "pi.json left untouched"
-if ls "$SITE_PATH"/pi.json.before-roadie-* >/dev/null 2>&1; then check 1 "no pi.json backup"; else check 0 "no pi.json backup"; fi
+# Roadie runs Pi: legacy Kimaki runtime config is left untouched.
+[ "$(cat "$SITE_PATH/opencode.json")" = "$SITE_OPENCODE_JSON" ]; check $? "opencode.json left untouched"
+if ls "$SITE_PATH"/opencode.json.before-roadie-* >/dev/null 2>&1; then check 1 "no opencode.json backup"; else check 0 "no opencode.json backup"; fi
 
 # #660: the copy carries the database's operational directory bindings, so the
 # migration must relocate exactly the references into the copied projects root
@@ -219,8 +229,8 @@ mv "$TMP/retired-kimaki" "$KIMAKI_DATA"
 mv "$TMP/retired-kimaki.service" "$SYSTEMD_UNIT_DIR/kimaki.service"
 
 echo "==> backend session history is preserved and blocks source cleanup"
-mkdir -p "$SERVICE_HOME/.local/share/pi"
-BACKEND_DB="$SERVICE_HOME/.local/share/pi/pi.db"
+mkdir -p "$SERVICE_HOME/.local/share/opencode"
+BACKEND_DB="$SERVICE_HOME/.local/share/opencode/opencode.db"
 sqlite3 "$BACKEND_DB" "CREATE TABLE session(id TEXT PRIMARY KEY, directory TEXT); INSERT INTO session VALUES ('backend-session','$KIMAKI_DATA/projects/demo');"
 PENDING_ITEMS=()
 bridge_sync_config
@@ -370,7 +380,7 @@ UPDATED_ITEMS=()
 rc=$?
 [ "$rc" -eq 0 ]; check $? "bridge_install succeeds when Roadie is healthy"
 grep -qx "restart roadie.service" "$TMP/systemctl.log"; check $? "Roadie health-checked"
-[ "$(cat "$SITE_PATH/pi.json")" = "$SITE_PI_JSON" ]; check $? "healthy Roadie leaves pi.json untouched"
+[ "$(cat "$SITE_PATH/opencode.json")" = "$SITE_OPENCODE_JSON" ]; check $? "healthy Roadie leaves opencode.json untouched"
 grep -qx "disable kimaki.service" "$TMP/systemctl.log"; check $? "migration disabled Kimaki"
 if grep -qx "enable kimaki.service" "$TMP/systemctl.log" || grep -qx "start kimaki.service" "$TMP/systemctl.log"; then
   check 1 "healthy Roadie keeps Kimaki disabled"
