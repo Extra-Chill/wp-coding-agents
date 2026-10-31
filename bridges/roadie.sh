@@ -885,7 +885,7 @@ _roadie_require_identity_ability() {
     warn "  ${prefix}Roadie bridge step failed: $target does not provide the $ROADIE_IDENTITY_ABILITY ability."
   fi
   warn "  Roadie's WordPress identity plugins need Data Machine >= v$ROADIE_IDENTITY_MIN_DATAMACHINE. Update it, then re-run the upgrade:"
-  warn "    $(wp_cli_transport_display) plugin install https://github.com/Extra-Chill/data-machine/releases/latest/download/data-machine.zip --force --path=$target${WP_ROOT_FLAG:+ $WP_ROOT_FLAG}"
+  warn "    Re-run upgrade.sh --plugins-only --wp-path=$target to install the latest stable Data Machine component release zip."
   warn "  Roadie plugin files and ROADIE_PLUGINS were left unchanged. Do not restart Roadie until this passes."
   return 1
 }

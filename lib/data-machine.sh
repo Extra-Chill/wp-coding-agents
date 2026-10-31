@@ -3,7 +3,7 @@
 
 install_data_machine() {
   log "Phase 4: Installing Data Machine..."
-  install_plugin data-machine https://github.com/Extra-Chill/data-machine.git
+  install_plugin_from_release_zip data-machine Extra-Chill/data-machine data-machine.zip data-machine || return $?
 
   if [ "$MULTISITE" = true ]; then
     log "Data Machine activated on main site. Activate on subsites with:"
@@ -49,7 +49,7 @@ upgrade_data_machine_plugins() {
   if [ "${PLUGINS_ONLY:-false}" = true ] && [ ! -d "$SITE_PATH/wp-content/plugins/data-machine" ]; then
     log "[data-machine] terminal=skipped reason=not-installed"
   else
-    plugin_update_execute data-machine update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git || status=$PLUGIN_UPDATE_EXIT_PARTIAL
+    plugin_update_execute data-machine update_plugin_from_release_zip data-machine Extra-Chill/data-machine data-machine.zip data-machine || status=$PLUGIN_UPDATE_EXIT_PARTIAL
   fi
 
   return "$status"
