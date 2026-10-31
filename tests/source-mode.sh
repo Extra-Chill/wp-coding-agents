@@ -10,7 +10,7 @@
 #   2. Managed output AGREES WITH ITSELF. The whole reason lib/source-policy.sh
 #      exists is that the AGENTS.md prose and the enforced runtime permissions
 #      used to be written independently and drifted: h44lacrosse.com shipped an
-#      agent told to edit live theme and plugin files while its opencode.json
+#      agent told to edit live theme and plugin files while its pi.json
 #      denied exactly those two paths. An owned-mode install that says "editable"
 #      in prose and "deny" in permissions is the bug, not a cosmetic mismatch.
 set -eu
@@ -150,7 +150,7 @@ check_rule "wp-content/themes/acme=allow"      "owned mode allows a declared own
 check_rule "wp-content/plugins/acme-core=allow" "owned mode allows a declared owned plugin"
 check_rule "wp-config.php=deny"                "owned mode still denies wp-config.php by default"
 
-# ORDER is the precedence mechanism for OpenCode findLast.
+# ORDER is the precedence mechanism for Pi findLast.
 DENY_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins	dir	deny$' | cut -d: -f1)
 ALLOW_POS=$(source_policy_edit_rules | grep -n '^wp-content/plugins/acme-core	dir	allow$' | cut -d: -f1)
 if [ "$DENY_POS" -lt "$ALLOW_POS" ]; then
@@ -186,7 +186,7 @@ echo "==> the agent can read the logs it needs to recover the site"
 # ===========================================================================
 
 # We are strict about editing core, and were accidentally strict about READING
-# the one thing needed to recover from a fatal: OpenCode gates paths outside
+# the one thing needed to recover from a fatal: Pi gates paths outside
 # the site root behind external_directory, which defaults to "ask" — and an
 # autonomous agent has nobody to ask (#322).
 SOURCE_LOG_PATHS_EXPLICIT=true
@@ -195,7 +195,7 @@ source_policy_resolve_log_paths 2>/dev/null
 assert_eq "$(source_policy_log_paths | tr '\n' ' ')" "/var/log/nginx " \
   "log paths must be absolute or they silently do nothing"
 # The read-only-ness of a granted log path is enforced where external_directory
-# is written — see the opencode section below.
+# is written — see the pi section below.
 
 SOURCE_MODE=nonsense
 OWNED_SOURCES=""; OWNED_WRITABLE=""
@@ -204,10 +204,10 @@ refute_rule "wp-content/plugins=allow" "unknown mode never grants write"
 SOURCE_LOG_PATHS_EXPLICIT=false; SOURCE_LOG_PATHS=""
 
 # ===========================================================================
-echo "==> opencode.json permission surface follows the source mode"
+echo "==> pi.json permission surface follows the source mode"
 # ===========================================================================
 
-_opencode_config_for() {
+_pi_config_for() {
   local mode="$1" out="$2" sources="${3:-}" logs="${4:-}"
   (
     TMP="$(mktemp -d)"
@@ -218,26 +218,26 @@ _opencode_config_for() {
     git -C "$TMP/workspace" init -q
     export SCRIPT_DIR SITE_PATH KIMAKI_DATA_DIR
     export CHAT_BRIDGE="kimaki" LOCAL_MODE=true DRY_RUN=false
-    export OPENCODE_MODEL="" OPENCODE_SMALL_MODEL=""
+    export PI_MODEL="" PI_SMALL_MODEL=""
     export WORKSPACE_REPOSITORIES="$TMP/workspace"
     export DM_AGENT_FILES=""
-    export WITH_CLAUDE_CODE_AUTH=false RUNTIME="opencode"
+    export WITH_CLAUDE_CODE_AUTH=false RUNTIME="pi"
     UPDATED_ITEMS=()
     SOURCE_MODE="$mode"
     OWNED_SOURCES="$sources"
     OWNED_WRITABLE=""
     SOURCE_LOG_PATHS="$logs"
     # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/runtimes/opencode.sh"
+    source "$SCRIPT_DIR/lib/common.sh"
     runtime_generate_config
-    cp "$SITE_PATH/opencode.json" "$out"
+    cp "$SITE_PATH/pi.json" "$out"
   )
 }
 
 ENG_JSON="$(mktemp)"; MGD_JSON="$(mktemp)"
 trap 'rm -f "$ENG_JSON" "$MGD_JSON"' EXIT
-_opencode_config_for workspace "$ENG_JSON"
-_opencode_config_for owned "$MGD_JSON" "wp-content/themes/acme
+_pi_config_for workspace "$ENG_JSON"
+_pi_config_for owned "$MGD_JSON" "wp-content/themes/acme
 wp-content/plugins/acme-core" "/var/log/site"
 
 ENG_EDIT="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["permission"]["edit"]))' "$ENG_JSON")"
@@ -284,13 +284,13 @@ EMPTY_WORKSPACE_JSON="$(mktemp)"
   KIMAKI_DATA_DIR="$TMP/kimaki"
   mkdir -p "$SITE_PATH" "$KIMAKI_DATA_DIR"
   CHAT_BRIDGE=kimaki LOCAL_MODE=true DRY_RUN=false \
-    OPENCODE_MODEL="" OPENCODE_SMALL_MODEL="" WITH_CLAUDE_CODE_AUTH=false \
+    PI_MODEL="" PI_SMALL_MODEL="" WITH_CLAUDE_CODE_AUTH=false \
     SOURCE_MODE=workspace WORKSPACE_REPOSITORIES="" DM_AGENT_FILES=""
   UPDATED_ITEMS=()
   source "$SCRIPT_DIR/lib/source-policy.sh"
-  source "$SCRIPT_DIR/runtimes/opencode.sh"
+  source "$SCRIPT_DIR/lib/common.sh"
   runtime_generate_config
-  cp "$SITE_PATH/opencode.json" "$EMPTY_WORKSPACE_JSON"
+  cp "$SITE_PATH/pi.json" "$EMPTY_WORKSPACE_JSON"
 )
 assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["permission"].get("external_directory",{}))' "$EMPTY_WORKSPACE_JSON")" \
   "{}" "workspace mode with no declared checkout grants no external mutable target"
@@ -390,7 +390,7 @@ else
 fi
 
 # ===========================================================================
-echo "==> opencode.json reconciler honours the source mode"
+echo "==> pi.json reconciler honours the source mode"
 # ===========================================================================
 
 # #316: the reconciler owned permission.edit only, so a workspace->owned
@@ -398,7 +398,7 @@ echo "==> opencode.json reconciler honours the source mode"
 # The upgrade path is the one every real install takes.
 EXT_OUT="$(python3 - <<'PYX'
 import importlib.util, json, pathlib
-spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
+spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-pi-json.py"))
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 data = {"permission": {"external_directory": {
@@ -421,7 +421,7 @@ cat > "$RECON_IN" <<'JSON'
 JSON
 RECON_OUT="$(python3 - "$RECON_IN" <<'PYX'
 import importlib.util, json, sys, pathlib
-spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-opencode-json.py"))
+spec = importlib.util.spec_from_file_location("repair", pathlib.Path("lib/repair-pi-json.py"))
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 data = json.load(open(sys.argv[1]))

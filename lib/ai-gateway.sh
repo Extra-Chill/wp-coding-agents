@@ -3,8 +3,6 @@
 #
 # Pi (Roadie's coding runtime) is the active consumer: setup/upgrade merge a
 # gateway provider into Pi's models.json and the Roadie unit's ROADIE_PI_MODEL
-# points at it. An OpenCode config still present on a host gets the same
-# provider merged for continuity, but OpenCode no longer gates the feature.
 
 AI_GATEWAY_PROVIDER_ID="${AI_GATEWAY_PROVIDER_ID:-wp-ai-gateway}"
 AI_GATEWAY_MODEL_ID="${AI_GATEWAY_MODEL_ID:-site-default}"
@@ -14,7 +12,6 @@ AI_GATEWAY_ROUTE_MODEL="${AI_GATEWAY_ROUTE_MODEL:-gpt-4o-mini}"
 AI_GATEWAY_ENV_FILE="${AI_GATEWAY_ENV_FILE:-}"
 
 # The gateway is a host-level opt-in: --with-ai-gateway alone decides. The
-# retired OpenCode-only runtime gate is gone (#774); Pi runs behind Roadie and
 # Homeboy regardless of the legacy RUNTIME selector.
 ai_gateway_enabled() {
   [ "${WITH_AI_GATEWAY:-false}" = true ]
@@ -33,13 +30,13 @@ ai_gateway_validate_topology() {
   model_provider="$(printf '%s' "$model_provider" | tr '[:upper:]' '[:lower:]')"
 
   case "$route_provider" in
-    wp-ai-gateway|ai-gateway|opencode|pi|roadie)
+    wp-ai-gateway|ai-gateway|pi|roadie)
       error "Refusing recursive WP AI Gateway topology: gateway route provider '$AI_GATEWAY_ROUTE_PROVIDER' would route back toward the agent runtime/gateway. Choose a backend provider such as openai."
       ;;
   esac
 
   case "$model_provider" in
-    wp-ai-gateway|ai-gateway|opencode|pi|roadie)
+    wp-ai-gateway|ai-gateway|pi|roadie)
       error "Refusing recursive WP AI Gateway topology: gateway route model '$AI_GATEWAY_ROUTE_MODEL' is provider-qualified back toward the agent runtime/gateway. Choose a backend model for $AI_GATEWAY_ROUTE_PROVIDER."
       ;;
   esac
@@ -90,7 +87,7 @@ ai_gateway_env_file() {
     printf '%s' "$AI_GATEWAY_ENV_FILE"
     return
   fi
-  printf '%s/.opencode/wp-ai-gateway.env' "$SITE_PATH"
+  printf '%s/.wp-coding-agents/wp-ai-gateway.env' "$SITE_PATH"
 }
 
 ai_gateway_install_stack() {
@@ -236,76 +233,6 @@ PY
   log "Merged WP AI Gateway provider into $models_file (Pi model: $(ai_gateway_pi_model))"
 }
 
-ai_gateway_configure_opencode() {
-  ai_gateway_enabled || return 0
-
-  local config_file env_file base_url api_model_id
-  config_file="$SITE_PATH/opencode.json"
-  env_file="$(ai_gateway_env_file)"
-  base_url="$(ai_gateway_base_url)"
-  api_model_id="$(ai_gateway_api_model_id)"
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would merge WP AI Gateway provider into $config_file"
-    echo -e "${BLUE}[dry-run]${NC} Provider: $AI_GATEWAY_PROVIDER_ID/$AI_GATEWAY_MODEL_ID (API model: $api_model_id) via OPENAI_BASE_URL=$base_url and OPENAI_API_KEY=<redacted>"
-    return 0
-  fi
-
-  if [ ! -f "$config_file" ]; then
-    # Expected on Pi-only hosts: OpenCode is retired here, and the gateway
-    # reaches Pi through ai_gateway_configure_pi instead.
-    log "No OpenCode config at $config_file — skipping OpenCode gateway provider merge"
-    return 0
-  fi
-
-  python3 - "$config_file" "$AI_GATEWAY_PROVIDER_ID" "$AI_GATEWAY_MODEL_ID" "$api_model_id" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-provider_id = sys.argv[2]
-model_id = sys.argv[3]
-api_model_id = sys.argv[4]
-
-data = json.loads(path.read_text(encoding="utf-8"))
-provider = data.setdefault("provider", {}).setdefault(provider_id, {})
-provider.setdefault("name", "WP AI Gateway")
-if provider_id == "openai":
-    provider["npm"] = "@ai-sdk/openai"
-else:
-    provider.setdefault("npm", "@ai-sdk/openai-compatible")
-provider.setdefault("env", ["OPENAI_API_KEY"])
-provider.setdefault("options", {})
-provider["options"].setdefault("baseURL", "{env:OPENAI_BASE_URL}")
-provider["options"].setdefault("name", "wp-ai-gateway")
-models = provider.setdefault("models", {})
-model = models.setdefault(model_id, {})
-model.setdefault("name", "WP AI Gateway site default")
-model["id"] = api_model_id
-model.setdefault("tool_call", True)
-model.setdefault("temperature", True)
-model.setdefault("limit", {"context": 128000, "output": 8192})
-model.setdefault("cost", {"input": 0, "output": 0})
-
-if not data.get("model"):
-    data["model"] = f"{provider_id}/{model_id}"
-
-path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
-
-  UPDATED_ITEMS+=("opencode.json WP AI Gateway provider")
-  log "Merged WP AI Gateway provider into $config_file"
-  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
-    log "OpenCode gateway credentials: runtime environment (OPENAI_BASE_URL and OPENAI_API_KEY)"
-  else
-    log "OpenCode env file: $env_file"
-  fi
-}
-
-# Setup and upgrade converged on the same steps long ago; they were still two
-# identically-bodied functions, which reads as "these differ somehow" to anyone
-# who has not diffed them. One name, called from both.
 ai_gateway_apply() {
   ai_gateway_enabled || return 0
   ai_gateway_validate_topology

@@ -80,37 +80,6 @@ jobs:
       - name: Run tests/privilege-grants.sh
         run: ./tests/privilege-grants.sh
 
-  opencode-claude-auth-retired:
-    name: opencode-claude-auth stays retired (#117)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/opencode-claude-auth-retired.sh
-        run: ./tests/opencode-claude-auth-retired.sh
-
-  opencode-subagents:
-    name: Data Machine graph OpenCode subagents (#355)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests/opencode-subagents.sh
-        run: bash tests/opencode-subagents.sh
-      - name: Run tests/opencode-runtime-install.sh
-        run: bash tests/opencode-runtime-install.sh
-
-  opencode-general-dispatch:
-    name: bounded OpenCode general dispatch (#453)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install supported OpenCode fixture
-        run: npm install --global opencode-ai@1.18.20
-      - name: Run tests/opencode-general-dispatch.sh
-        run: bash tests/opencode-general-dispatch.sh
-
   retired-skills:
     name: retired managed skills are removed
     runs-on: ubuntu-latest
@@ -279,10 +248,6 @@ jobs:
         run: ./tests/agents-md-guidance.sh
       - name: Run tests/agents-md-composition-integration.sh
         run: bash tests/agents-md-composition-integration.sh
-      - name: Run tests/opencode-local-plugin-path.sh
-        run: ./tests/opencode-local-plugin-path.sh
-      - name: Run tests/repair-opencode-json.sh
-        run: ./tests/repair-opencode-json.sh
 
   # Suites that had no CI job until #335. Run as a matrix so adding a test is a
   # one-line change and tests/ci-coverage.sh stays satisfied; invoked through
@@ -328,8 +293,6 @@ jobs:
           - installation-profile
           - install-source-integrity-report
           - install-source-managed-file-sync
-          - opencode-claude-auth-refresh-hardening
-          - opencode-subagents-optional
           - owned-source-discovery
           - source-reconcile
           - systems-capabilities
@@ -349,7 +312,6 @@ jobs:
           - bridge-reconcile-progress
           - bridge-failure-gates-dependent-steps
           - integration-adapters
-          - upgrade-opencode-auth-plugin-sync
           - wordpress-service
           - worktree-context-projections
           - workspace-installation
@@ -359,7 +321,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: matrix.test == 'opencode-claude-auth-refresh-hardening' || matrix.test == 'roadie-fork-workspace' || matrix.test == 'roadie-boot-smoke'
+        if: matrix.test == 'roadie-fork-workspace' || matrix.test == 'roadie-boot-smoke'
         with:
           node-version: 24
       - name: Install verified Homeboy workspace fixture

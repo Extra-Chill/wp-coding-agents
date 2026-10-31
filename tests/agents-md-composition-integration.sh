@@ -211,7 +211,7 @@ assert_upgrade_failure_restores() {
     : > "$site/compose-count"
   fi
   if output=$(PATH="$UPGRADE_TMP/bin:$PATH" COMPOSE_CASE="$case_name" COMPOSE_COUNT_FILE="$site/compose-count" COMPOSE_GATE=enabled \
-    bash "$ROOT_DIR/upgrade.sh" --local --runtime opencode --wp-path "$site" --agents-md-only --skip-plugins 2>&1); then
+    bash "$ROOT_DIR/upgrade.sh" --local --runtime pi --wp-path "$site" --agents-md-only --skip-plugins 2>&1); then
     echo "FAIL: $name upgrade unexpectedly succeeded" >&2
     exit 1
   fi

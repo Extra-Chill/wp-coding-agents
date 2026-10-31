@@ -35,7 +35,7 @@ SITE_PATH="$TMP/site"
 mkdir -p "$SITE_PATH/.wp-coding-agents" "$TMP/roadie-config/plugins"
 printf 'x\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
 printf 'x\n' > "$TMP/roadie-config/plugins/keep-owned.ts"
-ln -s "$TMP/elsewhere" "$SITE_PATH/.opencode"
+ln -s "$TMP/elsewhere" "$SITE_PATH/.pi"
 RESOLVED_ROADIE_CONFIG_DIR="$TMP/roadie-config"
 LOCAL_MODE=false
 SERVICE_USER="$(id -un)"
@@ -44,7 +44,7 @@ UPDATED_ITEMS=()
 echo "1. roots are the agent-maintained set"
 roots="$(agent_state_ownership_roots | sort)"
 want="$(printf '%s\n' "$SITE_PATH/.wp-coding-agents" "$TMP/roadie-config" | sort)"
-if [ "$roots" = "$want" ]; then ok "exact root set, symlinked .opencode skipped"; else fail "roots: $roots"; fi
+if [ "$roots" = "$want" ]; then ok "exact root set, symlinked .pi skipped"; else fail "roots: $roots"; fi
 case "$roots" in
   *systemd*|*sudoers*|*journald*) fail "privileged host state leaked into agent roots" ;;
   *) ok "no privileged host state" ;;
@@ -96,7 +96,7 @@ else
   [ "$(file_owner "$TMP/roadie-config/plugins/keep-owned.ts")" = "$target" ] && ok "persistent config reassigned" || fail "roadie-config still $(file_owner "$TMP/roadie-config/plugins/keep-owned.ts")"
   [ "$(file_owner "$SITE_PATH/.wp-coding-agents/installation-profile")" = "$target" ] && ok "installation profile reassigned" || fail "profile not reassigned"
   [ "$(file_group "$SITE_PATH/.wp-coding-agents")" = "$(file_group "$SITE_PATH")" ] && ok "site roots keep the site group" || fail "site group not preserved"
-  [ -L "$SITE_PATH/.opencode" ] && [ ! -e "$TMP/elsewhere" ] && ok "symlinked root untouched" || fail "symlink followed"
+  [ -L "$SITE_PATH/.pi" ] && [ ! -e "$TMP/elsewhere" ] && ok "symlinked root untouched" || fail "symlink followed"
   [ "${AGENT_STATE_OWNERSHIP_CHANGED:-0}" -eq 2 ] && ok "two roots changed" || fail "changed=$AGENT_STATE_OWNERSHIP_CHANGED"
   SERVICE_USER="$target" agent_state_ownership_reconcile >/dev/null 2>&1
   [ "${AGENT_STATE_OWNERSHIP_CHANGED:-0}" -eq 0 ] && ok "second run is a no-op" || fail "not idempotent"
@@ -109,7 +109,7 @@ grep -qF 'AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED' upgrade.sh && ok "summary 
 grep -qF 'agent_state_ownership_reconcile' setup.sh && ok "setup hands state over" || fail "setup does not reconcile"
 grep -qF 'agent_state_ownership_reconcile' lib/service-migration.sh && ok "migration hands state over" || fail "migration does not reconcile"
 grep -qF 'agent_state_ownership_can_maintain' bridges/roadie.sh && ok "kimaki config sync skips cleanly" || fail "kimaki sync unguarded"
-grep -qF 'agent_state_ownership_can_maintain' lib/opencode-subagents.sh && ok "subagent projection skips cleanly" || fail "projection unguarded"
+grep -qF 'agent_state_ownership_can_maintain' lib/pi-subagents.sh && ok "subagent projection skips cleanly" || fail "projection unguarded"
 
 [ "$FAILED" -eq 0 ] || { echo "FAIL: agent state ownership" >&2; exit 1; }
 echo "PASS: agent state follows the service identity"

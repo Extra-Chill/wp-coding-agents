@@ -3,7 +3,7 @@ import json, pathlib, subprocess, tempfile
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='roadie-speaker-instructions-') as temp:
     directory = pathlib.Path(temp)
-    config = directory / 'opencode.json'
+    config = directory / 'pi.json'
     shared = '/site/wp-content/uploads/datamachine-files/shared/SITE.md'
     agent = '/site/wp-content/uploads/datamachine-files/agents/franklin/SOUL.md'
     user = '/site/wp-content/uploads/datamachine-files/users/1/USER.md'
@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix='roadie-speaker-instructions-') as temp:
     config.write_text(json.dumps({'instructions': [shared, agent, user, principal, custom], 'plugin': [], 'agent': {'general': {'model': 'operator/model'}}}))
     paths = directory / 'instructions'
     paths.write_text('\n'.join([shared, agent, user, principal]) + '\n')
-    command = ['python3', str(root / 'lib/repair-opencode-json.py'), '--file', str(config), '--runtime', 'opencode', '--chat-bridge', 'roadie', '--roadie-plugins-dir', '/managed/plugins', '--managed-instructions-file', str(paths), '--speaker-context', '--additive', '--backup-dir', str(directory / 'backups')]
+    command = ['python3', str(root / 'lib/repair-pi-json.py'), '--file', str(config), '--runtime', 'pi', '--chat-bridge', 'roadie', '--roadie-plugins-dir', '/managed/plugins', '--managed-instructions-file', str(paths), '--speaker-context', '--additive', '--backup-dir', str(directory / 'backups')]
     subprocess.run(command, check=True, capture_output=True)
     result = json.loads(config.read_text())
     # The provider supplies shared, agent and personal memory alike (#718

@@ -83,7 +83,7 @@ assert_group
 
 # Live-bug regression (see issue #258): content unchanged but a *different*
 # writer identity left the file with mismatched ownership (observed live:
-# root:www-data / opencode:www-data / www-data:www-data across 4 sibling
+# root:www-data / pi:www-data / www-data:www-data across 4 sibling
 # mu-plugins from the same installer, none group-writable). The
 # content-unchanged short-circuit in cli_transport_install must still
 # normalize mode/group, not just skip out early once cmp -s matches.

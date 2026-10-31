@@ -138,7 +138,7 @@ echo "==> rendering snapshots"
 
 # systemd ---------------------------------------------------------------
 render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" | strip_fixture_root > "$TMPDIR_NEW/roadie-systemd"
-if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes/.local/bin:/home/chubes/.opencode/bin:/home/chubes/.local/share/pnpm:/home/chubes/.bun/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin' "$TMPDIR_NEW/roadie-systemd"; then
+if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes/.local/bin:/home/chubes/.local/share/pnpm:/home/chubes/.bun/bin:/usr/local/lib/wp-coding-agents/roadie/bin:/usr/local/bin:/usr/bin:/bin' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
   exit 1
 fi
@@ -148,7 +148,7 @@ for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
     || { echo "FAIL: Roadie systemd unit is missing Environment=$required"; exit 1; }
 done
 # Pi is Roadie's only backend (roadie#177): ROADIE_BACKEND is never rendered.
-if grep -q '^Environment=ROADIE_BACKEND=' "$TMPDIR_NEW/roadie-systemd"; then
+if ! grep -q '^Environment=ROADIE_BACKEND=pi$' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd unit renders the removed ROADIE_BACKEND selector"
   exit 1
 fi

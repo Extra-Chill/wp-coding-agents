@@ -4,7 +4,7 @@
 # passes Roadie's version gate as the service user, never renders
 # ROADIE_BACKEND (Roadie rejects any value but `pi`), and takes
 # ROADIE_PI_MODEL from the operator or the installed unit, never from
-# opencode.json (a fixture below carries one to prove it is ignored).
+# pi.json (a fixture below carries one to prove it is ignored).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -62,7 +62,7 @@ export NPM_LOG="$TMP/npm.log" FAKE_PI_VERSION="$PI_PIN"
 
 SYSTEMD_UNIT_DIR="$TMP/systemd"
 mkdir -p "$SYSTEMD_UNIT_DIR" "$TMP/site"
-printf '{\n  "model": "roadie/opus"\n}\n' > "$TMP/site/opencode.json"
+printf '{\n  "model": "roadie/opus"\n}\n' > "$TMP/site/pi.json"
 
 unset ROADIE_UNIT ROADIE_DATA_DIR ROADIE_LOCK_PORT ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_PI_BIN ROADIE_POOL_URL AGENT_SLUG
 initialize_roadie_overrides
@@ -106,7 +106,7 @@ grep -qxF "install -g --prefix $TMP/pi-prefix @earendil-works/pi-coding-agent@$P
 [ "$(_roadie_pi_installed_version)" = "$PI_PIN" ]; check $? "installed Pi version is read from package.json ($PI_PIN)"
 [ "$(stat -c %a "$PI_BIN" 2>/dev/null || stat -f %Lp "$PI_BIN")" = 755 ]; check $? "Pi prefix is made world-readable for the service user"
 [ "$ROADIE_PI_BIN" = "$PI_BIN" ]; check $? "ROADIE_PI_BIN is the managed binary"
-[ -z "$ROADIE_PI_MODEL" ]; check $? "ROADIE_PI_MODEL is not derived from opencode.json"
+[ -z "$ROADIE_PI_MODEL" ]; check $? "ROADIE_PI_MODEL is not derived from pi.json"
 
 echo "==> the pinned version installed is a no-op"
 reset_selection
@@ -144,7 +144,7 @@ WP_CODING_AGENTS_TEST_EUID=1000 _roadie_select_pi
 [ ! -s "$NPM_LOG" ]; check $? "no npm call without root"
 printf '%s\n' "${PENDING_ITEMS[@]}" | grep -qxF "Pi $PI_PIN install (root)"; check $? "root repair is listed as pending"
 
-echo "==> upgrade drops the retired OpenCode backend from an installed unit"
+echo "==> upgrade drops the retired Pi backend from an installed unit"
 reset_selection
 _roadie_select_pi
 [ "$ROADIE_PI_BIN" = "$PI_BIN" ]; check $? "Pi reinstalled for the upgrade cases"
@@ -156,7 +156,7 @@ WorkingDirectory=$TMP/site
 Environment=HOME=$TMP/home
 Environment=PATH=/usr/bin:/bin
 Environment=ROADIE_DATA_DIR=$TMP/home/.roadie
-Environment=ROADIE_BACKEND=opencode
+Environment=ROADIE_BACKEND=pi
 Environment=ROADIE_PI_MODEL=roadie/opus
 Environment=ROADIE_PI_TITLE_MODEL=zai/glm-flash
 Environment=DATAMACHINE_SITE_PATH=$TMP/site
@@ -189,14 +189,14 @@ upgrade
 unit_has_once ROADIE_PI_MODEL=roadie/sol; check $? "the operator model then persists from the unit"
 
 echo "==> an operator ROADIE_PI_TITLE_MODEL replaces the installed one"
-ROADIE_PI_TITLE_MODEL=opencode-go/haiku
+ROADIE_PI_TITLE_MODEL=pi-go/haiku
 ROADIE_PI_TITLE_MODEL_EXPLICIT=true
 upgrade
-unit_has_once ROADIE_PI_TITLE_MODEL=opencode-go/haiku; check $? "operator title model rendered once"
+unit_has_once ROADIE_PI_TITLE_MODEL=pi-go/haiku; check $? "operator title model rendered once"
 ! grep -qFx "Environment=ROADIE_PI_TITLE_MODEL=zai/glm-flash" "$UNIT"; check $? "the previous title model is replaced"
 ROADIE_PI_TITLE_MODEL_EXPLICIT=false
 upgrade
-unit_has_once ROADIE_PI_TITLE_MODEL=opencode-go/haiku; check $? "the operator title model then persists from the unit"
+unit_has_once ROADIE_PI_TITLE_MODEL=pi-go/haiku; check $? "the operator title model then persists from the unit"
 
 echo "==> a unit without a model leaves Pi's settings.json default"
 grep -v '^Environment=ROADIE_PI_\(TITLE_\)\{0,1\}MODEL=' "$UNIT" > "$UNIT.new" && mv "$UNIT.new" "$UNIT"
@@ -208,7 +208,7 @@ echo "==> a later failed Pi verification drops only ROADIE_PI_BIN"
 printf '#!/bin/sh\nexit 1\n' > "$PI_BIN"
 upgrade
 ! grep -q '^Environment=ROADIE_PI_BIN=' "$UNIT"; check $? "ROADIE_PI_BIN is removed"
-! grep -q "^Environment=ROADIE_BACKEND=" "$UNIT"; check $? "no OpenCode fallback is rendered"
+! grep -q "^Environment=ROADIE_BACKEND=" "$UNIT"; check $? "no Pi fallback is rendered"
 cp "$TMP/pi.orig" "$PI_BIN"
 
 echo "==> launchd plist and manual command carry the Pi keys"
@@ -228,7 +228,7 @@ _roadie_manual_command | grep -q "^ROADIE_MANAGED=1 ROADIE_PI_BIN='$PI_BIN' ROAD
 ! _roadie_manual_command | grep -q "ROADIE_BACKEND"; check $? "manual command sets no ROADIE_BACKEND"
 
 echo "==> no removed Roadie flag is rendered"
-REMOVED='ROADIE_BACKEND|ROADIE_PI_CHANNELS|opencode-hostname|opencode-port|no-subrouter|--backend'
+REMOVED='ROADIE_BACKEND|ROADIE_PI_CHANNELS|pi-hostname|pi-port|no-subrouter|--backend'
 ! grep -qE "$REMOVED" "$UNIT"; check $? "systemd unit"
 ! printf '%s' "$PLIST" | grep -qE "$REMOVED"; check $? "launchd plist"
 ! _roadie_manual_command | grep -qE "$REMOVED"; check $? "manual command"

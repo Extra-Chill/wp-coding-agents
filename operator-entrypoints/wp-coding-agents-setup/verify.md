@@ -48,14 +48,11 @@ Run from the runtime environment that supplies `WP_CONTROL_TRANSPORT_JSON`,
 ### `verify-data-machine-projection`
 
 ```bash
-test -s /path/to/runtime/opencode.json
 test -s /path/to/runtime/AGENTS.md
 test -d /path/to/runtime/.wp-coding-agents/context
-test -d /path/to/runtime/.opencode/skills
 test ! -e /path/to/runtime/wp-content
 ```
 
-Every `instructions` entry in `opencode.json` must resolve below the runtime
 root. Start Roadie from the same credential-bearing process environment;
 external profiles intentionally do not persist the transport in launchd or
 systemd configuration.
@@ -75,10 +72,8 @@ curl -I https://yourdomain.com
 
 ## Runtime Overlays
 
-### `verify-runtime-opencode`
 
 ```bash
-opencode --version
 ```
 
 ## Bridge Overlays
@@ -105,9 +100,7 @@ For local Roadie logs:
 tail -n 100 "$HOME/.roadie/roadie.stderr.log"
 ```
 
-### `verify-bridge-roadie-opencode-plugins`
 
-A Roadie install ships no OpenCode plugins (#718). Verify the retired files
 are gone and the session-attribution templates are installed:
 
 Local Roadie (retired plugin files must be absent):
@@ -128,7 +121,6 @@ systemctl cat roadie | grep -F ROADIE_SHELL_ENV | grep -F HOMEBOY_REQUESTER | gr
 
 If `prompt-config.yaml` is missing or `ROADIE_SHELL_ENV` is absent from the
 service env (or its `HOMEBOY_REQUESTER` → `{actor_name}` mapping is missing),
-rerun setup or upgrade before trusting a new OpenCode session.
 
 ### `verify-bridge-none`
 
@@ -241,7 +233,6 @@ If provider login/status commands exist, run them. If they do not exist yet, rep
 
 ### `verify-wp-ai-gateway`
 
-Use this only when the operator selected the external OpenCode/Roadie OpenAI-compatible endpoint path.
 
 ```bash
 wp plugin is-active wp-ai-gateway
@@ -269,12 +260,8 @@ Report verification by overlay name:
 verification:
   verify-wordpress: passed
   verify-data-machine: passed
-  verify-runtime-opencode: passed
-  verify-bridge-roadie-opencode-plugins: failed
 failures:
-  - overlay: verify-bridge-roadie-opencode-plugins
     evidence: "ROADIE_SHELL_ENV missing from the roadie service environment"
-    next_step: "rerun setup or upgrade before starting a new OpenCode session"
 ```
 
 Stop at the first verification failure that means the installed agent would start with missing context, missing provider auth, or missing bridge wiring. Fix the underlying setup path before treating the install as complete.

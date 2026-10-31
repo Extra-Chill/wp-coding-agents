@@ -17,7 +17,7 @@ DRY_RUN=false
 UPDATED_ITEMS=()
 SITE_PATH="$TMP/site"
 RUNTIME_PROJECT_ROOT="$SITE_PATH"
-DETECTED_RUNTIMES=(opencode)
+DETECTED_RUNTIMES=(pi)
 mkdir -p "$SITE_PATH"
 
 roots="$(_retired_skill_roots)"

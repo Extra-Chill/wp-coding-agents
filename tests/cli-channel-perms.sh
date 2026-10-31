@@ -8,7 +8,7 @@
 # PHP-FPM (www-data) needs world-read to load it (#133: root cron/systemd
 # contexts default to umask 0077 → 0600, breaking every daemon-context
 # install). Group-writable + group-inherited (#258) is needed on top of
-# that because root (upgrade), the service user (opencode, member of the
+# that because root (upgrade), the service user (pi, member of the
 # webroot group), and www-data all write this file across different runs —
 # 0644 with a mismatched owner locks the next writer out entirely.
 #
@@ -105,19 +105,19 @@ echo "==> simulate legacy 0600 file and verify self-heal on next register"
 chmod 0600 "$MU_FILE"
 (
   umask 077
-  cli_channel_register "opencode-telegram" \
-    "/usr/local/bin/opencode-telegram" \
+  cli_channel_register "pi-telegram" \
+    "/usr/local/bin/pi-telegram" \
     '["dispatch","--chat","{recipient}","--text","{message}"]'
 )
 assert_mode_0664 "$MU_FILE" "mu-plugin self-healed to 0664 after sibling register"
 assert_group "$MU_FILE" "mu-plugin self-healed group after sibling register"
 
 # --- 3. Unregister also lands as 0664 --------------------------------------
-echo "==> unregister opencode-telegram"
+echo "==> unregister pi-telegram"
 chmod 0600 "$MU_FILE"
 (
   umask 077
-  cli_channel_unregister "opencode-telegram"
+  cli_channel_unregister "pi-telegram"
 )
 assert_mode_0664 "$MU_FILE" "mu-plugin mode 0664 after unregister"
 assert_group "$MU_FILE" "mu-plugin group after unregister"

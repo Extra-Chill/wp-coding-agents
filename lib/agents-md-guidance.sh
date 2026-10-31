@@ -5,7 +5,6 @@
 # installs and wires together. Data Machine owns the generic AGENTS.md
 # composition substrate; this helper publishes wp-coding-agents' integration
 # guidance into that substrate through Data Machine's SectionRegistry without
-# coupling Data Machine to Homeboy, Roadie, OpenCode, or WP Codebox conventions.
 #
 # This file is the mechanism ONLY: scaffold the mu-plugin, render a
 # marker-delimited PHP block, rewrite it idempotently, remove it on request. It
@@ -558,4 +557,70 @@ for line in lines:
 sys.stdout.write("\n".join(out))
 sys.stdout.write("\n")
 PY
+}
+
+runtime_generate_instructions() {
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
+    log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
+    agents_md_symlink_claude_md
+    return
+  fi
+
+  log "Phase 8: Generating AGENTS.md..."
+
+  # Compose from Data Machine's SectionRegistry. DM is mandatory, and compose
+  # handles WP-CLI prefix resolution, multisite detection, and plugin sections
+  # (intelligence, etc.) automatically at runtime.
+  if [ "$DRY_RUN" = false ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
+    sync_homeboy_availability
+    if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
+      service_file_normalize_perms "$SITE_PATH/AGENTS.md"
+      log "AGENTS.md composed from SectionRegistry"
+      agents_md_symlink_claude_md
+      return
+    fi
+    warn "Compose failed — falling back to static template"
+  fi
+
+  # Fallback for dry-run or compose failure: ship a minimal static template.
+  local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.external.md"
+  fi
+  if [ ! -f "$agents_tmpl" ]; then
+    error "AGENTS.md template not found at $agents_tmpl"
+  fi
+
+  local wp_cli_display="wp"
+  if [ "${EXTERNAL_WORDPRESS:-false}" = true ]; then
+    # This checked-in wrapper reads the operator-owned transport from process
+    # environment; no transport argv or credential is rendered into guidance.
+    wp_cli_display="./.wp-coding-agents/bin/wp-control"
+  elif [ "$IS_STUDIO" = true ]; then
+    wp_cli_display="studio wp"
+  elif [ "$LOCAL_MODE" = false ]; then
+    wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
+    echo -e "${BLUE}[dry-run]${NC} Would symlink CLAUDE.md → AGENTS.md (Claude-model context)"
+  else
+    sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
+    service_file_normalize_perms "$SITE_PATH/AGENTS.md"
+    agents_md_symlink_claude_md
+  fi
+}
+
+# cwd; Pi reads it too. Relative target survives directory moves.
+# Skipped when CLAUDE.md is a regular file — it is user-owned.
+# See: Extra-Chill/wp-coding-agents#108
+agents_md_symlink_claude_md() {
+  local agents_md="$SITE_PATH/AGENTS.md"
+  local claude_md="$SITE_PATH/CLAUDE.md"
+  [ -f "$agents_md" ] || return 0
+  if [ -L "$claude_md" ] || [ ! -e "$claude_md" ]; then
+    (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
+    log "Symlinked CLAUDE.md → AGENTS.md (covers Claude-model sessions)"
+  fi
 }

@@ -58,8 +58,8 @@ env_value() {
 
 echo "==> VPS install registers the system-prefix binary with send-token env"
 rm -f "$TMP/cli-channel."*.args
-LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
-  ROADIE_DATA_DIR=/home/opencode/.roadie ROADIE_LOCK_PORT=29988 \
+LOCAL_MODE=false SERVICE_USER=pi SERVICE_HOME=/home/pi \
+  ROADIE_DATA_DIR=/home/pi/.roadie ROADIE_LOCK_PORT=29988 \
   ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
   ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
   _roadie_register_cli_channel
@@ -82,20 +82,20 @@ esac
 [ "$(registered roadie-notify env)" = "$(registered roadie env)" ] && ok "notify uses same env" || fail "notify env differs"
 [ "$(env_value ROADIE_SERVICE_TOKEN_FILE roadie)" = /etc/wp-coding-agents/roadie/send-token ] \
   && ok "send token file passed" || fail "token file: '$(env_value ROADIE_SERVICE_TOKEN_FILE roadie)'"
-[ "$(env_value ROADIE_DATA_DIR roadie)" = /home/opencode/.roadie ] \
+[ "$(env_value ROADIE_DATA_DIR roadie)" = /home/pi/.roadie ] \
   && ok "service data dir passed (unreadable to the web user, so send goes remote)" \
   || fail "data dir: '$(env_value ROADIE_DATA_DIR roadie)'"
 [ "$(env_value ROADIE_LOCK_PORT roadie)" = 29988 ] && ok "lock port passed" || fail "lock port: '$(env_value ROADIE_LOCK_PORT roadie)'"
 
 echo "==> VPS install without an explicit lock port pins the default port for the service's own data dir"
-# The bot (HOME=/home/opencode) treats ~/.roadie as its default data dir and
+# The bot (HOME=/home/pi) treats ~/.roadie as its default data dir and
 # serves port 29988. The web-user caller runs with HOME=/tmp, so without a
 # pinned port it would hash the data dir path to a port nobody listens on.
 rm -f "$TMP/cli-channel."*.args
 (
   unset ROADIE_LOCK_PORT
-  LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
-    ROADIE_DATA_DIR=/home/opencode/.roadie \
+  LOCAL_MODE=false SERVICE_USER=pi SERVICE_HOME=/home/pi \
+    ROADIE_DATA_DIR=/home/pi/.roadie \
     ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
     ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
     _roadie_register_cli_channel
@@ -111,8 +111,8 @@ echo "==> custom data dir without an explicit lock port leaves the port to Roadi
 rm -f "$TMP/cli-channel."*.args
 (
   unset ROADIE_LOCK_PORT
-  LOCAL_MODE=false SERVICE_USER=opencode SERVICE_HOME=/home/opencode \
-    ROADIE_DATA_DIR=/home/opencode/.roadie-site-b \
+  LOCAL_MODE=false SERVICE_USER=pi SERVICE_HOME=/home/pi \
+    ROADIE_DATA_DIR=/home/pi/.roadie-site-b \
     ROADIE_SYSTEM_PREFIX=/usr/local/lib/wp-coding-agents/roadie \
     ROADIE_SECRETS_ROOT=/etc/wp-coding-agents \
     _roadie_register_cli_channel

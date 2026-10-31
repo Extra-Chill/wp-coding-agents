@@ -19,8 +19,6 @@
 # runtime permission surface and the generated AGENTS.md prose. Before this file
 # the same globs were hardcoded in all of them independently:
 #
-#   runtimes/opencode.sh        permission.edit
-#   lib/repair-opencode-json.py reconciliation of permission.edit
 #   lib/agents-md-guidance.sh   the prose telling the agent what it may touch
 #
 # Duplicated policy drifts, and when the prose and the permissions disagree the
@@ -103,7 +101,6 @@ _source_policy_option_get() {
 #
 # This exists because the limitation was backwards. We are strict about editing
 # core (correct: an update overwrites it anyway) and were accidentally strict
-# about READING the one thing needed to recover from a fatal. OpenCode gates
 # anything touching a path outside the project directory behind
 # `external_directory`, which defaults to "ask" — and an autonomous agent has
 # nobody to ask. So on a live site the single most important recovery
@@ -147,8 +144,6 @@ SOURCE_POLICY_MANIFEST_ROOT="${SOURCE_POLICY_MANIFEST_ROOT:-/var/lib/wp-coding-a
 # `<path>\t<dir|file>` lines in canonical order.
 #
 # The kind matters because the three runtimes format these differently, and
-# because of a glob trap: OpenCode's matcher turns `*` into `.*`, which SPANS
-# SLASHES (packages/opencode/src/util/wildcard.ts). A pattern like `wp-*.php`
 # meant for root bootstrap files would therefore also match
 # `wp-content/plugins/acme/wp-thing.php` and over-deny inside a site's own
 # component. Root files must be exact literals; `Wildcard.match` anchors ^...$
@@ -914,7 +909,6 @@ source_policy_resolve_homeboy_data_dir() {
 # The ordered edit ruleset for the active source mode, as tab-separated
 # `<path>\t<deny|allow>` lines.
 #
-# ORDER IS LOAD-BEARING. OpenCode resolves permissions with `findLast` over a
 # ruleset built in JSON key order, so every broad deny must be emitted BEFORE
 # the narrower allows that carve exceptions out of it. Consumers must preserve
 # this order verbatim.
@@ -926,7 +920,6 @@ source_policy_edit_rules() {
   local path kind
   local writable owned
 
-  # Denies first. ORDER IS LOAD-BEARING: OpenCode resolves with findLast over a
   # ruleset built in config key order, so every broad deny must precede the
   # narrower allows that carve exceptions out of it.
   while IFS=$'\t' read -r path kind; do
@@ -945,16 +938,4 @@ source_policy_edit_rules() {
     [ -n "$path" ] || continue
     printf '%s\tfile\tallow\n' "$path"
   done < <(source_policy_writable_paths)
-}
-
-# Render one rule path for a runtime that uses glob patterns (OpenCode).
-# Directories get /**; files stay literal so they anchor to the
-# site root instead of matching same-named files inside components.
-source_policy_pattern() {
-  local path="$1" kind="$2"
-  if [ "$kind" = dir ]; then
-    printf '%s/**' "$path"
-  else
-    printf '%s' "$path"
-  fi
 }

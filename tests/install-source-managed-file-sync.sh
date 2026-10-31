@@ -23,7 +23,7 @@ UPDATED_ITEMS=()
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 src="$WORK/source.ts"
-dest="$WORK/site/.opencode/plugins/managed.ts"
+dest="$WORK/site/.pi/plugins/managed.ts"
 printf 'shipped-v2\n' >"$src"
 
 # --- fresh install -----------------------------------------------------------

@@ -3,7 +3,6 @@
 #
 # Every managed file this tool writes to a site is copied out of $SCRIPT_DIR:
 #
-#   runtimes/opencode/plugins/claude-code-auth.ts
 #   skills/, guidance/, bridges/ templates, service units, ...
 #
 # $SCRIPT_DIR is not a release tarball. It is the operator's working checkout,

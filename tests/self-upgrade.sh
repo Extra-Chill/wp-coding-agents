@@ -30,7 +30,7 @@ chown() { :; }            # the test is not root; ownership is stubbed below
 DRY_RUN=false
 LOCAL_MODE=false
 EXTERNAL_WORDPRESS=false
-SERVICE_USER=opencode
+SERVICE_USER=pi
 SITE_PATH=/var/www/site
 GRANTS_SUDOERS_DIR="$TMP/sudoers.d"
 SELF_UPGRADE_BIN="$TMP/sbin/wp-coding-agents-upgrade"
@@ -53,7 +53,7 @@ cmp -s "$SCRIPT_DIR_REAL/scripts/wp-coding-agents-upgrade" "$SELF_UPGRADE_BIN"; 
 [ "$(stat -c %a "$SELF_UPGRADE_BIN" 2>/dev/null || stat -f %Lp "$SELF_UPGRADE_BIN")" = 755 ]; check $? "wrapper is 0755"
 [ "$(cat "$SELF_UPGRADE_CONFIG")" = "$(printf 'CHECKOUT=%s\nSITE_PATH=/var/www/site\nTRUST_REF=main' "$SCRIPT_DIR_REAL")" ]; check $? "config names checkout, site, and trust ref main"
 GRANT="$GRANTS_SUDOERS_DIR/wp-coding-agents-self-upgrade"
-[ "$(cat "$GRANT")" = "opencode ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" ]; check $? "grant allows exactly start and status"
+[ "$(cat "$GRANT")" = "pi ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" ]; check $? "grant allows exactly start and status"
 [ "$(stat -c %a "$GRANT" 2>/dev/null || stat -f %Lp "$GRANT")" = 440 ]; check $? "grant is 0440"
 grep -q "apply\|\*" "$GRANT"; [ $? -ne 0 ]; check $? "grant has no wildcard and no apply"
 if command -v visudo >/dev/null 2>&1; then
@@ -61,7 +61,7 @@ if command -v visudo >/dev/null 2>&1; then
 fi
 
 echo "==> refuses when the checkout is not locked down"
-reset; OWNER=opencode
+reset; OWNER=pi
 run_apply "$SCRIPT_DIR_REAL"
 [ ! -e "$SELF_UPGRADE_BIN" ] && [ ! -e "$GRANTS_SUDOERS_DIR" ]; check $? "nothing installed for an agent-writable checkout"
 grep -q "root-owned git checkout" "$TMP/warn.log"; check $? "operator told why"
@@ -89,7 +89,7 @@ grep -qx 'HOST_CONFIG_REPO=ssh://git@example.invalid/host-config.git' "$SELF_UPG
   && grep -qx 'HOST_CONFIG_REF=main' "$SELF_UPGRADE_CONFIG"; check $? "host config keys preserved on a flagless upgrade"
 grep -qx "SITE_PATH=/var/www/site" "$SELF_UPGRADE_CONFIG"; check $? "site path still recorded alongside host config"
 GRANT="$GRANTS_SUDOERS_DIR/wp-coding-agents-self-upgrade"
-[ "$(cat "$GRANT")" = "opencode ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" ]; check $? "grant is unchanged by host config (still exactly start and status)"
+[ "$(cat "$GRANT")" = "pi ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" ]; check $? "grant is unchanged by host config (still exactly start and status)"
 reset
 run_apply "$SCRIPT_DIR_REAL"
 [ "$(cat "$SELF_UPGRADE_CONFIG")" = "$(printf 'CHECKOUT=%s\nSITE_PATH=/var/www/site\nTRUST_REF=main' "$SCRIPT_DIR_REAL")" ]; check $? "no host config keys appear without the flags"

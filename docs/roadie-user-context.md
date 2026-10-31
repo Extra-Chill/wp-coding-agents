@@ -200,7 +200,6 @@ speaker changes, and reconstruction resolve the current user separately.
 
 With this configuration present, the provider owns all Data Machine memory:
 setup/upgrade removes every managed memory path (shared, agent, user and
-principal) from the static OpenCode instructions, so Roadie's Pi sessions get
 it from one place and never twice. Operator-owned instructions remain intact. Existing sessions have
 historical prompts and user context; create a fresh conversation to establish
 the new shared prompt contract.
@@ -220,7 +219,6 @@ Verification:
 ```sh
 bash tests/roadie-wordpress-context.sh
 bash tests/bridge-render.sh
-bash tests/repair-opencode-json.sh
 ```
 
 The plugin test runs the adapter against a fake WordPress that plays the

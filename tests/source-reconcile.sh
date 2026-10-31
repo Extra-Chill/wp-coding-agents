@@ -191,7 +191,7 @@ assert_contains "$tpl" "wp_coding_agents_inventory_hash" "the bootstrap path is 
 #   get_plugins() caches its directory scan, and WordPress loaded BEFORE the
 #   scaffold, so the hash came out unchanged;
 #   rename() creates a new inode owned by whoever ran it, so a root-run
-#   reconcile left opencode.json root:root 0644 and every later reconcile
+#   reconcile left pi.json root:root 0644 and every later reconcile
 #   failed to update the permissions it exists to update.
 assert_contains "$tpl" "load_wordpress" "the CLI callback loads WordPress when the command did not"
 assert_contains "$tpl" "wp_cache_delete( 'plugins', 'plugins' )" "busts the cached plugin scan when the filesystem just changed"

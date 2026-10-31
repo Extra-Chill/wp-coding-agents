@@ -14,13 +14,13 @@ check() { if [ "$2" = "$3" ]; then echo "PASS: $1"; else echo "FAIL: $1 (expecte
 mkdir -p "$TMP/site"
 touch "$TMP/site/AGENTS.md.backup.20250101-000000" \
       "$TMP/site/AGENTS.md.backup.20250102-000000" \
-      "$TMP/site/opencode.json.backup.20250101-000000" \
-      "$TMP/site/AGENTS.md" "$TMP/site/opencode.json" "$TMP/site/wp-config.php"
+      "$TMP/site/pi.json.backup.20250101-000000" \
+      "$TMP/site/AGENTS.md" "$TMP/site/pi.json" "$TMP/site/wp-config.php"
 DRY_RUN=false webroot_backup_prune_legacy "$TMP/site" >/dev/null
 check "legacy backups removed from site root" \
   "$(ls -1 "$TMP/site" | grep -c '\.backup\.' || true)" "0"
 check "AGENTS.md preserved"   "$([ -f "$TMP/site/AGENTS.md" ] && echo y || echo n)" "y"
-check "opencode.json preserved" "$([ -f "$TMP/site/opencode.json" ] && echo y || echo n)" "y"
+check "pi.json preserved" "$([ -f "$TMP/site/pi.json" ] && echo y || echo n)" "y"
 check "wp-config.php preserved" "$([ -f "$TMP/site/wp-config.php" ] && echo y || echo n)" "y"
 
 # Dry run reports without deleting.
@@ -33,14 +33,14 @@ DRY_RUN=false webroot_backup_prune_legacy "$TMP/site" >/dev/null
 # Managed backups are bounded by keep-N, newest retained.
 mkdir -p "$TMP/site/.wp-coding-agents/backups"
 for i in 1 2 3 4 5 6 7; do
-  touch "$TMP/site/.wp-coding-agents/backups/opencode.json.backup.2025010${i}-000000"
+  touch "$TMP/site/.wp-coding-agents/backups/pi.json.backup.2025010${i}-000000"
   sleep 0.01
 done
 WP_CODING_AGENTS_BACKUP_KEEP=3 DRY_RUN=false webroot_backup_prune_managed "$TMP/site"
 check "managed backups bounded to keep-N" \
   "$(ls -1 "$TMP/site/.wp-coding-agents/backups" | wc -l | tr -d ' ')" "3"
 check "newest managed backup retained" \
-  "$([ -f "$TMP/site/.wp-coding-agents/backups/opencode.json.backup.20250107-000000" ] && echo y || echo n)" "y"
+  "$([ -f "$TMP/site/.wp-coding-agents/backups/pi.json.backup.20250107-000000" ] && echo y || echo n)" "y"
 
 # Missing paths are a no-op, not an error.
 webroot_backup_prune_legacy "$TMP/nope" >/dev/null

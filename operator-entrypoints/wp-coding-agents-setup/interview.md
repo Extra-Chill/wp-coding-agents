@@ -21,8 +21,6 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    - External runtime: runtime project root, WordPress-side root path, optional WordPress user, and control transport argv. Keep credentials in the runtime environment or credential store rather than argv.
 
 3. **Runtime axis**
-   `opencode` is the only managed runtime. Record `opencode`, or `auto` to let
-   `setup.sh` choose it. External runtimes require an explicit `opencode`
    selection.
 
    Codex and Claude Code are not managed runtimes (#751). Users of those tools
@@ -31,7 +29,6 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
 
 4. **Chat bridge axis**
    Ask how the user wants to communicate with the agent:
-   - `roadie` — Discord bridge for OpenCode (the only managed bridge).
    - `none` — terminal/SSH/manual only.
    - `auto` — Roadie.
 
@@ -40,11 +37,9 @@ Collect the facts needed to install wp-coding-agents. Do not build commands, run
    For Roadie, collect whether a Discord bot token is available (`ROADIE_BOT_TOKEN`).
 
 5. **Codebox / gateway path**
-   Ask this only when the user mentions Codebox minions, OpenCode/Roadie external clients, or WP AI Gateway.
 
    Record one of:
    - `codebox-minions` — provider auth is inherited inside Codebox; WP AI Gateway is not required.
-   - `external-openai-compatible-endpoint` — optional WP AI Gateway path for external OpenCode/Roadie clients.
    - `not-applicable`
 
 6. **Source mode and repository authority**
@@ -93,7 +88,6 @@ Return the profile as JSON in this shape so the compiler script can map it deter
     "migration_backups_ready": false
   },
   "runtime": {
-    "selection": "auto | opencode"
   },
   "chat_bridge": {
     "selection": "auto | roadie | none",

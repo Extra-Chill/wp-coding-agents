@@ -4,8 +4,6 @@
 #
 # WHY THIS EXISTS
 #
-# `lib/detect.sh` has always been able to install non-root (`SERVICE_USER=opencode`,
-# `create_service_user`, `User=opencode` in every unit). What has never existed is
 # a way to move an install that is ALREADY running as root onto that path. #93
 # describes the consequence — root-owned files cascading through the site until
 # WordPress auto-update fails — and closes with "existing installs running as root
@@ -13,9 +11,7 @@
 #
 # Before this file, `./upgrade.sh --non-root` on a root install was a footgun. It
 # set SERVICE_USER_FORCED=true (skipping identity adoption), re-rendered every unit
-# with `User=opencode`, and did nothing else: it never created the user, and
 # because ROADIE_DATA_DIR is derived from the service home, it silently repointed
-# the agent at an empty `/home/opencode/.roadie` while the live session database,
 # runtime auth, and installed toolchains stayed behind in `/root`. The service came
 # back up amnesiac, or not at all.
 #
@@ -74,7 +70,7 @@ SERVICE_MIGRATION_OPTION="wp_coding_agents_service_identity_migrated"
 
 # Default target identity. Matches lib/detect.sh's non-root branch; changing one
 # without the other would strand state under a home nothing points at.
-SERVICE_MIGRATION_DEFAULT_USER="opencode"
+SERVICE_MIGRATION_DEFAULT_USER="agent"
 
 # ---------------------------------------------------------------------------
 # Inventory
@@ -87,10 +83,6 @@ service_migration_runtime_paths() {
   cat <<'EOF'
 .roadie
 .kimaki
-.opencode
-.config/opencode
-.local/share/opencode
-.local/state/opencode
 .wp-cli
 EOF
 }
@@ -144,7 +136,6 @@ EOF
 #
 # Matches the explicit list above, plus two shape-based rules that catch the
 # operator-specific secrets this was written against (`.h44-secrets`,
-# `sweatpants-api-token.txt`, `opencode-auth-backup.json`). Those particular
 # names mean nothing on another install, so they are matched by shape — anything
 # announcing itself as a secret, credential, token, or password — rather than
 # named (#320: never assert install-specific facts in shipped code).
@@ -438,7 +429,6 @@ service_migration_user_group() {
   echo "$user"
 }
 
-# Move one inventory entry, preserving the parent structure (`.config/opencode`
 # has to land under a `.config` that exists and is owned by the service user).
 #
 # Every level created on the way down is chowned, not just the immediate parent.

@@ -44,13 +44,13 @@ ExecStart=/usr/bin/roadie --data-dir /root/.roadie --auto-restart
 EOF
 cat > "$SYSTEMD_UNIT_DIR/roadie-site-b.service" <<EOF
 [Service]
-User=opencode
+User=pi
 WorkingDirectory=$TMP/site-b
-Environment=HOME=/home/opencode
-Environment=ROADIE_DATA_DIR=/home/opencode/.roadie-site-b
+Environment=HOME=/home/pi
+Environment=ROADIE_DATA_DIR=/home/pi/.roadie-site-b
 Environment=DATAMACHINE_AGENT_SLUG=site-b
 Environment=ROADIE_LOCK_PORT=6543
-ExecStart=/usr/bin/roadie --data-dir /home/opencode/.roadie-site-b --auto-restart
+ExecStart=/usr/bin/roadie --data-dir /home/pi/.roadie-site-b --auto-restart
 EOF
 
 SITE_PATH="$TMP/site-b"
@@ -69,9 +69,9 @@ LOCAL_MODE=false
 
 _roadie_resolve_instance
 [ "$ROADIE_UNIT" = roadie-site-b.service ]
-[ "$SERVICE_USER" = opencode ]
-[ "$SERVICE_HOME" = /home/opencode ]
-[ "$ROADIE_DATA_DIR" = /home/opencode/.roadie-site-b ]
+[ "$SERVICE_USER" = pi ]
+[ "$SERVICE_HOME" = /home/pi ]
+[ "$ROADIE_DATA_DIR" = /home/pi/.roadie-site-b ]
 [ "$ROADIE_LOCK_PORT" = 6543 ]
 [ "$AGENT_SLUG" = site-b ]
 [ "$(bridge_restart_cmd vps)" = "systemctl restart roadie-site-b.service" ]
@@ -111,11 +111,11 @@ _roadie_resolve_instance
 [ "$SERVICE_HOME" = /root ]
 [ "$RUN_AS_ROOT" = true ]
 
-SERVICE_USER=opencode
-SERVICE_HOME=/home/opencode
+SERVICE_USER=pi
+SERVICE_HOME=/home/pi
 SERVICE_USER_FORCED=false
 RUN_AS_ROOT=false
-ROADIE_DATA_DIR=/home/opencode/.roadie-site-b
+ROADIE_DATA_DIR=/home/pi/.roadie-site-b
 ROADIE_DATA_DIR_EXPLICIT=false
 ROADIE_LOCK_PORT=6543
 ROADIE_LOCK_PORT_EXPLICIT=false
@@ -155,7 +155,7 @@ bridge_update_systemd
 [ "$(grep -c '^Environment=ROADIE_DATA_DIR=/explicit/data$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service")" -eq 1 ]
 [ "$(grep -c '^Environment=ROADIE_LOCK_PORT=7654$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service")" -eq 1 ]
 [ "$(grep -c '^Environment=DATAMACHINE_AGENT_SLUG=explicit-agent$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service")" -eq 1 ]
-if grep -q '^Environment=ROADIE_DATA_DIR=/home/opencode/.roadie-site-b$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service"; then
+if grep -q '^Environment=ROADIE_DATA_DIR=/home/pi/.roadie-site-b$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service"; then
   echo "FAIL: old data-directory environment was preserved" >&2
   exit 1
 fi
@@ -166,20 +166,20 @@ fi
 grep -q '^Environment=HOST_CUSTOM=preserved$' "$SYSTEMD_UNIT_DIR/roadie-site-b.service"
 
 # Restore the selected instance values used by the remaining rendering checks.
-ROADIE_DATA_DIR=/home/opencode/.roadie-site-b
+ROADIE_DATA_DIR=/home/pi/.roadie-site-b
 ROADIE_LOCK_PORT=6543
 AGENT_SLUG=site-b
 
 [ "$(_roadie_instance_suffix)" = -site-b ]
 cli_channel_register() { printf '%s\n%s\n' "$2" "$5"; }
 # Each instance has its own send token and reaches its own bot (lock port).
-channel_registration=$(LOCAL_MODE=false ROADIE_DATA_DIR=/home/opencode/.roadie-site-b _roadie_register_cli_channel)
+channel_registration=$(LOCAL_MODE=false ROADIE_DATA_DIR=/home/pi/.roadie-site-b _roadie_register_cli_channel)
 echo "$channel_registration" | grep -qx "$TMP/roadie-prefix/bin/roadie"
 echo "$channel_registration" | grep -qF "\"ROADIE_SERVICE_TOKEN_FILE\":\"$TMP/secrets/roadie-site-b/send-token\""
-echo "$channel_registration" | grep -qF '"ROADIE_DATA_DIR":"/home/opencode/.roadie-site-b"'
+echo "$channel_registration" | grep -qF '"ROADIE_DATA_DIR":"/home/pi/.roadie-site-b"'
 echo "$channel_registration" | grep -qF '"ROADIE_LOCK_PORT":"6543"'
 
-rendered=$(bridge_render_systemd roadie-site-b.service 'Environment=HOME=/home/opencode')
+rendered=$(bridge_render_systemd roadie-site-b.service 'Environment=HOME=/home/pi')
 echo "$rendered" | grep -q '^Environment=ROADIE_LOCK_PORT=6543$'
 if echo "$rendered" | grep -q -- '--lock-port'; then
   echo "FAIL: renderer emitted obsolete lock-port argument" >&2

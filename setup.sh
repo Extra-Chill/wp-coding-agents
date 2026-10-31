@@ -22,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance opencode-subagents systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance systems-capabilities self-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -39,13 +39,6 @@ source "$SCRIPT_DIR/services/datamachine-worker.sh"
 source "$SCRIPT_DIR/services/homeboy-daemon.sh"
 source "$SCRIPT_DIR/services/wordpress-service.sh"
 
-# Discover available runtimes from runtimes/ directory
-AVAILABLE_RUNTIMES=()
-for runtime_file in "$SCRIPT_DIR"/runtimes/*.sh; do
-  [ -f "$runtime_file" ] || continue
-  name=$(basename "$runtime_file" .sh)
-  AVAILABLE_RUNTIMES+=("$name")
-done
 
 # ============================================================================
 # Parse arguments
@@ -58,7 +51,6 @@ SKIP_SSL=false
 INSTALL_CHAT=true
 CHAT_BRIDGE=""
 SHOW_HELP=false
-OPENCODE_AGENT_BUNDLE=""
 DRY_RUN=false
 RUN_AS_ROOT=true
 SERVICE_USER_FORCED=false
@@ -69,13 +61,11 @@ SKILLS_ONLY=false
 RUNTIME_ONLY=false
 WITH_HOMEBOY=false
 WITH_AI_GATEWAY=false
-WITH_CLAUDE_CODE_AUTH=true
 ROTATE_AI_GATEWAY_TOKEN=false
 WORDPRESS_SERVICE_REQUEST=""
 WORDPRESS_SERVICE_HOST="${WORDPRESS_SERVICE_HOST:-}"
 WORDPRESS_SERVICE_PORT="${WORDPRESS_SERVICE_PORT:-}"
 WORDPRESS_SERVICE_WORKERS="${WORDPRESS_SERVICE_WORKERS:-}"
-RUNTIME=""
 HOMEBOY_MODE="auto"
 SOURCE_MODE=""
 SOURCE_MODE_EXPLICIT=false
@@ -88,7 +78,6 @@ OWNED_WRITABLE_EXPLICIT=false
 SOURCE_LOG_PATHS=""
 SOURCE_LOG_PATHS_EXPLICIT=false
 HOMEBOY_PROJECT_ID="${HOMEBOY_PROJECT_ID:-}"
-DETECTED_RUNTIMES=()
 IS_STUDIO=false
 EXTERNAL_WORDPRESS=false
 initialize_roadie_overrides
@@ -217,28 +206,12 @@ while [[ $# -gt 0 ]]; do
       WITH_AI_GATEWAY=true
       shift
       ;;
-    --with-claude-code-auth)
-      WITH_CLAUDE_CODE_AUTH=true
-      shift
-      ;;
-    --no-claude-code-auth)
-      WITH_CLAUDE_CODE_AUTH=false
-      shift
-      ;;
     --ai-gateway-provider)
       AI_GATEWAY_ROUTE_PROVIDER="$2"
       shift 2
       ;;
     --ai-gateway-model)
       AI_GATEWAY_ROUTE_MODEL="$2"
-      shift 2
-      ;;
-    --ai-gateway-opencode-provider)
-      AI_GATEWAY_PROVIDER_ID="$2"
-      shift 2
-      ;;
-    --ai-gateway-opencode-model)
-      AI_GATEWAY_MODEL_ID="$2"
       shift 2
       ;;
     --ai-gateway-api-model)
@@ -282,10 +255,8 @@ while [[ $# -gt 0 ]]; do
       MODE="existing"
       shift
       ;;
-    --runtime)
-      reject_removed_runtime "$2" --runtime
-      RUNTIME="$2"
-      shift 2
+    --runtime|--runtime=*)
+      error "--runtime was removed with OpenCode (#751). Pi is the only runtime."
       ;;
     --source-mode|--posture)
       SOURCE_MODE="$2"
@@ -328,10 +299,6 @@ while [[ $# -gt 0 ]]; do
     --agent-slug)
       AGENT_SLUG="$2"
       AGENT_SLUG_EXPLICIT=true
-      shift 2
-      ;;
-    --project-agent-bundle)
-      OPENCODE_AGENT_BUNDLE="$2"
       shift 2
       ;;
     --agent-name)
@@ -380,7 +347,6 @@ wp-coding-agents setup script
 Bootstrap WordPress + Data Machine + a coding agent on a VPS or local machine,
 with a pluggable chat bridge for talking to your agent.
 
-Available runtimes: ${AVAILABLE_RUNTIMES[*]}
 
 USAGE:
   Fresh VPS:          SITE_DOMAIN=example.com ./setup.sh
@@ -400,8 +366,6 @@ OPTIONS:
   --local            Local machine mode (skip infrastructure: no apt, nginx,
                      systemd, SSL, service users). Works with any local
                      WordPress install (Studio, MAMP, manual, etc.)
-  --runtime <name>   Coding agent runtime (auto-detected if omitted)
-                     Available: ${AVAILABLE_RUNTIMES[*]}
    --source-mode <name>
                      Where the agent's code changes land. These are two shapes,
                      not two levels — neither is "more access" than the other.
@@ -441,9 +405,6 @@ OPTIONS:
                       wp-config.php is supported in workspace or owned mode;
                       explicit opt-in uses www-data:www-data mode 0660.
   --agent-slug <s>   Override Data Machine agent slug (default: derived from domain)
-  --project-agent-bundle <slug>
-                    Explicitly install a portable specialist graph into OpenCode.
-                    Native general agent/model remains operator-owned.
   --agent-name <n>   Override Data Machine agent display name (default: blogname)
   --roadie-unit <u>  Roadie systemd unit (default: roadie.service)
   --roadie-data-dir <path>
@@ -461,7 +422,7 @@ OPTIONS:
                      the bot's own pool.
   --no-chat          Skip the chat bridge
   --chat <bridge>    Chat bridge to install. The only bridge is roadie (Discord),
-                     installed by default for the opencode runtime
+                     installed by default for the pi runtime
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
@@ -495,25 +456,24 @@ OPTIONS:
                      gateway provider into Pi's models.json, and points the
                      Roadie unit's ROADIE_PI_MODEL at it. Without the flag, Pi
                      stays on Roadie's credential pool. An existing
-                     opencode.json also gains an OpenAI-compatible provider.
   --ai-gateway-provider <id>
                      Backend WordPress AI Client provider for site-default
                      routing (default: openai)
   --ai-gateway-model <id>
                       Backend provider model for site-default routing
                       (default: gpt-4o-mini)
-  --ai-gateway-opencode-provider <id>
-                      Provider identity shown by OpenCode
+  --ai-gateway-pi-provider <id>
+                      Provider identity shown by Pi
                       (default: wp-ai-gateway)
-  --ai-gateway-opencode-model <id>
-                      Model identity shown by OpenCode
+  --ai-gateway-pi-model <id>
+                      Model identity shown by Pi
                       (default: site-default)
   --ai-gateway-api-model <id>
-                      Model ID sent to WP AI Gateway (default: the OpenCode
+                      Model ID sent to WP AI Gateway (default: the Pi
                       model identity)
   --rotate-ai-gateway-token
                       Mint a new gateway token instead of reusing the existing
-                      .opencode/wp-ai-gateway.env value
+                      .wp-coding-agents/wp-ai-gateway.env value
   --wordpress-chat-agent <slug>
                       Opt in to WordPress-native chat for one agent: writes the
                       runtime-chat adapter config (agent slug -> runtime ID),
@@ -535,20 +495,14 @@ OPTIONS:
                       root-owned bare mirror and read at the merged ref
                       (default main), never a working tree. Persisted in
                       /etc/wp-coding-agents/self-upgrade.conf across upgrades.
-  --no-claude-code-auth
-                      Skip the managed direct OpenCode Claude Pro/Max OAuth
-                      auth plugin. Installed by default for direct OpenCode
-                      runtimes; never under the Roadie bridge, where Roadie's
-                      credential pools serve Anthropic.
   --no-homeboy       Skip Homeboy project setup, even if homeboy is installed
   --homeboy-project-id <id>
                      Override Homeboy project ID (default: agent/site slug)
   --skills-only      Only remove retired managed skills from an existing site
   --runtime-only     Only run runtime setup on an existing agent install
-                     (use with --runtime <name> to add another runtime)
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default in workspace mode)
-  --non-root         Run agent as dedicated service user (opencode;
+  --non-root         Run agent as dedicated service user (pi;
                      default in owned mode). Agent state written by a
                      root-run setup is handed to this user.
   --dry-run          Print commands without executing
@@ -565,15 +519,12 @@ ENVIRONMENT VARIABLES:
   AGENT_NAME         Override agent display name (default: blogname)
   HOMEBOY_PROJECT_ID Override Homeboy project ID (default: agent/site slug)
   HOMEBOY_SERVER_ID  Homeboy server ID for VPS project registration
-  OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
-  OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
   AI_GATEWAY_ROUTE_PROVIDER  Backend provider used by --with-ai-gateway
   AI_GATEWAY_ROUTE_MODEL     Backend model used by --with-ai-gateway
-  AI_GATEWAY_PROVIDER_ID     Provider identity shown by OpenCode
-  AI_GATEWAY_MODEL_ID        Model identity shown by OpenCode
+  AI_GATEWAY_PROVIDER_ID     Provider identity shown by Pi
+  AI_GATEWAY_MODEL_ID        Model identity shown by Pi
   AI_GATEWAY_API_MODEL_ID    Model ID sent to WP AI Gateway
   AI_GATEWAY_SITE_URL        Public site URL for OPENAI_BASE_URL override
-  WITH_CLAUDE_CODE_AUTH      false to skip direct OpenCode Claude Pro/Max auth
   ROADIE_BOT_TOKEN          Discord bot token (stored in a root-managed token
                             file; skips interactive setup)
   ROADIE_UNIT               Roadie systemd unit (default: roadie.service)
@@ -609,18 +560,6 @@ fi
 # Runtime resolution
 # ============================================================================
 
-# OpenCode is the only managed runtime. Codex and Claude Code were removed in
-# #751: they read the composed AGENTS.md natively when run in a terminal, so a
-# request for either one fails during argument parsing.
-RUNTIME="${RUNTIME:-opencode}"
-DETECTED_RUNTIMES=("$RUNTIME")
-
-# Source the selected runtime
-RUNTIME_FILE="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
-if [ ! -f "$RUNTIME_FILE" ]; then
-  error "Unknown runtime: $RUNTIME. Available: ${AVAILABLE_RUNTIMES[*]}"
-fi
-source "$RUNTIME_FILE"
 
 # Roadie is the only chat bridge.
 if [ "$INSTALL_CHAT" = true ]; then
@@ -718,8 +657,6 @@ if convergence_run "$INSTALLATION_OPERATION_SETUP"; then :; else
   reconciler_print_partial_evidence
   exit "$CONVERGENCE_EXIT_STATUS"
 fi
-[ "$RUNTIME_ONLY" != true ] && ai_gateway_configure_opencode
-[ "$RUNTIME_ONLY" != true ] && opencode_project_subagents_optional
 [ "$RUNTIME_ONLY" != true ] && remove_retired_skills
 if [ "$RUNTIME_ONLY" != true ]; then if [ "$EXTERNAL_WORDPRESS" != true ]; then cli_transport_install; inbound_event_bridge_install; wordpress_chat_apply; else inbound_event_connector_install; fi; fi
 # Install the reconciler, then run it once so a fresh install converges the same

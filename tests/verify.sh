@@ -73,8 +73,8 @@ WP
 chmod +x "$TMP/wp"
 
 write_manifest() { printf '%s\n' "$@" > "$TMP/manifest/site/owned-sources"; chmod 644 "$TMP/manifest/site/owned-sources"; }
-write_opencode() {
-  python3 - "$SITE/opencode.json" "$@" <<'PY'
+write_pi() {
+  python3 - "$SITE/pi.json" "$@" <<'PY'
 import json, sys
 out = sys.argv[1]
 allows = sys.argv[2:]
@@ -104,8 +104,8 @@ run_verify() {
 
 # Baseline: everything agrees.
 write_manifest wp-content/plugins/acme-core wp-content/themes/acme
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
-write_unit roadie.service opencode /home/opencode "Environment=PATH=$(dirname "$HOMEBOY_FIXTURE_BIN"):/usr/local/bin:/usr/bin:/bin"
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
+write_unit roadie.service pi /home/pi "Environment=PATH=$(dirname "$HOMEBOY_FIXTURE_BIN"):/usr/local/bin:/usr/bin:/bin"
 source lib/agents-md-guidance.sh
 CURRENT_PRODUCER="version=$(agents_md_guidance_producer_version) source=$(agents_md_guidance_producer_source)"
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/wp-content/mu-plugins/wp-coding-agents-agents-md.php"
@@ -163,20 +163,20 @@ printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE
 echo ""
 echo "verify: it catches the defects that reached a live site"
 
-# 1. The identity bug. The migration rendered User=opencode with HOME=/root, and
+# 1. The identity bug. The migration rendered User=pi with HOME=/root, and
 #    the agent would have started with a home it cannot read. Nothing owned the
 #    relationship between those two lines.
-write_unit roadie.service opencode /root
+write_unit roadie.service pi /root
 OUT="$(run_verify)"
-assert_contains "$OUT" "User=opencode but HOME=/root" "catches a User/HOME mismatch"
+assert_contains "$OUT" "User=pi but HOME=/root" "catches a User/HOME mismatch"
 
 # 2. A value left pointing into the home the install migrated away from. PATH and
 #    KIMAKI_DATA_DIR both did this; enumerating key names would have missed it.
-write_unit roadie.service opencode /home/opencode "Environment=ROADIE_DATA_DIR=/root/.roadie"
+write_unit roadie.service pi /home/pi "Environment=ROADIE_DATA_DIR=/root/.roadie"
 OUT="$(run_verify)"
-assert_contains "$OUT" "points outside opencode's home" "catches a stale value from the old identity"
+assert_contains "$OUT" "points outside pi's home" "catches a stale value from the old identity"
 
-write_unit roadie.service opencode /home/opencode
+write_unit roadie.service pi /home/pi
 
 # 3. Manifest drift. Capture reads the manifest; permissions come from the
 #    option. Disagreement means the agent edits what nothing records.
@@ -194,7 +194,7 @@ write_manifest wp-content/plugins/acme-core wp-content/themes/acme
 
 # 5. A deny removed. This is the one that matters most: it is the difference
 #    between an agent that cannot touch a payment gateway and one that can.
-python3 - "$SITE/opencode.json" <<'PY'
+python3 - "$SITE/pi.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 d["permission"]["edit"].pop("wp-content/plugins/**", None)
@@ -202,13 +202,13 @@ json.dump(d, open(sys.argv[1], "w"), indent=2)
 PY
 OUT="$(run_verify)"
 assert_contains "$OUT" "NOT denied: wp-content/plugins/**" "catches a removed deny"
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
 
 # 6. Permissions that do not match the declaration.
-write_opencode wp-content/plugins/acme-core
+write_pi wp-content/plugins/acme-core
 OUT="$(run_verify)"
 assert_contains "$OUT" "permission.edit disagrees with the declared set" "catches declared-but-not-allowed"
-write_opencode wp-content/plugins/acme-core wp-content/themes/acme
+write_pi wp-content/plugins/acme-core wp-content/themes/acme
 
 # 7. A missing owned-mode component.
 mv "$SITE/wp-content/mu-plugins/wp-coding-agents-source-reconcile.php" "$TMP/held"

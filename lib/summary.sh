@@ -22,7 +22,7 @@ print_summary() {
   echo ""
 
   # Runtime-specific config summary
-  runtime_print_summary
+  echo "  Agent runtime: Pi"
 
   if declare -F ai_gateway_enabled >/dev/null && ai_gateway_enabled; then
     echo "WP AI Gateway:"
@@ -72,7 +72,7 @@ print_summary() {
   else
     echo "  User:     $SERVICE_USER (non-root)"
   fi
-  echo "  Runtime:  $RUNTIME"
+  echo "  Runtime:  Pi"
   if [ "$INSTALL_CHAT" = true ]; then
     echo "  Bridge:   $CHAT_BRIDGE"
   fi
@@ -94,7 +94,6 @@ AGENT_SLUG=$AGENT_SLUG
 MULTISITE=$MULTISITE
 MULTISITE_TYPE=$MULTISITE_TYPE
 SERVICE_USER=$SERVICE_USER
-RUNTIME=$RUNTIME
 CHAT_BRIDGE=$CHAT_BRIDGE"
 
     CREDENTIALS_FILE="$SERVICE_HOME/.wp-coding-agents-credentials"
@@ -261,5 +260,5 @@ _print_bare_runtime_cmd() {
     return
   fi
 
-  echo "    cd $SITE_PATH && opencode"
+  echo "    cd $SITE_PATH && pi"
 }

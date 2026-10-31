@@ -72,8 +72,8 @@ identity_after_default() {
 echo "owned mode defaults to a non-root service user"
 
 assert_eq "$(identity_after_default owned false false true)" \
-  "false|opencode|/home/opencode|/home/opencode/.roadie" \
-  "fresh owned install lands fully on the opencode identity"
+  "false|pi|/home/agent|/home/agent/.roadie" \
+  "fresh owned install lands fully on the pi identity"
 
 echo ""
 echo "the operator's explicit choice wins"
@@ -85,7 +85,7 @@ assert_eq "$(identity_after_default owned true false true)" \
 
 # --non-root: already non-root, nothing to do.
 assert_eq "$(identity_after_default owned true false false)" \
-  "false|opencode|/home/opencode|/home/opencode/.roadie" \
+  "false|pi|/home/agent|/home/agent/.roadie" \
   "--non-root is left as it is"
 
 echo ""
@@ -96,7 +96,7 @@ assert_eq "$(identity_after_default workspace false false true)" \
   "workspace mode keeps its existing root default"
 
 assert_eq "$(identity_after_default workspace false false false)" \
-  "false|opencode|/home/opencode|/home/opencode/.roadie" \
+  "false|pi|/home/agent|/home/agent/.roadie" \
   "workspace mode still honours an explicit non-root"
 
 echo ""
@@ -132,7 +132,7 @@ assert_eq "$twice" "$once" "applying the default repeatedly is idempotent"
 # guard, the second detect_service_identity call would silently relocate the
 # operator's data dir to the new home.
 assert_eq "$(identity_after_default owned false false true /srv/kimaki-data)" \
-  "false|opencode|/home/opencode|/srv/kimaki-data" \
+  "false|pi|/home/agent|/srv/kimaki-data" \
   "an explicit --roadie-data-dir is not relocated"
 
 # A caller that only exported ROADIE_DATA_DIR, without the flag machinery, keeps

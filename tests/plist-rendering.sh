@@ -87,8 +87,8 @@ export ROADIE_CONFIG_DIR="/opt/roadie-config"
 export ROADIE_BIN="/usr/bin/roadie"
 export ROADIE_BOT_TOKEN="tok$HOSTILE"
 
-export OPENCODE_BIN="/usr/bin/opencode"
-export OPENCODE_MODEL="prov/$HOSTILE"
+export PI_BIN="/usr/bin/pi"
+export PI_MODEL="prov/$HOSTILE"
 
 source bridges/_dispatch.sh
 _resolve_node_bin_dir() { printf ''; }

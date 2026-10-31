@@ -19,7 +19,7 @@ function compile(profile) {
       wordpress_user: "agent user",
       control_transport_argv: ["/usr/local/bin/control transport", "--identity", "value with spaces"],
     },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "kimaki" },
     provider_path: "external-openai-compatible-endpoint",
     overlays: {},
@@ -40,7 +40,7 @@ function compile(profile) {
   const plan = compile({
     install_target: "existing-vps",
     target: { wordpress_path: "/var/www/example.com" },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "roadie" },
     overlays: {},
     systems_capabilities: { profile: "managed-vps" },
@@ -56,7 +56,7 @@ function compile(profile) {
     input: JSON.stringify({
       install_target: "local",
       target: { wordpress_path: "/tmp/site" },
-      runtime: { selection: "opencode" },
+      runtime: { selection: "pi" },
       chat_bridge: { selection: "none" },
       overlays: {},
       systems_capabilities: { profile: "managed-vps" },
@@ -83,14 +83,14 @@ for (const selection of ["auto"]) {
     encoding: "utf8",
   })
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /requires runtime\.selection=opencode/)
+  assert.match(result.stderr, /requires runtime\.selection=pi/)
 }
 
 {
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "~/Studio/site", wordpress_studio: true },
-    runtime: { selection: "opencode", runtimes: [] },
+    runtime: { selection: "pi", runtimes: [] },
     chat_bridge: { selection: "roadie" },
     provider_path: "not-applicable",
     overlays: { homeboy: true, wordpress_studio: true },
@@ -99,11 +99,11 @@ for (const selection of ["auto"]) {
 
   assert.equal(
     plan.commands.dry_run,
-    'EXISTING_WP="$HOME/Studio/site" WP_CLI_TRANSPORT_JSON=\'["studio","wp"]\' ./setup.sh --local --runtime opencode --chat roadie --with-homeboy --agent-slug site --dry-run'
+    'EXISTING_WP="$HOME/Studio/site" WP_CLI_TRANSPORT_JSON=\'["studio","wp"]\' ./setup.sh --local --runtime pi --chat roadie --with-homeboy --agent-slug site --dry-run'
   )
   assert.ok(plan.verification.overlays.includes("verify-wordpress-studio"))
-  assert.ok(plan.verification.overlays.includes("verify-runtime-opencode"))
-  assert.ok(plan.verification.overlays.includes("verify-bridge-roadie-opencode-plugins"))
+  assert.ok(plan.verification.overlays.includes("verify-runtime-pi"))
+  assert.ok(plan.verification.overlays.includes("verify-bridge-roadie-pi-plugins"))
   assert.ok(plan.verification.overlays.includes("verify-homeboy"))
 }
 
@@ -139,7 +139,7 @@ for (const selection of ["auto"]) {
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "/tmp/site" },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "none" },
     overlays: {},
   })
@@ -153,7 +153,7 @@ for (const selection of ["auto"]) {
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "/tmp/site" },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "none" },
     source: { mode: "workspace", workspace_repositories: ["/work/primary checkout", "/work/secondary"] },
     overlays: {},
@@ -167,7 +167,7 @@ for (const selection of ["auto"]) {
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "/tmp/site" },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "none" },
     source: {
       mode: "workspace",
@@ -195,7 +195,7 @@ for (const source of [
     input: JSON.stringify({
       install_target: "local",
       target: { wordpress_path: "/tmp/site" },
-      runtime: { selection: "opencode" },
+      runtime: { selection: "pi" },
       chat_bridge: { selection: "none" },
       source,
       overlays: {},
@@ -209,7 +209,7 @@ for (const source of [
   const plan = compile({
     install_target: "local",
     target: { wordpress_path: "/tmp/site" },
-    runtime: { selection: "opencode" },
+    runtime: { selection: "pi" },
     chat_bridge: { selection: "none" },
     source: { mode: "owned", workspace_repositories: [] },
     overlays: {},
@@ -223,7 +223,7 @@ for (const source of [
     input: JSON.stringify({
       install_target: "local",
       target: { wordpress_path: "/tmp/site" },
-      runtime: { selection: "opencode,pi" },
+      runtime: { selection: "pi,pi" },
       chat_bridge: { selection: "none" },
       overlays: {},
     }),
@@ -231,7 +231,7 @@ for (const source of [
   })
 
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /Unknown runtime: opencode,pi/)
+  assert.match(result.stderr, /Unknown runtime: pi,pi/)
 }
 
 // Codex and Claude Code were removed (#751) and fail with a migration note.
@@ -260,7 +260,7 @@ for (const selection of ["codex", "claude-code", "multiple"]) {
     input: JSON.stringify({
       install_target: "local",
       target: { wordpress_path: "/tmp/site" },
-      runtime: { selection: "opencode" },
+      runtime: { selection: "pi" },
       chat_bridge: { selection: "none" },
       codex_path: "codebox-minions",
       overlays: {},

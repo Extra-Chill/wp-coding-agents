@@ -4,6 +4,7 @@ set -eu
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
+export GIT_CEILING_DIRECTORIES="$TMP"
 trap 'rm -rf "$TMP"' EXIT
 
 source "$ROOT_DIR/lib/common.sh"
@@ -19,7 +20,7 @@ LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=true
 SOURCE_MODE=workspace
-RUNTIME=opencode
+RUNTIME=pi
 AGENT_SLUG=builder
 CHAT_BRIDGE=kimaki
 HOMEBOY_MODE=enabled
@@ -61,7 +62,7 @@ INSTALL_CHAT=false
 SOURCE_MODE_EXPLICIT=false
 installation_profile_load
 test "$SOURCE_MODE" = workspace
-test "$RUNTIME" = opencode
+test -z "$RUNTIME"
 test "$AGENT_SLUG" = builder
 test "$CHAT_BRIDGE" = kimaki
 test "$HOMEBOY_MODE" = enabled
@@ -132,7 +133,7 @@ test "$(cat "$TMP/outside/installation-profile")" = sentinel
 # aborting the whole upgrade; explicit intent and detection still apply.
 rm -f "$SITE_PATH/.wp-coding-agents"
 mkdir -p "$SITE_PATH/.wp-coding-agents"
-printf 'runtime=opencode\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
+printf 'runtime=pi\n' > "$SITE_PATH/.wp-coding-agents/installation-profile"
 chmod 000 "$SITE_PATH/.wp-coding-agents/installation-profile"
 if [ "$(id -u)" -ne 0 ]; then
   RUNTIME=""
@@ -145,34 +146,18 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 chmod 600 "$SITE_PATH/.wp-coding-agents/installation-profile"
 
-# The Codex and Claude Code runtimes were removed (#751). An explicit --runtime
-# and a recorded profile runtime naming either one fail with a migration note;
-# there is no compatibility path.
-assert_removed_runtime() {
-  local label="$1" origin="$2" runtime="$3" output status
-  shift 3
-  set +e
-  output="$(env -i HOME="$HOME" PATH="$PATH" "$@" 2>&1)"
-  status=$?
-  set -e
-  if [ "$status" -eq 0 ]; then
-    echo "FAIL: $label accepted removed runtime $runtime" >&2
-    exit 1
-  fi
-  case "$output" in
-    *"$origin '$runtime' was removed (wp-coding-agents#751)"*"Use Pi with Roadie"*"AGENTS.md"*) ;;
-    *) echo "FAIL: $label did not name #751 for $runtime: $output" >&2; exit 1 ;;
-  esac
-}
-REMOVED_SITE="$TMP/removed-runtime-site"
-mkdir -p "$REMOVED_SITE/.wp-coding-agents"
-touch "$REMOVED_SITE/wp-config.php"
-for removed in codex claude-code; do
-  assert_removed_runtime "setup.sh --runtime" --runtime "$removed" bash "$ROOT_DIR/setup.sh" --runtime "$removed" --dry-run
-  assert_removed_runtime "upgrade.sh --runtime" --runtime "$removed" bash "$ROOT_DIR/upgrade.sh" --runtime "$removed" --dry-run
-  printf 'runtime=%s\n' "$removed" > "$REMOVED_SITE/.wp-coding-agents/installation-profile"
-  assert_removed_runtime "upgrade.sh recorded profile" "Recorded installation-profile runtime" "$removed" \
-    bash "$ROOT_DIR/upgrade.sh" --local --wp-path "$REMOVED_SITE" --dry-run
+# Old profile selectors are ignored and disappear on the next write.
+for retired in legacy codex claude-code; do
+  printf 'runtime=%s\n' "$retired" > "$PROFILE"
+  RUNTIME=""
+  installation_profile_load
+  test -z "$RUNTIME"
+  installation_profile_normalize "$INSTALLATION_OPERATION_SETUP"
+  installation_profile_write
+  ! grep -q '^runtime=' "$PROFILE"
 done
-
+for entry in setup upgrade; do
+  output="$(bash "$ROOT_DIR/$entry.sh" --runtime obsolete 2>&1)" && exit 1
+  [[ "$output" == *'#751'* ]]
+done
 echo "PASS: credential-free installation profile persists declarative intent"

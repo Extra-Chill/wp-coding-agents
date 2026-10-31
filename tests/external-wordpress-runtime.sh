@@ -104,7 +104,7 @@ export PATH="$TMP/bin:$PATH"
 export WP_CONTROL_TRANSPORT_JSON="[\"$TRANSPORT\",\"--identity\",\"secret value with spaces\"]"
 export EXTERNAL_WORDPRESS=true DRY_RUN=false LOCAL_MODE=true IS_STUDIO=false
 export SITE_PATH="$RUNTIME_PROJECT_ROOT" CHAT_BRIDGE=roadie ROADIE_DATA_DIR="$RUNTIME_PROJECT_ROOT/.roadie"
-export OPENCODE_MODEL='' OPENCODE_SMALL_MODEL='' WITH_CLAUDE_CODE_AUTH=false RUNTIME=opencode
+export PI_MODEL='' PI_SMALL_MODEL='' WITH_CLAUDE_CODE_AUTH=false RUNTIME=pi
 export SOURCE_MODE=workspace DM_WORKSPACE_DIR="$TMP/workspace"
 UPDATED_ITEMS=()
 
@@ -125,10 +125,10 @@ source "$SCRIPT_DIR/lib/source-policy.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/skills.sh"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/lib/opencode-subagents.sh"
+source "$SCRIPT_DIR/lib/pi-subagents.sh"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/runtimes/opencode.sh"
-opencode_general_dispatch_supported() { return 0; }
+source "$SCRIPT_DIR/lib/common.sh"
+pi_general_dispatch_supported() { return 0; }
 error() { printf '%s\n' "$*" >&2; return 1; }
 
 external_wordpress_prepare_transport
@@ -140,41 +140,41 @@ WITH_AI_GATEWAY=true
 OPENAI_BASE_URL='https://runtime-only.invalid/private-endpoint'
 OPENAI_API_KEY='runtime-only-secret-value'
 export WITH_AI_GATEWAY OPENAI_BASE_URL OPENAI_API_KEY
-ai_gateway_configure_opencode
+ai_gateway_configure_pi
 runtime_generate_instructions
-DETECTED_RUNTIMES=(opencode)
-mkdir -p "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents"
+DETECTED_RUNTIMES=(pi)
+mkdir -p "$RUNTIME_PROJECT_ROOT/.pi/skills/upgrade-wp-coding-agents"
 remove_retired_skills
-opencode_project_subagents
+pi_project_subagents
 
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-config.php" ] || { echo "FAIL: test created a local WordPress tree"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/shared/SITE.md")" = "site context" ] || { echo "FAIL: site context not projected"; exit 1; }
 [ "$(cat "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context/agent/SOUL.md")" = "agent context" ] || { echo "FAIL: agent context not projected"; exit 1; }
-[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/skills/upgrade-wp-coding-agents" ] || { echo "FAIL: retired upgrade skill was not removed below runtime root"; exit 1; }
-[ ! -e "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: retired OpenCode plugin was installed below runtime root"; exit 1; }
+[ ! -e "$RUNTIME_PROJECT_ROOT/.pi/skills/upgrade-wp-coding-agents" ] || { echo "FAIL: retired upgrade skill was not removed below runtime root"; exit 1; }
+[ ! -e "$RUNTIME_PROJECT_ROOT/.roadie/roadie-config/plugins/dm-agent-sync.ts" ] || { echo "FAIL: retired Pi plugin was installed below runtime root"; exit 1; }
 [ -x "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/bin/roadie" ] || { echo "FAIL: managed Roadie launcher was not installed"; exit 1; }
 [ ! -e "$RUNTIME_PROJECT_ROOT/wp-content" ] || { echo "FAIL: WordPress-side files were written below runtime root"; exit 1; }
 [ -L "$RUNTIME_PROJECT_ROOT/.wp-coding-agents/context" ] || { echo "FAIL: projected context is not atomically activated"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" ] || { echo "FAIL: embedded writer was not projected"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md" ] || { echo "FAIL: embedded reviewer was not projected"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/editorial/SKILL.md" ] || { echo "FAIL: embedded skill was not projected"; exit 1; }
-[ -f "$RUNTIME_PROJECT_ROOT/.opencode/skills/editorial/references/context.bin" ] || { echo "FAIL: embedded reference was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.pi/agents/writer.md" ] || { echo "FAIL: embedded writer was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.pi/agents/reviewer.md" ] || { echo "FAIL: embedded reviewer was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.pi/skills/editorial/SKILL.md" ] || { echo "FAIL: embedded skill was not projected"; exit 1; }
+[ -f "$RUNTIME_PROJECT_ROOT/.pi/skills/editorial/references/context.bin" ] || { echo "FAIL: embedded reference was not projected"; exit 1; }
 grep -F -- 'WordPress control: `./.wp-coding-agents/bin/wp-control`' "$RUNTIME_PROJECT_ROOT/AGENTS.md" >/dev/null
 if grep -F -- 'grep it as needed' "$RUNTIME_PROJECT_ROOT/AGENTS.md" >/dev/null; then
   echo "FAIL: external guidance claims installed source is mounted"
   exit 1
 fi
 
-python3 - "$RUNTIME_PROJECT_ROOT/opencode.json" "$RUNTIME_PROJECT_ROOT" <<'PY'
+python3 - "$RUNTIME_PROJECT_ROOT/pi.json" "$RUNTIME_PROJECT_ROOT" <<'PY'
 import json, sys
 config, root = sys.argv[1:]
 data = json.load(open(config))
 expected = ["./.wp-coding-agents/context/shared/SITE.md", "./.wp-coding-agents/context/agent/SOUL.md"]
 if data.get("instructions") != expected:
     raise SystemExit(f"projected instructions differ: {data.get('instructions')}")
-# #718: a Roadie install ships no OpenCode plugins.
+# #718: a Roadie install ships no Pi plugins.
 if "plugin" in data:
-    raise SystemExit(f"Roadie install grew an OpenCode plugin array: {data.get('plugin')}")
+    raise SystemExit(f"Roadie install grew an Pi plugin array: {data.get('plugin')}")
 provider = data.get("provider", {}).get("wp-ai-gateway", {})
 if provider.get("options", {}).get("baseURL") != "{env:OPENAI_BASE_URL}":
     raise SystemExit("gateway provider does not use the runtime base URL placeholder")
@@ -187,32 +187,32 @@ PY
 python3 - "$RUNTIME_PROJECT_ROOT" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-assert root.joinpath(".opencode/skills/editorial/references/context.bin").read_bytes() == b"reference\x00bytes"
-manifest = json.loads(root.joinpath(".opencode/.wp-coding-agents-subagents.json").read_text())
+assert root.joinpath(".pi/skills/editorial/references/context.bin").read_bytes() == b"reference\x00bytes"
+manifest = json.loads(root.joinpath(".pi/.wp-coding-agents-subagents.json").read_text())
 assert manifest["agents"] == ["agents/reviewer.md", "agents/writer.md"]
-config = json.loads(root.joinpath("opencode.json").read_text())
+config = json.loads(root.joinpath("pi.json").read_text())
 assert config["permission"]["task"] == {"*": "deny", "general": "allow", "writer": "allow", "reviewer": "allow"}
-writer = root.joinpath(".opencode/agents/writer.md").read_text()
+writer = root.joinpath(".pi/agents/writer.md").read_text()
 assert '"task":{"*":"deny","reviewer":"allow"}' in writer
 PY
 grep -x 'eval' "$ARGS" >/dev/null || { echo "FAIL: external graph reader did not use wp eval"; exit 1; }
 [ "$(grep -xc 'eval' "$ARGS")" -gt 1 ] || { echo "FAIL: external graph reader did not use bounded chunks"; exit 1; }
 
-before_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+before_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.pi/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.pi/.wp-coding-agents-subagents.json")"
 export WP_TEST_GRAPH_SIZE_DRIFT=1
-if opencode_project_subagents; then
+if pi_project_subagents; then
   echo "FAIL: graph size drift was accepted"
   exit 1
 fi
 unset WP_TEST_GRAPH_SIZE_DRIFT
-after_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+after_drift="$(cksum "$RUNTIME_PROJECT_ROOT/.pi/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.pi/.wp-coding-agents-subagents.json")"
 [ "$before_drift" = "$after_drift" ] || { echo "FAIL: graph size drift mutated projected files"; exit 1; }
 
 export WP_TEST_GRAPH_HANG_ONCE=1
 export WP_TEST_GRAPH_HANG_MARKER="$TMP/graph-hung-once"
-export OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS=1
-opencode_project_subagents
-unset WP_TEST_GRAPH_HANG_ONCE WP_TEST_GRAPH_HANG_MARKER OPENCODE_EXTERNAL_GRAPH_TIMEOUT_SECONDS
+export PI_EXTERNAL_GRAPH_TIMEOUT_SECONDS=1
+pi_project_subagents
+unset WP_TEST_GRAPH_HANG_ONCE WP_TEST_GRAPH_HANG_MARKER PI_EXTERNAL_GRAPH_TIMEOUT_SECONDS
 [ -e "$TMP/graph-hung-once" ] || { echo "FAIL: graph retry fixture did not exercise its timeout"; exit 1; }
 
 while IFS= read -r argument; do
@@ -255,11 +255,11 @@ if grep -R -F -- '/remote/wp-content/uploads/datamachine-files' "$RUNTIME_PROJEC
   echo "FAIL: remote artifact paths persisted below runtime root"
   exit 1
 fi
-[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/wp-ai-gateway.env" ] || { echo "FAIL: external profile wrote a gateway env file"; exit 1; }
+[ ! -e "$RUNTIME_PROJECT_ROOT/.pi/wp-ai-gateway.env" ] || { echo "FAIL: external profile wrote a gateway env file"; exit 1; }
 
-before_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
-opencode_project_subagents
-after_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.opencode/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.opencode/.wp-coding-agents-subagents.json")"
+before_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.pi/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.pi/.wp-coding-agents-subagents.json")"
+pi_project_subagents
+after_subagents="$(cksum "$RUNTIME_PROJECT_ROOT/.pi/agents/writer.md" "$RUNTIME_PROJECT_ROOT/.pi/.wp-coding-agents-subagents.json")"
 [ "$before_subagents" = "$after_subagents" ] || { echo "FAIL: embedded subagent projection is not byte-stable"; exit 1; }
 python3 - "$GRAPH" <<'PY'
 import json, sys
@@ -270,8 +270,8 @@ graph["nodes"][0]["subagents"] = ["writer"]
 graph["nodes"][1]["subagents"] = []
 json.dump(graph, open(path, "w"))
 PY
-opencode_project_subagents
-[ ! -e "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md" ] || { echo "FAIL: stale embedded child survived"; exit 1; }
+pi_project_subagents
+[ ! -e "$RUNTIME_PROJECT_ROOT/.pi/agents/reviewer.md" ] || { echo "FAIL: stale embedded child survived"; exit 1; }
 python3 - "$GRAPH" <<'PY'
 import json, sys
 path = sys.argv[1]
@@ -279,8 +279,8 @@ graph = json.load(open(path))
 graph["nodes"][1]["sources"]["instructions"] = {"../escape.md": "aGVsbG8="}
 json.dump(graph, open(path, "w"))
 PY
-if opencode_project_subagents; then echo "FAIL: traversal graph projected"; exit 1; fi
-printf 'human configuration\n' > "$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md"
+if pi_project_subagents; then echo "FAIL: traversal graph projected"; exit 1; fi
+printf 'human configuration\n' > "$RUNTIME_PROJECT_ROOT/.pi/agents/reviewer.md"
 python3 - "$GRAPH" <<'PY'
 import base64, json, sys
 path = sys.argv[1]
@@ -290,10 +290,10 @@ graph["nodes"].append({"slug":"reviewer", "description":"Reviewer", "model":"", 
 graph["nodes"][0]["subagents"] = ["writer", "reviewer"]
 json.dump(graph, open(path, "w"))
 PY
-if opencode_project_subagents; then echo "FAIL: user-owned collision projected"; exit 1; fi
-[ "$(<"$RUNTIME_PROJECT_ROOT/.opencode/agents/reviewer.md")" = 'human configuration' ] || { echo "FAIL: collision changed user file"; exit 1; }
+if pi_project_subagents; then echo "FAIL: user-owned collision projected"; exit 1; fi
+[ "$(<"$RUNTIME_PROJECT_ROOT/.pi/agents/reviewer.md")" = 'human configuration' ] || { echo "FAIL: collision changed user file"; exit 1; }
 printf '%s\n' '{"success":true,"coordinator":"coordinator","source_mode":"embedded","nodes":[{"slug":"bad_slug"}]}' > "$GRAPH"
-if opencode_project_subagents; then echo "FAIL: malformed graph projected"; exit 1; fi
+if pi_project_subagents; then echo "FAIL: malformed graph projected"; exit 1; fi
 
 mkdir -p "$TMP/outside"
 printf 'outside-safe\n' > "$TMP/outside/SOUL.md"
@@ -326,12 +326,12 @@ external_wordpress_prepare_transport
 WP_CONTROL_TRANSPORT_JSON="$saved_transport_json"
 external_wordpress_prepare_transport
 
-before="$(cksum "$RUNTIME_PROJECT_ROOT/opencode.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
+before="$(cksum "$RUNTIME_PROJECT_ROOT/pi.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
 external_wordpress_project_context
 runtime_generate_config
-ai_gateway_configure_opencode
+ai_gateway_configure_pi
 runtime_generate_instructions
-after="$(cksum "$RUNTIME_PROJECT_ROOT/opencode.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
+after="$(cksum "$RUNTIME_PROJECT_ROOT/pi.json" "$RUNTIME_PROJECT_ROOT/AGENTS.md")"
 [ "$before" = "$after" ] || { echo "FAIL: external profile is not idempotent"; exit 1; }
 
 WP_CONTROL_TRANSPORT_JSON='["/does/not/exist"]'

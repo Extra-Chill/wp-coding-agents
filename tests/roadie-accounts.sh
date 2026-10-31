@@ -3,7 +3,7 @@
 # rotations through Roadie's own credential commands (#709).
 #
 # Account import/export semantics (order, active account, dedupe, 0600 files)
-# belong to `roadie credentials import-opencode` and are tested
+# belong to `roadie credentials import-pi` and are tested
 # in Roadie. This test pins the bridge's side of that contract with a stub
 # `roadie` that records its argv and environment and keeps a real
 # rotation.json, so it needs neither real accounts nor any subrouter package.
@@ -60,8 +60,8 @@ export ROADIE_STUB_CALLS="$CALLS"
 ROADIE_BIN="$STUB"
 ROADIE_DATA_DIR="$TMP/roadie-data"
 LOCAL_MODE=true
-OC="$TMP/opencode"
-_roadie_opencode_data_dir() { printf '%s\n' "$OC"; }
+OC="$TMP/pi"
+_roadie_pi_data_dir() { printf '%s\n' "$OC"; }
 
 echo "==> account import uses roadie credentials"
 : > "$CALLS"
@@ -69,9 +69,9 @@ echo "==> account import uses roadie credentials"
 # Roadie refuses operator-only credential commands in agent mode.
 ROADIE_AGENT_TOKEN=tok _roadie_accounts_import >/dev/null
 check $? "_roadie_accounts_import succeeds"
-grep -qx "argv: credentials import-opencode --opencode-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-opencode on the shared pool"
+grep -qx "argv: credentials import-pi --pi-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-pi on the shared pool"
 grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
-ROADIE_STUB_FAIL=import-opencode _roadie_accounts_import >/dev/null 2>&1
+ROADIE_STUB_FAIL=import-pi _roadie_accounts_import >/dev/null 2>&1
 [ $? -ne 0 ]; check $? "a failing import is reported as failure"
 
 echo "==> rotations: one per stored direct model, existing ones kept"

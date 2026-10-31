@@ -18,7 +18,7 @@
 #      with engineering reach.
 #
 #   3. --non-root ON A ROOT INSTALL FAILS CLOSED. This is the original #93
-#      footgun: it renders User=opencode, creates no user, and repoints
+#      footgun: it renders User=agent, creates no user, and repoints
 #      ROADIE_DATA_DIR at an empty home while the live session database stays in
 #      /root. Refusing is the fix; a passing migration is no good if the broken
 #      neighbouring flag is still reachable.
@@ -100,12 +100,12 @@ assert_excluded ".secrets/database"
 # Shape-based rules. These are what catch the operator-specific names that
 # cannot be enumerated in shipped code (#320) — the install this was written
 # against had .h44-secrets, .h44-target-dbpass, sweatpants-api-token.txt and
-# opencode-auth-backup.json sitting in /root next to the agent's own state.
+# pi-auth-backup.json sitting in /root next to the agent's own state.
 assert_excluded ".h44-secrets"
 assert_excluded ".h44-target-dbpass"
 assert_excluded "sweatpants-api-token.txt"
 assert_excluded "sweatpants-signed-token-secret.txt"
-assert_excluded "opencode-auth-backup.json"
+assert_excluded "pi-auth-backup.json"
 assert_excluded "some-service.pem"
 assert_excluded "deploy.key"
 
@@ -126,7 +126,7 @@ man="$(service_migration_inventory owned)"
 
 # Runtime state is what the agent IS — required under every mode, or the
 # migrated service comes back with no sessions and no runtime auth.
-for p in .roadie .config/opencode .local/share/opencode; do
+for p in .roadie .config/pi .local/share/pi; do
   assert_contains "$eng" "$p" "engineering carries $p"
   assert_contains "$man" "$p" "managed carries $p"
 done
@@ -200,7 +200,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 PREFLIGHT_OLD_HOME="$TMP/old-home"
-PREFLIGHT_TARGET_HOME="$TMP/home/opencode"
+PREFLIGHT_TARGET_HOME="$TMP/home/agent"
 mkdir -p "$PREFLIGHT_OLD_HOME" "$PREFLIGHT_TARGET_HOME"
 
 # All preflight host dependencies are supplied by this fixture. Individual
@@ -238,14 +238,14 @@ assert_eq "$(service_migration_installed_user)" "" "no unit yields empty identit
 printf '[Service]\nUser=root\nExecStart=/bin/true\n' >"$TMP/units/roadie.service"
 assert_eq "$(service_migration_installed_user)" "root" "reads User=root"
 
-printf '[Service]\nUser=opencode\nExecStart=/bin/true\n' >"$TMP/units/roadie.service"
-assert_eq "$(service_migration_installed_user)" "opencode" "reads User=opencode"
+printf '[Service]\nUser=agent\nExecStart=/bin/true\n' >"$TMP/units/roadie.service"
+assert_eq "$(service_migration_installed_user)" "agent" "reads User=agent"
 
 echo ""
 echo "service-migration: preflight fails closed"
 
 # Local installs have no systemd and no service user to migrate onto.
-out=$(PREFLIGHT_LOCAL_MODE=true run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+out=$(PREFLIGHT_LOCAL_MODE=true run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "not applicable to a local install" "preflight refuses local mode"
 
 # Argument validation must come BEFORE the privilege gate, so these assertions
@@ -256,13 +256,13 @@ out=$(run_fixture_preflight root "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "cannot be root" "preflight refuses root as target"
 
 # Privilege gate itself, forced on regardless of who is running the suite.
-out=$(PREFLIGHT_UID=1000 run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+out=$(PREFLIGHT_UID=1000 run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "must run as root" "preflight refuses an unprivileged run"
 
 # A target home that already holds runtime state means a previous attempt got
 # partway. Merging two session databases corrupts both.
 mkdir -p "$PREFLIGHT_TARGET_HOME/.roadie"
-out=$(run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+out=$(run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "already contains" "preflight refuses to merge runtime state"
 rm -rf "$PREFLIGHT_TARGET_HOME/.roadie"
 
@@ -272,7 +272,7 @@ mkdir -p "$PREFLIGHT_OLD_HOME/.roadie"
 printf 'state\n' >"$PREFLIGHT_OLD_HOME/.roadie/session"
 out=$(PREFLIGHT_SOURCE_FILESYSTEM=fixture-source PREFLIGHT_TARGET_FILESYSTEM=fixture-target \
   PREFLIGHT_PATH_BYTES=2048 PREFLIGHT_AVAILABLE_BYTES=1 \
-  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+  run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "Not enough space to migrate" "preflight refuses an undersized cross-filesystem move"
 rm -rf "$PREFLIGHT_OLD_HOME/.roadie"
 
@@ -307,14 +307,14 @@ echo "service-migration: refuses to migrate from inside the unit it stops"
 # finish or report. It must refuse, and it must be a refusal rather than a
 # warning, because the process that would read the warning is the one that dies.
 out=$(PREFLIGHT_CURRENT_UNIT=roadie.service PREFLIGHT_UNITS=roadie.service \
-  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
+  run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 || true)
 assert_contains "$out" "Refusing to migrate from inside" "refuses self-hosted migration"
 assert_contains "$out" "systemd-run" "names a detached way to re-run it"
 
 # ...and does NOT refuse when the caller is outside the service (an SSH shell,
 # or systemd-run under its own transient unit).
 out=$(PREFLIGHT_UNITS=roadie.service PREFLIGHT_TARGET_HOME="$TMP/fresh-home" \
-  run_fixture_preflight opencode "$PREFLIGHT_OLD_HOME" engineering 2>&1 && echo PREFLIGHT_OK || true)
+  run_fixture_preflight pi "$PREFLIGHT_OLD_HOME" engineering 2>&1 && echo PREFLIGHT_OK || true)
 assert_contains "$out" "PREFLIGHT_OK" "allows migration from outside the unit"
 
 echo ""
@@ -352,8 +352,8 @@ echo "service-migration: state lands owned by the service user"
 # chowning only `.local/share` leaves `.local` unwritable — which surfaces later
 # as a permission error nowhere near this code.
 MOVE=$TMP/move
-mkdir -p "$MOVE/old/.local/share/opencode" "$MOVE/old/.roadie" "$MOVE/new"
-echo data >"$MOVE/old/.local/share/opencode/sessions.db"
+mkdir -p "$MOVE/old/.local/share/pi" "$MOVE/old/.roadie" "$MOVE/new"
+echo data >"$MOVE/old/.local/share/pi/sessions.db"
 
 MOVE_USER="daemon"
 MOVE_GROUP="$(id -gn "$MOVE_USER" 2>/dev/null || echo daemon)"
@@ -364,15 +364,15 @@ if [ "$(id -u)" -eq 0 ]; then
     run_cmd() { "$@"; }
     # shellcheck disable=SC1091
     source lib/service-migration.sh
-    service_migration_move_path ".local/share/opencode" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
+    service_migration_move_path ".local/share/pi" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
     service_migration_move_path ".roadie" "$MOVE/old" "$MOVE/new" "$MOVE_USER"
   ) >/dev/null 2>&1
 
-  for p in ".local" ".local/share" ".local/share/opencode" ".roadie"; do
+  for p in ".local" ".local/share" ".local/share/pi" ".roadie"; do
     owner=$(file_owner "$MOVE/new/$p" 2>/dev/null || echo MISSING)
     assert_eq "$owner" "$MOVE_USER" "$p is owned by the service user"
   done
-  assert_eq "$(file_owner "$MOVE/new/.local/share/opencode/sessions.db" 2>/dev/null || echo MISSING)" \
+  assert_eq "$(file_owner "$MOVE/new/.local/share/pi/sessions.db" 2>/dev/null || echo MISSING)" \
     "$MOVE_USER" "moved file contents are owned by the service user"
   # The source must be gone — a copy would leave the old identity's session
   # database live alongside the new one.
@@ -387,7 +387,7 @@ else
 fi
 
 # `chown user:user` assumes the primary group matches the account name. That
-# holds for a useradd-created `opencode` and not for an existing account named
+# holds for a useradd-created `pi` and not for an existing account named
 # via --migrate-user (`nobody` is in `nogroup` on Debian), where chown fails
 # outright rather than degrading.
 assert_eq "$(service_migration_user_group nobody)" "$(id -gn nobody)" \
@@ -443,7 +443,7 @@ echo ""
 echo "service-migration: the unit's environment follows the identity"
 
 # Found by migrating h44lacrosse.com and checking the rendered unit BEFORE
-# starting anything. The migration produced User=opencode alongside
+# starting anything. The migration produced User=agent alongside
 # Environment=HOME=/root and ROADIE_DATA_DIR=/root/.roadie: the merge keeps the
 # installed unit's value for any key the template also sets, deliberately, so
 # operator edits survive an upgrade — but identity-derived values are not
@@ -463,9 +463,9 @@ Environment=ROADIE_DATA_DIR=/root/.roadie
 Environment=BUN_INSTALL=/root/.bun
 Environment=OPERATOR_CUSTOM=keep-me'
 
-TEMPLATE_ENV='Environment=HOME=/home/opencode
-Environment=PATH=/home/opencode/.roadie/bin:/usr/bin:/bin
-Environment=ROADIE_DATA_DIR=/home/opencode/.roadie'
+TEMPLATE_ENV='Environment=HOME=/home/agent
+Environment=PATH=/home/agent/.roadie/bin:/usr/bin:/bin
+Environment=ROADIE_DATA_DIR=/home/agent/.roadie'
 
 # Without a migration in flight nothing is invalidated: an ordinary upgrade must
 # not rewrite an operator's environment.
@@ -477,8 +477,8 @@ assert_contains "$MERGED_NORMAL" "OPERATOR_CUSTOM=keep-me" \
 
 # Mid-migration, every value built from the old home is replaced.
 MERGED_MIG=$(SERVICE_MIGRATION_PREVIOUS_HOME="/root" _merge_systemd_env_lines "$INSTALLED_ENV" "$TEMPLATE_ENV")
-assert_contains "$MERGED_MIG" "Environment=HOME=/home/opencode" "HOME follows the new identity"
-assert_contains "$MERGED_MIG" "ROADIE_DATA_DIR=/home/opencode/.roadie" "the data dir follows"
+assert_contains "$MERGED_MIG" "Environment=HOME=/home/agent" "HOME follows the new identity"
+assert_contains "$MERGED_MIG" "ROADIE_DATA_DIR=/home/agent/.roadie" "the data dir follows"
 refute_contains "$MERGED_MIG" "HOME=/root" "the old HOME is gone"
 refute_contains "$MERGED_MIG" "/root/.roadie" "no value still points into the old home"
 

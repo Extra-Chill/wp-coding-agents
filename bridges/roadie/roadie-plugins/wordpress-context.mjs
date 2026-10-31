@@ -165,7 +165,6 @@ export function parseResolverStdout(stdout) {
   return value
 }
 
-// Coding runtimes (Pi, OpenCode) load convention files such as AGENTS.md from
 // the session directory and each of its ancestors. A section WordPress marks
 // with a convention_path is skipped when the runtime will find that file on
 // disk, so the model doesn't get the same text twice (#733). Without a copy on

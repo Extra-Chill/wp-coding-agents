@@ -41,7 +41,7 @@ LOCAL_MODE=true
 EXTERNAL_WORDPRESS=false
 IS_STUDIO=true
 SOURCE_MODE=workspace
-RUNTIME=opencode
+RUNTIME=pi
 CHAT_BRIDGE=""
 HOMEBOY_MODE=enabled
 INSTALL_CHAT=false
@@ -56,13 +56,13 @@ KIMAKI_DATA_DIR="$TMP/kimaki"
 DM_WORKSPACE_DIR="$TMP/not-authoritative"
 DM_AGENT_FILES=""
 WITH_CLAUDE_CODE_AUTH=false
-OPENCODE_MODEL=""
-OPENCODE_SMALL_MODEL=""
+PI_MODEL=""
+PI_SMALL_MODEL=""
 SCRIPT_DIR="$ROOT"
-source "$ROOT/runtimes/opencode.sh"
+source "$ROOT/lib/common.sh"
 runtime_generate_config
 
-python3 - "$SITE/opencode.json" "$REPOSITORY" <<'PY' || fail "generated OpenCode configuration omitted repository access"
+python3 - "$SITE/pi.json" "$REPOSITORY" <<'PY' || fail "generated Pi configuration omitted repository access"
 import json, sys
 data = json.load(open(sys.argv[1]))
 assert data["permission"]["external_directory"][sys.argv[2] + "/**"] == "allow"
@@ -92,7 +92,7 @@ SH
 chmod +x "$BIN/wp"
 PATH="$BIN:$PATH" "$ROOT/verify.sh" --site-path "$SITE" --quiet || fail "verify rejected the healthy workspace fixture"
 
-python3 - "$SITE/opencode.json" "$REPOSITORY" <<'PY'
+python3 - "$SITE/pi.json" "$REPOSITORY" <<'PY'
 import json, sys
 path, repository = sys.argv[1:]
 data = json.load(open(path))

@@ -32,7 +32,7 @@ mv "$tmp" "$site/AGENTS.md"
 STUB
 chmod +x "$WORK/bin/sudo" "$WORK/bin/wp"
 
-export PATH="$WORK/bin:$PATH" SITE_PATH="$WORK/site" SERVICE_USER=opencode
+export PATH="$WORK/bin:$PATH" SITE_PATH="$WORK/site" SERVICE_USER=pi
 export SERVICE_HOME="$WORK/service-home" LOCAL_MODE=false
 export WP_CODING_AGENTS_COMPOSE_USER=www-data MOCK_SITE_OWNER=www-data
 export MOCK_OWNER_WRITABLE=true MOCK_COMPOSE_FAIL=false
@@ -63,7 +63,7 @@ SERVICE_USER=www-data
 (cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md)
 [[ "$(<"$SUDO_LOG")" == *"HOME=$SERVICE_HOME"* ]]
 echo 'ok   site-owner route preserves configured service HOME'
-SERVICE_USER=opencode
+SERVICE_USER=pi
 
 MOCK_SITE_OWNER=other-owner
 if output="$(cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md 2>&1)"; then
@@ -75,7 +75,7 @@ fi
 echo 'ok   compose override mismatch fails closed without changing guidance'
 MOCK_SITE_OWNER=www-data
 
-SERVICE_USER=opencode MOCK_SITE_OWNER=root WP_CODING_AGENTS_COMPOSE_USER=root
+SERVICE_USER=pi MOCK_SITE_OWNER=root WP_CODING_AGENTS_COMPOSE_USER=root
 if output="$(cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md 2>&1)"; then
   echo 'FAIL root-owned site composed for non-root managed service' >&2
   exit 1
@@ -83,7 +83,7 @@ fi
 [[ "$output" == *'[root_owned_site_for_nonroot_service]'* ]]
 [[ "$(<"$WORK/site/AGENTS.md")" = 'updated guidance' ]]
 echo 'ok   root-owned site fails closed for non-root managed service'
-SERVICE_USER=opencode
+SERVICE_USER=pi
 WP_CODING_AGENTS_COMPOSE_USER=www-data
 MOCK_SITE_OWNER=www-data
 
@@ -131,7 +131,7 @@ LOCAL_MODE=false
 # If a non-root invocation cannot switch to the owner, it must fail explicitly
 # and leave the existing guidance intact.
 export WP_CODING_AGENTS_TEST_ASSUME_ROOT=false
-id() { if [ "$1" = -u ]; then printf '501\n'; else printf 'opencode\n'; fi; }
+id() { if [ "$1" = -u ]; then printf '501\n'; else printf 'pi\n'; fi; }
 if output="$(cd "$SITE_PATH" && wp_run_as_site_owner datamachine memory compose AGENTS.md 2>&1)"; then
   echo 'FAIL non-owner invocation unexpectedly composed' >&2
   exit 1

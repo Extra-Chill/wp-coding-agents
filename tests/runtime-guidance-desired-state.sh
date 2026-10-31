@@ -47,27 +47,27 @@ expected_runtime_records() {
   printf 'guidance.agents-md\nruntime.%s' "$runtime"
 }
 
-for runtime in opencode; do
+for runtime in pi; do
   setup_records="$(records_for setup "$runtime" false 'runtime guidance')"
   upgrade_records="$(records_for upgrade "$runtime" false 'runtime guidance')"
   assert_eq "$setup_records" "$upgrade_records" "$runtime setup and upgrade derive equivalent records"
   assert_eq "$setup_records" "$(expected_runtime_records "$runtime")" "$runtime exposes its supported runtime and guidance records"
 done
 
-source "$ROOT_DIR/runtimes/opencode.sh"
-INSTALLATION_PROFILE_RUNTIME=opencode
+source "$ROOT_DIR/lib/common.sh"
+INSTALLATION_PROFILE_RUNTIME=pi
 INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
 INSTALLATION_PROFILE_COMPONENTS=(runtime guidance)
 reconciler_plan_reset
 runtime_guidance_desired_state_plan
 [ "${RECONCILER_PLAN_TIMEOUTS[1]}" = 360 ] || { echo "FAIL: aggregate runtime timeout" >&2; exit 1; }
 
-external_records="$(records_for setup opencode true 'runtime guidance')"
-assert_eq "$external_records" "runtime.opencode" "external WordPress omits local guidance records"
+external_records="$(records_for setup pi true 'runtime guidance')"
+assert_eq "$external_records" "runtime.pi" "external WordPress omits local guidance records"
 
-optional_records="$(records_for upgrade opencode false 'runtime guidance' true)"
+optional_records="$(records_for upgrade pi false 'runtime guidance' true)"
 assert_eq "$optional_records" "guidance.agents-md
-runtime.opencode" "an unavailable optional runtime capability is omitted"
+runtime.pi" "an unavailable optional runtime capability is omitted"
 
 absent_records="$(records_for upgrade '' false 'plugins')"
 assert_eq "$absent_records" "" "absent optional runtime and guidance produce no records"
@@ -97,7 +97,7 @@ rm -f "$TRACE"
 log() { :; }
 SITE_PATH="$(mktemp -d)"
 MARKER='<!-- WP_CODING_AGENTS_CODEX_OVERRIDE_START -->'
-RUNTIME=opencode
+RUNTIME=pi
 printf '%s\n' "$MARKER" > "$SITE_PATH/AGENTS.override.md"
 DRY_RUN=true runtime_guidance_retire_codex_projection
 [ -e "$SITE_PATH/AGENTS.override.md" ]; assert_eq "$?" 0 "dry-run keeps the managed Codex projection"

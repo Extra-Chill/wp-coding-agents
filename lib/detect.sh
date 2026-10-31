@@ -118,7 +118,6 @@ detect_environment() {
 
   log "Detected OS: $OS (platform: $PLATFORM, local: $LOCAL_MODE)"
   log "Mode: $MODE"
-  log "Runtime: $RUNTIME"
   log "Multisite: $MULTISITE ($MULTISITE_TYPE)"
   if [ "$DRY_RUN" = true ]; then
     log "Dry-run mode: commands will be printed, not executed"
@@ -252,9 +251,9 @@ detect_service_identity() {
     SERVICE_HOME="/root"
     _detect_default_roadie_data_dir "/root/.roadie"
   else
-    SERVICE_USER="opencode"
-    SERVICE_HOME="/home/opencode"
-    _detect_default_roadie_data_dir "/home/opencode/.roadie"
+    SERVICE_USER="agent"
+    SERVICE_HOME="/home/agent"
+    _detect_default_roadie_data_dir "/home/agent/.roadie"
   fi
 }
 
