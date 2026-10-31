@@ -573,7 +573,7 @@ runtime_generate_instructions() {
   # (intelligence, etc.) automatically at runtime.
   if [ "$DRY_RUN" = false ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
     sync_homeboy_availability
-    if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
+    if wp_run_as_site_owner datamachine memory compose AGENTS.md 2>/dev/null; then
       service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       agents_md_symlink_claude_md

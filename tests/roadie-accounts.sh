@@ -67,12 +67,11 @@ echo "==> account import uses roadie credentials"
 : > "$CALLS"
 # The agent-mode markers of a Roadie tool shell must not leak into the call:
 # Roadie refuses operator-only credential commands in agent mode.
-ROADIE_AGENT_TOKEN=tok _roadie_accounts_import >/dev/null
-check $? "_roadie_accounts_import succeeds"
-grep -qx "argv: credentials import-pi --pi-data $OC --pool shared" "$CALLS"; check $? "import runs credentials import-pi on the shared pool"
+ROADIE_AGENT_TOKEN=tok _roadie_credentials list >/dev/null
+check $? "credential commands succeed"
+grep -qx "argv: credentials list" "$CALLS"; check $? "uses Roadie's credential API"
 grep -qx "env: ROADIE_DATA_DIR=$ROADIE_DATA_DIR AGENT_TOKEN=unset" "$CALLS"; check $? "runs against the bridge data dir with agent-mode markers stripped"
-ROADIE_STUB_FAIL=import-pi _roadie_accounts_import >/dev/null 2>&1
-[ $? -ne 0 ]; check $? "a failing import is reported as failure"
+! declare -F _roadie_accounts_import >/dev/null; check $? "OpenCode account import is retired"
 
 echo "==> rotations: one per stored direct model, existing ones kept"
 : > "$CALLS"

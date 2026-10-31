@@ -30,6 +30,8 @@ source "$SCRIPT_DIR/bridges/roadie.sh"
 
 log() { :; }
 warn() { printf 'WARN: %s\n' "$*" >> "$TMP/warn.log"; }
+# Observe refusal without terminating this assertion-based suite.
+error() { printf 'ERROR: %s\n' "$*" >> "$TMP/warn.log"; return 1; }
 systemctl() { :; }
 
 PI_PIN="$(tr -d '[:space:]' < "$SCRIPT_DIR/bridges/roadie/pi-version")"
@@ -120,6 +122,7 @@ reset_selection
 PENDING_ITEMS=()
 printf '#!/bin/sh\necho "0.73.1"\n' > "$PI_BIN"
 _roadie_select_pi
+[ $? -ne 0 ]; check $? "Pi failure refuses runtime selection"
 [ -z "$ROADIE_PI_BIN" ]; check $? "ROADIE_PI_BIN is left out"
 grep -q "below 1.x" "$TMP/warn.log"; check $? "the failed gate is reported"
 printf '%s\n' "${PENDING_ITEMS[@]}" | grep -q "^Pi 1.x for Roadie"; check $? "the failed gate is a pending item"
@@ -204,11 +207,11 @@ upgrade
 ! grep -q "^Environment=ROADIE_PI_MODEL=" "$UNIT"; check $? "no ROADIE_PI_MODEL is invented"
 ! grep -q "^Environment=ROADIE_PI_TITLE_MODEL=" "$UNIT"; check $? "no ROADIE_PI_TITLE_MODEL is invented"
 
-echo "==> a later failed Pi verification drops only ROADIE_PI_BIN"
+echo "==> a later failed Pi verification leaves the unit untouched"
 printf '#!/bin/sh\nexit 1\n' > "$PI_BIN"
 upgrade
-! grep -q '^Environment=ROADIE_PI_BIN=' "$UNIT"; check $? "ROADIE_PI_BIN is removed"
-! grep -q "^Environment=ROADIE_BACKEND=" "$UNIT"; check $? "no Pi fallback is rendered"
+grep -q '^Environment=ROADIE_PI_BIN=' "$UNIT"; check $? "failed Pi verification leaves the installed unit untouched"
+! grep -q "^Environment=ROADIE_BACKEND=" "$UNIT"; check $? "no runtime fallback is rendered"
 cp "$TMP/pi.orig" "$PI_BIN"
 
 echo "==> launchd plist and manual command carry the Pi keys"

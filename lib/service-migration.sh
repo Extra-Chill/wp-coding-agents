@@ -83,6 +83,7 @@ service_migration_runtime_paths() {
   cat <<'EOF'
 .roadie
 .kimaki
+.pi
 .wp-cli
 EOF
 }

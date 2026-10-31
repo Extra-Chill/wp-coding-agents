@@ -109,7 +109,7 @@ grep -qF 'AGENT_STATE_OWNERSHIP_ROOT_REPAIR_REQUIRED' upgrade.sh && ok "summary 
 grep -qF 'agent_state_ownership_reconcile' setup.sh && ok "setup hands state over" || fail "setup does not reconcile"
 grep -qF 'agent_state_ownership_reconcile' lib/service-migration.sh && ok "migration hands state over" || fail "migration does not reconcile"
 grep -qF 'agent_state_ownership_can_maintain' bridges/roadie.sh && ok "kimaki config sync skips cleanly" || fail "kimaki sync unguarded"
-grep -qF 'agent_state_ownership_can_maintain' lib/pi-subagents.sh && ok "subagent projection skips cleanly" || fail "projection unguarded"
+[ ! -e lib/opencode-subagents.sh ] && ok "OpenCode projection is retired" || fail "retired projection present"
 
 [ "$FAILED" -eq 0 ] || { echo "FAIL: agent state ownership" >&2; exit 1; }
 echo "PASS: agent state follows the service identity"

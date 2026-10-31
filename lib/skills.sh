@@ -10,19 +10,11 @@
 
 WP_CODING_AGENTS_RETIRED_SKILLS=(upgrade-wp-coding-agents wp-coding-agents-setup)
 
-# Every skill dir a detected runtime discovers.
+# Pi discovers project skills here; no runtime dispatcher is needed.
 _retired_skill_roots() {
-  local rt rt_file
-  for rt in "${DETECTED_RUNTIMES[@]:-$RUNTIME}"; do
-    rt_file="$SCRIPT_DIR/runtimes/${rt}.sh"
-    [ -f "$rt_file" ] || continue
-    (
-      # shellcheck disable=SC1090
-      source "$rt_file"
-      declare -F runtime_skill_discovery_dirs >/dev/null && runtime_skill_discovery_dirs
-      declare -F runtime_skills_dir >/dev/null && runtime_skills_dir
-    )
-  done | awk 'NF && !seen[$0]++'
+  local root="${RUNTIME_PROJECT_ROOT:-${SITE_PATH:-}}"
+  [ -n "$root" ] || return 0
+  printf '%s\n' "$root/.pi/skills" "$root/.agents/skills"
 }
 
 remove_retired_skills() {

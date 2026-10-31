@@ -15,10 +15,7 @@ external_wordpress_project_context() { :; }
 
 records_for() {
   local operation="$1" runtime="$2" external="$3" components="$4" without_mcp="${5:-false}"
-  if [ -n "$runtime" ]; then
-    # shellcheck disable=SC1090
-    source "$ROOT_DIR/runtimes/$runtime.sh"
-  fi
+  # Pi is provisioned by Roadie, not a runtimes/*.sh module.
   [ "$without_mcp" != true ] || unset -f runtime_merge_mcp_servers
   INSTALLATION_PROFILE_OPERATION="$operation"
   INSTALLATION_PROFILE_RUNTIME="$runtime"
@@ -55,6 +52,7 @@ for runtime in pi; do
 done
 
 source "$ROOT_DIR/lib/common.sh"
+log() { :; }
 INSTALLATION_PROFILE_RUNTIME=pi
 INSTALLATION_PROFILE_EXTERNAL_WORDPRESS=false
 INSTALLATION_PROFILE_COMPONENTS=(runtime guidance)
@@ -63,11 +61,11 @@ runtime_guidance_desired_state_plan
 [ "${RECONCILER_PLAN_TIMEOUTS[1]}" = 360 ] || { echo "FAIL: aggregate runtime timeout" >&2; exit 1; }
 
 external_records="$(records_for setup pi true 'runtime guidance')"
-assert_eq "$external_records" "runtime.pi" "external WordPress omits local guidance records"
+assert_eq "$external_records" "runtime.pi" "external WordPress retains context projection"
 
 optional_records="$(records_for upgrade pi false 'runtime guidance' true)"
 assert_eq "$optional_records" "guidance.agents-md
-runtime.pi" "an unavailable optional runtime capability is omitted"
+runtime.pi" "runtime guard and guidance remain without a runtime module"
 
 absent_records="$(records_for upgrade '' false 'plugins')"
 assert_eq "$absent_records" "" "absent optional runtime and guidance produce no records"

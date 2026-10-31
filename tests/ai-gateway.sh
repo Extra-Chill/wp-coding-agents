@@ -65,7 +65,8 @@ DRY_RUN=false
 WITH_AI_GATEWAY=true
 ROTATE_AI_GATEWAY_TOKEN=false
 UPDATED_ITEMS=()
-mkdir -p "$SITE_PATH/.pi"
+mkdir -p "$SITE_PATH/.wp-coding-agents"
+AI_GATEWAY_ENV_FILE="$SITE_PATH/.wp-coding-agents/wp-ai-gateway.env"
 
 echo "==> the gateway opt-in is runtime-agnostic (#774)"
 if ai_gateway_enabled; then
@@ -84,14 +85,14 @@ else
 fi
 
 echo "==> existing gateway env is reused instead of rotated"
-cat > "$SITE_PATH/.pi/wp-ai-gateway.env" <<'EOF'
+cat > "$AI_GATEWAY_ENV_FILE" <<'EOF'
 OPENAI_BASE_URL=https://old.example/wp-json/wp-ai-gateway/v1
 OPENAI_API_KEY=wpag_existing_secret
 EOF
 
 ai_gateway_write_env
-assert_file_contains "existing token preserved" "$SITE_PATH/.pi/wp-ai-gateway.env" "OPENAI_API_KEY=wpag_existing_secret"
-assert_file_contains "base URL refreshed" "$SITE_PATH/.pi/wp-ai-gateway.env" "OPENAI_BASE_URL=https://example.test/wp-json/wp-ai-gateway/v1"
+assert_file_contains "existing token preserved" "$AI_GATEWAY_ENV_FILE" "OPENAI_API_KEY=wpag_existing_secret"
+assert_file_contains "base URL refreshed" "$AI_GATEWAY_ENV_FILE" "OPENAI_BASE_URL=https://example.test/wp-json/wp-ai-gateway/v1"
 
 echo "==> dry-run redacts gateway token material"
 DRY_RUN=true
@@ -99,14 +100,14 @@ ROTATE_AI_GATEWAY_TOKEN=true
 DRY_OUTPUT="$(ai_gateway_write_env 2>&1)"
 assert_lacks "dry-run does not print existing token" "$DRY_OUTPUT" "wpag_existing_secret"
 assert_lacks "dry-run does not print fake token" "$DRY_OUTPUT" "wpag_"
-assert_file_contains "dry-run leaves env token untouched" "$SITE_PATH/.pi/wp-ai-gateway.env" "OPENAI_API_KEY=wpag_existing_secret"
+assert_file_contains "dry-run leaves env token untouched" "$AI_GATEWAY_ENV_FILE" "OPENAI_API_KEY=wpag_existing_secret"
 
 echo "==> the token is reused across upgrades"
 DRY_RUN=false
 ROTATE_AI_GATEWAY_TOKEN=false
 ai_gateway_write_env
 ai_gateway_write_env
-assert_file_contains "second upgrade run keeps the minted token" "$SITE_PATH/.pi/wp-ai-gateway.env" "OPENAI_API_KEY=wpag_existing_secret"
+assert_file_contains "second upgrade run keeps the minted token" "$AI_GATEWAY_ENV_FILE" "OPENAI_API_KEY=wpag_existing_secret"
 
 echo "==> unit/plist dry-run diffs redact secrets"
 REDACTED="$(printf '%s\n' '+Environment=OPENAI_API_KEY=wpag_existing_secret' ' <key>ROADIE_BOT_TOKEN</key>' ' <string>discord_secret</string>' | _redact_secret_diff)"
@@ -131,7 +132,7 @@ assert_file_contains "launchd Pi model value is the gateway provider/model" "$PL
 SYSTEMD_ENV_OUT="$(_roadie_append_env_files "$(_roadie_template_env /usr/bin:/bin)")"
 printf '%s\n' "$SYSTEMD_ENV_OUT" > "$TMPDIR_TEST/systemd-env"
 assert_file_contains "systemd env carries the gateway Pi model" "$TMPDIR_TEST/systemd-env" "Environment=ROADIE_PI_MODEL=wp-ai-gateway/site-default"
-assert_file_contains "systemd env references the gateway env file" "$TMPDIR_TEST/systemd-env" "EnvironmentFile=-$SITE_PATH/.pi/wp-ai-gateway.env"
+assert_file_contains "systemd env references the gateway env file" "$TMPDIR_TEST/systemd-env" "EnvironmentFile=-$AI_GATEWAY_ENV_FILE"
 
 echo "==> an explicit operator model beats the gateway model"
 EXPLICIT_MODEL="$(ROADIE_PI_MODEL_EXPLICIT=true ROADIE_PI_MODEL=custom/pinned _roadie_pi_model_value)"
@@ -243,71 +244,9 @@ fi
 AI_GATEWAY_ROUTE_PROVIDER="openai"
 AI_GATEWAY_ROUTE_MODEL="gpt-4o-mini"
 
-echo "==> pi.json merge uses Pi custom provider shape"
-DRY_RUN=false
-cat > "$SITE_PATH/pi.json" <<'JSON'
-{
-  "$schema": "https://pi.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-5",
-  "provider": {
-    "custom": {
-      "name": "Custom",
-      "models": {}
-    }
-  }
-}
-JSON
-
-ai_gateway_configure_pi
-python3 - "$SITE_PATH/pi.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    data = json.load(handle)
-
-provider = data["provider"]["wp-ai-gateway"]
-assert provider["npm"] == "@ai-sdk/openai-compatible"
-assert provider["env"] == ["OPENAI_API_KEY"]
-assert provider["options"]["baseURL"] == "{env:OPENAI_BASE_URL}"
-assert "site-default" in provider["models"]
-assert provider["models"]["site-default"]["id"] == "site-default"
-assert data["model"] == "anthropic/claude-sonnet-4-5"
-assert "custom" in data["provider"]
-PY
-
-echo "==> visible gateway identity is separate from the API model"
-AI_GATEWAY_PROVIDER_ID="openai"
-AI_GATEWAY_MODEL_ID="gpt-5.6-sol"
-AI_GATEWAY_API_MODEL_ID="site-default"
-cat > "$SITE_PATH/pi.json" <<'JSON'
-{
-  "$schema": "https://pi.ai/config.json",
-  "provider": {
-    "openai": {
-      "models": {
-        "gpt-5.6-sol": {
-          "id": "stale-model"
-        }
-      }
-    }
-  }
-}
-JSON
-
-ai_gateway_configure_pi
-python3 - "$SITE_PATH/pi.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    data = json.load(handle)
-
-model = data["provider"]["openai"]["models"]["gpt-5.6-sol"]
-assert data["provider"]["openai"]["npm"] == "@ai-sdk/openai"
-assert data["model"] == "openai/gpt-5.6-sol"
-assert model["id"] == "site-default"
-PY
+echo "==> gateway does not create a legacy OpenCode config"
+[ ! -e "$SITE_PATH/opencode.json" ]
+[ ! -e "$SITE_PATH/pi.json" ]
 
 echo
 if [ "$FAIL" -gt 0 ]; then

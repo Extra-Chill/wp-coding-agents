@@ -25,8 +25,6 @@
         <string>/home/chubes/.local/bin:/opt/homebrew/bin:/home/chubes/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>ROADIE_DATA_DIR</key>
         <string>/home/chubes/.roadie</string>
-        <key>ROADIE_BACKEND</key>
-        <string>pi</string>
         <key>ROADIE_MANAGED</key>
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>

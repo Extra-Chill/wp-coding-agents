@@ -240,7 +240,7 @@ for key in ROADIE_MANAGED ROADIE_NO_DEFAULT_CHANNEL; do
   fi
 done
 # Pi is Roadie's only backend (roadie#177): no backend selector is rendered.
-if ! printf '%s' "$PLIST" | grep -q "<key>ROADIE_BACKEND</key>"; then
+if printf '%s' "$PLIST" | grep -q "<key>ROADIE_BACKEND</key>"; then
   check 1 "launchd plist sets no ROADIE_BACKEND"
 else
   check 0 "launchd plist sets no ROADIE_BACKEND"

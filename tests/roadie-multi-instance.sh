@@ -9,6 +9,8 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/grants.sh"
 source "$SCRIPT_DIR/bridges/_dispatch.sh"
 source "$SCRIPT_DIR/bridges/roadie.sh"
+# Unit selection is independent of Pi provisioning.
+_roadie_select_pi() { ROADIE_PI_BIN=/fixture/pi; }
 
 # Top-level defaults must distinguish an absent ROADIE_UNIT from an explicitly
 # supplied default unit. That explicit default prevents site-path auto-selection.

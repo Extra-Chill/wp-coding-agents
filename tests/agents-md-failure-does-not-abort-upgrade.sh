@@ -31,12 +31,10 @@ fi
 PHASES_AFTER=(
   runtime_guidance_retire_codex_projection
   sync_runtime_instructions
-  pi_project_subagents_optional
   update_chat_bridge_systemd
   update_chat_bridge_launchd
   reconcile_wordpress_service
   reconcile_datamachine_worker_service
-  refresh_pi_runtime_signature_phase
   installation_profile_write
   print_summary
 )

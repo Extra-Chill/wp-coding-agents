@@ -147,8 +147,13 @@ for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
   grep -Fq "Environment=$required" "$TMPDIR_NEW/roadie-systemd" \
     || { echo "FAIL: Roadie systemd unit is missing Environment=$required"; exit 1; }
 done
+# Neither unit format may put the retired runtime's bin directory on PATH.
+if grep -q '\.opencode/bin' "$TMPDIR_NEW/roadie-systemd" "$TMPDIR_NEW/roadie-launchd"; then
+  echo "FAIL: Roadie PATH still contains the retired OpenCode bin directory"
+  exit 1
+fi
 # Pi is Roadie's only backend (roadie#177): ROADIE_BACKEND is never rendered.
-if ! grep -q '^Environment=ROADIE_BACKEND=pi$' "$TMPDIR_NEW/roadie-systemd"; then
+if grep -q '^Environment=ROADIE_BACKEND=' "$TMPDIR_NEW/roadie-systemd"; then
   echo "FAIL: Roadie systemd unit renders the removed ROADIE_BACKEND selector"
   exit 1
 fi

@@ -541,6 +541,7 @@
       "evidence_kind": "runtime",
       "contracts": ["datamachine_code_worktree_runtime_signatures", "datamachine_code_worktree_context_projection_targets", "datamachine_code_worktree_context_projection_cleanup", "data-machine-code"],
       "current_owner": "wp-coding-agents producer over DMC hooks",
+      "current_consumers": ["Legacy generated runtime attribution hooks (retired runtime; cleanup remains)"],
       "persistence": "Generated wp-coding-agents-runtimes.php and projected checkout files",
       "target_owner": "Homeboy",
       "disposition": "replace",

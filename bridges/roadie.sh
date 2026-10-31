@@ -435,6 +435,7 @@ _roadie_select_pi() {
   if [ "$ROADIE_PI_VERIFIED" != none ]; then
     ROADIE_PI_BIN="$ROADIE_PI_VERIFIED"
   else
+    ROADIE_PI_BIN=""
     error "Pi could not be installed or verified; refusing to configure Roadie."
     return 1
   fi
@@ -1685,7 +1686,6 @@ Environment=HOME=$SERVICE_HOME
 Environment=PATH=$path_value
 Environment=ROADIE_DATA_DIR=$ROADIE_DATA_DIR
 Environment=ROADIE_MANAGED=1
-Environment=ROADIE_BACKEND=pi
 Environment=ROADIE_NO_DEFAULT_CHANNEL=1
 Environment=ROADIE_PROMPT_CONFIG=$(roadie_prompt_config_file)
 Environment=ROADIE_PLUGINS=$(roadie_plugins_value)
@@ -2118,8 +2118,6 @@ bridge_render_launchd() {
         <string>$(xml_escape "$path_value")</string>
         <key>ROADIE_DATA_DIR</key>
         <string>$(xml_escape "$ROADIE_DATA_DIR")</string>
-        <key>ROADIE_BACKEND</key>
-        <string>pi</string>
         <key>ROADIE_MANAGED</key>
         <string>1</string>
         <key>ROADIE_NO_DEFAULT_CHANNEL</key>
@@ -2176,8 +2174,6 @@ roadie_render_upgrade_launchd() {
         <string>$(xml_escape "$path_value")</string>
         <key>ROADIE_DATA_DIR</key>
         <string>$(xml_escape "$ROADIE_DATA_DIR")</string>
-        <key>ROADIE_BACKEND</key>
-        <string>pi</string>
         <key>ROADIE_MANAGED</key>
         <string>1</string>
     </dict>

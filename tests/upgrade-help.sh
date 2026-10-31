@@ -75,7 +75,7 @@ else
 fi
 
 echo "==> migration default user still resolves to a real value"
-if ! grep -q "(default: pi)\." "$OUT"; then
+if ! grep -q "(default: agent)\." "$OUT"; then
   echo "  FAIL expected literal 'agent' substituted for the migration default user"
   FAILED=1
 else

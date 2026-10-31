@@ -126,7 +126,7 @@ man="$(service_migration_inventory owned)"
 
 # Runtime state is what the agent IS — required under every mode, or the
 # migrated service comes back with no sessions and no runtime auth.
-for p in .roadie .config/pi .local/share/pi; do
+for p in .roadie .pi; do
   assert_contains "$eng" "$p" "engineering carries $p"
   assert_contains "$man" "$p" "managed carries $p"
 done
