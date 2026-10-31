@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.0] - 2026-10-31
+
+### Added
+- install and upgrade Data Machine from GitHub release zips
+
 ## [3.6.0] - 2026-10-31
 
 ### Added
