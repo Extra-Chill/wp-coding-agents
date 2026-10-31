@@ -24,6 +24,10 @@ wp_cmd() {
   printf '%s\n' "$*" >> "$tmp/wp"
   if [ "$1 $2" = 'plugin get' ]; then
     echo "$installed"
+  elif [ "$1 $2" = 'option get' ]; then
+    [ -f "$tmp/owned" ] && cat "$tmp/owned" || return 1
+  elif [ "$1 $2" = 'option update' ]; then
+    [ "$DRY_RUN" = true ] || printf '%s\n' "$4" > "$tmp/owned"
   elif [ "$1 $2" = 'plugin install' ]; then
     [ "$DRY_RUN" = true ] || { rm -rf "$SITE_PATH/wp-content/plugins/data-machine"; mkdir -p "$SITE_PATH/wp-content/plugins/data-machine"; }
   fi
@@ -35,7 +39,8 @@ install_plugin_from_release_zip data-machine Extra-Chill/data-machine data-machi
 assert_contains "$tmp/wp" 'plugin install https://example.test/data-machine.zip --force'
 assert_contains "$tmp/wp" 'plugin activate data-machine'
 assert_contains "$tmp/api" 'page=3'
-echo 'PASS fresh install, sibling filtering and pagination'
+assert_contains "$tmp/owned" 'data-machine'
+echo 'PASS fresh install, sibling filtering and pagination, ownership recorded'
 
 : > "$tmp/wp"
 installed=0.200.1
@@ -84,6 +89,22 @@ installed=0.999.0
 update
 ! grep -q 'plugin install' "$tmp/wp"
 echo 'PASS dry run and no downgrade'
+
+# A directory placed by something else (deploy pipeline, wp-admin) is never
+# touched: not on upgrade, not on setup.
+rm -f "$tmp/owned"
+installed=0.100.0
+: > "$tmp/wp"
+PLUGIN_UPDATE_MUTATED=false
+update > "$tmp/foreign"
+! grep -q 'plugin install' "$tmp/wp"
+[ "$PLUGIN_UPDATE_MUTATED" = false ]
+assert_contains "$tmp/foreign" 'managed outside wp-coding-agents'
+: > "$tmp/wp"
+install_plugin_from_release_zip data-machine Extra-Chill/data-machine data-machine.zip data-machine > "$tmp/foreign"
+! grep -q 'plugin install' "$tmp/wp"
+assert_contains "$tmp/foreign" 'managed outside wp-coding-agents'
+echo 'PASS foreign-managed install left alone'
 
 export LEGACY_ONLY=true
 resolved=$(plugin_release_zip_resolve Extra-Chill/data-machine data-machine.zip data-machine)

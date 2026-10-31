@@ -193,21 +193,46 @@ plugin_release_installed_version() {
   wp_cmd plugin get "$1" --field=version
 }
 
+# Release-zip installs this tool owns. A plugin directory that is neither a git
+# checkout nor recorded here was put there by something else (a deploy
+# pipeline, wp-admin, a host); upgrades must leave it alone rather than become
+# a second writer of the same directory.
+PLUGIN_RELEASE_ZIP_OPTION="wp_coding_agents_release_zip_plugins"
+
+plugin_release_zip_owned() {
+  local DRY_RUN=false owned
+  owned=$(wp_cmd option get "$PLUGIN_RELEASE_ZIP_OPTION" 2>/dev/null) || owned=''
+  printf '%s\n' $owned | grep -qx -- "$1"
+}
+
+plugin_release_zip_record() {
+  local slug="$1" owned
+  plugin_release_zip_owned "$slug" && return 0
+  owned=$(DRY_RUN=false wp_cmd option get "$PLUGIN_RELEASE_ZIP_OPTION" 2>/dev/null) || owned=''
+  wp_cmd option update "$PLUGIN_RELEASE_ZIP_OPTION" "$(printf '%s %s' "$owned" "$slug" | xargs)" >/dev/null
+}
+
 install_plugin_from_release_zip() {
   local slug="$1" repo="$2" asset="$3" prefix="$4" resolved tree
-  if [ -e "$SITE_PATH/wp-content/plugins/$slug/.git" ]; then
-    tree=$(git -C "$SITE_PATH/wp-content/plugins/$slug" status --porcelain) || return $?
+  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
+  if [ -e "$plugin_dir/.git" ]; then
+    tree=$(git -C "$plugin_dir" status --porcelain) || return $?
     if [ -n "$tree" ]; then
       warn "Plugin $slug has local changes — skipping release zip install"
       return 0
     fi
+  elif [ -d "$plugin_dir" ] && ! plugin_release_zip_owned "$slug"; then
+    log "Plugin $slug already installed and managed outside wp-coding-agents — leaving it alone"
+    activate_plugin "$slug"
+    return 0
   fi
   resolved=$(plugin_release_zip_resolve "$repo" "$asset" "$prefix") || return $?
   local version tag url
   IFS=$'\t' read -r version tag url <<<"$resolved"
   wp_cmd plugin install "$url" --force || return $?
+  plugin_release_zip_record "$slug" || warn "Could not record $slug as a wp-coding-agents release-zip install"
   activate_plugin "$slug"
-  fix_ownership "$SITE_PATH/wp-content/plugins/$slug"
+  fix_ownership "$plugin_dir"
 }
 
 update_plugin_from_release_zip() {
@@ -220,6 +245,9 @@ update_plugin_from_release_zip() {
       return 0
     fi
     migration=true
+  elif [ -d "$plugin_dir" ] && ! plugin_release_zip_owned "$slug"; then
+    log "Plugin $slug is managed outside wp-coding-agents (not a git checkout or recorded release-zip install) — skipping"
+    return 0
   fi
   plugin_update_run_phase "$slug" release-discovery plugin_release_zip_resolve "$repo" "$asset" "$prefix" || return $?
   local version tag url current='' newest
@@ -241,6 +269,7 @@ update_plugin_from_release_zip() {
   # WP-CLI replaces the plugin directory (including .git), not its database
   # records or activation option. Do not deactivate/uninstall during migration.
   plugin_update_run_phase "$slug" release-install wp_cmd plugin install "$url" --force || return $?
+  plugin_update_run_phase "$slug" ownership-record plugin_release_zip_record "$slug" || return $?
   UPDATED_ITEMS+=("$slug $tag")
   PLUGIN_UPDATE_MUTATED=true
   if [ -z "$current" ]; then

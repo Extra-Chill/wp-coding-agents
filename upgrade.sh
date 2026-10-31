@@ -361,7 +361,9 @@ NEVER TOUCHED:
 
 DEFAULT TOUCHES:
    - data-machine — installs stable GitHub release zips, migrating clean git
-     checkouts. wp-codebox keeps its existing source update path.
+     checkouts. Directories managed elsewhere (not a git checkout and not a
+     recorded release-zip install) are skipped. wp-codebox keeps its
+     existing source update path.
      Use --skip-plugins to skip this phase.
   - Carried provider plugins, Homeboy provider configuration, chat-bridge
     configuration, and service templates are reconciled during a full upgrade
