@@ -145,7 +145,7 @@ run_bridge_step; rc=$?
 ! grep -q 'wordpress-platform.mjs' "$PLIST"; check $? "ROADIE_PLUGINS not switched"
 grep -q 'datamachine/resolve-chat-person' "$TMP/out"; check $? "failure names the missing ability"
 grep -q 'Data Machine >= v0.184.0' "$TMP/out"; check $? "failure names the required Data Machine version"
-grep -q 'data-machine.zip' "$TMP/out"; check $? "failure says how to update Data Machine"
+grep -q 'upgrade.sh --plugins-only' "$TMP/out"; check $? "failure says how to update Data Machine"
 grep -q '^eval ' "$STUB_WP_LOG"; check $? "ability probed through WP-CLI"
 
 echo "==> legacy people map: exact chat-identity link commands are printed"

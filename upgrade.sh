@@ -360,9 +360,11 @@ NEVER TOUCHED:
   - Running chat-bridge service (never restarted automatically)
 
 DEFAULT TOUCHES:
-   - data-machine and wp-codebox — updates setup-installed sources. Non-git
-     plugin directories are
-    skipped. Use --skip-plugins to skip this phase.
+   - data-machine — installs stable GitHub release zips, migrating clean git
+     checkouts. Directories managed elsewhere (not a git checkout and not a
+     recorded release-zip install) are skipped. wp-codebox keeps its
+     existing source update path.
+     Use --skip-plugins to skip this phase.
   - Carried provider plugins, Homeboy provider configuration, chat-bridge
     configuration, and service templates are reconciled during a full upgrade
     or explicitly with --reconcile-services.
@@ -699,7 +701,7 @@ update_data_machine_plugins() {
 }
 
 _reconcile_data_machine_plugin() {
-  plugin_update_execute data-machine update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
+  plugin_update_execute data-machine update_plugin_from_release_zip data-machine Extra-Chill/data-machine data-machine.zip data-machine
 }
 
 _reconcile_wp_codebox_plugin() {

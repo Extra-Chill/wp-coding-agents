@@ -304,6 +304,7 @@ jobs:
           - path-helpers
           - plugins-only-scope
           - plugin-upgrade-bounds
+          - plugin-release-zips
           - plugin-terminal-verification
           - runtime-signature
           - runtime-guidance-desired-state

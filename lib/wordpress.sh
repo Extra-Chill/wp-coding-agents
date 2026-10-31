@@ -154,6 +154,130 @@ install_plugin_dependencies() {
   fi
 }
 
+# Resolve component and legacy releases across every API page. Do not use
+# /latest: sibling components in a monorepo share the release list.
+plugin_release_zip_resolve() {
+  local repo="$1" asset="$2" prefix="$3" page=1 response releases='[]'
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  while :; do
+    if command -v gh >/dev/null 2>&1; then
+      response=$(gh api "repos/$repo/releases?per_page=100&page=$page") || return $?
+    else
+      local headers=(-H 'Accept: application/vnd.github+json')
+      [ -z "$token" ] || headers+=(-H "Authorization: Bearer $token")
+      response=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 60 \
+        "${headers[@]}" "https://api.github.com/repos/$repo/releases?per_page=100&page=$page") || return $?
+    fi
+    jq -e 'type == "array"' >/dev/null <<<"$response" || return 1
+    [ "$(jq length <<<"$response")" -ne 0 ] || break
+    releases=$(jq -cn --argjson old "$releases" --argjson new "$response" '$old + $new') || return 1
+    page=$((page + 1))
+  done
+  # Numeric tuple ordering avoids publication-date and lexicographic ordering.
+  jq -er --arg prefix "$prefix" --arg asset "$asset" '
+    [.[] | select(.draft == false and .prerelease == false)
+      | .tag_name as $tag
+      | (if ($tag | startswith($prefix + "-v")) then $tag[($prefix | length) + 2:]
+         elif ($tag | startswith("v")) then $tag[1:] else "" end) as $version
+      | select($version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+      | {tag: $tag, version: $version, key: ($version | split(".") | map(tonumber)),
+         url: ([.assets[] | select(.name == $asset) | .browser_download_url][0])}]
+    | sort_by(.key) | last
+    | select(.url != null and .url != "")
+    | [.version, .tag, .url] | @tsv' <<<"$releases"
+}
+
+# Reads must still execute in dry-run, while all writes use wp_cmd/run_cmd.
+plugin_release_installed_version() {
+  local DRY_RUN=false
+  wp_cmd plugin get "$1" --field=version
+}
+
+# Release-zip installs this tool owns. A plugin directory that is neither a git
+# checkout nor recorded here was put there by something else (a deploy
+# pipeline, wp-admin, a host); upgrades must leave it alone rather than become
+# a second writer of the same directory.
+PLUGIN_RELEASE_ZIP_OPTION="wp_coding_agents_release_zip_plugins"
+
+plugin_release_zip_owned() {
+  local DRY_RUN=false owned
+  owned=$(wp_cmd option get "$PLUGIN_RELEASE_ZIP_OPTION" 2>/dev/null) || owned=''
+  printf '%s\n' $owned | grep -qx -- "$1"
+}
+
+plugin_release_zip_record() {
+  local slug="$1" owned
+  plugin_release_zip_owned "$slug" && return 0
+  owned=$(DRY_RUN=false wp_cmd option get "$PLUGIN_RELEASE_ZIP_OPTION" 2>/dev/null) || owned=''
+  wp_cmd option update "$PLUGIN_RELEASE_ZIP_OPTION" "$(printf '%s %s' "$owned" "$slug" | xargs)" >/dev/null
+}
+
+install_plugin_from_release_zip() {
+  local slug="$1" repo="$2" asset="$3" prefix="$4" resolved tree
+  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
+  if [ -e "$plugin_dir/.git" ]; then
+    tree=$(git -C "$plugin_dir" status --porcelain) || return $?
+    if [ -n "$tree" ]; then
+      warn "Plugin $slug has local changes — skipping release zip install"
+      return 0
+    fi
+  elif [ -d "$plugin_dir" ] && ! plugin_release_zip_owned "$slug"; then
+    log "Plugin $slug already installed and managed outside wp-coding-agents — leaving it alone"
+    activate_plugin "$slug"
+    return 0
+  fi
+  resolved=$(plugin_release_zip_resolve "$repo" "$asset" "$prefix") || return $?
+  local version tag url
+  IFS=$'\t' read -r version tag url <<<"$resolved"
+  wp_cmd plugin install "$url" --force || return $?
+  plugin_release_zip_record "$slug" || warn "Could not record $slug as a wp-coding-agents release-zip install"
+  activate_plugin "$slug"
+  fix_ownership "$plugin_dir"
+}
+
+update_plugin_from_release_zip() {
+  local slug="$1" repo="$2" asset="$3" prefix="$4"
+  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug" migration=false
+  if [ -e "$plugin_dir/.git" ]; then
+    plugin_update_run_phase "$slug" working-tree-inspection git -C "$plugin_dir" status --porcelain || return $?
+    if [ -n "$PLUGIN_PHASE_OUTPUT" ]; then
+      warn "Plugin $slug has local changes — skipping release zip update"
+      return 0
+    fi
+    migration=true
+  elif [ -d "$plugin_dir" ] && ! plugin_release_zip_owned "$slug"; then
+    log "Plugin $slug is managed outside wp-coding-agents (not a git checkout or recorded release-zip install) — skipping"
+    return 0
+  fi
+  plugin_update_run_phase "$slug" release-discovery plugin_release_zip_resolve "$repo" "$asset" "$prefix" || return $?
+  local version tag url current='' newest
+  IFS=$'\t' read -r version tag url <<<"$PLUGIN_PHASE_OUTPUT"
+  if [ -d "$plugin_dir" ]; then
+    plugin_update_run_phase "$slug" installed-version plugin_release_installed_version "$slug" || return $?
+    current="$PLUGIN_PHASE_OUTPUT"
+    [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { warn "Cannot compare $slug version: $current"; return 1; }
+    newest=$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)
+    if [ "$newest" = "$current" ] && { [ "$migration" = false ] || [ "$version" != "$current" ]; }; then
+      log "Plugin $slug already current ($current); no newer release"
+      return 0
+    fi
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    log "[dry-run] Would install $slug $tag from $url --force (git migration=$migration)"
+    return 0
+  fi
+  # WP-CLI replaces the plugin directory (including .git), not its database
+  # records or activation option. Do not deactivate/uninstall during migration.
+  plugin_update_run_phase "$slug" release-install wp_cmd plugin install "$url" --force || return $?
+  plugin_update_run_phase "$slug" ownership-record plugin_release_zip_record "$slug" || return $?
+  UPDATED_ITEMS+=("$slug $tag")
+  PLUGIN_UPDATE_MUTATED=true
+  if [ -z "$current" ]; then
+    plugin_update_run_phase "$slug" activation activate_plugin "$slug" || return $?
+  fi
+  plugin_update_run_phase "$slug" ownership-normalization fix_ownership "$plugin_dir" || return $?
+}
+
 # Update a git-installed plugin to its latest version tag.
 update_plugin_to_latest_tag() {
   local slug="$1"
