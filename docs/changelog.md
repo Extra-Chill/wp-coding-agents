@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.17] - 2026-10-31
+
+### Fixed
+- attribute HOMEBOY_REQUESTER to the speaker's display name
+
 ## [3.5.16] - 2026-10-30
 
 ### Changed
