@@ -4,7 +4,7 @@
 # owners; it only makes their presence and plan records explicit.
 
 bridge_service_adapter_names() {
-  printf '%s\n' bridge wordpress-service datamachine-worker homeboy-daemon
+  printf '%s\n' agent-tmpdir bridge wordpress-service datamachine-worker homeboy-daemon
 }
 
 bridge_service_adapter_operation_validate() {
@@ -19,6 +19,9 @@ bridge_service_adapter_detect() {
   BRIDGE_SERVICE_ADAPTER_PRESENT=false
 
   case "$adapter" in
+    agent-tmpdir)
+      [ -n "${AGENT_TMPDIR:-}" ] && BRIDGE_SERVICE_ADAPTER_PRESENT=true
+      ;;
     bridge)
       [ "${INSTALL_CHAT:-false}" = true ] || return 0
       if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then
@@ -70,6 +73,7 @@ bridge_service_adapter_detect() {
 
 bridge_service_adapter_record() {
   case "$1" in
+    agent-tmpdir) printf 'services.agent-tmpdir' ;;
     bridge) printf 'bridges.%s' "$CHAT_BRIDGE" ;;
     wordpress-service) printf 'services.wordpress' ;;
     datamachine-worker) printf 'services.datamachine-worker' ;;
@@ -99,9 +103,41 @@ bridge_service_adapters_plan() {
   bridge_service_adapter_operation_validate "$operation"
   BRIDGE_SERVICE_ADAPTER_OPERATION="$operation"
   for adapter in $(bridge_service_adapter_names); do
-    [ "${BRIDGE_SERVICE_ADAPTER_SCOPE:-all}" != bridge ] || [ "$adapter" = bridge ] || continue
+    # Units of every scope reference TMPDIR, so its directory always reconciles first.
+    [ "${BRIDGE_SERVICE_ADAPTER_SCOPE:-all}" != bridge ] || [ "$adapter" = bridge ] || [ "$adapter" = agent-tmpdir ] || continue
     bridge_service_adapter_plan "$adapter"
   done
+}
+
+# Agent scratch lives on the workspace volume, not the filesystem serving the
+# site. systemd-tmpfiles creates it at boot and ages out files older than
+# AGENT_TMPDIR_MAX_AGE through systemd-tmpfiles-clean.timer.
+agent_tmpdir_tmpfiles_conf() {
+  printf '/etc/tmpfiles.d/wp-coding-agents-tmp.conf'
+}
+
+agent_tmpdir_render_tmpfiles() {
+  local group
+  group="$(id -gn "$SERVICE_USER" 2>/dev/null || echo "$SERVICE_USER")"
+  printf 'd %s 0700 %s %s %s\n' "$AGENT_TMPDIR" "$SERVICE_USER" "$group" "${AGENT_TMPDIR_MAX_AGE:-3d}"
+}
+
+bridge_service_adapter_apply_agent_tmpdir() {
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    warn "Skipping agent TMPDIR because upgrade is running non-root"
+    return 0
+  fi
+  write_file "$(agent_tmpdir_tmpfiles_conf)" "$(agent_tmpdir_render_tmpfiles)"
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  if command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create "$(agent_tmpdir_tmpfiles_conf)"
+  else
+    install -d -m 0700 -o "$SERVICE_USER" "$AGENT_TMPDIR"
+  fi
+}
+
+bridge_service_adapter_verify_agent_tmpdir() {
+  [ "${DRY_RUN:-false}" = true ] || [ -d "$AGENT_TMPDIR" ]
 }
 
 bridge_service_adapter_apply_bridge() {

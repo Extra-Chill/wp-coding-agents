@@ -590,6 +590,7 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
+source_policy_resolve_agent_tmpdir
 
 # Owned mode defaults to a non-root service user (#327). Must run after the mode
 # resolves and before create_service_user / setup_service_permissions, both of

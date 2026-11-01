@@ -72,6 +72,8 @@ case "$unit" in *roadie*|*kimaki*) fail "daemon unit names a chat bridge" ;; esa
 grep -q "HOMEBOY_DATA_DIR" <<< "$unit" && fail "unit sets HOMEBOY_DATA_DIR without a workspace root"
 unit="$(HOMEBOY_DATA_DIR=/srv/workspace/.homeboy homeboy_daemon_render_systemd_service)"
 grep -Fqx "Environment=\"HOMEBOY_DATA_DIR=/srv/workspace/.homeboy\"" <<< "$unit" || fail "unit does not carry the workspace Homeboy data root"
+unit="$(AGENT_TMPDIR=/srv/workspace/.tmp homeboy_daemon_render_systemd_service)"
+grep -Fqx "Environment=\"TMPDIR=/srv/workspace/.tmp\"" <<< "$unit" || fail "unit does not put agent scratch on the workspace volume"
 
 # --- Applicability -------------------------------------------------------------
 homeboy_daemon_service_applicable && fail "unit applies before the managed binary exists"
