@@ -239,4 +239,17 @@ HOMEBOY_DATA_DIR=/data/hb DM_WORKSPACE_DIR=/srv/ws
 source_policy_resolve_homeboy_data_dir
 [ "$HOMEBOY_DATA_DIR" = /data/hb ] || fail "operator-set data root was overridden"
 
+# --- Agent scratch: explicit flag, else the root-owned tmpfiles record -------
+export AGENT_TMPDIR_TMPFILES_CONF="$TMP/agent-tmp.conf"
+resolve_tmpdir() { AGENT_TMPDIR_REQUEST="$1" LOCAL_MODE="$2" source_policy_resolve_agent_tmpdir; printf '%s' "$AGENT_TMPDIR"; }
+DM_WORKSPACE_DIR=/srv/repo
+[ -z "$(resolve_tmpdir "" false)" ] || fail "scratch resolved without an explicit choice"
+[ "$(resolve_tmpdir /mnt/ws/.tmp/ false)" = /mnt/ws/.tmp ] || fail "--agent-tmpdir was not honored"
+[ -z "$(resolve_tmpdir /mnt/ws/.tmp true)" ] || fail "local install moved TMPDIR"
+printf 'd /mnt/ws/.tmp 0700 wpagent wpagent 3d\n' > "$AGENT_TMPDIR_TMPFILES_CONF"
+[ "$(resolve_tmpdir "" false)" = /mnt/ws/.tmp ] || fail "persisted scratch dir was not read back"
+for bad in tmp /tmp /mnt/../etc "/mnt/a b"; do
+  ( resolve_tmpdir "$bad" false ) >/dev/null 2>&1 && fail "--agent-tmpdir accepted '$bad'"
+done
+
 echo "PASS: tests/homeboy-daemon-service.sh"

@@ -153,6 +153,7 @@ while [[ $# -gt 0 ]]; do
     --rotate-ai-gateway-token) ROTATE_AI_GATEWAY_TOKEN=true; shift ;;
     --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
     --no-wordpress-chat) WORDPRESS_CHAT_DISABLE=true; shift ;;
+    --agent-tmpdir) AGENT_TMPDIR_REQUEST="$2"; shift 2 ;;
     --host-config-repo) HOST_CONFIG_REPO="$2"; shift 2 ;;
     --host-config-path) HOST_CONFIG_PATH="$2"; shift 2 ;;
     --host-config-ref) HOST_CONFIG_REF="$2"; shift 2 ;;
@@ -293,6 +294,13 @@ USAGE:
                                 repo fetched into a root-owned bare mirror and
                                 read at the merged ref (default main), never a
                                 working tree. Values persist across upgrades.
+  ./upgrade.sh --agent-tmpdir <path>
+                                Point agent scratch (TMPDIR for Roadie, the
+                                Homeboy daemon and the Data Machine worker) at
+                                <path>, e.g. a workspace volume, so build trees
+                                and clones stay off the site's filesystem.
+                                Files older than 3 days age out. Persists
+                                across upgrades.
   ./upgrade.sh --with-datamachine-worker
                                  Opt in to the managed bounded Data Machine
                                  worker. The choice persists across upgrades.

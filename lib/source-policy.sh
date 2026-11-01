@@ -898,11 +898,27 @@ source_policy_resolve_workspace_dir() {
 }
 
 # Homeboy's durable state follows an explicitly configured repository workspace.
+# Agent scratch (TMPDIR) is an explicit operator choice: --agent-tmpdir, or
+# the root-owned tmpfiles entry an earlier run wrote. Root creates and ages
+# out that directory, so the path is never read from agent-writable state.
+agent_tmpdir_tmpfiles_conf() {
+  printf '%s' "${AGENT_TMPDIR_TMPFILES_CONF:-/etc/tmpfiles.d/wp-coding-agents-tmp.conf}"
+}
+
 source_policy_resolve_agent_tmpdir() {
-  [ -n "${AGENT_TMPDIR:-}" ] && return 0
+  AGENT_TMPDIR=""
   [ "${LOCAL_MODE:-false}" = false ] || return 0
-  if [ -n "${DM_WORKSPACE_DIR:-}" ]; then
-    AGENT_TMPDIR="$DM_WORKSPACE_DIR/.tmp"
+  if [ -n "${AGENT_TMPDIR_REQUEST:-}" ]; then
+    case "$AGENT_TMPDIR_REQUEST" in
+      /*/*) ;;
+      *) error "--agent-tmpdir must be an absolute path below a top-level directory: $AGENT_TMPDIR_REQUEST" ;;
+    esac
+    case "$AGENT_TMPDIR_REQUEST" in
+      *[[:space:]]*|*..*) error "--agent-tmpdir must not contain whitespace or '..': $AGENT_TMPDIR_REQUEST" ;;
+    esac
+    AGENT_TMPDIR="${AGENT_TMPDIR_REQUEST%/}"
+  elif [ -f "$(agent_tmpdir_tmpfiles_conf)" ]; then
+    AGENT_TMPDIR="$(awk '$1 == "d" { print $2; exit }' "$(agent_tmpdir_tmpfiles_conf)")"
   fi
   return 0
 }
