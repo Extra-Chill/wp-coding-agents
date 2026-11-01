@@ -448,4 +448,7 @@ homeboy_data_dir_systemd_env() {
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf '\nEnvironment=%s' "$(systemd_quote "HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR")"
   fi
+  if [ -n "${AGENT_TMPDIR:-}" ]; then
+    printf '\nEnvironment=%s' "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")"
+  fi
 }

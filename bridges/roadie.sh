@@ -1733,6 +1733,9 @@ EOF
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
   fi
+  if [ -n "${AGENT_TMPDIR:-}" ]; then
+    printf 'Environment=TMPDIR=%s\n' "$AGENT_TMPDIR"
+  fi
   if [ -n "$channels_config" ]; then
     printf 'Environment=ROADIE_CHANNELS_CONFIG="%s"\n' "$channels_config"
   fi

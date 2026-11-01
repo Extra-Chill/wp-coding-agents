@@ -456,6 +456,7 @@ source_policy_resolve_writable_paths
 source_policy_resolve_log_paths
 source_policy_resolve_workspace_dir
 source_policy_resolve_homeboy_data_dir
+source_policy_resolve_agent_tmpdir
 if [ "$PLUGINS_ONLY" != true ] && [ "$ROADIE_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && \
    [ "$AGENTS_MD_ONLY" != true ] && [ "$RECONCILE_SERVICES_ONLY" != true ]; then
   source_policy_record_mode

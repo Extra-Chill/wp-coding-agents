@@ -186,6 +186,9 @@ chmod +x "$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN"
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
 [ "${RECONCILER_PLAN_RECORDS[*]}" = services.homeboy-daemon ] || error "managed install did not plan the Homeboy daemon unit: ${RECONCILER_PLAN_RECORDS[*]}"
+reconciler_plan_reset
+AGENT_TMPDIR=/srv/workspace/.tmp bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
+[ "${RECONCILER_PLAN_RECORDS[*]}" = "services.agent-tmpdir services.homeboy-daemon" ] || error "workspace install did not plan agent scratch before its units: ${RECONCILER_PLAN_RECORDS[*]}"
 LOCAL_MODE=true
 reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"

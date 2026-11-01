@@ -898,6 +898,15 @@ source_policy_resolve_workspace_dir() {
 }
 
 # Homeboy's durable state follows an explicitly configured repository workspace.
+source_policy_resolve_agent_tmpdir() {
+  [ -n "${AGENT_TMPDIR:-}" ] && return 0
+  [ "${LOCAL_MODE:-false}" = false ] || return 0
+  if [ -n "${DM_WORKSPACE_DIR:-}" ]; then
+    AGENT_TMPDIR="$DM_WORKSPACE_DIR/.tmp"
+  fi
+  return 0
+}
+
 source_policy_resolve_homeboy_data_dir() {
   [ -n "${HOMEBOY_DATA_DIR:-}" ] && return 0
   if [ -n "${DM_WORKSPACE_DIR:-}" ]; then
