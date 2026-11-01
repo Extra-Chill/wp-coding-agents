@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.3] - 2026-11-01
+
+### Changed
+- Put agent scratch on the workspace volume with age-based cleanup
+
 ## [3.7.2] - 2026-11-01
 
 ### Changed
