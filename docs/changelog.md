@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.4] - 2026-11-01
+
+### Changed
+- Make agent scratch an explicit --agent-tmpdir choice
+
 ## [3.7.3] - 2026-11-01
 
 ### Changed
