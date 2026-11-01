@@ -174,6 +174,10 @@ while [[ $# -gt 0 ]]; do
       WITH_HOMEBOY=true
       shift
       ;;
+    --agent-tmpdir)
+      AGENT_TMPDIR_REQUEST="$2"
+      shift 2
+      ;;
     --with-datamachine-worker)
       DATAMACHINE_WORKER_REQUEST=enabled
       shift
@@ -432,6 +436,9 @@ OPTIONS:
                        a VPS.
   --with-homeboy     Create/update a Homeboy project and install/verify the
                        WordPress Homeboy extension
+  --agent-tmpdir <path>
+                      Put agent scratch (TMPDIR) at <path>, e.g. a workspace
+                      volume, with files older than 3 days aged out
   --with-datamachine-worker
                       Opt in to a managed service that runs one bounded Data
                       Machine worker pass every two minutes. This does not run

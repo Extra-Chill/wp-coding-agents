@@ -109,12 +109,9 @@ bridge_service_adapters_plan() {
   done
 }
 
-# Agent scratch lives on the workspace volume, not the filesystem serving the
-# site. systemd-tmpfiles creates it at boot and ages out files older than
-# AGENT_TMPDIR_MAX_AGE through systemd-tmpfiles-clean.timer.
-agent_tmpdir_tmpfiles_conf() {
-  printf '/etc/tmpfiles.d/wp-coding-agents-tmp.conf'
-}
+# systemd-tmpfiles creates agent scratch at boot and ages out files older than
+# AGENT_TMPDIR_MAX_AGE through systemd-tmpfiles-clean.timer. The entry is also
+# the persisted record source_policy_resolve_agent_tmpdir reads back.
 
 agent_tmpdir_render_tmpfiles() {
   local group
