@@ -119,12 +119,71 @@ agent_tmpdir_render_tmpfiles() {
   printf 'd %s 0700 %s %s %s\n' "$AGENT_TMPDIR" "$SERVICE_USER" "$group" "${AGENT_TMPDIR_MAX_AGE:-3d}"
 }
 
+agent_tmp_sweep_applicable() {
+  [ -n "${AGENT_TMPDIR:-}" ] && [ "${LOCAL_MODE:-false}" != true ] &&
+    [ "${PLATFORM:-}" != mac ] && [ -d /run/systemd/system ]
+}
+
+agent_tmp_sweep_systemd_dir() { printf '%s' "${AGENT_TMP_SWEEP_SYSTEMD_DIR:-/etc/systemd/system}"; }
+agent_tmp_sweep_script() { printf '%s' "${AGENT_TMP_SWEEP_SCRIPT:-/usr/local/lib/wp-coding-agents/agent-tmp-sweep.py}"; }
+
+agent_tmp_sweep_render_service() {
+  local age="${AGENT_TMP_SWEEP_MAX_AGE:-${AGENT_TMPDIR_MAX_AGE:-3d}}"
+  [[ "$age" =~ ^[1-9][0-9]*[smhdw]$ ]] || { warn "Invalid agent sweep age: $age"; return 1; }
+  [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ] && [ "$SERVICE_USER" != 0 ] || return 1
+  cat <<EOF
+[Unit]
+Description=Clean stale agent-owned system temporary files
+[Service]
+Type=oneshot
+User=$SERVICE_USER
+ExecStart=/usr/bin/python3 $(agent_tmp_sweep_script) $age
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+PrivateTmp=false
+RestrictSUIDSGID=true
+EOF
+}
+
+agent_tmp_sweep_render_timer() {
+  cat <<'EOF'
+[Unit]
+Description=Daily stale agent scratch cleanup
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+agent_tmp_sweep_install() {
+  agent_tmp_sweep_applicable || return 0
+  local service
+  service="$(agent_tmp_sweep_render_service)" || return 1
+  if [ "${DRY_RUN:-false}" != true ]; then
+    install -d -m 0755 "$(dirname "$(agent_tmp_sweep_script)")" "$(agent_tmp_sweep_systemd_dir)"
+  fi
+  write_file "$(agent_tmp_sweep_script)" "$(<"$SCRIPT_DIR/scripts/agent-tmp-sweep.py")"
+  write_file "$(agent_tmp_sweep_systemd_dir)/wp-coding-agents-tmp-sweep.service" "$service"
+  write_file "$(agent_tmp_sweep_systemd_dir)/wp-coding-agents-tmp-sweep.timer" "$(agent_tmp_sweep_render_timer)"
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  chown root:root "$(agent_tmp_sweep_script)" "$(agent_tmp_sweep_systemd_dir)"/wp-coding-agents-tmp-sweep.{service,timer}
+  chmod 0644 "$(agent_tmp_sweep_script)" "$(agent_tmp_sweep_systemd_dir)"/wp-coding-agents-tmp-sweep.{service,timer}
+  systemctl daemon-reload
+  systemctl enable --now wp-coding-agents-tmp-sweep.timer
+}
+
 bridge_service_adapter_apply_agent_tmpdir() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     warn "Skipping agent TMPDIR because upgrade is running non-root"
     return 0
   fi
   write_file "$(agent_tmpdir_tmpfiles_conf)" "$(agent_tmpdir_render_tmpfiles)"
+  agent_tmp_sweep_install || return $?
   [ "${DRY_RUN:-false}" = true ] && return 0
   if command -v systemd-tmpfiles >/dev/null 2>&1; then
     systemd-tmpfiles --create "$(agent_tmpdir_tmpfiles_conf)"
