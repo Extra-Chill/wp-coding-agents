@@ -440,6 +440,15 @@ initialize_roadie_overrides() {
   fi
 }
 
+# Service-section scratch policy: literal /tmp and TMPDIR share the volume.
+agent_tmpdir_systemd_env() {
+  if [ -n "${AGENT_TMPDIR:-}" ]; then
+    printf 'Environment=%s\nBindPaths=%s\n' \
+      "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")" \
+      "$(systemd_quote "$AGENT_TMPDIR:/tmp")"
+  fi
+}
+
 # Appended to a unit's HOME line: a newline plus the Homeboy data-root
 # Environment= line, or nothing when unset so units without it stay unchanged.
 # The workspace root is an operator-set path, so the assignment is quoted to
@@ -448,7 +457,7 @@ homeboy_data_dir_systemd_env() {
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf '\nEnvironment=%s' "$(systemd_quote "HOMEBOY_DATA_DIR=$HOMEBOY_DATA_DIR")"
   fi
-  if [ -n "${AGENT_TMPDIR:-}" ]; then
-    printf '\nEnvironment=%s' "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")"
-  fi
+  local scratch_env
+  scratch_env="$(agent_tmpdir_systemd_env)"
+  [ -z "$scratch_env" ] || printf '\n%s' "$scratch_env"
 }

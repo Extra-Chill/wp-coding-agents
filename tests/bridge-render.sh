@@ -18,7 +18,7 @@
 set -eu
 
 # Snapshots describe a host without a workspace data root; the operator shell may set one.
-unset HOMEBOY_DATA_DIR
+unset HOMEBOY_DATA_DIR AGENT_TMPDIR
 # Nor any Roadie service env (an agent shell under Roadie carries its own).
 unset ROADIE_PI_MODEL ROADIE_PI_BIN ROADIE_POOL_URL ROADIE_CHANNELS_CONFIG
 
@@ -265,6 +265,31 @@ fi
 
 echo
 echo "OK: all snapshots match"
+
+# The same scratch policy applies in [Service] for both real unit renderers.
+source "$SCRIPT_DIR/lib/homeboy.sh"
+source "$SCRIPT_DIR/services/homeboy-daemon.sh"
+for scratch_dir in /srv/workspace/.tmp '/srv/workspace with spaces/.tmp' ''; do
+  for renderer in roadie homeboy-daemon; do
+    unit="$(
+      if [ -n "$scratch_dir" ]; then export AGENT_TMPDIR="$scratch_dir"; else unset AGENT_TMPDIR; fi
+      case "$renderer" in
+        roadie) render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" ;;
+        homeboy-daemon) homeboy_daemon_render_systemd_service ;;
+      esac
+    )"
+    service_section="$(awk '/^\[/{service=($0 == "[Service]")} service' <<< "$unit")"
+    if [ -n "$scratch_dir" ]; then
+      for directive in "Environment=$(systemd_quote "TMPDIR=$scratch_dir")" "BindPaths=$(systemd_quote "$scratch_dir:/tmp")"; do
+        grep -Fxq "$directive" <<< "$service_section" || {
+          echo "FAIL: $renderer missing $directive in [Service]"; exit 1;
+        }
+      done
+    elif grep -Eq '^Environment="?TMPDIR=|^BindPaths=' <<< "$unit"; then
+      echo "FAIL: $renderer adds scratch policy without AGENT_TMPDIR"; exit 1
+    fi
+  done
+done
 
 # A real command lookup must pick managed Homeboy ahead of the legacy service
 # home bin that also contains a `homeboy` executable.

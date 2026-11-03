@@ -8,7 +8,7 @@ guidance_applies() { [ -n "${AGENT_TMPDIR:-}" ]; }
 guidance_render() {
   cat <<'MD'
 ## Agent scratch
-Put scratch files, ad-hoc clones, and build output under `$TMPDIR` or a managed worktree, never a hardcoded `/tmp/...` path.
-For ad-hoc Cargo builds, set `CARGO_TARGET_DIR` to a directory under `$TMPDIR`.
+Scratch files, ad-hoc clones, and build output live under `$TMPDIR`, the bind-mounted `/tmp` inside systemd services, and are reclaimed after the configured age.
+Ad-hoc Cargo builds use `CARGO_TARGET_DIR` under `$TMPDIR`. Long-lived work belongs in a Homeboy worktree.
 MD
 }

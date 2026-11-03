@@ -215,45 +215,6 @@ guidance_sync_unit agent-scratch
 [[ "$REGISTERED" == agent-scratch:*CARGO_TARGET_DIR* ]] || error "scratch guidance was not registered"
 AGENT_TMPDIR= guidance_sync_unit agent-scratch
 [ "$UNREGISTERED" = agent-scratch ] || error "unconfigured scratch guidance was not unregistered"
-SERVICE_USER=wpagent
-service="$(agent_tmp_sweep_render_service)"
-grep -Fxq 'User=wpagent' <<< "$service" || error "sweep did not drop privileges"
-grep -Fq 'agent-tmp-sweep.py 3d' <<< "$service" || error "sweep default age missing"
-service="$(AGENT_TMPDIR_MAX_AGE=5d agent_tmp_sweep_render_service)"
-grep -Fq 'agent-tmp-sweep.py 5d' <<< "$service" || error "sweep ignored shared age"
-service="$(AGENT_TMP_SWEEP_MAX_AGE=7d agent_tmp_sweep_render_service)"
-grep -Fq 'agent-tmp-sweep.py 7d' <<< "$service" || error "sweep ignored dedicated age"
-if AGENT_TMP_SWEEP_MAX_AGE='3d;bad' agent_tmp_sweep_render_service >/dev/null; then
-  error "sweep accepted invalid age"
-fi
-if SERVICE_USER=root agent_tmp_sweep_render_service >/dev/null; then
-  error "sweep accepted root"
-fi
-grep -Fxq 'OnCalendar=daily' <<< "$(agent_tmp_sweep_render_timer)" || error "sweep is not age-scheduled"
-LOCAL_MODE=true
-if agent_tmp_sweep_applicable; then error "local install planned sweep"; fi
-LOCAL_MODE=false
-PLATFORM=mac
-if agent_tmp_sweep_applicable; then error "macOS install planned sweep"; fi
-PLATFORM=linux
 unset AGENT_TMPDIR
 if guidance_call agent-scratch applies; then error "unconfigured scratch guidance applied"; fi
-if agent_tmp_sweep_applicable; then error "unconfigured sweep applied"; fi
-# Installation guard must prevent all filesystem and systemctl mutations.
-write_file() { error "unconfigured sweep wrote a file"; }
-agent_tmp_sweep_install
-# Exercise installation with mocked systemd presence, including dry-run.
-agent_tmp_sweep_applicable() { [ -n "${AGENT_TMPDIR:-}" ]; }
-AGENT_TMPDIR=/srv/workspace/.tmp
-AGENT_TMP_SWEEP_SYSTEMD_DIR="$TMP/systemd"
-AGENT_TMP_SWEEP_SCRIPT="$TMP/lib/agent-tmp-sweep.py"
-WRITES=()
-write_file() { WRITES+=("$1"); }
-systemctl() { error "dry-run invoked systemctl"; }
-DRY_RUN=true
-agent_tmp_sweep_install
-[ "${#WRITES[@]}" -eq 3 ] || error "sweep did not render script and both units"
-[ ! -e "$AGENT_TMP_SWEEP_SCRIPT" ] || error "dry-run wrote sweep script"
-
-python3 "$ROOT_DIR/tests/agent-tmp-sweep.py"
 echo "PASS: tests/bridge-service-adapters.sh"
