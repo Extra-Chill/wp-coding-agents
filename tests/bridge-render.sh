@@ -270,6 +270,12 @@ echo "OK: all snapshots match"
 source "$SCRIPT_DIR/lib/homeboy.sh"
 source "$SCRIPT_DIR/services/homeboy-daemon.sh"
 for scratch_dir in /srv/workspace/.tmp '/srv/workspace with spaces/.tmp' ''; do
+  # Literal expectations: do not derive BindPaths with the production quoting helper.
+  case "$scratch_dir" in
+    /srv/workspace/.tmp) expected_bind='BindPaths=/srv/workspace/.tmp:/tmp' ;;
+    '/srv/workspace with spaces/.tmp') expected_bind='BindPaths="/srv/workspace with spaces/.tmp":/tmp' ;;
+    '') expected_bind='' ;;
+  esac
   for renderer in roadie homeboy-daemon; do
     unit="$(
       if [ -n "$scratch_dir" ]; then export AGENT_TMPDIR="$scratch_dir"; else unset AGENT_TMPDIR; fi
@@ -280,7 +286,7 @@ for scratch_dir in /srv/workspace/.tmp '/srv/workspace with spaces/.tmp' ''; do
     )"
     service_section="$(awk '/^\[/{service=($0 == "[Service]")} service' <<< "$unit")"
     if [ -n "$scratch_dir" ]; then
-      for directive in "Environment=$(systemd_quote "TMPDIR=$scratch_dir")" "BindPaths=$(systemd_quote "$scratch_dir:/tmp")"; do
+      for directive in "Environment=$(systemd_quote "TMPDIR=$scratch_dir")" "$expected_bind"; do
         grep -Fxq "$directive" <<< "$service_section" || {
           echo "FAIL: $renderer missing $directive in [Service]"; exit 1;
         }
@@ -290,6 +296,28 @@ for scratch_dir in /srv/workspace/.tmp '/srv/workspace with spaces/.tmp' ''; do
     fi
   done
 done
+
+# Ask systemd to validate real daemon units too, without requiring a running
+# manager or privileges. Use an executable fixture so ExecStart validation does
+# not depend on a host Homeboy installation.
+if command -v systemd-analyze >/dev/null 2>&1; then
+  (
+    homeboy_service_bin() { printf '/bin/true'; }
+    for scratch_dir in "$TMPDIR_NEW/scratch" "$TMPDIR_NEW/scratch with spaces"; do
+      mkdir -p "$scratch_dir"
+      export AGENT_TMPDIR="$scratch_dir"
+      homeboy_daemon_render_systemd_service > "$TMPDIR_NEW/homeboy-daemon.service"
+      if ! systemd-analyze verify "$TMPDIR_NEW/homeboy-daemon.service" > "$TMPDIR_NEW/verify.log" 2>&1; then
+        cat "$TMPDIR_NEW/verify.log"
+        echo "FAIL: systemd rejected rendered homeboy-daemon unit"
+        exit 1
+      fi
+    done
+  )
+  echo "  ok   systemd verifies homeboy-daemon scratch bindings"
+else
+  echo "  skip systemd verification (systemd-analyze unavailable)"
+fi
 
 # A real command lookup must pick managed Homeboy ahead of the legacy service
 # home bin that also contains a `homeboy` executable.
