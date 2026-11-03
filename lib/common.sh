@@ -443,9 +443,14 @@ initialize_roadie_overrides() {
 # Service-section scratch policy: literal /tmp and TMPDIR share the volume.
 agent_tmpdir_systemd_env() {
   if [ -n "${AGENT_TMPDIR:-}" ]; then
-    printf 'Environment=%s\nBindPaths=%s\n' \
-      "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")" \
-      "$(systemd_quote "$AGENT_TMPDIR:/tmp")"
+    local bind_source="$AGENT_TMPDIR"
+    # systemd splits BindPaths on unquoted colons, then unquotes each operand.
+    # Quoting the entire source:destination pair turns it into one source path.
+    case "$bind_source" in
+      *[[:space:]:\'\"\\]*) bind_source="$(systemd_quote "$bind_source")" ;;
+    esac
+    printf 'Environment=%s\nBindPaths=%s:/tmp\n' \
+      "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")" "$bind_source"
   fi
 }
 
