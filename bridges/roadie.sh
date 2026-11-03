@@ -1733,9 +1733,7 @@ EOF
   if [ -n "${HOMEBOY_DATA_DIR:-}" ]; then
     printf 'Environment=HOMEBOY_DATA_DIR=%s\n' "$HOMEBOY_DATA_DIR"
   fi
-  if [ -n "${AGENT_TMPDIR:-}" ]; then
-    printf 'Environment=TMPDIR=%s\n' "$AGENT_TMPDIR"
-  fi
+  agent_tmpdir_systemd_env
   if [ -n "$channels_config" ]; then
     printf 'Environment=ROADIE_CHANNELS_CONFIG="%s"\n' "$channels_config"
   fi
@@ -2007,6 +2005,13 @@ bridge_update_systemd() {
   # above by the in-place managed merge, which keeps operator extras.)
   merged_env=$(MANAGED_ENV_KEYS="ROADIE_SHELL_ENV" \
     _merge_systemd_env_lines "$current_env" "$(_roadie_template_env "$path_value")")
+  # Scratch is installer-owned. The environment merge drops non-Environment
+  # directives, so reapply the complete policy (including BindPaths) together.
+  if [ -n "${AGENT_TMPDIR:-}" ]; then
+    merged_env=$(_roadie_remove_systemd_env_key "$merged_env" TMPDIR | grep -v '^Environment="TMPDIR=' || true)
+    merged_env="$merged_env
+$(agent_tmpdir_systemd_env)"
+  fi
   merged_env=$(_preserve_systemd_umask "$unit_file" "$merged_env")
   merged_env=$(_roadie_append_env_files "$merged_env")
 

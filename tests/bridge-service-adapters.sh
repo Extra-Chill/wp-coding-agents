@@ -199,4 +199,22 @@ reconciler_plan_reset
 bridge_service_adapters_plan "$INSTALLATION_OPERATION_UPGRADE"
 [ "${#RECONCILER_PLAN_RECORDS[@]}" -eq 0 ] || error "external WordPress planned the Homeboy daemon unit"
 
+# Scratch guidance is discovered through the same registry dispatcher.
+SCRIPT_DIR="$ROOT_DIR"
+source "$ROOT_DIR/guidance/_dispatch.sh"
+AGENT_TMPDIR=/srv/workspace/.tmp
+scratch="$(guidance_call agent-scratch render)"
+grep -Fq '$TMPDIR' <<< "$scratch" || error "scratch guidance omitted TMPDIR"
+grep -Fq 'CARGO_TARGET_DIR' <<< "$scratch" || error "scratch guidance omitted Cargo output"
+guidance_call agent-scratch applies || error "configured scratch guidance did not apply"
+REGISTERED=""
+UNREGISTERED=""
+agents_md_guidance_register() { REGISTERED="$1:$5"; }
+agents_md_guidance_unregister() { UNREGISTERED="$1"; }
+guidance_sync_unit agent-scratch
+[[ "$REGISTERED" == agent-scratch:*CARGO_TARGET_DIR* ]] || error "scratch guidance was not registered"
+AGENT_TMPDIR= guidance_sync_unit agent-scratch
+[ "$UNREGISTERED" = agent-scratch ] || error "unconfigured scratch guidance was not unregistered"
+unset AGENT_TMPDIR
+if guidance_call agent-scratch applies; then error "unconfigured scratch guidance applied"; fi
 echo "PASS: tests/bridge-service-adapters.sh"
