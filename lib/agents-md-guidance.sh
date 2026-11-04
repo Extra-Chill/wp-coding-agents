@@ -586,7 +586,6 @@ runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
     log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
     agents_md_symlink_claude_md
-    warn_if_agents_md_public
     return
   fi
 
@@ -601,7 +600,6 @@ runtime_generate_instructions() {
       service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       agents_md_symlink_claude_md
-      warn_if_agents_md_public
       return
     fi
     warn "Compose failed — falling back to static template"
@@ -634,7 +632,6 @@ runtime_generate_instructions() {
     sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
     service_file_normalize_perms "$SITE_PATH/AGENTS.md"
     agents_md_symlink_claude_md
-    warn_if_agents_md_public
   fi
 }
 

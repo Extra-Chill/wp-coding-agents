@@ -888,7 +888,6 @@ regenerate_agents_md() {
     rm -f "$BACKUP"
     webroot_backup_prune_legacy "$SITE_PATH"
     webroot_backup_prune_managed "$SITE_PATH"
-    warn_if_agents_md_public
   else
     warn "  datamachine memory compose failed"
     # wp_run_as_site_owner prints the redacted compose stderr above this
@@ -1179,6 +1178,7 @@ reconcile_datamachine_worker_service
 if [ "$PLUGINS_ONLY" != true ]; then
   installation_profile_write
 fi
+warn_if_agents_md_public
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
   exit "$PLUGIN_ONLY_EXIT_STATUS"

@@ -66,4 +66,6 @@ done
 SITE_DOMAIN=example.com DRY_RUN=true
 [ -z "$(warn_if_agents_md_public 2>&1)" ]
 [ ! -s "$TRACE" ]
+# Check once per entrypoint, never from compose helpers (definition excluded).
+[ "$(grep -h -v '^warn_if_agents_md_public()' "$SCRIPT_DIR/setup.sh" "$SCRIPT_DIR/upgrade.sh" "$SCRIPT_DIR"/lib/*.sh | grep -c 'warn_if_agents_md_public$')" -eq 2 ]
 printf 'PASS: agent Markdown web exposure\n'
