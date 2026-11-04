@@ -94,6 +94,10 @@ setup_nginx() {
         deny all;
     }
 
+    location ~ ^/[^/]+\\.md\$ {
+        return 404;
+    }
+
     location ~ ^/files/(.*)$ {
         try_files /wp-includes/ms-files.php?\$args =404;
         access_log off;
@@ -127,6 +131,10 @@ setup_nginx() {
         deny all;
     }
 
+    location ~ ^/[^/]+\\.md\$ {
+        return 404;
+    }
+
     location ~ ^/[_0-9a-zA-Z-]+/files/(.*)$ {
         try_files /wp-includes/ms-files.php?\$args =404;
         access_log off;
@@ -152,6 +160,10 @@ setup_nginx() {
 
     location ~ /\\.ht {
         deny all;
+    }
+
+    location ~ ^/[^/]+\\.md\$ {
+        return 404;
     }
 }"
     fi

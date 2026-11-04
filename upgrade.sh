@@ -1178,6 +1178,7 @@ reconcile_datamachine_worker_service
 if [ "$PLUGINS_ONLY" != true ]; then
   installation_profile_write
 fi
+warn_if_agents_md_public
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
   exit "$PLUGIN_ONLY_EXIT_STATUS"

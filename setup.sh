@@ -676,4 +676,5 @@ if [ "$RUNTIME_ONLY" != true ] && [ "$EXTERNAL_WORDPRESS" != true ]; then source
 # summary so the first non-root upgrade can maintain all of it.
 agent_state_ownership_reconcile
 [ "$RUNTIME_ONLY" != true ] && installation_profile_write
+warn_if_agents_md_public
 print_summary

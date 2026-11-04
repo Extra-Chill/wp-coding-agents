@@ -99,6 +99,26 @@ EXISTING_WP=~/Studio/my-site ./setup.sh --local
 
 Any terminal coding tool that reads `AGENTS.md` (Pi, Codex, Claude Code via the `CLAUDE.md` symlink) gets the same site context when started from the site root. wp-coding-agents does not install or configure those tools.
 
+### Agent files in the web root
+
+Agent guidance belongs in the site root for coding tools, not anonymous visitors. Generated nginx configurations deny all root-level Markdown files (including stray prompts); nested Markdown paths are unaffected. For manually managed nginx, add:
+
+```nginx
+location ~ ^/[^/]+\.md$ {
+    return 404;
+}
+```
+
+For Apache, deny the agent guidance files:
+
+```apache
+<FilesMatch "^(AGENTS|CLAUDE)\.md$">
+    Require all denied
+</FilesMatch>
+```
+
+Setup and upgrade warn if an anonymous request to `AGENTS.md` returns HTTP 200; they do not modify existing web server configurations.
+
 ### Chat-Connected Agent
 
 Connect the coding runtime to a human chat surface for planning, status, file uploads, and review loops.
