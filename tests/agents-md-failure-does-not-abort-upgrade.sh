@@ -36,6 +36,7 @@ PHASES_AFTER=(
   reconcile_wordpress_service
   reconcile_datamachine_worker_service
   installation_profile_write
+  warn_if_agents_md_public
   print_summary
 )
 
