@@ -559,10 +559,34 @@ sys.stdout.write("\n")
 PY
 }
 
+# Function hook for tests; do not follow redirects or use local curl credentials.
+agents_md_web_http_status() {
+  curl -q --silent --output /dev/null --write-out '%{http_code}' \
+    --connect-timeout 3 --max-time 5 "$1"
+}
+
+warn_if_agents_md_public() {
+  [ "${DRY_RUN:-false}" != true ] || return 0
+  case "${SITE_DOMAIN:-}" in
+    ''|localhost|*.local|127.0.0.1) return 0 ;;
+  esac
+
+  local url="https://$SITE_DOMAIN/AGENTS.md" status
+  if ! status=$(agents_md_web_http_status "$url" 2>/dev/null); then
+    url="http://$SITE_DOMAIN/AGENTS.md"
+    status=$(agents_md_web_http_status "$url" 2>/dev/null) || return 0
+  fi
+  if [ "$status" = 200 ]; then
+    warn "Agent guidance is publicly accessible at $url. Deny web access with nginx: location ~ ^/[^/]+\\.md$ { return 404; } or Apache: <FilesMatch \"^(AGENTS|CLAUDE)\\.md$\"> Require all denied </FilesMatch>" || true
+  fi
+  return 0
+}
+
 runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
     log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
     agents_md_symlink_claude_md
+    warn_if_agents_md_public
     return
   fi
 
@@ -577,6 +601,7 @@ runtime_generate_instructions() {
       service_file_normalize_perms "$SITE_PATH/AGENTS.md"
       log "AGENTS.md composed from SectionRegistry"
       agents_md_symlink_claude_md
+      warn_if_agents_md_public
       return
     fi
     warn "Compose failed — falling back to static template"
@@ -609,6 +634,7 @@ runtime_generate_instructions() {
     sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
     service_file_normalize_perms "$SITE_PATH/AGENTS.md"
     agents_md_symlink_claude_md
+    warn_if_agents_md_public
   fi
 }
 
