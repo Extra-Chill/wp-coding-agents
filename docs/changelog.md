@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.7.6] - 2026-11-04
+
+### Changed
+- Deny public access to root-level agent Markdown files
+
+### Fixed
+- render parseable systemd BindPaths operands
+- keep agent scratch off the production root volume
+
 ## [3.7.5] - 2026-11-02
 
 ### Changed
