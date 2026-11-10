@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.12] - 2026-11-10
+
+### Changed
+- fake wp writes its state atomically
+
 ## [3.7.11] - 2026-11-09
 
 ### Changed
