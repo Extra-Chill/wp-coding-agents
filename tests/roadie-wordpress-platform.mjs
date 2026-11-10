@@ -54,7 +54,8 @@ const ability = code.match(/wp_get_ability\\( '([^']+)' \\)/)[1]
 const input = JSON.parse(Buffer.from(code.match(/base64_decode\\( '([^']+)'/)[1], 'base64').toString())
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ ability, input, argv: args.filter((arg) => arg !== code) }) + '\\n')
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, 'utf8'))
-const save = () => fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify(state))
+// Write-then-rename: concurrent fake wp calls never read a half-written file.
+const save = () => { const tmp = ${JSON.stringify(state)} + '.' + process.pid; fs.writeFileSync(tmp, JSON.stringify(state)); fs.renameSync(tmp, ${JSON.stringify(state)}) }
 const out = (value) => { process.stdout.write(${JSON.stringify(PHP_NOTICE)} + JSON.stringify(value)); process.exit(0) }
 const fail = (code, message) => out({ error: { code, message } })
 if (ability === 'datamachine/resolve-chat-person') {
