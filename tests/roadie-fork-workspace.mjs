@@ -42,6 +42,11 @@ if (args[0] === 'agent-task') {
   }
   if (args[1] === 'active-scope' && args.includes('--context')) {
     const context = args[args.indexOf('--context') + 1]
+    const override = process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE
+    if (override !== undefined) {
+      process.stdout.write(override)
+      process.exit(0)
+    }
     const entries = readStore()[context] ?? []
     const workspaces = entries.filter((entry) => entry.working_directory).map((entry) => ({ repository: entry.repository, working_directory: entry.working_directory, run_ids: [entry.run_id] }))
     const pending_run_ids = entries.filter((entry) => !entry.working_directory).map((entry) => entry.run_id)
@@ -137,9 +142,7 @@ try {
   run('git', ['init', '-b', 'main'], other)
   run('git', ['-c', 'user.name=Roadie Fixture', '-c', 'user.email=fixture@example.org', 'commit', '--allow-empty', '-m', 'other repository'], other)
   submit('other-task', 'other-repository', other)
-  const ambiguous = await filters.fork_workspace(null, request())
-  assert.ok(ambiguous instanceof Error)
-  assert.match(ambiguous.message, /multiple active repositories/)
+  assert.equal(await filters.fork_workspace(null, request()), null, 'multiple repositories use a shared fork')
   assert.equal(hb('agent-task', 'cancel', 'other-task').success, true)
   assert.equal(hb('agent-task', 'cancel', 'task-A').success, true)
   const owner = hb('agent-task', 'active-scope', '--context', context).data
@@ -156,9 +159,7 @@ try {
   // of its parent's task and uses no conversation-derived locations.
   assert.equal(typeof (await filters.fork_workspace(null, request(binding.workingDirectory))).provision, 'function')
   submit('pending-task', 'fork-fixture', null)
-  const pending = await filters.fork_workspace(null, request())
-  assert.ok(pending instanceof Error)
-  assert.match(pending.message, /not finished allocating/)
+  assert.equal(await filters.fork_workspace(null, request()), null, 'pending allocation uses a shared fork')
   const boundRequest = request(binding.workingDirectory)
   const boundProvider = await filters.fork_workspace(null, boundRequest)
   if (boundProvider instanceof Error) throw boundProvider
@@ -170,7 +171,51 @@ try {
   // unavailable; no pending parent can replace the conversation's directory.
   fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: 'fixture-absent-controller' }))
   assert.equal(typeof (await filters.fork_workspace(null, request(binding.workingDirectory))).provision, 'function')
-  console.log('PASS: fixture-seeded active ownership across task switch and completion with real Homeboy worktrees; historical activity ignored, ambiguity and pending allocation fail closed')
+  // Exercise the real filter with seeded discovery responses. The CLI no longer
+  // offers queue-only admission; the wrapper only supplies that discovery seam.
+  // All isolated allocations above use real Homeboy, Git and independent writes.
+  const validOwner = { repository: 'fork-fixture', working_directory: source, run_ids: ['task-A'] }
+  const scopeResponse = (overrides = {}) => JSON.stringify({ success: true, data: {
+    schema: 'homeboy/agent-task-active-scope/v1', caller_context: context,
+    pending_run_ids: [], workspaces: [], ...overrides,
+  } })
+  const sharedCases = [
+    { name: 'real CLI without active ownership', command: realHomeboy },
+    { name: 'unavailable controller', command: 'fixture-absent-controller' },
+    { name: 'malformed JSON', response: '{' },
+    { name: 'null response', response: 'null' },
+    { name: 'unsuccessful response', response: JSON.stringify({ success: false }) },
+    { name: 'wrong schema', response: scopeResponse({ schema: 'unknown' }) },
+    { name: 'wrong caller', response: scopeResponse({ caller_context: 'other-session' }) },
+    { name: 'malformed workspaces', response: scopeResponse({ workspaces: {} }) },
+    { name: 'malformed pending list', response: scopeResponse({ pending_run_ids: null }) },
+    { name: 'no owners', response: scopeResponse() },
+    { name: 'pending only', response: scopeResponse({ pending_run_ids: ['queued'] }) },
+    { name: 'pending with valid owner', response: scopeResponse({ pending_run_ids: ['queued'], workspaces: [validOwner] }) },
+    { name: 'pending coordinator', response: scopeResponse({ pending_run_ids: ['queued'], workspaces: [validOwner, { ...validOwner, working_directory: active }] }) },
+    ...[null, { ...validOwner, repository: '' }, { ...validOwner, working_directory: 'relative' }, { ...validOwner, run_ids: [] }, { ...validOwner, run_ids: [null] }].map((owner, index) => ({
+      name: `invalid owner ${index}`, response: scopeResponse({ workspaces: [owner] }),
+    })),
+    { name: 'multiple repositories', response: scopeResponse({ workspaces: [validOwner, { ...validOwner, repository: 'other', working_directory: other }] }) },
+    { name: 'missing checkout inside existing repository', response: scopeResponse({ workspaces: [{ ...validOwner, working_directory: path.join(source, 'missing-checkout') }] }) },
+    { name: 'missing coordinator checkout', response: scopeResponse({ workspaces: [validOwner, { ...validOwner, working_directory: path.join(root, 'missing') }] }) },
+    { name: 'non-Git owner checkout', response: scopeResponse({ workspaces: [{ ...validOwner, working_directory: site }] }) },
+  ]
+  for (const test of sharedCases) {
+    fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: test.command ?? command }))
+    if (test.response !== undefined) process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE = test.response
+    else delete process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE
+    assert.equal(await filters.fork_workspace(null, request()), null, test.name)
+    assert.equal(typeof (await filters.fork_workspace(null, request(source))).provision, 'function', `${test.name}: Git-bound source bypasses discovery`)
+  }
+  delete process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE
+  // Explicit host policy still refuses repositories outside its allowlist.
+  fs.writeFileSync(configPath, JSON.stringify({ version: 1, homeboyCommand: command, projects: [{ directory: other }] }))
+  assert.ok(await filters.fork_workspace(null, request(source)) instanceof Error)
+  process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE = scopeResponse({ workspaces: [validOwner] })
+  assert.ok(await filters.fork_workspace(null, request()) instanceof Error)
+  delete process.env.ROADIE_FORK_TEST_SCOPE_RESPONSE
+  console.log('PASS: real Homeboy isolated worktrees, coordinator and task-switch ownership; site-root fallback matrix; Git-bound and host allowlist contracts preserved')
 } finally {
   process.env = previous
   fs.rmSync(root, { recursive: true, force: true })

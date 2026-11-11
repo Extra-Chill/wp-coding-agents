@@ -39,20 +39,20 @@ async function activeOwner(command, request) {
   const context = `roadie:session:${request.sourceSessionId}`
   const response = JSON.parse(await run(command, ['agent-task', 'active-scope', '--context', context], request.sourceDirectory))
   const scope = response.data
-  if (response.success !== true || scope?.schema !== 'homeboy/agent-task-active-scope/v1' || scope.caller_context !== context || !Array.isArray(scope.workspaces) || !Array.isArray(scope.pending_run_ids)) throw new Error('Homeboy active-task ownership is unavailable. Upgrade the controller before forking; no shared-file fork was started.')
-  if (scope.pending_run_ids.length) throw new Error('An active coding task has not finished allocating its checkout. Wait for task admission to complete before forking.')
+  if (response.success !== true || scope?.schema !== 'homeboy/agent-task-active-scope/v1' || scope.caller_context !== context || !Array.isArray(scope.workspaces) || !Array.isArray(scope.pending_run_ids)) return null
+  if (scope.pending_run_ids.length) return null
   if (!scope.workspaces.length) return null
   for (const owner of scope.workspaces) {
-    if (typeof owner.repository !== 'string' || !owner.repository || typeof owner.working_directory !== 'string' || !path.isAbsolute(owner.working_directory) || !Array.isArray(owner.run_ids) || !owner.run_ids.length) throw new Error('Homeboy returned an invalid active task owner; the fork was not started.')
+    if (!owner || typeof owner.repository !== 'string' || !owner.repository || typeof owner.working_directory !== 'string' || !path.isAbsolute(owner.working_directory) || !Array.isArray(owner.run_ids) || !owner.run_ids.length || owner.run_ids.some((id) => typeof id !== 'string' || !id) || !fs.existsSync(owner.working_directory) || !fs.statSync(owner.working_directory).isDirectory()) return null
   }
   if (scope.workspaces.length === 1) return scope.workspaces[0]
   // A coordinator can own several independent branches of one repository.
   // Its repository snapshot is the primary checkout's committed HEAD, rather
   // than any one worker branch. Git proves the shared repository identity.
   const commons = await Promise.all(scope.workspaces.map((owner) => commonDirectory(owner.working_directory)))
-  if (new Set(commons).size !== 1) throw new Error('This conversation owns multiple active repositories with no single repository snapshot to fork.')
+  if (new Set(commons).size !== 1) return null
   const primary = await checkoutFor(path.dirname(commons[0]))
-  if (!primary || primary.common !== commons[0]) throw new Error('Could not verify the coordinator repository checkout; the fork was not started.')
+  if (!primary || primary.common !== commons[0]) return null
   return {
     repository: scope.workspaces[0].repository,
     working_directory: primary.directory,
@@ -67,12 +67,11 @@ export function register(roadie) {
     const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : null
     const command = config?.homeboyCommand ?? 'homeboy'
     const source = await checkoutFor(request.sourceDirectory)
-    const owner = source ? null : await activeOwner(command, request)
-    const checkout = source ?? await checkoutFor(owner?.working_directory)
-    if (!checkout) {
-      if (owner) throw new Error('The active coding checkout is unavailable; restore its task workspace before forking.')
-      return null
-    }
+    // A non-Git conversation already runs safely in its shared source directory.
+    // Ownership discovery is best-effort; it must never cancel that ordinary fork.
+    const owner = source ? null : await activeOwner(command, request).catch(() => null)
+    const checkout = source ?? await checkoutFor(owner?.working_directory).catch(() => null)
+    if (!checkout) return null
     // A repository path is already a native lifecycle handle. Component
     // registration is unnecessary and must not be a user-facing fork step.
     // Preserve an explicitly configured host allowlist without consulting the
