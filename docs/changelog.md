@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.7.14] - 2026-11-11
+
+### Changed
+- Update @extrachill/roadie to 0.84.22
+
+### Fixed
+- never refuse site-root forks on ambiguous or pending task ownership
+
 ## [3.7.13] - 2026-11-10
 
 ### Changed
