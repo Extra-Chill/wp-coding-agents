@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.18] - 2026-11-11
+
+### Fixed
+- bound WordPress platform tests and eliminate upload readiness race
+
 ## [3.7.17] - 2026-11-11
 
 ### Changed
