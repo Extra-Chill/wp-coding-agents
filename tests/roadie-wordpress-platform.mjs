@@ -24,6 +24,13 @@ const PHP_NOTICE = 'PHP Warning:  Undefined variable $noise in wp-content/mu-plu
 const SECRET = 'wordpress-platform-test-secret'
 const RUNTIME_ID = 'runtime-chat-1'
 
+let stage = 'fixture setup'
+// Leave this armed (but unref'd) through process exit to catch leaked handles too.
+setTimeout(() => {
+  fs.writeSync(2, `FAIL: wordpress platform timed out after 120s during ${stage}\n`)
+  process.exit(1)
+}, 120_000).unref()
+
 const root = path.resolve(import.meta.dirname, '..')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'roadie-wp-platform-'))
 const configPath = path.join(temp, 'wordpress-context.json')
@@ -66,6 +73,10 @@ if (ability === 'datamachine/resolve-chat-person') {
 if (!code.includes("'error' => array(")) { process.stderr.write('claim-bound writes must report refusals as JSON'); process.exit(1) }
 if (!input.run_id || state.claims[input.run_id] !== input.claim_token) fail('agents_chat_run_claim_invalid', 'The presented claim token does not match the reserved run.')
 if (ability === 'agents/append-chat-run-messages') {
+  // Regression: upload readiness must not depend on WP completing in 50ms.
+  if (input.messages.some((message) => message.payload?.kind === 'file_request')) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
   const ids = input.messages.map((message) => { const id = 'm' + (++state.seq); state.messages.push({ id, run_id: input.run_id, message }); return { id } })
   save(); out({ run_id: input.run_id, messages: ids })
 }
@@ -141,6 +152,10 @@ process.env.WP_CODING_AGENTS_INBOUND_WORDPRESS_ENDPOINT = 'http://127.0.0.1:0/wo
 process.env.WP_CODING_AGENTS_INBOUND_WORDPRESS_SIGNING_SECRET_ENV = 'TEST_WP_SECRET'
 process.env.TEST_WP_SECRET = SECRET
 
+let handle
+let connectorChild
+try {
+stage = 'module imports'
 const stub = await import(pathToFileURL(path.resolve(stubPath)).href)
 const plugin = await import(pathToFileURL(path.resolve(root, 'bridges/roadie/roadie-plugins/wordpress-platform.mjs')).href)
 const context = await import(pathToFileURL(path.resolve(root, 'bridges/roadie/roadie-plugins/wordpress-context.mjs')).href)
@@ -162,7 +177,8 @@ assert.equal(definition?.id, 'wordpress')
 // (hooks.ts RoadieActions): session_busy/session_aborted do not exist (#777).
 assert.deepEqual(Object.keys(actions).sort(), ['session_error', 'session_idle'])
 
-const handle = await definition.start({ platformIds: ['wordpress'], options: {} })
+stage = 'HTTP listener startup'
+handle = await definition.start({ platformIds: ['wordpress'], options: {} })
 assert(!(handle instanceof Error), String(handle))
 const port = handle.address.port
 assert(stub.calls.some(([name, id, ready]) => name === 'markChatPlatformReady' && id === 'wordpress' && ready === true))
@@ -171,11 +187,13 @@ assert.equal(stub.parentResolver.fn('wordpress:site:wpca-1'), 'wordpress:site')
 
 const sign = (body, timestamp) => 'v0=' + crypto.createHmac('sha256', SECRET).update(`v0:${timestamp}:${body}`).digest('hex')
 async function post(event, { mangle = false } = {}) {
+  stage = `POST ${event.type} (${event.external_id})`
   const body = JSON.stringify({ event })
   const timestamp = String(Math.floor(Date.now() / 1000))
   const signature = mangle ? 'v0=' + '0'.repeat(64) : sign(body, timestamp)
   const response = await fetch(`http://127.0.0.1:${port}/wordpress/events`, {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: { 'content-type': 'application/json', 'x-wpcodingagents-request-timestamp': timestamp, 'x-wpcodingagents-signature': signature },
     body,
   })
@@ -193,7 +211,6 @@ const turnEvent = (runId, claim, overrides = {}) => ({
 })
 const inputEvent = (runId, n, conversation = 'wpca-1') => ({ source: 'agents-chat', external_id: `input-${n}`, type: 'chat_input', conversation_id: conversation, runtime_id: RUNTIME_ID, message: 'input', attributes: { run_id: runId, actor_user_id: '7' } })
 
-try {
   // Ingress refuses anything the connector did not sign.
   const unsigned = await post(turnEvent('run_1', 'tok_1'), { mangle: true })
   assert.equal(unsigned.status, 401)
@@ -220,6 +237,7 @@ try {
   const directory = stub.calls.find(([name]) => name === 'getOrCreateRuntime')[1]
   assert.deepEqual(directory, { threadId, channelId: 'wordpress:site', projectDirectory: '/site' })
 
+  stage = 'assistant output writes'
   // --- Assistant output lands in the WP run through the write abilities.
   const chat = rt.chat
   assert.equal(chat.platform, 'wordpress')
@@ -247,6 +265,7 @@ try {
   assert.deepEqual([recent[0].author, recent[0].fromBot, recent[0].text], ['7', false, 'deploy the fix'])
   assert.deepEqual([recent[1].fromBot, recent[1].text], [true, 'Streamed and edited'])
 
+  stage = 'question request'
   // --- A question round-trips: input_required message out (the run status
   // stays canonical `running` while waiting), claim-chat-run-input back.
   await chat.interactions.question({ sessionId: 's1', directory: '/site', requestId: 'q1', input: { question: 'Which color?', options: ['red', 'blue'] } })
@@ -264,11 +283,18 @@ try {
 
   // --- An upload request resolves with the answer's attachment URLs.
   const uploadPromise = chat.interactions.upload({ sessionId: 's1', directory: '/site', prompt: 'Attach the logs', maxFiles: 2 })
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  stage = 'upload request readiness'
+  // upload() first awaits append + heartbeat child processes. A fixed sleep
+  // can send the answer before pendingQuestion is installed, losing it forever.
+  while (!chat.interactions.hasQuestion()) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
   setState({ queuedInput: [{ queued_message_id: 'queued_u2', session_id: 'wpca-1', run_id: 'run_1', agent: 'franklin', message: '', attachments: [{ type: 'file', url: 'https://example.com/debug.log' }], client_context: {}, created_at: '2026-01-01T00:00:01+00:00' }] })
   await post(inputEvent('run_1', 2))
+  stage = 'upload answer resolution'
   assert.deepEqual(await uploadPromise, ['https://example.com/debug.log'])
 
+  stage = 'permission request'
   // --- Permission requests become canonical approval_required.
   const permission = await chat.interactions.permission({ permission: { requestId: 'p1', title: 'Run composer install?' }, directory: '/site' })
   const approval = readState().messages.at(-1)
@@ -278,6 +304,7 @@ try {
   chat.interactions.clearPermission(permission.contextHash)
   assert.equal(chat.interactions.hasPending(), false)
 
+  stage = 'turn takeover question'
   // --- An answer that arrives as a new agents/chat turn supersedes the
   // waiting run explicitly: linking event + terminal status for run_1, then
   // the new run adopts the session and delivers the answer (#778).
@@ -292,6 +319,7 @@ try {
   assert(readState().statusLog.some((entry) => entry.run_id === 'run_1' && entry.status === 'completed'), 'the superseded run ended in a terminal status')
   assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_4', status: 'running' })
 
+  stage = 'main-session status actions'
   // --- Run status follows the thread's *main* session only (#777): a
   // delegated child session (subagent) fires session_idle with
   // parentSessionId set and the same threadId; it must not finalize the run.
@@ -321,8 +349,11 @@ try {
   fs.writeFileSync(controlState, JSON.stringify({ status: 'claimed', claim: { id: 21, lease_token: 'lease-21', event: turnEvent('run_2', 'tok_2', { message: 'and run the tests' }) } }))
   // Async: the connector posts back into this process's ingress server, so
   // the event loop must stay free to answer while the connector waits.
+  stage = 'python connector --once'
   await new Promise((resolve, reject) => {
-    execFile('python3', [connector, '--once'], {
+    connectorChild = execFile('python3', [connector, '--once'], {
+      timeout: 30_000,
+      killSignal: 'SIGKILL',
       env: {
         ...process.env,
         CONTROL_STATE: controlState,
@@ -331,7 +362,7 @@ try {
         WP_CODING_AGENTS_INBOUND_WORDPRESS_ENABLED: '1',
         WP_CODING_AGENTS_INBOUND_WORDPRESS_ENDPOINT: `http://127.0.0.1:${port}/wordpress/events`,
       },
-    }, (error) => (error ? reject(error) : resolve()))
+    }, (error) => (error ? reject(new Error(`python connector --once failed: ${error.message}`, { cause: error })) : resolve()))
   })
   assert(fs.readFileSync(controlLog, 'utf8').includes('ack 21 --lease-token=lease-21'), 'connector acked after the platform accepted the turn')
   assert.equal(rt.incoming.at(-1).prompt, 'and run the tests')
@@ -348,6 +379,7 @@ try {
   // committed WP-side cancel aborts the session on the next status write.
   await post(turnEvent('run_3', 'tok_3', { message: 'one more thing' }))
   setState({ cancelled: true })
+  stage = 'cancellation heartbeat'
   await actions.session_idle({ threadId, sessionId: 'main-1' })
   assert.equal(rt.aborted.length, 2, 'the cancelled echo aborted the session')
   assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_3', status: 'cancelled' })
@@ -358,6 +390,7 @@ try {
   // abort-time signal the platform receives; roadie#300) and the abort then
   // settles as a plain session_idle.
   await post(turnEvent('run_4', 'tok_4', { message: 'take it back' }))
+  stage = 'Roadie-side abort and idle'
   await chat.interactions.cancelQuestion()
   await actions.session_idle({ threadId, sessionId: 'main-1' })
   assert.deepEqual(readState().statusLog.at(-1), { run_id: 'run_4', status: 'cancelled' })
@@ -371,6 +404,7 @@ try {
   // --- Writes are claim-bound: an unknown run/claim pair is refused by WP.
   await post(turnEvent('run_bad', 'bad-token', { conversation: 'wpca-2' }))
   const badChat = stub.runtimes.get('wordpress:site:wpca-2').chat
+  stage = 'invalid-claim write refusal'
   const refused = await badChat.sendNotice('should not land')
   assert(refused instanceof Error && refused.message.includes('agents_chat_run_claim_invalid'))
   assert(!readState().messages.some((entry) => entry.run_id === 'run_bad'))
@@ -390,6 +424,7 @@ try {
   assert.deepEqual(readState().queuedInput, [strayItem], 'the answer stays durably queued canonical-side')
   setState({ queuedInput: [] })
 
+  stage = 'identity resolution'
   // --- Identity: the actor goes through the existing person filter with
   // platform `wordpress`, so seats and permissions match Discord.
   const filters = {}
@@ -405,11 +440,20 @@ try {
   assert(statusWrites.length > 0 && statusWrites.every((entry) => canonical.includes(entry.input.status)), 'only canonical run statuses are ever written')
 
   // --- Shutdown disposes runtimes and reports the platform not ready.
+  stage = 'platform shutdown'
   await handle.stop()
+  handle = null
   assert(stub.calls.some(([name, id, ready]) => name === 'markChatPlatformReady' && id === 'wordpress' && ready === false))
   assert(stub.calls.some(([name, id]) => name === 'disposeRuntime' && id === threadId))
 
   console.log('PASS: wordpress platform registers, writes through claim-bound abilities, round-trips questions on a single run, supersedes stranded runs on turn takeover, finalizes runs from the main session only, cancels on Roadie-side aborts, and resolves identity through the person filter')
 } finally {
-  fs.rmSync(temp, { recursive: true, force: true })
+  stage = `cleanup (after ${stage})`
+  connectorChild?.kill('SIGKILL')
+  try {
+    if (handle && !(handle instanceof Error)) await handle.stop()
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true })
+  }
 }
+stage = 'process exit (checking for leaked handles)'

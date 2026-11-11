@@ -8,6 +8,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+let stage = 'platform module import'
+setTimeout(() => {
+  fs.writeSync(2, `FAIL: wordpress runtime entry timed out after 120s during ${stage}\n`)
+  process.exit(1)
+}, 120_000).unref()
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 const { loadRuntimeApi, resolveRuntimeDir } = await import(path.join(here, '..', 'bridges/roadie/roadie-plugins/wordpress-platform.mjs'))
 
@@ -27,16 +33,20 @@ try {
 
   assert.equal(resolveRuntimeDir(link), fs.realpathSync(dist), 'a symlinked bin/roadie resolves to the package dist/')
   assert.equal(resolveRuntimeDir(path.join(dist, 'cli.js')), dist, 'an entry inside dist/ resolves to dist/')
+  stage = 'managed runtime API import'
   const api = await loadRuntimeApi({}, ['node', link])
   assert.equal(typeof api.getOrCreateRuntime, 'function', 'runtime API loads through the symlinked entry')
   assert.throws(() => resolveRuntimeDir(path.join(temp, 'nowhere/roadie')), /Cannot locate the Roadie runtime modules/)
 
   if (process.env.ROADIE_INSTALLED_ENTRY) {
+    stage = 'installed runtime API import'
     const real = await loadRuntimeApi({}, ['node', process.env.ROADIE_INSTALLED_ENTRY])
     for (const fn of ['getOrCreateRuntime', 'resolveConversationIntake', 'getThreadSession']) assert.equal(typeof real[fn], 'function', `installed Roadie exposes ${fn}`)
     console.log(`  ok   installed Roadie at ${process.env.ROADIE_INSTALLED_ENTRY}`)
   }
   console.log('PASS: wordpress platform resolves Roadie runtime modules through the managed symlinked entrypoint')
 } finally {
+  stage = 'fixture cleanup'
   fs.rmSync(temp, { recursive: true, force: true })
 }
+stage = 'process exit (checking for leaked handles)'
