@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.7.16] - 2026-11-11
+
+### Fixed
+- direct parallel scoped work to runtime subagents
+
 ## [3.7.15] - 2026-11-11
 
 ### Changed
