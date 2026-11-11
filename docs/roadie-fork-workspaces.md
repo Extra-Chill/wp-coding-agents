@@ -20,9 +20,13 @@ One active checkout is selected and verified through Git's common directory.
 Several active branches in the same Git repository identify a coordinator. Its
 fork uses the verified primary repository checkout's committed HEAD and allocates
 an independent worktree. Active branches retain their own commits and lifecycle.
-Different active repositories or pending allocation fail with an explanation.
-No active task and no Git-bound source retain ordinary
-conversation forks. Historical activity and maintenance commands supply no
+For a non-Git source, any pending allocation, different active repositories,
+invalid ownership, or a missing owner checkout returns `null` from the filter.
+Unavailable or malformed active-scope discovery also returns `null`. Roadie then
+runs its ordinary shared fork in the source directory, where the conversation
+already operates. No active task and no Git-bound source likewise retain ordinary
+conversation forks. Isolation is selected only when ownership is unambiguous and
+resolvable; pending runs take precedence even if other owners are resolvable. Historical activity and maintenance commands supply no
 repository candidates. Ownership lookup never scans a transcript or run history.
 
 The verified checkout path is a native Homeboy lifecycle handle. Fresh repositories
@@ -59,11 +63,14 @@ Roadie stores Homeboy's workspace handle in its conversation binding.
 Abandoned setup finalizes that record as failed, retaining evidence; Homeboy
 owns later cleanup. This uses the existing lifecycle.
 
-Requires Homeboy's `agent-task active-scope` indexed ownership contract and the
-source-session fork hook in Roadie. An older controller fails closed instead of
-falling back to conversation scanning.
-Restart the bridge after upgrading the provider. Missing support,
-discovery or binding fails before a fork task runs.
+Site-root isolation requires Homeboy's `agent-task active-scope` indexed
+ownership contract and the source-session fork hook in Roadie. An older or
+unavailable controller leaves a non-Git conversation's fork shared; it never
+falls back to conversation scanning. Git-bound sources bypass ownership discovery.
+Host allowlist refusals and worktree provisioning or binding failures remain
+errors from this provider; Roadie degrades them to a shared fork with a visible
+notice, so a fork is never cancelled.
+Restart the bridge after upgrading the provider.
 
 ## Verification
 
@@ -71,6 +78,12 @@ discovery or binding fails before a fork task runs.
 HOME/config, real Git worktrees and independent writes. It proves dirty-source
 preservation, committed-base parity, retained failure evidence, a non-Git home
 selecting an admitted checkout, task switching and cancellation through separate
-CLI processes, terminal-owner expiry, and ambiguity/pending-allocation refusal.
+CLI processes, and terminal-owner expiry. Active ownership is fixture-seeded
+because the current CLI has no queue-only admission verb; worktree allocation,
+finalization and status use the real Homeboy CLI. A table-driven fallback matrix
+checks that pending, ambiguous, unavailable, malformed, invalid and missing
+ownership return `null` from the real filter. An empty scope also uses the real
+CLI directly. Git-bound discovery bypass and host allowlist enforcement remain
+covered.
 Use `HOMEBOY_FORK_TEST_COMMAND` to select the exact candidate controller binary
 when verifying the upstream dependency before its release.
