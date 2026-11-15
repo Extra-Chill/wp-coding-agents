@@ -154,6 +154,7 @@ while [[ $# -gt 0 ]]; do
     --wordpress-chat-agent) WORDPRESS_CHAT_AGENT="$2"; shift 2 ;;
     --no-wordpress-chat) WORDPRESS_CHAT_DISABLE=true; shift ;;
     --agent-tmpdir) AGENT_TMPDIR_REQUEST="$2"; shift 2 ;;
+    --self-upgrade-users) SELF_UPGRADE_USERS="$2"; shift 2 ;;
     --host-config-repo) HOST_CONFIG_REPO="$2"; shift 2 ;;
     --host-config-path) HOST_CONFIG_PATH="$2"; shift 2 ;;
     --host-config-ref) HOST_CONFIG_REF="$2"; shift 2 ;;
@@ -286,6 +287,9 @@ USAGE:
                                 the inbound-event-connector service, delete the
                                 durable env file, and drop wordpress from the
                                 rendered Roadie platform list.
+  ./upgrade.sh --self-upgrade-users <users>
+                                Grant start/status to existing local accounts
+                                (comma/space-separated; default empty).
   ./upgrade.sh --host-config-repo <git-url>
   ./upgrade.sh --host-config-path <path-in-repo>
   ./upgrade.sh --host-config-ref <branch>

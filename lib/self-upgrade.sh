@@ -66,7 +66,19 @@ self_upgrade_config_content() {
 }
 
 self_upgrade_grant_content() {
+  local user users="${SELF_UPGRADE_USERS:-}" seen=" $SERVICE_USER "
+  # Split only on commas/whitespace; never expand account names as globs.
+  local -a accounts=()
+  IFS=$' ,\t\n' read -r -a accounts <<< "${users//$'\n'/ }"
+  for user in "${accounts[@]}"; do
+    grant_local_account_valid "$user" || { warn "Invalid self-upgrade local account: $user"; return 1; }
+  done
   grant_render_line "$SERVICE_USER" root "$SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status"
+  for user in "${accounts[@]}"; do
+    [[ "$seen" != *" $user "* ]] || continue
+    grant_render_line "$user" root "$SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status"
+    seen+="$user "
+  done
 }
 
 # Write via a temp file and rename: the running wrapper is replaced while it is
@@ -86,6 +98,9 @@ self_upgrade_apply() {
   [ "${LOCAL_MODE:-false}" = false ] || return 0
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 0
   [ -n "${SERVICE_USER:-}" ] && [ "$SERVICE_USER" != root ] || return 0
+
+  local content
+  content="$(self_upgrade_grant_content)" || return 1
 
   if [ "${DRY_RUN:-false}" = true ]; then
     echo -e "${BLUE:-}[dry-run]${NC:-} Would install $SELF_UPGRADE_BIN, $SELF_UPGRADE_CONFIG and grant $SELF_UPGRADE_GRANT for $SERVICE_USER"
@@ -109,8 +124,8 @@ self_upgrade_apply() {
 
   self_upgrade_write "$SELF_UPGRADE_BIN" 0755 < "$SCRIPT_DIR/scripts/wp-coding-agents-upgrade"
   self_upgrade_config_content | self_upgrade_write "$SELF_UPGRADE_CONFIG" 0644
-  grant_declare "$SELF_UPGRADE_GRANT" "$(self_upgrade_grant_content)"
-  if grant_install "$SELF_UPGRADE_GRANT" "$(self_upgrade_grant_content)"; then
+  grant_declare "$SELF_UPGRADE_GRANT" "$content"
+  if grant_install "$SELF_UPGRADE_GRANT" "$content"; then
     log "Agent self-upgrade: sudo $SELF_UPGRADE_BIN start (as $SERVICE_USER)"
   else
     warn "Self-upgrade grant was refused; the command is installed but $SERVICE_USER cannot run it"

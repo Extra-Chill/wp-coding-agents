@@ -60,6 +60,21 @@ if command -v visudo >/dev/null 2>&1; then
   visudo -cf "$GRANT" >/dev/null 2>&1; check $? "grant passes visudo"
 fi
 
+echo "==> extra local accounts"
+( SELF_UPGRADE_USERS='root, root'; run_apply "$SCRIPT_DIR_REAL" )
+[ "$(wc -l < "$GRANT" | tr -d ' ')" = 2 ]; check $? "one extra line despite duplicate accounts"
+grep -Fxq "root ALL=(root) NOPASSWD: $SELF_UPGRADE_BIN start, $SELF_UPGRADE_BIN status" "$GRANT"; check $? "extra account has exactly the service scope"
+for bad in no_such_wca_user_871 'root ALL' 'root;id' '%root' '*' 'ROOT' 'root:root'; do
+  before="$(cat "$GRANT")"
+  ( SELF_UPGRADE_USERS="$bad"; run_apply "$SCRIPT_DIR_REAL" ); rc=$?
+  [ "$rc" -ne 0 ] && [ "$(cat "$GRANT")" = "$before" ]; check $? "invalid account '$bad' rejected without changing policy"
+done
+run_apply "$SCRIPT_DIR_REAL"
+[ "$(wc -l < "$GRANT" | tr -d ' ')" = 1 ]; check $? "removing opt-in replaces policy with service-only grant"
+( grant_validate() { return 1; }; SELF_UPGRADE_USERS=root; run_apply "$SCRIPT_DIR_REAL" )
+[ "$(wc -l < "$GRANT" | tr -d ' ')" = 1 ]; check $? "shared validation refusal preserves previous policy"
+( SELF_UPGRADE_USERS=root; SCRIPT_DIR="$SCRIPT_DIR_REAL"; self_upgrade_apply; [ "$(grant_declared_content "$SELF_UPGRADE_GRANT")" = "$(cat "$GRANT")" ] ); check $? "installed extra-user policy equals declaration"
+
 echo "==> refuses when the checkout is not locked down"
 reset; OWNER=pi
 run_apply "$SCRIPT_DIR_REAL"
@@ -132,6 +147,7 @@ echo "==> host-declared opt-ins come from the mirror's merged ref (#799)"
 # record, and root_locked stubbed.
 eval "$(sed -n '/^host_config_fetch() {/,/^}/p' "$W")"
 eval "$(sed -n '/^host_config_read() {/,/^}/p' "$W")"
+eval "$(sed -n '/^host_config_account_valid() {/,/^}/p' "$W")"
 eval "$(sed -n '/^host_config_parse() {/,/^}/p' "$W")"
 eval "$(sed -n '/^host_config_collect_flags() {/,/^}/p' "$W")"
 log() { :; }
@@ -153,16 +169,17 @@ HOST_CONFIG_MIRROR="$TMP/var/host-config.git"
 
 # Collect in a subshell (die exits it) and print the flags it produced.
 collect() { ( host_config_collect_flags >/dev/null 2>&1 && printf '%s\n' "${HOST_CONFIG_FLAGS[@]}" ); }
+chat_flags() { collect | head -2; }
 
-[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a valid host config adds --wordpress-chat-agent <slug>"
+[ "$(chat_flags)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a valid host config adds --wordpress-chat-agent <slug>"
 [ -d "$HOST_CONFIG_MIRROR" ] && [ ! -e "$HOST_CONFIG_MIRROR/hosts/agent1.conf" ]; check $? "mirror is bare: no working tree to edit"
 
 # The trust anchor is the merged remote ref. Edits to a checkout — even
 # committed ones that were never pushed — have no effect on what is read.
 printf 'WORDPRESS_CHAT_AGENT=attacker\n' > "$HSRC/hosts/agent1.conf"
-[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "an edited checkout has no effect (uncommitted)"
+[ "$(chat_flags)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "an edited checkout has no effect (uncommitted)"
 $GIT -C "$HSRC" commit -qam 'local only'
-[ "$(collect)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a committed-but-unpushed change has no effect"
+[ "$(chat_flags)" = "$(printf -- '--wordpress-chat-agent\nintelligence')" ]; check $? "a committed-but-unpushed change has no effect"
 
 push_content() { printf '%s\n' "$1" > "$HSRC/hosts/agent1.conf"; $GIT -C "$HSRC" commit -qam update; git -C "$HSRC" push -q "$HOST_CONFIG_REPO" main; }
 
@@ -179,9 +196,16 @@ refused; check $? "a malformed line fails closed"
 push_content 'WORDPRESS_CHAT_AGENT=$(reboot)'
 refused; check $? "a command substitution in the value fails closed"
 
-# Removing the key must remove its effect: the absent key disables.
+push_content 'SELF_UPGRADE_USERS=root, root'
+[ "$(collect)" = "$(printf -- '--no-wordpress-chat\n--self-upgrade-users\nroot, root')" ]; check $? "reviewed local account list becomes one upgrade flag argument"
+for bad in no_such_wca_user_871 'root;id' '%root' 'ROOT' 'root ALL'; do
+  push_content "SELF_UPGRADE_USERS=$bad"
+  refused; check $? "host config rejects account '$bad' before upgrade"
+done
+
+# Removing keys must remove their effects, including an explicit empty list.
 push_content '# opt-in removed'
-[ "$(collect)" = "--no-wordpress-chat" ]; check $? "an absent key passes --no-wordpress-chat"
+[ "$(collect)" = "$(printf -- '--no-wordpress-chat\n--self-upgrade-users')" ]; check $? "absent keys disable chat and clear extra upgrade users"
 
 # Missing file, ref, or repo are hard failures recorded through record.
 hard_fail() { rm -f "$TMP/record"; ( host_config_collect_flags ) >/dev/null 2>&1 && return 1; grep -qx "$1" "$TMP/record"; }
