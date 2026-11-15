@@ -144,6 +144,16 @@ _compose_path_value() {
   printf '%s' "$out"
 }
 
+# _service_path_value <managed-bin-dir> <bridge-bin-dir> <node-bin-dir>
+# Shared systemd tool PATH: managed Homeboy must beat legacy user binaries.
+_service_path_value() {
+  local home_dirs=()
+  if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
+    home_dirs=("$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
+  fi
+  _compose_path_value "$1" "${home_dirs[@]}" "$2" "$3" /usr/local/bin /usr/bin /bin
+}
+
 # _merge_systemd_env_lines <current_env> <template_env>
 #
 # Merge new Environment= lines from a template into the current unit,

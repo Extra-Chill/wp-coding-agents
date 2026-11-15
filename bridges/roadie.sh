@@ -1692,14 +1692,7 @@ _roadie_path_value() {
   roadie_bin_dir=$(dirname "$ROADIE_BIN")
   node_bin_dir=$(_resolve_node_bin_dir "$ROADIE_BIN")
   homeboy_bin_dir="$(_roadie_managed_homeboy_dir)"
-  # The service user's own tool dirs come before the system ones. Agent shells
-  # stale distro copy in /usr/bin would otherwise win.
-  local home_dirs=()
-  if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
-    home_dirs=("$SERVICE_HOME/.local/bin"  "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
-  fi
-  # Ahead of the Roadie and node dirs too: either can be /usr/bin.
-  _compose_path_value "$homeboy_bin_dir" "${home_dirs[@]}" "$roadie_bin_dir" "$node_bin_dir" /usr/local/bin /usr/bin /bin
+  _service_path_value "$homeboy_bin_dir" "$roadie_bin_dir" "$node_bin_dir"
 }
 
 # Environment every Roadie service carries. Secrets are file references.
