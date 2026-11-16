@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.8.0] - 2026-11-16
+
+### Added
+- allow host-declared local upgrade accounts
+
+### Fixed
+- share Roadie service tool PATH
+
 ## [3.7.18] - 2026-11-11
 
 ### Fixed
