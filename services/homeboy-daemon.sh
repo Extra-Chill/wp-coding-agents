@@ -41,7 +41,7 @@ homeboy_daemon_render_systemd_service() {
       declare -F bridge_session_sender_env >/dev/null 2>&1 && sender_env="$(bridge_session_sender_env)"
     fi
   fi
-  path="$(dirname "$bin")${sender_dir:+:$sender_dir}:/usr/local/bin:/usr/bin:/bin"
+  path="$(_service_path_value "$(dirname "$bin")" "$sender_dir" "$(_resolve_node_bin_dir "${sender%% *}")")"
 # HOME, PATH, and the session sender can all carry whitespace (operator-set
 # paths, or a sender command like "<roadie> send"), so systemd's quoting wraps
 # them; assignments that cannot contain whitespace stay simple. The sender's

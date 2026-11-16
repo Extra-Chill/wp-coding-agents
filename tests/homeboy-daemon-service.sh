@@ -39,7 +39,11 @@ mkdir -p "$SERVICE_HOME" "$HOMEBOY_DAEMON_SYSTEMD_DIR" "$(dirname "$WP_CODING_AG
 bridge_load roadie
 ROADIE_SYSTEM_PREFIX="$TMP/roadie-prefix"
 ROADIE_LOCK_PORT=29988
-mkdir -p "$TMP/verify"
+# Pin node resolution independently of the test host's system PATH.
+mkdir -p "$TMP/node-bin" "$TMP/verify"
+printf '#!/bin/sh\n' > "$TMP/node-bin/node"
+chmod +x "$TMP/node-bin/node"
+PATH="$TMP/node-bin:$PATH"
 # When systemd-analyze is available (#838), the rendered unit must parse with
 # every Environment= assignment intact — no "Invalid environment assignment".
 unit_parses_without_assignment_warnings() {
@@ -52,7 +56,10 @@ unit_parses_without_assignment_warnings() {
 unit="$(homeboy_daemon_render_systemd_service)"
 grep -Fqx "Environment=\"HOMEBOY_SESSION_SEND_COMMAND=$ROADIE_SYSTEM_PREFIX/bin/roadie send\"" <<< "$unit" || fail "unit does not carry the bridge session sender quoted for systemd"
 grep -Fqx "Environment=\"ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token\"" <<< "$unit" || fail "unit does not carry sender authentication"
-grep -Fqx "Environment=\"PATH=$TMP/prefix/wp-coding-agents/bin:$ROADIE_SYSTEM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin\"" <<< "$unit" || fail "sender binary directory is not on PATH"
+expected_path="$TMP/prefix/wp-coding-agents/bin:$SERVICE_HOME/.local/bin:$SERVICE_HOME/.local/share/pnpm:$SERVICE_HOME/.bun/bin:$ROADIE_SYSTEM_PREFIX/bin:$TMP/node-bin:/usr/local/bin:/usr/bin:/bin"
+grep -Fqx "Environment=\"PATH=$expected_path\"" <<< "$unit" || fail "PATH does not put managed Homeboy first, followed by service tools, sender, node, and system dirs"
+roadie_path="$(ROADIE_BIN="$ROADIE_SYSTEM_PREFIX/bin/roadie" _roadie_path_value)"
+[ "$roadie_path" = "$expected_path" ] || fail "Roadie and daemon tool PATHs differ"
 unit_parses_without_assignment_warnings "$unit"
 # A sender carrying quotes, backslashes, and spaces must survive systemd's quoting.
 bridge_session_sender_command() { printf '%s/we ird\"bin\\path send\n' "$TMP"; }
@@ -148,6 +155,23 @@ reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242
 homeboy_daemon_service_reconcile
 grep -q "^restart" "$SYSTEMCTL_LOG" && fail "fresh supervised daemon was restarted"
 [ -z "$STOPPED" ] || fail "supervised daemon was stopped"
+
+# --- Upgrade from the old PATH: re-render, reload, restart, then no-op ----------
+reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242
+unit_path="$(homeboy_daemon_unit_path)"
+python3 - "$unit_path" "$TMP/prefix/wp-coding-agents/bin:/usr/local/bin:/usr/bin:/bin" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text().splitlines()
+path.write_text('\n'.join('Environment="PATH=' + sys.argv[2] + '"' if line.startswith('Environment="PATH=') else line for line in lines) + '\n')
+PY
+homeboy_daemon_service_reconcile
+grep -Fqx "Environment=\"PATH=$TMP/prefix/wp-coding-agents/bin:$SERVICE_HOME/.local/bin:$SERVICE_HOME/.local/share/pnpm:$SERVICE_HOME/.bun/bin:$TMP/node-bin:/usr/local/bin:/usr/bin:/bin\"" "$unit_path" || fail "upgrade did not replace the legacy PATH"
+grep -qx "daemon-reload" "$SYSTEMCTL_LOG" || fail "PATH upgrade did not reload systemd"
+grep -qx "restart homeboy-daemon.service" "$SYSTEMCTL_LOG" || fail "PATH upgrade did not restart the idle daemon"
+reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242
+homeboy_daemon_service_reconcile
+grep -qE '^(restart|daemon-reload)' "$SYSTEMCTL_LOG" && fail "unchanged PATH upgrade was not a no-op"
 
 # --- Supervised, replaced binary, idle: restarted onto the new binary -----------
 reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242 FAKE_FRESH=false
