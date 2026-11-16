@@ -34,6 +34,11 @@ check() {
   fi
 }
 
+check "existing local account accepted" 0 "$(grant_local_account_valid root; echo $?)"
+for account in no_such_wca_user_871 ROOT '%root' '#0' 'root ALL' 'root;id' '*' '-root' 'root:root' "$(printf 'a%.0s' {1..33})"; do
+  check "unsafe or nonexistent account rejected: $account" 1 "$(grant_local_account_valid "$account"; echo $?)"
+done
+
 VALID="agent ALL=(root) NOPASSWD: /usr/local/sbin/thing *"
 OTHER="agent ALL=(root) NOPASSWD: /usr/local/sbin/other *"
 # visudo rejects this: no run-as spec, no command.

@@ -234,6 +234,10 @@ while [[ $# -gt 0 ]]; do
       WORDPRESS_CHAT_DISABLE=true
       shift
       ;;
+    --self-upgrade-users)
+      SELF_UPGRADE_USERS="$2"
+      shift 2
+      ;;
     --host-config-repo)
       HOST_CONFIG_REPO="$2"
       shift 2
@@ -494,6 +498,9 @@ OPTIONS:
                       Disable WordPress-native chat: stop and remove the
                       inbound-event-connector service, delete the durable env
                       file, and drop wordpress from the Roadie platform list.
+  --self-upgrade-users <users>
+                      Grant self-upgrade start/status to existing local accounts
+                      (comma/space-separated; default empty, not persisted).
   --host-config-repo <git-url>
   --host-config-path <path-in-repo>
   --host-config-ref <branch>

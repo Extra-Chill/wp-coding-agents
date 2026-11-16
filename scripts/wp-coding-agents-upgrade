@@ -170,11 +170,19 @@ host_config_read() {
   git --git-dir="$HOST_CONFIG_MIRROR" show "refs/heads/$HOST_CONFIG_REF:$HOST_CONFIG_PATH"
 }
 
+# Standalone wrapper: mirror lib/grants.sh's conservative local-account check.
+host_config_account_valid() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]*\$?$ ]] || return 1
+  [ "${#1}" -le 32 ] || return 1
+  awk -F: -v user="$1" '$1 == user { found=1 } END { exit !found }' /etc/passwd
+}
+
 # KEY=value lines against an allowlist of keys. Never sourced, never eval'd.
 # Any unknown key, malformed line, or invalid value is a parse failure and
 # upgrade.sh must not run. Sets HOST_CONFIG_FLAGS.
 host_config_parse() {
-  local content="$1" line key value chat_agent=
+  local content="$1" line key value chat_agent= users= user
+  local -a accounts=()
   HOST_CONFIG_FLAGS=()
   while IFS= read -r line; do
     line="${line%$'\r'}"
@@ -189,6 +197,14 @@ host_config_parse() {
           || { log "host config: invalid WORDPRESS_CHAT_AGENT value"; return 1; }
         chat_agent="$value"
         ;;
+      SELF_UPGRADE_USERS)
+        IFS=$' ,\t' read -r -a accounts <<< "$value"
+        for user in "${accounts[@]}"; do
+          host_config_account_valid "$user" \
+            || { log "host config: invalid SELF_UPGRADE_USERS account: $user"; return 1; }
+        done
+        users="$value"
+        ;;
       *) log "host config: unknown key '$key'"; return 1 ;;
     esac
   done <<< "$content"
@@ -199,6 +215,8 @@ host_config_parse() {
     # opt-in otherwise persists through its durable env file.
     HOST_CONFIG_FLAGS+=(--no-wordpress-chat)
   fi
+  # Always pass the desired list, including empty on removal. No durable copy.
+  HOST_CONFIG_FLAGS+=(--self-upgrade-users "$users")
 }
 
 # Fetch, read and validate the host config; fail closed before upgrade.sh

@@ -40,6 +40,14 @@ grant_effective_uid() { printf '%s\n' "${WP_CODING_AGENTS_TEST_EUID:-$(id -u)}";
 
 grant_file() { printf '%s/%s' "$GRANTS_SUDOERS_DIR" "$1"; }
 
+# Conservative account syntax, then local passwd membership (not NSS/LDAP).
+# Check before rendering: sudoers also accepts aliases and special principals.
+grant_local_account_valid() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]*\$?$ ]] || return 1
+  [ "${#1}" -le 32 ] || return 1
+  awk -F: -v user="$1" '$1 == user { found=1 } END { exit !found }' /etc/passwd
+}
+
 # caller runas command-with-optional-glob -> one sudoers line.
 grant_render_line() {
   printf '%s ALL=(%s) NOPASSWD: %s\n' "$1" "$2" "$3"
