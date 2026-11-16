@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.8.1] - 2026-11-16
+
+### Changed
+- stop treating a dash-leading secret as a grep option
+
 ## [3.8.0] - 2026-11-16
 
 ### Added
