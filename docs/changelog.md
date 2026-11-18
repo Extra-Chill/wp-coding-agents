@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.8.2] - 2026-11-18
+
+### Fixed
+- state the <@USER_ID> Discord mention format in the managed bridge prompt
+
 ## [3.8.1] - 2026-11-16
 
 ### Changed
