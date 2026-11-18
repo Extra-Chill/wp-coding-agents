@@ -24,6 +24,20 @@ class ManagedBridgePromptTest(unittest.TestCase):
         self.assertIn(instruction, managed[0]["content"])
         self.assertIn(instruction, context)
 
+    def test_mention_format_rule_reaches_composed_bridge_context(self):
+        path = Path(__file__).resolve().parents[1] / "bridges/roadie/prompt-config.yaml"
+        config = yaml.safe_load(path.read_text())
+        # Roadie's built-in mentions section is disabled, so the managed block owns the rule.
+        self.assertIn("mentions", config["disable"])
+        managed = next(section for section in config["append"] if section["id"] == "managed-bridge")
+        rule = (
+            "**Mentions:** Discord pings only work as `<@USER_ID>`; a plain `@name` pings nobody. "
+            "Take IDs from the `user-id` attribute in `<discord-user ... />` metadata or from raw mentions. "
+            "Mention someone only when they need to act."
+        )
+        self.assertIn(rule, managed["content"])
+        self.assertNotIn("mention users by Discord ID", managed["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
