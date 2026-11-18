@@ -357,6 +357,7 @@ Homeboy makes agentic engineering work more deterministic. A coding agent's outp
 - Inspect runs and evidence: `homeboy runs`
 - Multi-step, gated, or repeating workflows: `homeboy workflow`
 - Component and runner health: `homeboy status` and `homeboy runner doctor`
+- Scratch for repros, evidence copies, and throwaway builds: `homeboy scratch allocate --owner <tracker|run|session> --purpose <why>`; it expires on a TTL, and `homeboy scratch release <id>` frees it when done
 
 **Operator boundary**
 `homeboy release` and `homeboy deploy` run when the user asks.
