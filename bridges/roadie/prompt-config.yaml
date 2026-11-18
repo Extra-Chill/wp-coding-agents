@@ -35,7 +35,9 @@ append:
     content: |
       ## Roadie Discord Bridge
 
-      Roadie connects this agent session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, mention users by Discord ID when action is required, and archive the thread when the user explicitly asks.
+      Roadie connects this agent session to Discord. Treat Discord as the human coordination surface: keep the thread updated, ask the user for files with the native upload tool when needed, upload user-facing artifacts when useful, and archive the thread when the user explicitly asks.
+
+      **Mentions:** Discord pings only work as `<@USER_ID>`; a plain `@name` pings nobody. Take IDs from the `user-id` attribute in `<discord-user ... />` metadata or from raw mentions. Mention someone only when they need to act.
 
       **Parallel scoped work:** delegate it to your runtime's subagent tool. Subagents run as child sessions in this thread and return their results to you. Use `roadie send` only to post to or start *other* threads.
 
