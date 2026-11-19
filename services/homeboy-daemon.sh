@@ -29,6 +29,8 @@ homeboy_daemon_service_applicable() {
 }
 
 homeboy_daemon_render_systemd_service() {
+  local resource_policy
+  resource_policy="$(agent_systemd_resource_policy)" || return $?
   local bin sender sender_env sender_dir path
   bin="$(homeboy_service_bin)"
   sender=""
@@ -55,6 +57,7 @@ Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
+$resource_policy
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SERVICE_HOME

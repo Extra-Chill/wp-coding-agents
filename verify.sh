@@ -288,6 +288,9 @@ for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "
   [ -f "$unit" ] || continue
   UNITS_CHECKED=$((UNITS_CHECKED + 1))
   name="$(basename "$unit")"
+  if host_has_local_database && ! agent_systemd_memory_ceiling_present "$name"; then
+    warn "$name has no effective memory ceiling alongside a local database; run upgrade.sh"
+  fi
   u_user="$(awk -F= '/^User=/ {print $2; exit}' "$unit")"
   [ -n "$u_user" ] || continue
   [ "$u_user" = "root" ] || NON_ROOT_SERVICE=true

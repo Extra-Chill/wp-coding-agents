@@ -58,12 +58,15 @@ _datamachine_worker_command() {
 }
 
 datamachine_worker_render_systemd_service() {
+  local resource_policy
+  resource_policy="$(agent_systemd_resource_policy)" || return $?
   cat <<EOF
 [Unit]
 Description=Optional Data Machine queue worker (wp-coding-agents)
 After=network.target
 
 [Service]
+$resource_policy
 Type=oneshot
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
