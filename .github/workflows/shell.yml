@@ -309,6 +309,7 @@ jobs:
           - roadie-remote-pool
           - roadie-retire-kimaki
           - self-upgrade
+          - php-upgrade
           - installation-profile
           - install-source-integrity-report
           - install-source-managed-file-sync

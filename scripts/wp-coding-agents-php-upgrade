@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# wp-coding-agents-php-upgrade — let the agent account apply PHP security patches.
+#
+# Installed by setup/upgrade at /usr/local/sbin/wp-coding-agents-php-upgrade
+# (root:root 0755) with a grant for the service user:
+#
+#     <service-user> ALL=(root) NOPASSWD: /usr/local/sbin/wp-coding-agents-php-upgrade start, \
+#                                         /usr/local/sbin/wp-coding-agents-php-upgrade status
+#
+#   start   launch the patch upgrade in its own transient systemd unit and return
+#   status  report whether one is running, the installed PHP, and the last result
+#
+# WHAT THE AGENT CONTROLS: WHEN, NEVER WHAT. The caller supplies no package,
+# version, path, or option. The package set is computed here: every package
+# already installed whose name is versioned `php<major>.<minor>-*`. Each is
+# passed to `apt-get install --only-upgrade --no-remove`, which only moves an
+# installed package to the newer build of the *same name* from the host's
+# configured apt sources. Because the PHP minor is part of the package name,
+# this can never install a new extension, switch 8.4 to 8.5, or remove
+# anything. New dependencies a patched build requires are pulled in, as with
+# any apt upgrade.
+#
+# After apt, every installed php<ver>-fpm config is tested (`php-fpm<ver> -t`)
+# before its service is restarted, so a broken config fails loudly instead of
+# taking the site down. The result is recorded for `status`.
+#
+# WHY A TRANSIENT UNIT. The agent's shell lives inside the chat bridge's
+# service cgroup. systemd-run gives the upgrade its own cgroup, so a bridge
+# restart cannot kill dpkg halfway through unpacking.
+#
+# Exit codes: 0 started / status printed / applied, 1 failed, 2 usage or refused,
+#             3 a PHP upgrade is already running.
+set -Eeuo pipefail
+
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+IFS=$' \t\n'
+umask 022
+
+# sudo resets the environment; defend in depth anyway. apt and dpkg honour a
+# number of environment hooks, and none of them belong to the caller.
+for _var in $(env | sed -n 's/^\(APT_[A-Za-z0-9_]*\|DPKG_[A-Za-z0-9_]*\|GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_var"; done
+unset BASH_ENV CDPATH ENV LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH PERL5LIB NODE_OPTIONS APT_CONFIG
+
+readonly PROGRAM=wp-coding-agents-php-upgrade
+readonly STATE=/var/lib/wp-coding-agents/php-upgrade.last
+readonly UNIT=wp-coding-agents-php-upgrade
+readonly SELF=/usr/local/sbin/wp-coding-agents-php-upgrade
+
+log() {
+  logger -t "$PROGRAM" -- "$*" 2>/dev/null || true
+  printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
+die() { log "$1"; exit "${2:-1}"; }
+
+# Installed, versioned PHP packages: php8.4-fpm, php8.4-mysql, ... Unversioned
+# metapackages (php, php-common) are excluded on purpose: upgrading them is how
+# a host gets moved to a new PHP minor.
+php_packages() {
+  dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 2>/dev/null \
+    | awk '$1 == "ii" && $2 ~ /^php[0-9]+\.[0-9]+-[a-z0-9][a-z0-9.+-]*$/ { print $2 }' \
+    | sort -u
+}
+
+# PHP minors with an installed FPM package: 8.4, ...
+php_fpm_versions() {
+  php_packages | sed -n 's/^php\([0-9][0-9]*\.[0-9][0-9]*\)-fpm$/\1/p'
+}
+
+# The apt-get arguments for the given packages. Printed one per line so the
+# test can assert the exact command without running apt.
+apt_upgrade_args() {
+  printf '%s\n' install --only-upgrade --no-remove -y -q \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    "$@"
+}
+
+php_version_line() {
+  if command -v php >/dev/null 2>&1; then
+    php -r 'echo PHP_VERSION, "\n";' 2>/dev/null || printf 'unknown\n'
+  else
+    printf 'none\n'
+  fi
+}
+
+cmd_start() {
+  [ "$(id -u)" -eq 0 ] || die "start must run as root (via sudo)" 2
+  if systemctl is-active --quiet "$UNIT.service"; then
+    die "a PHP upgrade is already running; check: $PROGRAM status" 3
+  fi
+  [ -n "$(php_packages)" ] || die "no versioned php packages are installed" 2
+  systemctl reset-failed "$UNIT.service" >/dev/null 2>&1 || true
+  systemd-run --unit="$UNIT" --description="wp-coding-agents PHP security upgrade" \
+    --property=Type=exec --collect --quiet "$SELF" apply
+  log "started $UNIT.service (follow with: journalctl -u $UNIT.service -f)"
+  printf 'started %s.service\nfollow: journalctl -u %s.service -f\nresult: %s status\n' "$UNIT" "$UNIT" "$PROGRAM"
+}
+
+cmd_status() {
+  if systemctl is-active --quiet "$UNIT.service"; then
+    printf 'running\n'
+  else
+    printf 'idle\n'
+  fi
+  if [ -f "$STATE" ]; then
+    printf 'last: %s\n' "$(cat "$STATE")"
+  else
+    printf 'last: none\n'
+  fi
+  printf 'php: %s\n' "$(php_version_line)"
+}
+
+record() {
+  mkdir -p "$(dirname "$STATE")"
+  printf '%s exit=%s php=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "${2:-unknown}" > "$STATE.tmp"
+  chmod 0644 "$STATE.tmp"
+  mv "$STATE.tmp" "$STATE"
+}
+
+# Runs only inside the transient unit, never from the caller's sudo (the grant
+# allows start and status only; the cgroup check is defense in depth).
+cmd_apply() {
+  [ "$(id -u)" -eq 0 ] || die "apply must run as root" 2
+  grep -q "/$UNIT.service\$" /proc/self/cgroup 2>/dev/null || die "apply runs only inside $UNIT.service; use start" 2
+  export HOME=/root DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
+
+  local -a packages=() args=()
+  local version before after
+  mapfile -t packages < <(php_packages)
+  [ "${#packages[@]}" -gt 0 ] || { record no-packages; die "no versioned php packages are installed" 2; }
+  before="$(php_version_line)"
+  log "upgrading ${#packages[@]} installed PHP packages (php $before): ${packages[*]}"
+
+  apt-get update -q || { record apt-update-failed "$before"; die "apt-get update failed"; }
+  mapfile -t args < <(apt_upgrade_args "${packages[@]}")
+  apt-get "${args[@]}" || { record apt-install-failed "$before"; die "apt-get install --only-upgrade failed"; }
+
+  after="$(php_version_line)"
+  while IFS= read -r version; do
+    [ -n "$version" ] || continue
+    if ! "php-fpm$version" -t; then
+      record "fpm-config-invalid-$version" "$after"
+      die "php-fpm$version -t failed after the upgrade; php$version-fpm NOT restarted"
+    fi
+    if systemctl is-enabled --quiet "php$version-fpm.service" 2>/dev/null \
+      || systemctl is-active --quiet "php$version-fpm.service"; then
+      log "restarting php$version-fpm"
+      systemctl restart "php$version-fpm.service" \
+        || { record "fpm-restart-failed-$version" "$after"; die "systemctl restart php$version-fpm failed"; }
+      systemctl is-active --quiet "php$version-fpm.service" \
+        || { record "fpm-not-active-$version" "$after"; die "php$version-fpm is not active after restart"; }
+    fi
+  done < <(php_fpm_versions)
+
+  record 0 "$after"
+  log "done: php $before -> $after"
+}
+
+main() {
+  case "${1:-}" in
+    start) [ $# -eq 1 ] || die "start takes no arguments" 2; cmd_start ;;
+    status) [ $# -eq 1 ] || die "status takes no arguments" 2; cmd_status ;;
+    apply) [ $# -eq 1 ] || die "apply takes no arguments" 2; cmd_apply ;;
+    *) die "usage: $PROGRAM start|status" 2 ;;
+  esac
+}
+
+main "$@"

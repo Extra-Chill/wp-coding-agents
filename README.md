@@ -627,6 +627,19 @@ Opt-in flags for that unattended `upgrade.sh` run (`--wordpress-chat-agent` and 
 
 For CI, `sudo /usr/local/sbin/wp-coding-agents-upgrade status` prints `running` or `idle` on the first line, then `last: none` or `last: <UTC timestamp> exit=<result> commit=<sha>`. Poll until `idle` with a new last-result timestamp; require `exit=0` for success (failures may use a symbolic result). Status exits zero when it prints, not according to the last upgrade's outcome. `start` exits 3 if an upgrade is already running.
 
+## Agent PHP Security Upgrade
+
+On the same managed VPS installs, setup and upgrade also install `/usr/local/sbin/wp-coding-agents-php-upgrade` with a sudoers grant (`wp-coding-agents-php-upgrade`) limited to `start` and `status`, so the agent can apply a PHP security release without paging an operator:
+
+```bash
+sudo /usr/local/sbin/wp-coding-agents-php-upgrade start
+sudo /usr/local/sbin/wp-coding-agents-php-upgrade status
+```
+
+The caller chooses when, never what. `start` takes no arguments and launches `wp-coding-agents-php-upgrade.service` as a transient systemd unit, so a bridge restart cannot interrupt dpkg. The unit selects every *installed* package named `php<major>.<minor>-*` (for example `php8.4-fpm` or `php8.4-mysql`), runs `apt-get update`, then `apt-get install --only-upgrade --no-remove -y` on exactly those names with `--force-confdef --force-confold`. Because the PHP minor is part of each package name, this applies patch releases from the host's configured apt sources but cannot install a new extension, move 8.4 to 8.5, or remove anything. Unversioned metapackages (`php`, `php-common`) are deliberately excluded. Afterwards each installed `php<ver>-fpm` config is checked with `php-fpm<ver> -t` before its service is restarted; a failed config test leaves the old process running and fails the run.
+
+`status` prints `running` or `idle`, then `last: none` or `last: <UTC timestamp> exit=<result> php=<version>`, then `php: <installed version>`. `exit=0` is success; failures use a symbolic result such as `apt-install-failed` or `fpm-config-invalid-8.4`. `start` exits 3 if a PHP upgrade is already running. Moving to a new PHP minor stays an operator task.
+
 ## Verification
 
 ```
