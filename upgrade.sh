@@ -55,7 +55,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene systems-capabilities self-upgrade php-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -1161,6 +1161,7 @@ sync_chat_bridge_config
 if _run_filter_active systemd; then
   systems_capabilities_apply
   self_upgrade_apply
+  php_upgrade_apply
 fi
 sync_skills
 # Captured, not aborted. This is the only phase function here with a non-zero

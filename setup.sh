@@ -22,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared modules
-for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance systems-capabilities self-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery agent-state-ownership desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress external-wordpress infrastructure data-machine carried-plugins homeboy ai-gateway skills summary cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance systems-capabilities self-upgrade php-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -661,6 +661,7 @@ fi
 
 [ "$RUNTIME_ONLY" != true ] && systems_capabilities_apply
 [ "$RUNTIME_ONLY" != true ] && self_upgrade_apply
+[ "$RUNTIME_ONLY" != true ] && php_upgrade_apply
 CONVERGENCE_ENTRYPOINT="$SCRIPT_DIR/setup.sh"
 CONVERGENCE_REPLAY_ARGUMENTS="--wp-path $(printf '%q' "${SITE_PATH:-${EXISTING_WP:-}}")"
 [ "$DRY_RUN" = true ] && CONVERGENCE_REPLAY_ARGUMENTS="--dry-run $CONVERGENCE_REPLAY_ARGUMENTS"
