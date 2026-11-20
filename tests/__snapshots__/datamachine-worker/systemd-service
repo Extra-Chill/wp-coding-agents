@@ -3,6 +3,8 @@ Description=Optional Data Machine queue worker (wp-coding-agents)
 After=network.target
 
 [Service]
+MemoryHigh=60%
+MemoryMax=75%
 Type=oneshot
 User=chubes
 WorkingDirectory=/var/www/site
