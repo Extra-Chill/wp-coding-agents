@@ -560,6 +560,25 @@ fi
 
 # ---------------------------------------------------------------------------
 
+# Read-only disk co-tenancy doctor. Warnings do not fail invariants, but are
+# included in JSON findings so unattended checks do not silently discard them.
+section "agent state disk placement"
+if [ -z "${DM_WORKSPACE_DIR:-}" ] && [ -f "$SITE_PATH/.wp-coding-agents/installation-profile" ]; then
+  DM_WORKSPACE_DIR="$(awk -F= '$1 == "workspace_repositories" { split(substr($0, index($0, "=") + 1), roots, ":"); print roots[1]; exit }' "$SITE_PATH/.wp-coding-agents/installation-profile")"
+fi
+DOCTOR_HOME="${SERVICE_HOME:-}"
+if [ -z "$DOCTOR_HOME" ] && command -v systemctl >/dev/null 2>&1; then
+  DOCTOR_USER="$(systemctl show roadie.service -p User --value 2>/dev/null || true)"
+  [ -z "$DOCTOR_USER" ] || DOCTOR_HOME="$(getent passwd "$DOCTOR_USER" | cut -d: -f6)"
+fi
+if [ "$(uname -s)" != Darwin ] && [ -n "$DOCTOR_HOME" ]; then
+  STATE_WARNING="$(agent_state_doctor "$DOCTOR_HOME" "$SITE_PATH")"
+  if [ -n "$STATE_WARNING" ]; then
+    FINDINGS="${FINDINGS}WARNING: ${STATE_WARNING}"$'\n'
+    _say "  WARN  $STATE_WARNING"
+  fi
+fi
+
 section "result"
 _say "  $PASSED passed, $FAILED failed, $SKIPPED skipped"
 

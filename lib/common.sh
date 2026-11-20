@@ -443,6 +443,7 @@ initialize_roadie_overrides() {
 
 # Service-section scratch policy: literal /tmp and TMPDIR share the volume.
 agent_tmpdir_systemd_env() {
+  agent_cache_systemd_env
   if [ -n "${AGENT_TMPDIR:-}" ]; then
     local bind_source="$AGENT_TMPDIR"
     # systemd splits BindPaths on unquoted colons, then unquotes each operand.
@@ -453,6 +454,58 @@ agent_tmpdir_systemd_env() {
     printf 'Environment=%s\nBindPaths=%s:/tmp\n' \
       "$(systemd_quote "TMPDIR=$AGENT_TMPDIR")" "$bind_source"
   fi
+}
+
+# Cache placement is deliberately separate from durable runtime/session data.
+# DM_WORKSPACE_DIR is the existing explicit workspace configuration; never infer
+# a volume from the agent's home or change XDG_DATA_HOME (live SQLite stores).
+agent_cache_root() {
+  [ "${LOCAL_MODE:-false}" = false ] && [ "${PLATFORM:-}" != mac ] || return 0
+  [ -n "${DM_WORKSPACE_DIR:-}" ] || return 0
+  printf '%s/.agent-cache' "${DM_WORKSPACE_DIR%/}"
+}
+
+agent_cache_paths() {
+  local root
+  root="$(agent_cache_root)"
+  [ -n "$root" ] || return 0
+  printf '%s\n' "XDG_CACHE_HOME=$root/xdg" "PNPM_STORE_DIR=$root/pnpm" \
+    "PLAYWRIGHT_BROWSERS_PATH=$root/playwright" "npm_config_cache=$root/npm" \
+    "COMPOSER_CACHE_DIR=$root/composer" "CARGO_HOME=$root/cargo" "RUSTUP_HOME=$root/rustup"
+}
+
+# Read-only doctor probes kept separate for hermetic filesystem tests.
+agent_state_filesystem() {
+  stat -c %d -- "$1" 2>/dev/null
+}
+
+agent_state_size_kb() {
+  du -skx -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+agent_state_doctor() {
+  local home="$1" site="$2" site_fs path size total=0
+  [ -n "$(agent_cache_root)" ] || return 0
+  site_fs="$(agent_state_filesystem "$site")" || return 0
+  [ -n "$site_fs" ] || return 0
+  # du does not follow symlinks: already redirected state is not counted.
+  for path in .cache .local/share .config/homeboy .roadie .opencode .npm .composer .cargo .rustup repos; do
+    [ -d "$home/$path" ] && [ ! -L "$home/$path" ] || continue
+    [ "$(agent_state_filesystem "$home/$path")" = "$site_fs" ] || continue
+    size="$(agent_state_size_kb "$home/$path")"
+    total=$((total + ${size:-0}))
+  done
+  if [ "$total" -ge "${AGENT_STATE_WARNING_KB:-1048576}" ]; then
+    printf 'Agent state under %s occupies %s KiB on the site-data filesystem (%s), despite workspace %s; existing state migration requires a separate maintenance operation.\n' "$home" "$total" "$site" "$DM_WORKSPACE_DIR"
+  fi
+}
+
+agent_cache_systemd_env() {
+  local assignment
+  while IFS= read -r assignment; do
+    [ -n "$assignment" ] || continue
+    printf 'Environment=%s\n' "$(systemd_quote "$assignment")"
+  done < <(agent_cache_paths)
 }
 
 # Appended to a unit's HOME line: a newline plus the Homeboy data-root

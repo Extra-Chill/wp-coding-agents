@@ -4,7 +4,7 @@
 # owners; it only makes their presence and plan records explicit.
 
 bridge_service_adapter_names() {
-  printf '%s\n' agent-tmpdir bridge wordpress-service datamachine-worker homeboy-daemon
+  printf '%s\n' agent-cache agent-tmpdir bridge wordpress-service datamachine-worker homeboy-daemon
 }
 
 bridge_service_adapter_operation_validate() {
@@ -19,6 +19,9 @@ bridge_service_adapter_detect() {
   BRIDGE_SERVICE_ADAPTER_PRESENT=false
 
   case "$adapter" in
+    agent-cache)
+      [ -n "$(agent_cache_root)" ] && BRIDGE_SERVICE_ADAPTER_PRESENT=true
+      ;;
     agent-tmpdir)
       [ -n "${AGENT_TMPDIR:-}" ] && BRIDGE_SERVICE_ADAPTER_PRESENT=true
       ;;
@@ -73,6 +76,7 @@ bridge_service_adapter_detect() {
 
 bridge_service_adapter_record() {
   case "$1" in
+    agent-cache) printf 'services.agent-cache' ;;
     agent-tmpdir) printf 'services.agent-tmpdir' ;;
     bridge) printf 'bridges.%s' "$CHAT_BRIDGE" ;;
     wordpress-service) printf 'services.wordpress' ;;
@@ -104,9 +108,29 @@ bridge_service_adapters_plan() {
   BRIDGE_SERVICE_ADAPTER_OPERATION="$operation"
   for adapter in $(bridge_service_adapter_names); do
     # Units of every scope reference TMPDIR, so its directory always reconciles first.
-    [ "${BRIDGE_SERVICE_ADAPTER_SCOPE:-all}" != bridge ] || [ "$adapter" = bridge ] || [ "$adapter" = agent-tmpdir ] || continue
+    [ "${BRIDGE_SERVICE_ADAPTER_SCOPE:-all}" != bridge ] || [ "$adapter" = bridge ] || [ "$adapter" = agent-tmpdir ] || [ "$adapter" = agent-cache ] || continue
     bridge_service_adapter_plan "$adapter"
   done
+}
+
+# Cache directories must exist before any consumers are started. No recursive
+# ownership changes or migration: old homes and live stores are left alone.
+bridge_service_adapter_apply_agent_cache() {
+  local assignment path group
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  group="$(id -gn "$SERVICE_USER")" || return 1
+  while IFS= read -r assignment; do
+    path="${assignment#*=}"
+    install -d -m 0700 -o "$SERVICE_USER" -g "$group" "$path" || return $?
+  done < <(agent_cache_paths)
+}
+
+bridge_service_adapter_verify_agent_cache() {
+  local assignment
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  while IFS= read -r assignment; do
+    [ -d "${assignment#*=}" ] || return 1
+  done < <(agent_cache_paths)
 }
 
 # systemd-tmpfiles creates agent scratch at boot and ages out files older than
