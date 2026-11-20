@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.10.0] - 2026-11-20
+
+### Added
+- let the agent apply PHP security patch upgrades
+
 ## [3.9.0] - 2026-11-20
 
 ### Added
