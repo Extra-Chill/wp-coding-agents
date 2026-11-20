@@ -64,6 +64,12 @@ jobs:
       - name: Run tests/plist-rendering.sh
         run: ./tests/plist-rendering.sh
 
+  agent-cache-placement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/agent-cache-placement.sh
+
   resource-policy:
     runs-on: ubuntu-latest
     steps:

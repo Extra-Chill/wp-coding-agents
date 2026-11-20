@@ -297,6 +297,30 @@ for scratch_dir in /srv/workspace/.tmp '/srv/workspace with spaces/.tmp' ''; do
   done
 done
 
+# Phase-1 caches use the same real consumers as scratch, without redirecting
+# durable XDG/bridge data. Defaults above remain snapshot-identical.
+for renderer in roadie homeboy-daemon; do
+  unit="$(
+    export DM_WORKSPACE_DIR='/srv/workspace with spaces' LOCAL_MODE=false PLATFORM=linux
+    case "$renderer" in
+      roadie) render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)" ;;
+      homeboy-daemon) homeboy_daemon_render_systemd_service ;;
+    esac
+  )"
+  service_section="$(awk '/^\[/{service=($0 == "[Service]")} service' <<< "$unit")"
+  for assignment in \
+    'XDG_CACHE_HOME=xdg' 'PNPM_STORE_DIR=pnpm' 'PLAYWRIGHT_BROWSERS_PATH=playwright' \
+    'npm_config_cache=npm' 'COMPOSER_CACHE_DIR=composer' 'CARGO_HOME=cargo' 'RUSTUP_HOME=rustup'; do
+    directive="Environment=\"${assignment%%=*}=/srv/workspace with spaces/.agent-cache/${assignment#*=}\""
+    grep -Fxq "$directive" <<< "$service_section" || {
+      echo "FAIL: $renderer missing $directive in [Service]"; exit 1;
+    }
+  done
+  if grep -q 'XDG_DATA_HOME=' <<< "$unit"; then
+    echo "FAIL: $renderer redirects live XDG data"; exit 1
+  fi
+done
+
 # Ask systemd to validate real daemon units too, without requiring a running
 # manager or privileges. Use an executable fixture so ExecStart validation does
 # not depend on a host Homeboy installation.

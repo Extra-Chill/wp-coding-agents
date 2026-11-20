@@ -1,5 +1,7 @@
 # Agent scratch retention
 
+For persistent package/browser/toolchain caches, see [agent cache placement](agent-cache-placement.md).
+
 With `AGENT_TMPDIR` configured, rendered systemd services carry both
 `Environment=TMPDIR=<dir>` and `BindPaths=<dir>:/tmp` in `[Service]`.
 Inside those services, literal `/tmp` paths and `$TMPDIR` reach the same scratch
