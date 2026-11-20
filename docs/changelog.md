@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.9.0] - 2026-11-20
+
+### Added
+- place agent caches on configured workspace storage
+
 ## [3.8.4] - 2026-11-20
 
 ### Fixed
