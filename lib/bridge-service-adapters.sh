@@ -138,6 +138,9 @@ bridge_service_adapter_verify_agent_tmpdir() {
 }
 
 bridge_service_adapter_apply_bridge() {
+  if [ "${EUID:-$(id -u)}" -eq 0 ] || [ "${DRY_RUN:-false}" = true ]; then
+    host_resource_policy_reconcile || return $?
+  fi
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   if [ "$BRIDGE_SERVICE_ADAPTER_OPERATION" = "$INSTALLATION_OPERATION_SETUP" ]; then

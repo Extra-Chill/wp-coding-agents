@@ -2070,7 +2070,8 @@ bridge_update_launchd() {
 # ============================================================================
 
 bridge_render_systemd() {
-  local unit="$1" env_block="$2"
+  local unit="$1" env_block="$2" resource_policy
+  resource_policy="$(agent_systemd_resource_policy)" || return $?
   local normalized_unit
   normalized_unit=$(_roadie_normalize_unit_name "$unit")
   [ "$normalized_unit" = "$unit" ] || { echo "roadie has no unit '$unit'" >&2; return 1; }
@@ -2090,6 +2091,7 @@ Description=Roadie Discord bridge (wp-coding-agents)
 After=network.target
 
 [Service]
+$resource_policy
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH

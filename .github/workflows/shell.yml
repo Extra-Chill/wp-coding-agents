@@ -64,6 +64,12 @@ jobs:
       - name: Run tests/plist-rendering.sh
         run: ./tests/plist-rendering.sh
 
+  resource-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/resource-policy.sh
+
   bridge-render:
     name: chat-bridge template byte-equivalence
     runs-on: ubuntu-latest

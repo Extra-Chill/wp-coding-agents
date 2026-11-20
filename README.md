@@ -198,6 +198,28 @@ or systemd service with `./upgrade.sh --no-datamachine-worker`. The worker runs
 one bounded `wp datamachine worker run --once` pass every two minutes; it does
 not execute generic due WP-Cron events.
 
+### Linux runtime memory policy
+
+Managed agent systemd services (chat bridge, Homeboy daemon, and Data Machine
+worker) render `MemoryHigh=60%` and `MemoryMax=75%`. systemd sizes these against
+host physical RAM and accounts for child processes in each service's cgroup.
+Override with `AGENT_MEMORY_HIGH_PERCENT` / `AGENT_MEMORY_MAX_PERCENT` in the
+setup/upgrade environment (integers, `1 <= high <= max <= 99`); supply the same
+overrides on future upgrades. These are per-service ceilings, not a combined
+budget; lower them when running multiple agent services on a shared host.
+
+Linux VPS service reconciliation also writes
+`/etc/systemd/system/<unit>.d/wp-coding-agents-oom.conf` for installed
+MariaDB/MySQL services (`OOMScoreAdjust=-600`) and php-fpm (`-300`), then
+reloads systemd only when files changed. Other drop-ins are preserved. These
+scores lower global OOM victim priority, not an absolute immunity guarantee.
+The scores apply on the next service restart; setup/upgrade does not restart
+the production database or php-fpm. Dry-run reports changes without writing;
+macOS/launchd, local mode, and absent services are skipped.
+`verify.sh` warns if an agent service has no effective memory ceiling alongside
+a local database. Existing agent processes acquire limits when their unit is
+reloaded/restarted through the normal service upgrade lifecycle.
+
 ### Optional Local WordPress Service
 
 On macOS, an existing site can run without a separate local development app by

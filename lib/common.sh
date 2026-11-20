@@ -1,5 +1,6 @@
 #!/bin/bash
 # Common utilities: colors, logging, command helpers
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resource-policy.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
