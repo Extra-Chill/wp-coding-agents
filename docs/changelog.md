@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.8.4] - 2026-11-20
+
+### Fixed
+- bound agent memory and protect local database services
+
 ## [3.8.3] - 2026-11-18
 
 ### Changed
