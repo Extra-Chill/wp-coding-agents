@@ -212,6 +212,71 @@ homeboy_provision_service_bin() {
   log "Provisioned service-owned Homeboy: $target"
 }
 
+# The Homeboy release this install pins, like bridges/roadie/roadie-version.
+# Refreshed by the release run's dependency_stack refresh (homeboy.json), so a
+# Homeboy release reaches managed hosts through a reviewed wp-coding-agents
+# release rather than whenever someone happens to run `homeboy upgrade`.
+homeboy_pinned_version() {
+  local file="${HOMEBOY_VERSION_FILE:-$SCRIPT_DIR/services/homeboy-version}" version
+  version="$(tr -d '[:space:]' 2>/dev/null < "$file" || true)"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  printf '%s\n' "$version"
+}
+
+# Installed semver of the binary homeboy_run executes, without the +build part.
+homeboy_installed_version() {
+  local line
+  line="$(homeboy_run --version 2>/dev/null | head -1)" || return 1
+  line="${line#homeboy }"
+  line="${line%%+*}"
+  [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  printf '%s\n' "$line"
+}
+
+# Converge the service-owned binary on the pin with Homeboy's own upgrader.
+# Never fatal: a Homeboy that cannot move this run keeps working, and the next
+# upgrade retries. Homeboy refuses to replace a daemon that is still serving a
+# lease, so an in-flight cook is never killed for this; that outcome is a
+# deferral, reported as such, and is never forced.
+homeboy_converge_pinned_version() {
+  homeboy_uses_service_owned_bin || return 0
+  homeboy_service_bin_ready || return 0
+
+  local pinned installed output rc=0
+  if ! pinned="$(homeboy_pinned_version)"; then
+    warn "Homeboy pin is missing or invalid (services/homeboy-version); leaving Homeboy as installed"
+    return 0
+  fi
+  installed="$(homeboy_installed_version || true)"
+  if [ "$installed" = "$pinned" ]; then
+    log "Homeboy is at the pinned $pinned"
+    return 0
+  fi
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE:-}[dry-run]${NC:-} Would upgrade Homeboy ${installed:-unknown} -> $pinned (homeboy upgrade --version v$pinned)"
+    return 0
+  fi
+
+  log "Upgrading Homeboy ${installed:-unknown} -> $pinned"
+  output="$(homeboy_run upgrade --version "v$pinned" 2>&1)" || rc=$?
+  installed="$(homeboy_installed_version || true)"
+
+  if [ "$installed" != "$pinned" ]; then
+    warn "Homeboy upgrade to $pinned did not land (installed: ${installed:-unknown}, exit $rc); the next upgrade retries"
+    return 0
+  fi
+  if grep -q 'daemon_pending_restart' <<< "$output"; then
+    warn "Homeboy $pinned installed; daemon restart deferred while it serves active work (see: homeboy upgrade status)"
+    return 0
+  fi
+  if [ "$rc" -ne 0 ]; then
+    warn "Homeboy $pinned installed but its upgrade exited $rc; inspect: homeboy upgrade status"
+    return 0
+  fi
+  log "Homeboy upgraded to $pinned"
+}
+
 homeboy_project_json() {
   local domain base_path server_id
   domain="$(json_escape "$1")"

@@ -640,6 +640,10 @@ The caller chooses when, never what. `start` takes no arguments and launches `wp
 
 `status` prints `running` or `idle`, then `last: none` or `last: <UTC timestamp> exit=<result> php=<version>`, then `php: <installed version>`. `exit=0` is success; failures use a symbolic result such as `apt-install-failed` or `fpm-config-invalid-8.4`. `start` exits 3 if a PHP upgrade is already running. Moving to a new PHP minor stays an operator task.
 
+## Homeboy Version
+
+Managed installs pin Homeboy the way they pin Roadie and Pi. `services/homeboy-version` names the release, and the `homeboy.json` `dependency_stack` refreshes it from Extra-Chill/homeboy releases on each release run. Setup and upgrade then converge the service-owned binary (`/usr/local/lib/wp-coding-agents/bin/homeboy`) on that pin with Homeboy's own upgrader, `homeboy upgrade --version v<pin>`, run as the service user. A host that follows wp-coding-agents releases therefore follows Homeboy releases as well, through the same reviewed path. The step is never fatal. When Homeboy defers swapping a daemon that is still serving a lease, the upgrade reports the deferral and moves on rather than forcing it, so in-flight cooks survive; the next upgrade finishes the swap. `verify.sh` fails when the managed binary is on any version other than the pin.
+
 ## Verification
 
 ```

@@ -666,6 +666,7 @@ upgrade_ensure_site_root_group_write
 # A root upgrade may discover the system Homeboy binary, but managed non-root
 # services must execute the service-owned copy instead.
 homeboy_provision_service_bin
+homeboy_converge_pinned_version
 
 
 

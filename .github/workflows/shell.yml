@@ -294,6 +294,7 @@ jobs:
           - homeboy-project-id
           - homeboy-service-identity
           - homeboy-daemon-service
+          - homeboy-pin
           - homeboy-verification-guidance
           - roadie-accounts
           - roadie-access-roles
