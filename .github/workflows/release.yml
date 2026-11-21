@@ -56,4 +56,10 @@ jobs:
       # build artifact. Every release so far had zero assets, so skip the
       # package/publish steps rather than ask an extension to build nothing.
       release-skip-publish: true
+      # Apply the release on the Extra Chill host now instead of waiting on
+      # deploy.yml's best-effort cron, which can go hours between ticks.
+      # deploy.yml runs a wp-coding-agents dispatch as a poll tick, and its
+      # upgrade step applies this release (Extra-Chill/extrachill#1727).
+      dispatch-repo: Extra-Chill/extrachill
+      dispatch-event: component-released
     secrets: inherit
