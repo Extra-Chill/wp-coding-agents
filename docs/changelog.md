@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.0] - 2026-11-21
+
+### Added
+- pin Homeboy and converge the managed binary on upgrade
+
 ## [3.10.0] - 2026-11-20
 
 ### Added
