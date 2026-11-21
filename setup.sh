@@ -644,6 +644,7 @@ if [ "$RUNTIME_ONLY" != true ]; then
     setup_ssl
     setup_service_permissions
     homeboy_provision_service_bin
+    homeboy_converge_pinned_version
   fi
 fi
 

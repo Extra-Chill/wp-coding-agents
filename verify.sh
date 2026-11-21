@@ -365,6 +365,22 @@ if [ -x "$HOMEBOY_MANAGED_BIN" ]; then
       fail "$(basename "$unit") PATH does not include $HOMEBOY_BIN_DIR — service and guidance may select different Homeboy binaries"
     fi
   done < <(printf '%s\n' "$UNIT_DIR"/roadie*.service)
+  # The pin is the release this install ships (homeboy.json dependency_stack);
+  # upgrade converges on it. A binary on any other version was moved by hand
+  # and is invisible to the deploy summary that reports the pin.
+  HOMEBOY_PIN="$(tr -d '[:space:]' 2>/dev/null < "$SCRIPT_DIR/services/homeboy-version" || true)"
+  HOMEBOY_RUNNING="$("$HOMEBOY_MANAGED_BIN" --version 2>/dev/null | head -1 || true)"
+  HOMEBOY_RUNNING="${HOMEBOY_RUNNING#homeboy }"
+  HOMEBOY_RUNNING="${HOMEBOY_RUNNING%%+*}"
+  if [ -z "$HOMEBOY_PIN" ]; then
+    skip "no Homeboy pin at services/homeboy-version"
+  elif [ -z "$HOMEBOY_RUNNING" ]; then
+    skip "cannot read the managed Homeboy version"
+  elif [ "$HOMEBOY_RUNNING" = "$HOMEBOY_PIN" ]; then
+    pass "managed Homeboy is at the pinned $HOMEBOY_PIN"
+  else
+    fail "managed Homeboy is $HOMEBOY_RUNNING but this install pins $HOMEBOY_PIN — the next upgrade converges it; check: homeboy upgrade status"
+  fi
 else
   skip "no executable managed Homeboy at $HOMEBOY_MANAGED_BIN"
 fi

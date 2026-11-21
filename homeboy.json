@@ -41,6 +41,18 @@
       "policy": {
         "max": "same-major"
       }
+    },
+    {
+      "upstream": "homeboy",
+      "downstream": "wp-coding-agents",
+      "package": "homeboy",
+      "source": {
+        "github_release": "Extra-Chill/homeboy"
+      },
+      "lock": {
+        "kind": "version-file",
+        "path": "services/homeboy-version"
+      }
     }
   ],
   "scripts": {
