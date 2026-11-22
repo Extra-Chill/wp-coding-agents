@@ -52,6 +52,9 @@
       "lock": {
         "kind": "version-file",
         "path": "services/homeboy-version"
+      },
+      "policy": {
+        "breaking": "commit-markers"
       }
     }
   ],
