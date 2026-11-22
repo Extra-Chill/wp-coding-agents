@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.1] - 2026-11-22
+
+### Changed
+- dispatch component-released to extrachill after each release
+- Update homeboy to 0.488.11
+
 ## [3.11.0] - 2026-11-21
 
 ### Added
