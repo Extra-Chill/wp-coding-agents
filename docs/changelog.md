@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.4] - 2026-11-23
+
+### Changed
+- refresh immediately when an upstream releases
+- Update homeboy to 0.490.1
+
 ## [3.11.3] - 2026-11-22
 
 ### Changed
