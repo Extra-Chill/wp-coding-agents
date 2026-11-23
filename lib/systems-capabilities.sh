@@ -8,6 +8,7 @@ SYSTEMS_CAPABILITIES_JOURNALD_FILE="${SYSTEMS_CAPABILITIES_JOURNALD_FILE:-/etc/s
 SYSTEMS_CAPABILITIES_LOGROTATE_DIR="${SYSTEMS_CAPABILITIES_LOGROTATE_DIR:-/etc/logrotate.d}"
 SYSTEMS_CAPABILITIES_SYSTEMD_DIR="${SYSTEMS_CAPABILITIES_SYSTEMD_DIR:-/etc/systemd/system}"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="${SYSTEMS_CAPABILITIES_SUDOERS_DIR:-/etc/sudoers.d}"
+SYSTEMS_CAPABILITIES_PHP_ETC_DIR="${SYSTEMS_CAPABILITIES_PHP_ETC_DIR:-/etc/php}"
 
 systems_capabilities_profile_name() { printf '%s' "$(basename "$SITE_PATH")"; }
 systems_capabilities_profile_key() {
@@ -298,6 +299,47 @@ systems_capabilities_install_native_packages() {
 # implementation that used to live here, extracted once a second component
 # needed it and wrote a weaker copy instead of finding this one.
 
+# Homeboy deploys WordPress plugins and themes into versioned release
+# directories behind an atomic symlink flip, so requests already in flight
+# finish on the release they started with. Homeboy only selects that layout
+# when every PHP-FPM pool runs with opcache.revalidate_path=1; with the PHP
+# default (0) opcache keys bytecode by the unresolved symlink path and would
+# keep serving the old release. When the precondition fails, Homeboy falls back
+# to an in-place directory exchange, and an in-flight request can load an old
+# file whose dependency the new release deleted (a production fatal). The
+# managed host owns FPM configuration, so it owns this setting.
+systems_capabilities_php_fpm_conf_dirs() {
+  local dir
+  for dir in "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR"/*/fpm/conf.d; do
+    [ -d "$dir" ] && [ ! -L "$dir" ] || continue
+    printf '%s\n' "$dir"
+  done
+}
+systems_capabilities_php_fpm_opcache_file() { printf '%s/99-wp-coding-agents-opcache.ini' "$1"; }
+systems_capabilities_php_fpm_opcache_content() {
+  printf '; Managed by wp-coding-agents (managed-vps systems capability profile).\n; Lets Homeboy publish plugin/theme releases by atomic symlink flip.\nopcache.revalidate_path=1'
+}
+# /etc/php/<version>/fpm/conf.d -> <version>
+systems_capabilities_php_fpm_version() { basename "$(dirname "$(dirname "$1")")"; }
+
+systems_capabilities_apply_php_fpm_opcache() {
+  local dir file content version
+  local -a reload=()
+  content="$(systems_capabilities_php_fpm_opcache_content)"
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    file="$(systems_capabilities_php_fpm_opcache_file "$dir")"
+    if [ "$DRY_RUN" != true ] && ! systems_capabilities_drift "$file" "$content" 0644; then
+      reload+=("$(systems_capabilities_php_fpm_version "$dir")")
+    fi
+    systems_capabilities_write_exact "$file" "$content" 0644
+  done < <(systems_capabilities_php_fpm_conf_dirs)
+  for version in "${reload[@]}"; do
+    # Reload, not restart: FPM finishes in-flight requests on the old workers.
+    systemctl reload "php${version}-fpm" || warn "Could not reload php${version}-fpm; opcache.revalidate_path applies after its next restart"
+  done
+}
+
 systems_capabilities_drift() {
   local file="$1" content="$2" mode="${3#0}" group="${4:-root}"
   [ -f "$file" ] && [ "$(cat "$file")" = "$content" ] && \
@@ -319,6 +361,11 @@ systems_capabilities_status() {
   systems_capabilities_drift "$logrotate" "$(systems_capabilities_logrotate_content)" 0644 || missing+=(logrotate)
   systems_capabilities_drift "$logrotate_timer" "$(systems_capabilities_logrotate_timer_content)" 0644 || missing+=(logrotate_timer)
   systems_capabilities_drift "$journal" "$(systems_capabilities_journald_content)" 0644 || missing+=(journald)
+  local fpm_dir
+  while IFS= read -r fpm_dir; do
+    [ -n "$fpm_dir" ] || continue
+    systems_capabilities_drift "$(systems_capabilities_php_fpm_opcache_file "$fpm_dir")" "$(systems_capabilities_php_fpm_opcache_content)" 0644 || missing+=("php_fpm_opcache_$(systems_capabilities_php_fpm_version "$fpm_dir")")
+  done < <(systems_capabilities_php_fpm_conf_dirs)
   if [ ${#missing[@]} -eq 0 ]; then
     printf '{"status":"healthy","profile":"managed-vps"}\n'
   else
@@ -344,6 +391,7 @@ systems_capabilities_apply() {
     systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
     systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
     systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_BIN_DIR/wp-coding-agents-systems-capabilities" "$(cat "$SCRIPT_DIR/scripts/systems-capabilities-status.py")" 0755
+    systems_capabilities_apply_php_fpm_opcache
     return 0
   fi
   if [ "${SYSTEMS_CAPABILITIES_EUID:-${EUID:-$(id -u)}}" -ne 0 ]; then
@@ -361,6 +409,7 @@ systems_capabilities_apply() {
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_file)" "$(systems_capabilities_logrotate_content)" 0644
   systems_capabilities_write_exact "$(systems_capabilities_logrotate_timer_file)" "$(systems_capabilities_logrotate_timer_content)" 0644
   systems_capabilities_write_exact "$SYSTEMS_CAPABILITIES_BIN_DIR/wp-coding-agents-systems-capabilities" "$(cat "$SCRIPT_DIR/scripts/systems-capabilities-status.py")" 0755
+  systems_capabilities_apply_php_fpm_opcache
   if [ "$journald_changed" = true ]; then
     systemctl restart systemd-journald
   fi
