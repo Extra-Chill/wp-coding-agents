@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.5] - 2026-11-23
+
+### Changed
+- notify extrachill when a dependency refresh releases
+
 ## [3.11.4] - 2026-11-23
 
 ### Changed
