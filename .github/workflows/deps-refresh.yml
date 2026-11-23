@@ -17,4 +17,7 @@ permissions:
 jobs:
   refresh:
     uses: Extra-Chill/homeboy-action/.github/workflows/deps-refresh.yml@v2
+    with:
+      dispatch-repo: Extra-Chill/extrachill
+      dispatch-event: component-released
     secrets: inherit
