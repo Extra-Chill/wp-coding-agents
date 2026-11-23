@@ -30,6 +30,7 @@ SYSTEMS_CAPABILITIES_JOURNALD_FILE="$TMP/journald.conf"
 SYSTEMS_CAPABILITIES_LOGROTATE_DIR="$TMP/logrotate"
 SYSTEMS_CAPABILITIES_SYSTEMD_DIR="$TMP/systemd"
 SYSTEMS_CAPABILITIES_SUDOERS_DIR="$TMP/sudoers"
+SYSTEMS_CAPABILITIES_PHP_ETC_DIR="$TMP/etc-php"
 SYSTEMS_CAPABILITIES_EUID=0
 SOURCE_LOG_PATHS="$(printf '%s\n' "$TMP/php/php8.4-fpm.log" "$TMP/php/logs" "$TMP/php/php8.4-fpm-link.log" "$TMP/php/other.log")"
 mkdir -p "$SITE_PATH/wp-content" "$DM_WORKSPACE_DIR/repo" "$TMP/php"
@@ -108,5 +109,44 @@ case "$repair" in *root_repair_required*'--systems-capabilities managed-vps'*) o
 dry_hash="$(cksum "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" | cut -d' ' -f1-2)"
 systems_capabilities_apply > "$TMP/dry-run.out"
 [ "$dry_hash" = "$(cksum "$SYSTEMS_CAPABILITIES_JOURNALD_FILE" | cut -d' ' -f1-2)" ] && ok "dry-run leaves host policy untouched" || fail "dry-run wrote policy"
+
+echo "PHP-FPM serves symlinked Homeboy releases (opcache.revalidate_path)"
+mkdir -p "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/8.4/fpm/conf.d" "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/8.3/fpm/conf.d" "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/8.4/cli/conf.d" "$TMP/elsewhere"
+mkdir -p "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/7.4/fpm"
+ln -s "$TMP/elsewhere" "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/7.4/fpm/conf.d"
+SYSTEMCTL_CALLS="$TMP/systemctl-calls"
+systemctl() { printf '%s\n' "$*" >> "$SYSTEMCTL_CALLS"; }
+fpm_ini() { printf '%s/%s/fpm/conf.d/99-wp-coding-agents-opcache.ini' "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR" "$1"; }
+
+DRY_RUN=true
+SYSTEMS_CAPABILITIES_EUID=0
+: > "$SYSTEMCTL_CALLS"
+systems_capabilities_apply > "$TMP/fpm-dry.out"
+[ ! -e "$(fpm_ini 8.4)" ] && ! grep -q 'php8.4-fpm' "$SYSTEMCTL_CALLS" && ok "dry-run neither writes FPM config nor reloads FPM" || fail "dry-run touched FPM"
+
+DRY_RUN=false
+: > "$SYSTEMCTL_CALLS"
+systems_capabilities_apply > "$TMP/fpm-apply.out"
+for version in 8.4 8.3; do
+  grep -q -x 'opcache.revalidate_path=1' "$(fpm_ini "$version")" && ok "php$version FPM gets opcache.revalidate_path=1" || fail "php$version FPM drop-in missing"
+  grep -q -x "reload php$version-fpm" "$SYSTEMCTL_CALLS" && ok "php$version FPM is reloaded (not restarted) after the change" || fail "php$version FPM was not reloaded"
+done
+[ ! -e "$SYSTEMS_CAPABILITIES_PHP_ETC_DIR/8.4/cli/conf.d/99-wp-coding-agents-opcache.ini" ] && ok "CLI SAPI is left alone" || fail "CLI SAPI got the FPM drop-in"
+[ ! -e "$TMP/elsewhere/99-wp-coding-agents-opcache.ini" ] && ok "symlinked conf.d is not followed" || fail "wrote through a symlinked conf.d"
+! grep -q 'restart php' "$SYSTEMCTL_CALLS" && ok "FPM is never restarted" || fail "FPM was restarted"
+
+# A converged host (root-owned, exact content) must not reload FPM again.
+file_owner() { echo root; }
+file_group() { echo root; }
+file_mode() { echo 644; }
+: > "$SYSTEMCTL_CALLS"
+systems_capabilities_apply > "$TMP/fpm-repeat.out"
+! grep -q 'php.*-fpm' "$SYSTEMCTL_CALLS" && ok "converged FPM config does not reload FPM" || fail "repeat apply reloaded FPM without drift"
+
+printf 'opcache.revalidate_path=0' > "$(fpm_ini 8.3)"
+: > "$SYSTEMCTL_CALLS"
+systems_capabilities_apply > "$TMP/fpm-drift.out"
+grep -q -x 'opcache.revalidate_path=1' "$(fpm_ini 8.3)" && grep -q -x 'reload php8.3-fpm' "$SYSTEMCTL_CALLS" && ! grep -q 'reload php8.4-fpm' "$SYSTEMCTL_CALLS" && ok "drift is repaired and only the drifted pool reloads" || fail "drift repair reloaded the wrong pools"
+unset -f file_owner file_group file_mode
 
 [ "$failures" -eq 0 ] && echo "systems-capabilities: all assertions passed" || exit 1
