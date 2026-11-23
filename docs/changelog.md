@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.17] - 2026-11-23
+
+### Fixed
+- set opcache.revalidate_path=1 for PHP-FPM so Homeboy can use atomic release dirs
+
 ## [3.11.16] - 2026-11-23
 
 ### Changed
