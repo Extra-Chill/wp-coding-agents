@@ -104,7 +104,7 @@ export function teamSeatGuidance(binding) {
   const lines = [
     '## Tools on this turn',
     '',
-    "The current speaker holds a team seat. Shell commands, file edits and Roadie CLI commands are unavailable on this turn, so the shell commands in the shared instructions (`wp …`, `datamachine …`, `intelligence …`, `roadie …`) will not run for this speaker. Roadie's own chat tools stay available, and read-only file tools may be available inside the session directory.",
+    "The current speaker holds a team seat. Shell commands, file edits and Roadie CLI commands are unavailable on this turn, so the shell commands in the shared instructions (`wp …`, `datamachine …`, `intelligence …`, `roadie …`) will not run for this speaker. Roadie's own chat tools stay available, and the read-only `grep`, `find` and `ls` tools work inside `wp-content` (plugins, themes, mu-plugins) for code research.",
     '',
   ]
   if (!servers.length) {
