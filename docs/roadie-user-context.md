@@ -91,6 +91,24 @@ and logs the cause: command not found (transport or service PATH), timed out
 (raise `lookupTimeoutMs`), or the exit status with the tail of stderr, such as
 a PHP fatal error.
 
+## AGENTS.md WP-CLI commands run as the speaker
+
+Composed AGENTS.md routes WP-CLI through the generated wrapper
+`<site>/wp-content/mu-plugins/wp-coding-agents-agent-wp`, and its commands
+omit `--user`. Roadie exports `ROADIE_PERSON_ID=wordpress:<site_path>:<user_id>`
+into agent shells. When the caller passes no `--user` (neither `--user=X` nor
+`--user X`), the wrapper injects `--user=<user_id>` if `<site_path>` is the
+wrapper's own site (trailing slashes ignored) and `<user_id>` is a positive
+integer. Commands then run with that person's capabilities, so they work
+verbatim for whoever is speaking.
+
+An explicit `--user` always wins. With no person, a person on a different
+site, or a malformed value, the arguments pass through untouched. There is no
+fallback to an administrator. An injected ID is unambiguous, so the wrapper
+drops WP-CLI's `Ambiguous user match detected` warning for that ID only (a
+user whose login is a number would otherwise trigger it). Caller-supplied
+`--user` values still show the warning.
+
 ## Per-person MCP servers
 
 A context can name MCP servers that every allowed seat gets as its own

@@ -327,16 +327,53 @@ agents_md_guidance_sync_wp_cli_transport() {
   log "  Registered AGENTS.md agent WP-CLI transport: $transport"
 }
 
+# Strip trailing slashes from a filesystem path, keeping a bare "/".
+_agents_md_guidance_trim_path() {
+  local path="$1"
+  while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
+    path="${path%/}"
+  done
+  printf '%s' "$path"
+}
+
+# The generated wrapper runs as the current chat speaker when the caller did
+# not choose a WordPress user. Roadie exports
+# ROADIE_PERSON_ID=wordpress:<site_path>:<user_id> into agent shells; the
+# wrapper injects --user=<user_id> only when <site_path> is this wrapper's site
+# and <user_id> is a positive integer. An explicit --user always wins, and
+# there is no fallback user: without a matching person the arguments pass
+# through untouched. An ID the wrapper injected is unambiguous by construction,
+# so WP-CLI's "Ambiguous user match" warning is dropped for that ID only.
 _agents_md_guidance_write_agent_wp_cli_transport() {
   local file="$1"
   shift
-  local dir tmp argument
+  local dir tmp argument site_path
   dir="${file%/*}"
+  site_path="$(_agents_md_guidance_trim_path "${SITE_PATH:-}")"
   mkdir -p "$dir"
   tmp=$(mktemp "${file}.XXXXXX")
   {
     printf '%s\n' '#!/bin/bash'
     printf '%s\n' 'set -o pipefail'
+    printf 'site_path=%q\n' "$site_path"
+    printf '%s\n' 'injected_user=""'
+    printf '%s\n' 'explicit_user=false'
+    printf '%s\n' 'for argument in "$@"; do'
+    printf '%s\n' '  case "$argument" in'
+    printf '%s\n' '    --user|--user=*) explicit_user=true; break ;;'
+    printf '%s\n' '  esac'
+    printf '%s\n' 'done'
+    printf '%s\n' 'person="${ROADIE_PERSON_ID:-}"'
+    printf '%s\n' 'if [ "$explicit_user" = false ] && [ -n "$site_path" ] && [ "${person#wordpress:}" != "$person" ]; then'
+    printf '%s\n' '  person="${person#wordpress:}"'
+    printf '%s\n' '  person_user="${person##*:}"'
+    printf '%s\n' '  person_path="${person%:*}"'
+    printf '%s\n' '  while [ "${#person_path}" -gt 1 ] && [ "${person_path%/}" != "$person_path" ]; do person_path="${person_path%/}"; done'
+    printf '%s\n' '  if [ "$person_path" != "$person" ] && [ "$person_path" = "$site_path" ] && [[ "$person_user" =~ ^[1-9][0-9]{0,18}$ ]]; then'
+    printf '%s\n' '    injected_user="$person_user"'
+    printf '%s\n' '    set -- "--user=$injected_user" "$@"'
+    printf '%s\n' '  fi'
+    printf '%s\n' 'fi'
     printf '%s\n' 'stderr_file=$(mktemp "${TMPDIR:-/tmp}/wp-coding-agents-agent-wp.XXXXXX") || exit 1'
     printf '%s\n' "trap 'rm -f \"\$stderr_file\"' EXIT"
     for argument in "$@"; do
@@ -346,6 +383,9 @@ _agents_md_guidance_write_agent_wp_cli_transport() {
     printf '%s\n' 'status=$?'
     printf '%s\n' 'while IFS= read -r line || [ -n "$line" ]; do'
     printf '%s\n' '  if [[ "$line" =~ [Ww]arning ]] && [[ "$line" =~ --(context|user|path|quiet) ]] && [[ "$line" =~ (already[[:space:]]+(registered|exists)|collision|conflict) ]]; then'
+    printf '%s\n' '    continue'
+    printf '%s\n' '  fi'
+    printf '%s\n' '  if [ -n "$injected_user" ] && [[ "$line" == *"Ambiguous user match detected (both ID and user_login exist for identifier '\''$injected_user'\'')"* ]]; then'
     printf '%s\n' '    continue'
     printf '%s\n' '  fi'
     printf '%s\n' '  printf "%s\\n" "$line" >&2'
