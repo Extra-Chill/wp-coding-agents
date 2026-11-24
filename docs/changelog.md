@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.30] - 2026-11-24
+
+### Changed
+- Update homeboy to 0.496.5
+- Update @extrachill/roadie to 0.88.0
+
 ## [3.11.29] - 2026-11-24
 
 ### Fixed
