@@ -295,6 +295,7 @@ jobs:
           - homeboy-service-identity
           - homeboy-daemon-service
           - homeboy-pin
+          - homeboy-cook-route
           - homeboy-verification-guidance
           - roadie-accounts
           - roadie-access-roles

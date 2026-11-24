@@ -55,7 +55,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
 # wordpress is needed for wp_cmd helper used by compose and plugin updates).
-for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene systems-capabilities self-upgrade php-upgrade codebox-database composer-provision; do
+for lib in common grants detect install-source source-policy owned-source-discovery service-migration agent-state-ownership plugin-upgrade desired-state-reconciler convergence-orchestrator integration-adapters runtime-guidance-desired-state bridge-service-adapters wordpress data-machine carried-plugins wp-codebox homeboy homeboy-cook-route ai-gateway skills cli-transport inbound-event-bridge wordpress-chat cli-channel runtime-signature runtime-guard source-reconcile agents-md-guidance webroot-backup-hygiene systems-capabilities self-upgrade php-upgrade codebox-database composer-provision; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -1184,6 +1184,13 @@ reconcile_datamachine_worker_service
 if [ "$PLUGINS_ONLY" != true ]; then
   installation_profile_write
 fi
+# Post-upgrade: Homeboy's Cook route must name a model the daemon's Pi agent
+# dir serves, or every Cook fails admission (#815). Fail the upgrade, loudly,
+# instead of the next Cook.
+COOK_ROUTE_EXIT_STATUS=0
+if [ "$PLUGINS_ONLY" != true ] && [ "$SKILLS_ONLY" != true ] && [ "$AGENTS_MD_ONLY" != true ]; then
+  homeboy_cook_route_check || COOK_ROUTE_EXIT_STATUS=$?
+fi
 warn_if_agents_md_public
 print_summary
 if [ "$PLUGINS_ONLY" = true ]; then
@@ -1195,4 +1202,7 @@ if [ "$CONVERGENCE_EXIT_STATUS" -ne 0 ]; then
 fi
 if [ "$AGENTS_MD_EXIT_STATUS" -ne 0 ]; then
   exit "$AGENTS_MD_EXIT_STATUS"
+fi
+if [ "$COOK_ROUTE_EXIT_STATUS" -ne 0 ]; then
+  error "Homeboy's Cook route names a model the Pi agent dir does not serve; see the warnings above."
 fi
