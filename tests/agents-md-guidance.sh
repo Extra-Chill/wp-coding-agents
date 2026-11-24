@@ -415,6 +415,116 @@ guidance_sync_all
 GENERATED_PREFIX=$(php "$TRANSPORT_SHIM")
 assert_eq "$GENERATED_PREFIX" "$AGENT_WP --path=/path/to/site" "generic AGENTS command uses the agent transport"
 
+echo "==> agent WP-CLI wrapper runs as the current speaker when --user is omitted (#899)"
+SPEAKER_SITE="$TMP/speaker-site"
+SPEAKER_WP="$SPEAKER_SITE/wp-content/mu-plugins/wp-coding-agents-agent-wp"
+mkdir -p "$TMP/speaker-bin"
+# Stub transport: echo argv one per line, and emit WP-CLI's ambiguous-user
+# warning for whatever --user value it received, plus an unrelated warning.
+cat > "$TMP/speaker-bin/stub-wp" <<'SH'
+#!/bin/bash
+for argument in "$@"; do
+  printf 'arg:%s\n' "$argument"
+  case "$argument" in
+    --user=*) printf "Warning: Ambiguous user match detected (both ID and user_login exist for identifier '%s'). WP-CLI will default to the ID, but you can force user_login instead with WP_CLI_FORCE_USER_LOGIN=1.\n" "${argument#--user=}" >&2 ;;
+  esac
+done
+printf '%s\n' 'Warning: an unrelated diagnostic.' >&2
+exit 7
+SH
+chmod +x "$TMP/speaker-bin/stub-wp"
+(
+  SITE_PATH="$SPEAKER_SITE/"
+  _agents_md_guidance_write_agent_wp_cli_transport "$SPEAKER_WP" "$TMP/speaker-bin/stub-wp" --allow-root
+)
+SPEAKER_SITE_PATH="$SPEAKER_SITE"
+
+# run_speaker <ROADIE_PERSON_ID or __unset__> <args...>; sets SPEAKER_OUT/ERR/STATUS.
+run_speaker() {
+  local person="$1"
+  shift
+  SPEAKER_STATUS=0
+  if [ "$person" = __unset__ ]; then
+    env -u ROADIE_PERSON_ID "$SPEAKER_WP" "$@" >"$TMP/speaker.out" 2>"$TMP/speaker.err" || SPEAKER_STATUS=$?
+  else
+    ROADIE_PERSON_ID="$person" "$SPEAKER_WP" "$@" >"$TMP/speaker.out" 2>"$TMP/speaker.err" || SPEAKER_STATUS=$?
+  fi
+  SPEAKER_OUT="$(tr '\n' ' ' <"$TMP/speaker.out")"
+  SPEAKER_ERR="$(cat "$TMP/speaker.err")"
+}
+
+assert_no_ambiguous_warning() {
+  case "$SPEAKER_ERR" in
+    *"Ambiguous user match"*) echo "  FAIL $1"; echo "    stderr: $SPEAKER_ERR"; FAILED=$((FAILED + 1)) ;;
+    *) echo "  ok   $1" ;;
+  esac
+}
+
+assert_ambiguous_warning() {
+  case "$SPEAKER_ERR" in
+    *"identifier '$2'"*) echo "  ok   $1" ;;
+    *) echo "  FAIL $1"; echo "    stderr: $SPEAKER_ERR"; FAILED=$((FAILED + 1)) ;;
+  esac
+}
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH:1" --path="$SPEAKER_SITE_PATH" intelligence wiki search 'two words'
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:--user=1 arg:--path=$SPEAKER_SITE_PATH arg:intelligence arg:wiki arg:search arg:two words " "matching speaker injects --user=<id> and preserves quoted args"
+assert_eq "$SPEAKER_STATUS" "7" "wrapper preserves the transport exit status"
+assert_no_ambiguous_warning "ambiguous-user warning suppressed for the injected id"
+assert_eq "$SPEAKER_ERR" "Warning: an unrelated diagnostic." "unrelated warnings still reach stderr"
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH/:42" eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:--user=42 arg:eval arg:1 " "speaker site path matches after trimming trailing slashes"
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH:1" --user=chubes eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:--user=chubes arg:eval arg:1 " "explicit --user=<value> is never overridden"
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH:1" --user 5 eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:--user arg:5 arg:eval arg:1 " "explicit --user <value> is never overridden"
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH:2" --user=1 eval 1
+assert_ambiguous_warning "caller-supplied --user still shows the ambiguous-user warning" 1
+
+run_speaker "wordpress:$TMP/other-site:1" eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:eval arg:1 " "speaker for a different site leaves args untouched"
+
+run_speaker "wordpress:$SPEAKER_SITE_PATH/sub:1" eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:eval arg:1 " "speaker for a nested path leaves args untouched"
+
+run_speaker __unset__ eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:eval arg:1 " "no ROADIE_PERSON_ID leaves args untouched"
+
+run_speaker "" eval 1
+assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:eval arg:1 " "empty ROADIE_PERSON_ID leaves args untouched"
+
+for malformed in \
+  "wordpress:$SPEAKER_SITE_PATH:0" \
+  "wordpress:$SPEAKER_SITE_PATH:-1" \
+  "wordpress:$SPEAKER_SITE_PATH:01" \
+  "wordpress:$SPEAKER_SITE_PATH:admin" \
+  "wordpress:$SPEAKER_SITE_PATH:1 --user=2" \
+  "wordpress:$SPEAKER_SITE_PATH:" \
+  "wordpress:$SPEAKER_SITE_PATH" \
+  "wordpress:1" \
+  "discord:$SPEAKER_SITE_PATH:1" \
+  "$SPEAKER_SITE_PATH:1"; do
+  run_speaker "$malformed" eval 1
+  assert_eq "$SPEAKER_OUT" "arg:--allow-root arg:eval arg:1 " "malformed ROADIE_PERSON_ID '$malformed' leaves args untouched"
+done
+
+# A legacy --user=1 caller with no injection still sees the warning.
+run_speaker __unset__ --user=1 eval 1
+assert_ambiguous_warning "warning shown when the wrapper injected nothing" 1
+
+# Only the injected id's warning is dropped, not another identifier's.
+cat > "$TMP/speaker-bin/stub-wp" <<'SH'
+#!/bin/bash
+printf "Warning: Ambiguous user match detected (both ID and user_login exist for identifier '7').\n" >&2
+exit 0
+SH
+run_speaker "wordpress:$SPEAKER_SITE_PATH:1" eval 1
+assert_ambiguous_warning "ambiguous warning for a different identifier is kept" 7
+
 echo "==> WordPress guidance wins mixed-version registration"
 MIXED_SHIM="$TMP/mixed-section-shim.php"
 cat > "$MIXED_SHIM" <<PHP
