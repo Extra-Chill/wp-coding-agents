@@ -179,9 +179,29 @@ try {
   // between concurrent speakers.
   const turn = (personId, actor, spaceId = 'GUILD') => filters.context_sections([], { event: 'turn', contextId: 'franklin', personId, actor, spaceId })
   const userSections = (id) => [{ id: 'wordpress-current-user', content: `The current speaker is WordPress user ID ${id}.` }, { id: 'wordpress-user-USER.md', title: 'USER.md', content: `USER_${id}` }]
+  // #789: a team seat's turn also says shell is out and routes work to the
+  // speaker's person-scoped MCP servers (named from the context config).
+  const teamSeat = module.teamSeatGuidance(config.contexts.franklin)
   const [one, two] = await Promise.all([turn(alice.personId, { platform: 'discord', id: 'ALICE' }), turn(bob.personId, { platform: 'slack', id: 'BOB' }, 'TEAM')])
-  assert.deepEqual(one, userSections(1))
-  assert.deepEqual(two, userSections(2))
+  assert.deepEqual(one, userSections(1), 'admin turn guidance is unchanged')
+  assert.deepEqual(two, [...userSections(2), teamSeat])
+  assert.equal(teamSeat.id, module.TEAM_SEAT_SECTION_ID)
+  assert.equal(teamSeat.title, undefined)
+  for (const text of ['team seat', 'Shell commands, file edits and Roadie CLI commands are unavailable on this turn', '`wp …`', '`intelligence …`', '`roadie …`', '`site`, `local` MCP tools', '`_site__`, `_local__`', 'Search the abilities first', 'ability search tool', 'by its exact name with the ability call tool', '`intelligence/*` abilities', 'calendar', '`/connect`', 'not connected']) {
+    assert(teamSeat.content.includes(text), `team-seat guidance names: ${text}`)
+  }
+  assert(!/\b(?:don't|do not|never)\b/i.test(teamSeat.content), 'guidance is phrased as positive instructions')
+  assert(!teamSeat.content.includes('extrachill'), 'server names come from config, not the plugin')
+  assert(!teamSeat.content.includes('Bad Name') && !teamSeat.content.includes('creds'), 'only valid servers are named')
+  const carol = await turn('wordpress:/site:3', { platform: 'discord', id: 'CAROL' })
+  assert.deepEqual(carol.at(-1), teamSeat, 'operator seat gets the routing')
+  // Folded tool-name segment: Pi turns `-` into `_` in MCP tool names.
+  assert.match(module.teamSeatGuidance({ mcpServers: [{ name: 'my-site', url: 'https://example.test/mcp' }] }).content, /`my-site` MCP tools \(tool names contain `_my_site__`\)/)
+  // No MCP server on the context: shell is still out, and there is nothing to connect.
+  const bare = module.teamSeatGuidance({})
+  assert.match(bare.content, /unavailable on this turn/)
+  assert.match(bare.content, /suggest asking a site admin/)
+  assert(!bare.content.includes('/connect') && !bare.content.includes('ability call'), 'no tools to route to without servers')
   assert.deepEqual(await turn(alice.personId, { platform: 'discord', id: 'ALICE' }, 'OTHER'), userSections(1), 'platform-scoped: any server')
   // A person id that does not match the actor's link, a missing actor, a
   // missing person id (CLI-asserted actors get none) and a foreign site get nothing.

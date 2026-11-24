@@ -216,6 +216,17 @@ any other path, any path containing `..`, a `~` or `@` prefix, and
 otherwise return the database credentials in `wp-config.php`. Rules are
 last-match-wins globs on the raw path, which is why `..` is refused outright.
 
+The shared instructions route work through shell commands, so a team seat's
+`turn` context ends with a `wordpress-team-seat-tools` section (#789). It says
+shell, file edits and Roadie CLI commands are unavailable on this turn and
+routes the work to the context's `mcpServers` by name: search abilities first,
+then call one by name, including Intelligence/wiki retrieval (`intelligence/*`)
+and calendar lookups. Roadie keeps the tokens, so the plugin cannot tell
+whether the speaker has connected. The section states it conditionally: if the
+server's tools are missing or refused as not connected, ask the speaker to run
+`/connect`. A context without `mcpServers` gets only the shell notice. Admin
+turns get no such section.
+
 Shared/agent memory is supplied on `session_start`, without a speaker. User
 and agent-user memory is supplied on `turn`, for the speaker Roadie
 authenticated: the actor is resolved again and must still link to the same
