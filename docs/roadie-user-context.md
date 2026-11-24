@@ -192,7 +192,7 @@ owner and WordPress administrators are `admin`, otherwise the grant's role
 | Role | Roadie capabilities | Session permission rules |
 |------|---------------------|--------------------------|
 | `admin` | `sessions`, `shell`, `admin` | none (full toolset) |
-| `operator`, `viewer`, missing/unknown | `sessions` only | `bash:deny`, `edit:deny`, `external_directory:deny`, `read:*wp-config.php:deny`; `grep`/`find`/`ls` allowed only under `wp-content` (see below) |
+| `operator`, `viewer`, missing/unknown | `sessions` only | `bash:deny`, `edit:deny`, `external_directory:deny`; `read`/`grep`/`find`/`ls` allowed only under `wp-content` (see below) |
 
 Roadie's `shell` capability only gates user-typed raw shell (`!cmd`,
 `/run-shell-command`). The agent's own tools follow the host runtime config,
@@ -204,17 +204,37 @@ MCP, roadie#152) rather than through shell. Rules are applied per turn, so in a
 shared thread an admin's turn runs unrestricted and a team member's turn runs
 restricted.
 
-Team seats research code with Pi's read-only `grep`, `find` and `ls` tools
-(#898). The installer enables them for every Roadie session by merging
-`"defaultTools": ["+grep", "+find", "+ls"]` into the `settings.json` of
-Roadie's Pi agent dir (`<ROADIE_DATA_DIR>/pi-agent`), keeping other keys and
-any tool the operator already names. For team seats these tools are scoped to
-`wp-content` (plugins, themes, mu-plugins): `wp-content`, `./wp-content` and
-absolute `/…/wp-content` paths are allowed; a call with no path, the site root,
-any other path, any path containing `..`, a `~` or `@` prefix, and
-`wp-config.php` are denied. A recursive search of the site root would
-otherwise return the database credentials in `wp-config.php`. Rules are
-last-match-wins globs on the raw path, which is why `..` is refused outright.
+Team seats research code with Pi's `read` tool and its read-only `grep`,
+`find` and `ls` tools (#898, #906). The installer enables the search tools for
+every Roadie session by merging `"defaultTools": ["+grep", "+find", "+ls"]`
+into the `settings.json` of Roadie's Pi agent dir (`<ROADIE_DATA_DIR>/pi-agent`),
+keeping other keys and any tool the operator already names.
+
+For team seats all four tools share one scope, declared once in
+`bridges/roadie/roadie-plugins/wordpress-context.mjs` (`scopedFileRules`):
+
+- Allowed: `wp-content` (plugins, themes, mu-plugins) as `wp-content/…`,
+  `./wp-content/…` or an absolute `/…/wp-content/…` path inside the session
+  directory.
+- Denied: a call with no path, the site root and every other site-root file or
+  directory (`wp-config.php`, `.wp-coding-agents/wp-ai-gateway.env`, `.env`,
+  `.htaccess`, `wp-includes`, …), any path containing `..`, `~` and `@`
+  prefixes (Pi expands and strips them, so they match no allow rule), and paths
+  outside the session directory (`external_directory:deny`).
+- Denied inside `wp-content`, as defense in depth: `wp-config.php` by name,
+  `*.env` and `.env*` files, `.git` metadata (remote URLs can carry tokens),
+  and Data Machine's file store `wp-content/uploads/datamachine-files` (other
+  people's memory files, email attachments and job packets).
+
+The site-root `AGENTS.md` is not readable by tool and does not need to be: Pi
+injects it into the system prompt as a context file, and Data Machine memory
+reaches the agent through the runtime (below). Rules are last-match-wins globs
+on the raw path, where `*` also spans `/`, which is why `..` is refused
+outright. The denies match the path argument only: a recursive `grep` or
+`find` over a `wp-content` directory still descends into files below it.
+
+The onboarding worker's proactive turn (`templates/wp-coding-agents-onboarding.php`)
+passes the same rules; `tests/onboarding-intro.php` checks the two lists match.
 
 The shared instructions route work through shell commands, so a team seat's
 `turn` context ends with a `wordpress-team-seat-tools` section (#789). It says
