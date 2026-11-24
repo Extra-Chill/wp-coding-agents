@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.11.29] - 2026-11-24
+
+### Fixed
+- route team-seat turns to person-scoped ability tools
+- allow read-only grep/find/ls for team seats without exposing secrets
+- run agent-wp as the current speaker when --user is omitted
+
 ## [3.11.28] - 2026-11-24
 
 ### Changed
