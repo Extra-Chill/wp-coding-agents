@@ -8,6 +8,7 @@
 // Self-serve linking (#765, roadie#292): a person who signed in at the site
 // links their own chat actor through `datamachine/link-chat-identity`; access is
 // still decided only by the agent access grant.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,6 +66,67 @@ export function seatFor(role, capabilities = CAPABILITY_ORDER) {
 }
 
 const DEFAULT_LOOKUP_TIMEOUT_MS = 12000
+
+// Roadie's data directory: ROADIE_DATA_DIR when the service sets it, else the
+// directory that holds roadie-config/ (where this plugin's config lives).
+export function roadieDataDir(configPath) {
+  const fromEnv = process.env.ROADIE_DATA_DIR
+  if (fromEnv) return path.resolve(fromEnv)
+  return path.dirname(path.dirname(path.resolve(configPath)))
+}
+
+// Mirrors Roadie's person-pool/person-mcp-name derivations (roadie#152): a
+// person key that is already a valid pool id is its own directory, any other
+// key is hashed. Person-scoped MCP servers are named `rpm_<12 hex>_<name>`.
+const POOL_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex')
+export const poolIdForPersonKey = (personKey) => POOL_ID.test(personKey) ? personKey : `person-${sha256(personKey).slice(0, 24)}`
+export const personMcpToolPrefix = (personKey, name) => `mcp__rpm_${sha256(personKey).slice(0, 12)}_${name}__`.replace(/[^A-Za-z0-9_]/g, '_')
+
+// True when Roadie holds this person's token for the credential (only the file
+// is checked; the token is never read).
+export function hasStoredMcpCredential(dataDir, personKey, credential) {
+  if (!MCP_NAME.test(credential)) return false
+  try {
+    return fs.statSync(path.join(dataDir, 'mcp-credentials', poolIdForPersonKey(personKey), `${credential}.json`)).isFile()
+  } catch {
+    return false
+  }
+}
+
+export const TEAM_SEAT_SECTION_ID = 'wordpress-team-seat-tools'
+
+// #789: a team seat runs with bash/edit denied, but the composed AGENTS.md
+// routes work through WP-CLI. Tell the agent, for this turn, that the shell is
+// gone and where the same work lives: the speaker's own MCP servers, whose
+// abilities are found by search and run by name. Without a stored credential
+// those tools are denied too, so point the person to /connect instead.
+export function teamSeatSection({ servers, personKey, dataDir }) {
+  const lines = [
+    'This speaker has a team seat. Shell commands (bash, including `wp`, `datamachine`, `intelligence` and other CLIs) and file edits are denied for this turn, so do not try them, even when other guidance names a WP-CLI command.',
+  ]
+  const connected = servers.filter((server) => hasStoredMcpCredential(dataDir, personKey, server.credential))
+  const missing = servers.filter((server) => !connected.includes(server))
+  if (connected.length) {
+    lines.push(
+      '',
+      'Do the work through the speaker\'s own MCP tools instead:',
+      ...connected.map((server) => `- \`${server.name}\` (tool names start with \`${personMcpToolPrefix(personKey, server.name)}\`)`),
+      '',
+      'Site data, Data Machine, and Intelligence/wiki retrieval are exposed there as WordPress abilities. First call the ability-search tool with what you need (for example "events calendar" or "wiki"), then call the ability-call tool with the ability name it returns (for example `intelligence/...`) and its input. Use these in place of the WP-CLI commands other guidance mentions.',
+    )
+  }
+  if (missing.length) {
+    lines.push(
+      '',
+      `The speaker has not connected ${missing.map((server) => `\`${server.name}\``).join(', ')} yet, so those MCP tools will be denied. Do not call them; ask the speaker to run \`/connect\` and connect their account, then try again.`,
+    )
+  }
+  if (!servers.length) {
+    lines.push('', 'No person-scoped MCP tools are configured for this site, so tell the speaker which part of the request needs an admin instead of retrying denied commands.')
+  }
+  return { id: TEAM_SEAT_SECTION_ID, title: 'Team seat tools', content: lines.join('\n') }
+}
 
 // Per-person MCP servers for a context (Roadie person-MCP, roadie#152). Roadie
 // registers each one with the speaker's own OAuth token (connected through
@@ -342,7 +404,11 @@ export function register(roadie) {
       if (!Number.isSafeInteger(user) || user <= 0 || !who) return sections
       const result = await resolvePerson(binding, { agent_slug: binding.agentSlug, ...who, event: 'turn' })
       if (result.allowed !== true || result.user_id !== user) return sections
-      return [...sections, ...deliverableSections(roadieSections(result.sections), request.directory)]
+      const memory = deliverableSections(roadieSections(result.sections), request.directory)
+      // Admin seats keep their shell-based guidance unchanged.
+      if (result.role === 'admin') return [...sections, ...memory]
+      const seat = teamSeatSection({ servers: mcpServersFor(binding), personKey: request.personId, dataDir: roadieDataDir(configPath) })
+      return [...sections, ...memory, seat]
     }
     // Shared context is pinned without a speaker: ask for agent-layer memory
     // only. Data Machine answers allowed:false, reason no_actor (#3615).

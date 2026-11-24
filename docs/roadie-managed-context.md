@@ -33,6 +33,17 @@ Memory delivery itself is unchanged: setup and upgrade still sync Data
 Data Machine's own composition (or a manual `wp datamachine memory compose`)
 rather than a compose on every session start.
 
+### Team-seat turns
+
+A speaker whose Data Machine access role is not `admin` gets a team seat
+(`bash`, `edit` and `external_directory` denied). Composed guidance still names
+WP-CLI commands, so each team-seat turn also gets a `wordpress-team-seat-tools`
+section: shell and edits are unavailable, and site data, Data Machine and
+Intelligence/wiki retrieval go through the speaker's own MCP servers (search
+abilities, then call one by name). When Roadie holds no stored credential for
+a server (`$ROADIE_DATA_DIR/mcp-credentials/...`), the section says so and
+points the speaker to `/connect` instead. Admin turns are unchanged.
+
 ### Session attribution
 
 Roadie's configurable agent-shell environment (roadie#186) replaces

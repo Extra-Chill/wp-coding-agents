@@ -95,6 +95,8 @@ fs.writeFileSync(configPath, JSON.stringify(config))
 const setState = (update) => fs.writeFileSync(state, JSON.stringify({ ...JSON.parse(fs.readFileSync(state, 'utf8')), ...update }))
 const readCalls = () => fs.readFileSync(calls, 'utf8').trim().split('\n').map(JSON.parse)
 process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG = configPath
+const dataDir = path.join(temp, 'roadie-data')
+process.env.ROADIE_DATA_DIR = dataDir
 const module = await import(pathToFileURL(path.resolve(import.meta.dirname, '../bridges/roadie/roadie-plugins/wordpress-context.mjs')))
 const filters = {}
 module.register({ addFilter(name, fn) { filters[name] = fn } })
@@ -180,8 +182,35 @@ try {
   const turn = (personId, actor, spaceId = 'GUILD') => filters.context_sections([], { event: 'turn', contextId: 'franklin', personId, actor, spaceId })
   const userSections = (id) => [{ id: 'wordpress-current-user', content: `The current speaker is WordPress user ID ${id}.` }, { id: 'wordpress-user-USER.md', title: 'USER.md', content: `USER_${id}` }]
   const [one, two] = await Promise.all([turn(alice.personId, { platform: 'discord', id: 'ALICE' }), turn(bob.personId, { platform: 'slack', id: 'BOB' }, 'TEAM')])
-  assert.deepEqual(one, userSections(1))
-  assert.deepEqual(two, userSections(2))
+  assert.deepEqual(one, userSections(1), 'admin seat: no team-seat guidance')
+  assert.deepEqual(two.slice(0, 2), userSections(2))
+  // #789: a team seat's turn says the shell is denied and routes work to the
+  // speaker's own MCP abilities, or to /connect when no credential is stored.
+  assert.equal(two.length, 3)
+  const seat = two[2]
+  assert.equal(seat.id, module.TEAM_SEAT_SECTION_ID)
+  assert.match(seat.content, /Shell commands .* are denied/)
+  assert.match(seat.content, /not connected `site`, `local` yet/)
+  assert.match(seat.content, /\/connect/)
+  assert.doesNotMatch(seat.content, /ability-search/)
+  const bobPool = path.join(dataDir, 'mcp-credentials', module.poolIdForPersonKey(bob.personId))
+  assert.match(module.poolIdForPersonKey(bob.personId), /^person-[0-9a-f]{24}$/)
+  assert.equal(module.poolIdForPersonKey('discord:123'), 'discord:123')
+  fs.mkdirSync(bobPool, { recursive: true })
+  fs.writeFileSync(path.join(bobPool, 'site.json'), '{}')
+  const connected = (await turn(bob.personId, { platform: 'slack', id: 'BOB' }, 'TEAM'))[2].content
+  assert.match(connected, /ability-search tool/)
+  assert.match(connected, /intelligence\//)
+  assert(connected.includes(module.personMcpToolPrefix(bob.personId, 'site')))
+  assert.match(module.personMcpToolPrefix(bob.personId, 'site'), /^mcp__rpm_[0-9a-f]{12}_site__$/)
+  assert.match(connected, /not connected `local` yet/)
+  fs.writeFileSync(path.join(bobPool, 'local-cred.json'), '{}')
+  assert.doesNotMatch((await turn(bob.personId, { platform: 'slack', id: 'BOB' }, 'TEAM'))[2].content, /not connected/)
+  assert.match(module.teamSeatSection({ servers: [], personKey: 'k', dataDir }).content, /No person-scoped MCP tools/)
+  // Without ROADIE_DATA_DIR the data dir holds roadie-config/.
+  delete process.env.ROADIE_DATA_DIR
+  assert.equal(module.roadieDataDir('/srv/.roadie/roadie-config/wordpress-context.json'), '/srv/.roadie')
+  process.env.ROADIE_DATA_DIR = dataDir
   assert.deepEqual(await turn(alice.personId, { platform: 'discord', id: 'ALICE' }, 'OTHER'), userSections(1), 'platform-scoped: any server')
   // A person id that does not match the actor's link, a missing actor, a
   // missing person id (CLI-asserted actors get none) and a foreign site get nothing.
