@@ -25,6 +25,9 @@
       "lock": {
         "kind": "version-file",
         "path": "bridges/roadie/roadie-version"
+      },
+      "policy": {
+        "breaking": "commit-markers"
       }
     },
     {
