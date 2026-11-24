@@ -382,11 +382,15 @@ _roadie_provision_pi() {
 # Run Pi as the identity the service runs under, through the node the Roadie
 # service uses, against Roadie's own agent dir (where the credential pools
 # write models.json). Extra `VAR=value` env goes before the binary.
+_roadie_pi_agent_dir() {
+  printf '%s/pi-agent\n' "${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}"
+}
+
 _roadie_pi_run() {
   local bin="$1" node_dir agent_dir
   shift
   node_dir="$(_resolve_node_bin_dir "$ROADIE_BIN")"
-  agent_dir="${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}/pi-agent"
+  agent_dir="$(_roadie_pi_agent_dir)"
   if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
     sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" PATH="$node_dir:/usr/local/bin:/usr/bin:/bin" PI_CODING_AGENT_DIR="$agent_dir" "$bin" "$@" 2>&1
   else
@@ -423,10 +427,95 @@ _roadie_verify_pi() {
   fi
 }
 
+# Pi built-ins Roadie sessions get on top of Pi's defaults (read, bash, edit,
+# write): the read-only search tools, so a team seat without bash can still
+# research code (#898). Roadie gates them as the grep/find/ls permissions; the
+# team-seat rules in roadie-plugins/wordpress-context.mjs scope them to
+# wp-content.
+ROADIE_PI_EXTRA_TOOLS=(grep find ls)
+
+# Merge `"defaultTools": ["+grep", "+find", "+ls"]` into the settings.json of
+# the agent dir Roadie runs Pi against. Idempotent: other keys are kept, an
+# entry is never duplicated, and a tool the operator already names in any form
+# (`grep`, `+grep`, `-grep`) is left as the operator set it. An unreadable or
+# non-object settings.json, or a non-list defaultTools, is reported and left
+# untouched. Unchanged files are not rewritten.
+_roadie_configure_pi_settings() {
+  local agent_dir settings data_dir created=() result
+  agent_dir="$(_roadie_pi_agent_dir)"
+  settings="$agent_dir/settings.json"
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would merge defaultTools +${ROADIE_PI_EXTRA_TOOLS[*]} into $settings"
+    return 0
+  fi
+  data_dir="$(dirname "$agent_dir")"
+  [ -d "$data_dir" ] || created+=("$data_dir")
+  [ -d "$agent_dir" ] || created+=("$agent_dir")
+  mkdir -p "$agent_dir" || { warn "  Could not create $agent_dir; Pi search tools not enabled."; return 0; }
+  result="$(python3 - "$settings" "${ROADIE_PI_EXTRA_TOOLS[@]}" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+tools = sys.argv[2:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        original = handle.read()
+except FileNotFoundError:
+    original = None
+try:
+    data = {} if original is None or not original.strip() else json.loads(original)
+except ValueError:
+    print("invalid: not valid JSON")
+    sys.exit(0)
+if not isinstance(data, dict):
+    print("invalid: not a JSON object")
+    sys.exit(0)
+current = data.get("defaultTools")
+if current is None:
+    current = []
+if not isinstance(current, list):
+    print("invalid: defaultTools is not a list")
+    sys.exit(0)
+named = {entry.lstrip("+-") for entry in current if isinstance(entry, str)}
+added = ["+" + tool for tool in tools if tool not in named]
+if not added and original is not None:
+    print("unchanged")
+    sys.exit(0)
+data["defaultTools"] = current + added
+temp = path + ".tmp"
+with open(temp, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(data, indent=2) + "\n")
+if original is not None:
+    os.chmod(temp, os.stat(path).st_mode & 0o7777)
+else:
+    os.chmod(temp, 0o644)
+os.replace(temp, path)
+print("updated")
+PY
+)" || result="invalid: merge failed"
+  case "$result" in
+    updated)
+      if [ "${LOCAL_MODE:-false}" != true ] && [ -n "${SERVICE_USER:-}" ]; then
+        chown "$SERVICE_USER:$SERVICE_USER" ${created[@]+"${created[@]}"} "$settings" 2>/dev/null || true
+      fi
+      log "Pi settings: defaultTools enables ${ROADIE_PI_EXTRA_TOOLS[*]} ($settings)"
+      UPDATED_ITEMS+=("Pi settings.json defaultTools ($settings)")
+      ;;
+    unchanged) ;;
+    *)
+      warn "  $settings: ${result#invalid: }; left untouched, so Roadie sessions lack Pi's ${ROADIE_PI_EXTRA_TOOLS[*]} tools."
+      PENDING_ITEMS+=("Pi defaultTools in $settings")
+      ;;
+  esac
+}
+
 # Resolve the Pi keys for the instance being rendered. ROADIE_PI_BIN names the
 # managed binary once it verifies; otherwise it is left out and Roadie looks
 # for `pi` on PATH, failing at startup with its own error when none works.
 _roadie_select_pi() {
+  _roadie_configure_pi_settings
   if [ "${DRY_RUN:-false}" = true ]; then
     ROADIE_PI_BIN="$(_roadie_pi_bin)"
     return 0

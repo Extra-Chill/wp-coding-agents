@@ -56,7 +56,7 @@ repeat an event for existing people.
 Inspected Extra-Chill/roadie main: `cli/src/cli-commands/send.ts` accepts repeatable
 `--permission` rules and `--user` adds thread membership. It does **not** make
 the CLI prompt run as that person. Accordingly the proactive turn explicitly
-passes all five `TEAM_SEAT_PERMISSIONS` for every non-admin role, including
+passes all `TEAM_SEAT_PERMISSIONS` for every non-admin role, including
 unknown roles. The managed adapter's rules mirror
 `bridges/roadie/roadie-plugins/wordpress-context.mjs`.
 

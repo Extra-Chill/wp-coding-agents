@@ -110,6 +110,41 @@ grep -qxF "install -g --prefix $TMP/pi-prefix @earendil-works/pi-coding-agent@$P
 [ "$ROADIE_PI_BIN" = "$PI_BIN" ]; check $? "ROADIE_PI_BIN is the managed binary"
 [ -z "$ROADIE_PI_MODEL" ]; check $? "ROADIE_PI_MODEL is not derived from pi.json"
 
+echo "==> Pi settings.json enables the read-only search tools (#898)"
+SETTINGS="$TMP/home/.roadie/pi-agent/settings.json"
+json_get() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get(sys.argv[2])))' "$SETTINGS" "$1"; }
+[ "$(json_get defaultTools)" = '["+grep", "+find", "+ls"]' ]; check $? "a fresh agent dir gets defaultTools +grep +find +ls"
+printf '%s\n' "${UPDATED_ITEMS[@]}" | grep -qF "Pi settings.json defaultTools ($SETTINGS)"; check $? "the settings write is reported"
+printf '{"transport": "sse"}\n' > "$SETTINGS"
+chmod 600 "$SETTINGS"
+UPDATED_ITEMS=()
+_roadie_configure_pi_settings
+[ "$(json_get transport)" = '"sse"' ]; check $? "existing keys survive the merge"
+[ "$(json_get defaultTools)" = '["+grep", "+find", "+ls"]' ]; check $? "defaultTools is added next to them"
+[ "$(stat -c %a "$SETTINGS" 2>/dev/null || stat -f %Lp "$SETTINGS")" = 600 ]; check $? "the existing file mode is kept"
+cp "$SETTINGS" "$TMP/settings.converged"
+UPDATED_ITEMS=()
+_roadie_configure_pi_settings
+_roadie_configure_pi_settings
+cmp -s "$SETTINGS" "$TMP/settings.converged"; check $? "re-runs leave settings.json byte-identical (no duplicates)"
+[ "${#UPDATED_ITEMS[@]}" -eq 0 ]; check $? "an unchanged settings.json is not reported"
+printf '{"defaultTools": ["+codemode", "+grep", "-ls"], "theme": "dark"}\n' > "$SETTINGS"
+_roadie_configure_pi_settings
+[ "$(json_get defaultTools)" = '["+codemode", "+grep", "-ls", "+find"]' ]; check $? "operator entries are kept; only the missing tool is appended (an explicit -ls is respected)"
+[ "$(json_get theme)" = '"dark"' ]; check $? "operator keys are kept"
+printf 'not json' > "$SETTINGS"
+PENDING_ITEMS=()
+: > "$TMP/warn.log"
+_roadie_configure_pi_settings
+[ "$(cat "$SETTINGS")" = 'not json' ]; check $? "an unparseable settings.json is left untouched"
+grep -q "not valid JSON" "$TMP/warn.log"; check $? "the unparseable settings.json is reported"
+printf '%s\n' "${PENDING_ITEMS[@]}" | grep -qF "Pi defaultTools in $SETTINGS"; check $? "the unparseable settings.json is a pending item"
+rm -f "$SETTINGS"
+DRY_RUN=true _roadie_configure_pi_settings >/dev/null
+[ ! -e "$SETTINGS" ]; check $? "a dry run writes no settings.json"
+_roadie_configure_pi_settings
+PENDING_ITEMS=()
+
 echo "==> the pinned version installed is a no-op"
 reset_selection
 _roadie_select_pi
