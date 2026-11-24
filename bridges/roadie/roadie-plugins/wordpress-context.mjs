@@ -87,6 +87,45 @@ export function seatFor(role, capabilities = CAPABILITY_ORDER) {
 
 const DEFAULT_LOOKUP_TIMEOUT_MS = 12000
 
+// Turn guidance for a team seat (#789). The shared instructions (AGENTS.md)
+// route work through shell commands, which the seat's rules deny, so the
+// speaker's turn says which tools do work: the person-scoped MCP servers named
+// in the context, searched for an ability and then called by its name. The
+// plugin cannot see whether the speaker has connected a server (Roadie keeps
+// the tokens), so the not-connected case is stated as a conditional.
+export const TEAM_SEAT_SECTION_ID = 'wordpress-team-seat-tools'
+
+// Pi names an MCP tool `mcp__<scope>_<server>__<tool>`, folding anything
+// outside [A-Za-z0-9_] to `_`.
+const toolSegment = (name) => name.replace(/[^A-Za-z0-9_]/g, '_')
+
+export function teamSeatGuidance(binding) {
+  const servers = mcpServersFor(binding)
+  const lines = [
+    '## Tools on this turn',
+    '',
+    "The current speaker holds a team seat. Shell commands, file edits and Roadie CLI commands are unavailable on this turn, so the shell commands in the shared instructions (`wp …`, `datamachine …`, `intelligence …`, `roadie …`) will not run for this speaker. Roadie's own chat tools stay available, and read-only file tools may be available inside the session directory.",
+    '',
+  ]
+  if (!servers.length) {
+    lines.push('Answer from the conversation and the context provided. When a request needs the site itself, say so plainly and suggest asking a site admin.')
+    return { id: TEAM_SEAT_SECTION_ID, content: lines.join('\n') }
+  }
+  const names = servers.map((server) => `\`${server.name}\``).join(', ')
+  const patterns = servers.map((server) => `\`_${toolSegment(server.name)}__\``).join(', ')
+  lines.push(
+    `Work on the site through the speaker's own ${names} MCP tools (tool names contain ${patterns}). They run as the speaker's WordPress account, within that account's permissions:`,
+    '',
+    '1. Search the abilities first with the ability search tool, describing the task in a few words (for example "events calendar", "posts" or "wiki").',
+    '2. Call the ability you picked by its exact name with the ability call tool, passing the input it describes.',
+    '',
+    'Use these tools for site content, events and calendar lookups, people and site data, and Intelligence knowledge and wiki retrieval (the `intelligence/*` abilities), in place of the matching shell commands.',
+    '',
+    `If none of the ${names} tools are in your tool list, or a call is refused because the account is not connected, the speaker has not connected their account yet. Ask them to run \`/connect\` in this chat and then send their request again.`,
+  )
+  return { id: TEAM_SEAT_SECTION_ID, content: lines.join('\n') }
+}
+
 // Per-person MCP servers for a context (Roadie person-MCP, roadie#152). Roadie
 // registers each one with the speaker's own OAuth token (connected through
 // Roadie's /connect) and scopes it to that speaker's turns. Entries mirror
@@ -363,7 +402,8 @@ export function register(roadie) {
       if (!Number.isSafeInteger(user) || user <= 0 || !who) return sections
       const result = await resolvePerson(binding, { agent_slug: binding.agentSlug, ...who, event: 'turn' })
       if (result.allowed !== true || result.user_id !== user) return sections
-      return [...sections, ...deliverableSections(roadieSections(result.sections), request.directory)]
+      const seat = seatFor(result.role).permissions.length ? [teamSeatGuidance(binding)] : []
+      return [...sections, ...deliverableSections(roadieSections(result.sections), request.directory), ...seat]
     }
     // Shared context is pinned without a speaker: ask for agent-layer memory
     // only. Data Machine answers allowed:false, reason no_actor (#3615).
