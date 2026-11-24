@@ -479,9 +479,41 @@ eval(file_get_contents(getenv('SNIPPET')));
       [tool, { path: `${cwd}/wp-content/plugins` }, 'allow', 'absolute wp-content/plugins'],
       [tool, { path: `${cwd}/wp-content/mu-plugins/x.php` }, 'allow', 'absolute file under wp-content'],
     ]),
-    ['read', { path: 'wp-config.php' }, 'deny', 'reading wp-config.php'],
-    ['read', { path: `${cwd}/wp-config.php` }, 'deny', 'reading absolute wp-config.php'],
-    ['read', { path: 'wp-content/plugins/x/x.php' }, 'allow', 'reading plugin code'],
+    // #906: read follows the same wp-content scope.
+    ...['read', 'grep', 'find', 'ls'].flatMap((tool) => [
+      [tool, { path: '.wp-coding-agents/wp-ai-gateway.env' }, 'deny', 'the AI gateway env file'],
+      [tool, { path: `${cwd}/.wp-coding-agents/wp-ai-gateway.env` }, 'deny', 'absolute AI gateway env file'],
+      [tool, { path: './.wp-coding-agents/wp-ai-gateway.env' }, 'deny', './ AI gateway env file'],
+      [tool, { path: 'wp-content/../.wp-coding-agents/wp-ai-gateway.env' }, 'deny', '.. to the AI gateway env file'],
+      [tool, { path: '.env' }, 'deny', 'a site-root .env'],
+      [tool, { path: `${cwd}/.env` }, 'deny', 'an absolute site-root .env'],
+      [tool, { path: 'wp-content/plugins/x/.env' }, 'deny', 'a .env inside wp-content'],
+      [tool, { path: `${cwd}/wp-content/plugins/x/.env.local` }, 'deny', 'an absolute .env.local inside wp-content'],
+      [tool, { path: 'wp-content/plugins/x/secrets.env' }, 'deny', 'a *.env inside wp-content'],
+      [tool, { path: 'wp-content/wp-config.php' }, 'deny', 'a wp-config.php inside wp-content'],
+      [tool, { path: 'wp-content/plugins/x/.git/config' }, 'deny', 'git metadata inside wp-content'],
+      [tool, { path: 'wp-content/uploads/datamachine-files' }, 'deny', 'the Data Machine file store'],
+      [tool, { path: `${cwd}/wp-content/uploads/datamachine-files/agents/a/users/1/USER.md` }, 'deny', 'another person\'s memory file'],
+      [tool, { path: 'AGENTS.md' }, 'deny', 'site-root AGENTS.md (Pi injects it as context)'],
+      [tool, { path: 'index.php' }, 'deny', 'a site-root file'],
+      [tool, { path: `${cwd}/.htaccess` }, 'deny', 'an absolute site-root file'],
+      [tool, { path: 'wp-includes/version.php' }, 'deny', 'a core file outside wp-content'],
+      [tool, { path: '../other/wp-config.php' }, 'deny', '.. out of the site'],
+      [tool, { path: `${cwd}/wp-content/plugins/../../wp-config.php` }, 'deny', 'absolute .. traversal'],
+      [tool, { path: '/etc/passwd' }, 'deny', 'an absolute path outside the site'],
+      [tool, { path: '/var/www/other/wp-content/plugins/x/x.php' }, 'deny', 'another site\'s wp-content'],
+      [tool, { path: '~/.roadie/pi-agent/auth.json' }, 'deny', '~ (Pi expands it to $HOME)'],
+      [tool, { path: '~/wp-content/plugins/x/x.php' }, 'deny', '~ wp-content'],
+      [tool, { path: '@wp-config.php' }, 'deny', '@ prefix (Pi strips it)'],
+      [tool, { path: '@.wp-coding-agents/wp-ai-gateway.env' }, 'deny', '@ env file'],
+      [tool, { path: 'wp-content/plugins/x/file.php' }, 'allow', 'plugin code'],
+      [tool, { path: './wp-content/themes/t/style.css' }, 'allow', './ theme code'],
+      [tool, { path: `${cwd}/wp-content/plugins/x/file.php` }, 'allow', 'absolute plugin code'],
+      [tool, { path: `${cwd}/wp-content/mu-plugins/x.php` }, 'allow', 'absolute mu-plugin code'],
+      [tool, { path: 'wp-content/plugins/x/.github/workflows/ci.yml' }, 'allow', '.github is not .git'],
+      [tool, { path: 'wp-content/plugins/x/environment.php' }, 'allow', 'a name containing env'],
+    ]),
+    ['read', {}, 'deny', 'read with no path'],
     ['bash', { command: 'ls wp-content/plugins' }, 'deny', 'bash'],
     ['bash', { command: 'grep -r DB_PASSWORD .' }, 'deny', 'bash grep'],
     ['edit', { path: 'wp-content/plugins/x.php' }, 'deny', 'edit'],
@@ -499,5 +531,5 @@ eval(file_get_contents(getenv('SNIPPET')));
       assert.equal(gate.decide({ rules: gate.parse([]), tool, input, cwd }).action, 'allow', `${name}: admin ${tool}`)
     }
   }
-  console.log(`PASS: team-seat grep/find/ls scoped to wp-content (no-path, site-root, .., ~, @ and wp-config.php denied; bash/edit/external denied; admin unrestricted) via ${gates.map(([name]) => name).join(' + ')}`)
+  console.log(`PASS: team-seat read/grep/find/ls scoped to wp-content (no-path, site-root, .., ~, @, wp-config.php, .env, .git and datamachine-files denied; bash/edit/external denied; admin unrestricted) via ${gates.map(([name]) => name).join(' + ')}`)
 }

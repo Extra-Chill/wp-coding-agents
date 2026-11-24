@@ -41,7 +41,17 @@ namespace {
  $targets=['test'=>['discord'=>['cli_channel'=>'roadie','recipient'=>'456']]];
  $linked=false; grant_event(); check(count($jobs)===1 && !$sent,'async grant'); work(); check(!$sent,'no link');
  $linked=true; work(); check(count($sent)===1,'grant when linked');
- foreach(['bash:deny','edit:deny','external_directory:deny','read:*wp-config.php:deny','grep:*wp-config.php:deny'] as $rule) check(in_array($rule,$sent[0],true),$rule);
+ $rules=WpCodingAgents_Onboarding::team_seat_permissions();
+ foreach(['bash:deny','edit:deny','external_directory:deny','read:deny','read:wp-content/*:allow','read:*wp-config.php:deny','read:*.env:deny','grep:*wp-config.php:deny'] as $rule) check(in_array($rule,$rules,true),$rule);
+ $permissions=[]; foreach($sent[0] as $i=>$arg) if($arg==='--permission') $permissions[]=$sent[0][$i+1];
+ check($permissions===$rules,'proactive turn passes every team-seat rule in order');
+ // The proactive turn must restrict exactly like a team seat's own turns (#906).
+ $adapter=dirname(__DIR__).'/bridges/roadie/roadie-plugins/wordpress-context.mjs';
+ $node=trim((string)shell_exec('command -v node'));
+ if($node!=='') {
+  $js=json_decode((string)shell_exec(escapeshellarg($node).' --input-type=module -e '.escapeshellarg('const m = await import(process.argv[1]); console.log(JSON.stringify(m.TEAM_SEAT_PERMISSIONS))').' '.escapeshellarg('file://'.$adapter)),true);
+  check($js===$rules,'PHP team-seat rules mirror TEAM_SEAT_PERMISSIONS');
+ } else { echo "SKIP: node not found; PHP/JS team-seat rule parity unchecked\n"; }
  check(in_array('123',$sent[0],true) && in_array('--user',$sent[0],true),'adds actor');
  $prompt=$sent[0][array_search('--prompt',$sent[0])+1]; check(str_contains($prompt,'<@123>') && str_contains($prompt,'/connect'),'mention and Connect');
  work(); grant_event(); link_event(); work(); check(count($sent)===1,'regrant and relink dedup');

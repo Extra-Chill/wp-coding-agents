@@ -8,6 +8,29 @@ defined( 'ABSPATH' ) || exit;
 class WpCodingAgents_Onboarding {
 	const JOB = 'wp_coding_agents_onboarding_intro';
 
+	/**
+	 * Team-seat session rules for the proactive Roadie turn. Mirrors
+	 * TEAM_SEAT_PERMISSIONS in bridges/roadie/roadie-plugins/wordpress-context.mjs
+	 * (#898, #906): no shell, edits or external paths, and read/grep/find/ls
+	 * scoped to wp-content with secret-looking paths denied. tests/onboarding-intro.php
+	 * checks the two lists are identical.
+	 */
+	public static function team_seat_permissions(): array {
+		$allowed = array( 'wp-content', 'wp-content/*', './wp-content', './wp-content/*', '/*/wp-content', '/*/wp-content/*' );
+		$denied  = array( '*..*', '*wp-config.php', '*.env', '*/.env*', '*/.git', '*/.git/*', '*wp-content/uploads/datamachine-files', '*wp-content/uploads/datamachine-files/*' );
+		$rules   = array( 'bash:deny', 'edit:deny', 'external_directory:deny' );
+		foreach ( array( 'read', 'grep', 'find', 'ls' ) as $tool ) {
+			$rules[] = "{$tool}:deny";
+			foreach ( $allowed as $pattern ) {
+				$rules[] = "{$tool}:{$pattern}:allow";
+			}
+			foreach ( $denied as $pattern ) {
+				$rules[] = "{$tool}:{$pattern}:deny";
+			}
+		}
+		return $rules;
+	}
+
 	public static function targets(): array {
 		$value = apply_filters( 'wp_coding_agents_onboarding_targets', get_option( 'wp_coding_agents_onboarding_targets', array() ) );
 		return is_array( $value ) ? $value : array();
@@ -112,7 +135,7 @@ add_filter( 'wp_coding_agents_onboarding_cli_config', function ( $existing, $con
 	}
 	// Restrict the proactive CLI turn too: --user adds a member, not a seat.
 	if ( 'admin' !== $role ) {
-		foreach ( array( 'bash:deny', 'edit:deny', 'external_directory:deny', 'read:*wp-config.php:deny', 'grep:*wp-config.php:deny' ) as $rule ) {
+		foreach ( WpCodingAgents_Onboarding::team_seat_permissions() as $rule ) {
 			$config['args'][] = '--permission';
 			$config['args'][] = $rule;
 		}

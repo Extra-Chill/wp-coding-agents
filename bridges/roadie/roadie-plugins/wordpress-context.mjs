@@ -47,32 +47,55 @@ export function resolveBinding(config, request) {
 // file writes and no reads outside the session directory, and works through
 // abilities instead. wp-config.php holds the database credentials.
 //
-// Code research (#898): the read-only search tools grep, find and ls are
-// scoped to wp-content (plugins, themes, mu-plugins). A grep with no path or
-// over the site root would search wp-config.php, so anything outside
-// wp-content is denied, including a call with no path (Roadie evaluates it as
-// the target `*`). Rules are last-match-wins globs on the raw path, so:
+// File access (#898, #906): the read tool and the read-only search tools
+// grep, find and ls are scoped to wp-content (plugins, themes, mu-plugins),
+// declared once below. The site root holds wp-config.php (database
+// credentials) and .wp-coding-agents/*.env (the AI gateway key), so anything
+// outside wp-content is denied, including a call with no path (Roadie
+// evaluates it as the target `*`). The site-root AGENTS.md needs no rule: Pi
+// injects it as a context file, not through the read tool. Rules are
+// last-match-wins globs on the raw path, where `*` also spans `/`, so:
 //   - only `wp-content`, `./wp-content` and absolute `/…/wp-content` forms are
 //     allowed (absolute paths outside the session directory are still denied
 //     by external_directory; Pi expands `~` and strips `@`, so those prefixes
 //     match no allow rule);
 //   - any `..` is denied, because Roadie matches the unnormalized path and
 //     `wp-content/../wp-config.php` would otherwise match `wp-content/*`;
-//   - wp-config.php stays denied by name.
-const SEARCH_TOOLS = ['grep', 'find', 'ls']
-const WP_CONTENT_PATTERNS = ['wp-content', 'wp-content/*', './wp-content', './wp-content/*', '/*/wp-content', '/*/wp-content/*']
+//   - inside wp-content, secret-looking paths are denied as defense in depth:
+//     wp-config.php by name, `.env` files, `.git` metadata (remote URLs can
+//     carry tokens) and Data Machine's file store
+//     (uploads/datamachine-files: other people's memory, email attachments,
+//     job packets; memory reaches the agent through the runtime instead).
+// These denies match the path argument only: a recursive grep or find over a
+// wp-content directory still descends into what lies below it.
+export const TEAM_SEAT_FILE_TOOLS = Object.freeze(['read', 'grep', 'find', 'ls'])
+export const TEAM_SEAT_ALLOWED_PATHS = Object.freeze(['wp-content', 'wp-content/*', './wp-content', './wp-content/*', '/*/wp-content', '/*/wp-content/*'])
+export const TEAM_SEAT_DENIED_PATHS = Object.freeze([
+  '*..*',
+  '*wp-config.php',
+  '*.env',
+  '*/.env*',
+  '*/.git',
+  '*/.git/*',
+  '*wp-content/uploads/datamachine-files',
+  '*wp-content/uploads/datamachine-files/*',
+])
+
+// The scoped rule list for one file tool: deny all, allow wp-content, then
+// deny the exceptions (last match wins).
+export function scopedFileRules(tool) {
+  return [
+    `${tool}:deny`,
+    ...TEAM_SEAT_ALLOWED_PATHS.map((pattern) => `${tool}:${pattern}:allow`),
+    ...TEAM_SEAT_DENIED_PATHS.map((pattern) => `${tool}:${pattern}:deny`),
+  ]
+}
 
 export const TEAM_SEAT_PERMISSIONS = Object.freeze([
   'bash:deny',
   'edit:deny',
   'external_directory:deny',
-  'read:*wp-config.php:deny',
-  ...SEARCH_TOOLS.flatMap((tool) => [
-    `${tool}:deny`,
-    ...WP_CONTENT_PATTERNS.map((pattern) => `${tool}:${pattern}:allow`),
-    `${tool}:*..*:deny`,
-    `${tool}:*wp-config.php:deny`,
-  ]),
+  ...TEAM_SEAT_FILE_TOOLS.flatMap(scopedFileRules),
 ])
 
 const CAPABILITY_ORDER = ['sessions', 'shell', 'admin']
