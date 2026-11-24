@@ -43,6 +43,7 @@ source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 source "$SCRIPT_DIR/lib/systems-capabilities.sh"
 source "$SCRIPT_DIR/lib/codebox-database.sh"
 source "$SCRIPT_DIR/lib/composer-provision.sh"
+source "$SCRIPT_DIR/services/homeboy-daemon.sh"
 
 QUIET=false
 JSON=false
@@ -323,6 +324,26 @@ for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "
 done
 
 [ "$UNITS_CHECKED" -eq 0 ] && skip "no agent systemd units on this host"
+
+# Local Cooks run Pi under homeboy-daemon.service, outside any Roadie session
+# (#870). With a local Roadie pool on this host, the daemon must load a pool
+# client key and Pi agent dir, or every local Cook fails provider auth.
+HB_UNIT="$UNIT_DIR/homeboy-daemon.service"
+if [ ! -f "$HB_UNIT" ]; then
+  skip "no homeboy-daemon.service — local Cook provider route not applicable"
+elif [ ! -f "$UNIT_DIR/roadie.service" ]; then
+  skip "no roadie.service — no local Roadie pool for local Cooks"
+elif grep -q '^Environment=.*ROADIE_POOL_URL=' "$UNIT_DIR/roadie.service"; then
+  skip "roadie.service uses a remote pool — local Cook route is owned by the pool host"
+else
+  HB_ROUTE_STATUS=0
+  HB_ROUTE_MSG="$(homeboy_daemon_pi_route_status "$HB_UNIT")" || HB_ROUTE_STATUS=$?
+  case "$HB_ROUTE_STATUS" in
+    0) pass "homeboy-daemon.service: $HB_ROUTE_MSG" ;;
+    2) skip "homeboy-daemon.service: $HB_ROUTE_MSG" ;;
+    *) fail "homeboy-daemon.service: $HB_ROUTE_MSG; run upgrade.sh as root" ;;
+  esac
+fi
 
 # The site root's own mode is part of the sharing contract (#644): a non-root
 # service identity that is a member of the webroot group can create and

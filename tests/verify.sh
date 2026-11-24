@@ -165,6 +165,23 @@ printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE
 printf '%s\n' "<!-- wp-coding-agents-provenance: $CURRENT_PRODUCER -->" > "$SITE/AGENTS.md"
 
 echo ""
+echo "verify: local Cook provider route (#870)"
+PI_ENV_DIR="$TMP/pool-client"
+mkdir -p "$PI_ENV_DIR/pi-agent"
+printf '{}\n' > "$PI_ENV_DIR/pi-agent/models.json"
+write_unit homeboy-daemon.service pi /home/pi
+OUT="$(run_verify)"
+assert_contains "$OUT" "local Cook provider route unauthenticated: homeboy-daemon.service loads no Roadie pool client EnvironmentFile" "reports a daemon without a pool client"
+write_unit homeboy-daemon.service pi /home/pi "EnvironmentFile=-$PI_ENV_DIR/pi.env"
+OUT="$(run_verify)"
+assert_contains "$OUT" "local Cook provider route unauthenticated: $PI_ENV_DIR/pi.env is missing" "reports a missing pool client env file"
+printf 'ROADIE_PI_KEY=rpc_x\nPI_CODING_AGENT_DIR=%s/pi-agent\n' "$PI_ENV_DIR" > "$PI_ENV_DIR/pi.env"
+chmod 600 "$PI_ENV_DIR/pi.env"
+OUT="$(run_verify)"
+assert_contains "$OUT" "local Cook provider route authenticated" "passes a converged pool client route"
+rm -f "$TMP/units/homeboy-daemon.service"
+
+echo ""
 echo "verify: it catches the defects that reached a live site"
 
 # 1. The identity bug. The migration rendered User=pi with HOME=/root, and

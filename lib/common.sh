@@ -439,6 +439,13 @@ initialize_roadie_overrides() {
   if [ -n "${AGENT_SLUG:-}" ]; then
     AGENT_SLUG_EXPLICIT=true
   fi
+  # Fixed pool proxy port for external pool clients such as the Homeboy
+  # daemon (#870). An operator value wins over the one the unit carries.
+  ROADIE_POOL_PROXY_PORT_EXPLICIT=false
+  ROADIE_POOL_PROXY_PORT="${ROADIE_POOL_PROXY_PORT:-}"
+  if [ -n "$ROADIE_POOL_PROXY_PORT" ]; then
+    ROADIE_POOL_PROXY_PORT_EXPLICIT=true
+  fi
 }
 
 # Service-section scratch policy: literal /tmp and TMPDIR share the volume.

@@ -181,6 +181,9 @@ _roadie_resolve_instance() {
   if [ "${ROADIE_POOL_URL_EXPLICIT:-false}" != true ]; then
     ROADIE_POOL_URL=$(_roadie_unit_env_value "$unit_file" ROADIE_POOL_URL)
   fi
+  if [ "${ROADIE_POOL_PROXY_PORT_EXPLICIT:-false}" != true ]; then
+    ROADIE_POOL_PROXY_PORT=$(_roadie_unit_env_value "$unit_file" ROADIE_POOL_PROXY_PORT)
+  fi
   if [ "${ROADIE_PI_MODEL_EXPLICIT:-false}" != true ]; then
     ROADIE_PI_MODEL=$(_roadie_unit_env_value "$unit_file" ROADIE_PI_MODEL)
   fi
@@ -707,6 +710,170 @@ _roadie_remote_pool_ready() {
 # Rendered only alongside a ready remote pool and only once the file exists.
 _roadie_remote_pool_admin_ready() {
   _roadie_remote_pool_ready && [ -s "$(_roadie_pool_admin_key_file)" ]
+}
+
+# ============================================================================
+# Local pool client for the Homeboy daemon (#870)
+# ============================================================================
+# Detached local Cooks run Pi under homeboy-daemon.service, outside any Roadie
+# session, so they never get the per-session ROADIE_PI_KEY Roadie hands its
+# own Pi processes. Roadie's supported route for such a process is a
+# registered pool client (`roadie credentials client add`): a durable key the
+# pool proxy maps to the client's pools, plus a Pi agent dir whose `roadie`
+# provider points at the proxy (`roadie credentials client pi-agent-dir`).
+#
+# That needs a proxy address that survives restarts, so Roadie gets a fixed
+# ROADIE_POOL_PROXY_PORT (it listens on an ephemeral port otherwise). Only the
+# default instance claims the default port; a named instance gets one only
+# when the operator sets it, so two instances never collide. A bot on a remote
+# pool (ROADIE_POOL_URL) holds no accounts here and is out of scope: its
+# daemon would need a client registered on the pool host.
+#
+# The key is written to a root-owned 0600 EnvironmentFile the daemon unit
+# loads; it is never rendered into a unit. Systemd only: the daemon unit has
+# no launchd counterpart (local installs never supervise the daemon).
+
+ROADIE_POOL_PROXY_DEFAULT_PORT="${ROADIE_POOL_PROXY_DEFAULT_PORT:-47120}"
+
+# Succeeds when this run should give the Homeboy daemon a local pool client.
+_roadie_homeboy_pool_client_wanted() {
+  [ "${LOCAL_MODE:-false}" != true ] || return 1
+  [ "${EXTERNAL_WORDPRESS:-false}" != true ] || return 1
+  ! _roadie_remote_pool_url >/dev/null 2>&1 || return 1
+  declare -F homeboy_daemon_service_applicable >/dev/null 2>&1 || return 1
+  homeboy_daemon_service_applicable
+}
+
+# The fixed pool proxy port the unit renders, or nothing (and failure) when
+# Roadie should keep its ephemeral proxy port.
+_roadie_pool_proxy_port() {
+  local port="${ROADIE_POOL_PROXY_PORT:-}"
+  if [ -z "$port" ]; then
+    _roadie_homeboy_pool_client_wanted || return 1
+    [ -z "$(_roadie_instance_suffix)" ] || return 1
+    port="$ROADIE_POOL_PROXY_DEFAULT_PORT"
+  fi
+  case "$port" in
+    ''|*[!0-9]*) error "Invalid Roadie pool proxy port '$port'"; return 1 ;;
+  esac
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    error "Invalid Roadie pool proxy port '$port' (expected 1-65535)"
+    return 1
+  fi
+  printf '%s\n' "$port"
+}
+
+# Pi agent dir written for a pool client, inside Roadie's data dir.
+_roadie_pool_client_agent_dir() {
+  printf '%s/pool-clients/%s/pi-agent\n' "${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}" "$1"
+}
+
+# Run `roadie <args>` as the service identity against this instance's data
+# dir. Root drops to the service user through sudo, which also resets the
+# environment: credential commands are operator-only and refuse agent shells.
+_roadie_pool_client_cli() {
+  local roadie node_dir data_dir
+  roadie="${ROADIE_BIN:-$(roadie_bin)}"
+  node_dir="$(_resolve_node_bin_dir "$roadie")"
+  data_dir="${ROADIE_DATA_DIR:-${SERVICE_HOME:-$HOME}/.roadie}"
+  if [ -n "${SERVICE_USER:-}" ] && [ "$(id -un)" != "$SERVICE_USER" ]; then
+    sudo -n -H -u "$SERVICE_USER" env HOME="$SERVICE_HOME" ROADIE_DATA_DIR="$data_dir" \
+      PATH="${node_dir:+$node_dir:}/usr/local/bin:/usr/bin:/bin" "$roadie" "$@"
+  else
+    ROADIE_DATA_DIR="$data_dir" PATH="${node_dir:+$node_dir:}$PATH" "$roadie" "$@"
+  fi
+}
+
+# Succeeds when the daemon should load a pool client env file.
+bridge_pool_client_applicable() {
+  _roadie_homeboy_pool_client_wanted || return 1
+  _roadie_pool_proxy_port >/dev/null 2>&1
+}
+
+# bridge_pool_client_reconcile <name> <env_file>
+#
+# Converge one registered pool client and the 0600 env file carrying its key
+# (ROADIE_PI_KEY) and Pi agent dir (PI_CODING_AGENT_DIR). The key is shown
+# once by Roadie, so it is never rotated while both the registration and the
+# key file exist; a registration without its key file is removed and added
+# again, and a key file without a registration is replaced. The agent dir is
+# rewritten every run so it follows the pool's current rotations.
+# Sets BRIDGE_POOL_CLIENT_ENV_CHANGED=true when the env file changed, so the
+# caller restarts its service through its own unit-change path.
+bridge_pool_client_reconcile() {
+  local name="$1" env_file="$2" port base_url agent_dir listing registered=false
+  local key="" desired added
+  BRIDGE_POOL_CLIENT_ENV_CHANGED=false
+  port="$(_roadie_pool_proxy_port)" || return 0
+  base_url="http://127.0.0.1:$port"
+  agent_dir="$(_roadie_pool_client_agent_dir "$name")"
+
+  if [ "${DRY_RUN:-false}" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would ensure Roadie pool client $name, write its Pi agent dir $agent_dir ($base_url), and write $env_file (0600 root)"
+    return 0
+  fi
+  if [ "$(_roadie_effective_uid)" -ne 0 ]; then
+    warn "  Roadie pool client $name needs root (it writes $env_file); local Cooks stay unauthenticated"
+    PENDING_ITEMS+=("Roadie pool client $name for the Homeboy daemon (root)")
+    return 0
+  fi
+
+  if ! listing="$(_roadie_pool_client_cli credentials client list 2>&1)"; then
+    warn "  Could not list Roadie pool clients; Homeboy daemon Pi route left unchanged"
+    PENDING_ITEMS+=("Roadie pool client $name for the Homeboy daemon")
+    return 1
+  fi
+  grep -Eq "(^|[[:space:]])${name}[[:space:]]+pools:" <<< "$listing" && registered=true
+  if [ -f "$env_file" ]; then
+    key="$(sed -n 's/^ROADIE_PI_KEY=//p' "$env_file" | tail -n 1)"
+  fi
+
+  if [ "$registered" != true ] || [ -z "$key" ]; then
+    if [ "$registered" = true ]; then
+      log "  Roadie pool client $name has no key file; registering it again (keys are shown once)"
+      _roadie_pool_client_cli credentials client remove "$name" >/dev/null 2>&1 || {
+        warn "  Could not remove stale Roadie pool client $name"
+        PENDING_ITEMS+=("Roadie pool client $name for the Homeboy daemon")
+        return 1
+      }
+    fi
+    # The key is the only thing Roadie prints on stdout; its log goes to stderr.
+    added="$(_roadie_pool_client_cli credentials client add "$name" --pools shared 2>/dev/null)" || added=""
+    key="$(printf '%s\n' "$added" | sed '/^[[:space:]]*$/d' | tail -n 1 | tr -d '[:space:]')"
+    if ! [[ "$key" =~ ^[A-Za-z0-9._~+/=-]{16,}$ ]]; then
+      warn "  Roadie did not return a key for pool client $name; local Cooks stay unauthenticated"
+      PENDING_ITEMS+=("Roadie pool client $name for the Homeboy daemon")
+      return 1
+    fi
+    log "  Registered Roadie pool client $name for the Homeboy daemon"
+    UPDATED_ITEMS+=("Roadie pool client $name (new key in $env_file)")
+  fi
+
+  if ! _roadie_pool_client_cli credentials client pi-agent-dir "$agent_dir" --base-url "$base_url" >/dev/null 2>&1; then
+    warn "  Could not write Pi agent dir $agent_dir (does the shared pool have a rotation?)"
+    PENDING_ITEMS+=("Pi agent dir for Roadie pool client $name ($agent_dir)")
+  fi
+
+  desired="# Managed by wp-coding-agents (#870): Roadie pool client $name. Do not edit.
+ROADIE_PI_KEY=$key
+PI_CODING_AGENT_DIR=$agent_dir"
+  if [ -f "$env_file" ] && [ "$(cat "$env_file")" = "$desired" ] && \
+     [ "$(file_mode "$env_file" 2>/dev/null || true)" = 600 ]; then
+    return 0
+  fi
+  local dir tmp
+  dir="$(dirname "$env_file")"
+  mkdir -p "$dir" && chmod 0700 "$dir" || {
+    warn "  Could not create $dir; local Cooks stay unauthenticated"
+    return 1
+  }
+  tmp="$env_file.tmp.$$"
+  ( umask 077 && printf '%s\n' "$desired" > "$tmp" ) || return 1
+  chown 0:0 "$tmp" 2>/dev/null || true
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$env_file"
+  BRIDGE_POOL_CLIENT_ENV_CHANGED=true
+  log "  Wrote $env_file (ROADIE_PI_KEY, PI_CODING_AGENT_DIR)"
 }
 
 # The send token reaches only POST /roadie/send on the loopback lock port.
@@ -1829,6 +1996,10 @@ EOF
   if _roadie_remote_pool_admin_ready; then
     echo "Environment=ROADIE_POOL_ADMIN_KEY_FILE=$(_roadie_pool_admin_key_file)"
   fi
+  local pool_proxy_port
+  if pool_proxy_port="$(_roadie_pool_proxy_port)"; then
+    echo "Environment=ROADIE_POOL_PROXY_PORT=$pool_proxy_port"
+  fi
   if [ -n "${ROADIE_LOCK_PORT:-}" ]; then
     echo "Environment=ROADIE_LOCK_PORT=$ROADIE_LOCK_PORT"
   fi
@@ -2052,7 +2223,8 @@ bridge_update_systemd() {
   # the operator) already.
   # ROADIE_BACKEND is no longer rendered (Pi is Roadie's only backend, and any
   for key in DATAMACHINE_WP_CMD DATAMACHINE_WP_TRANSPORT_JSON ROADIE_BOT_TOKEN \
-    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE; do
+    ROADIE_BACKEND ROADIE_PI_BIN ROADIE_PI_MODEL ROADIE_PI_TITLE_MODEL ROADIE_POOL_URL ROADIE_POOL_KEY_FILE ROADIE_POOL_ADMIN_KEY_FILE \
+    ROADIE_POOL_PROXY_PORT; do
     current_env=$(_roadie_remove_systemd_env_key "$current_env" "$key")
   done
   # Installer-owned plugin list: managed set plus operator extras (#724),

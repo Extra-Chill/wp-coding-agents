@@ -18,6 +18,18 @@ homeboy_daemon_unit_name() { echo "homeboy-daemon.service"; }
 homeboy_daemon_systemd_dir() { printf '%s' "${HOMEBOY_DAEMON_SYSTEMD_DIR:-/etc/systemd/system}"; }
 homeboy_daemon_unit_path() { printf '%s/%s' "$(homeboy_daemon_systemd_dir)" "$(homeboy_daemon_unit_name)"; }
 
+# Local Cooks run Pi under this unit, outside any Roadie session (#870). The
+# chat bridge can register a durable pool client for the daemon; its key and
+# Pi agent dir live in this root-owned 0600 EnvironmentFile, never in the unit.
+homeboy_daemon_pool_client_name() { printf '%s' "${HOMEBOY_DAEMON_POOL_CLIENT:-homeboy-daemon}"; }
+homeboy_daemon_pi_env_file() { printf '%s' "${HOMEBOY_DAEMON_PI_ENV_FILE:-/etc/wp-coding-agents/homeboy/pi.env}"; }
+
+# Succeeds when the loaded bridge offers the daemon a pool client.
+homeboy_daemon_pool_client_applicable() {
+  declare -F bridge_pool_client_applicable >/dev/null 2>&1 || return 1
+  bridge_pool_client_applicable
+}
+
 # The unit only applies where wp-coding-agents owns a service-owned Homeboy
 # binary under systemd: managed VPS installs, not local or external-WordPress
 # installs, and only once that binary exists.
@@ -44,6 +56,10 @@ homeboy_daemon_render_systemd_service() {
     fi
   fi
   path="$(_service_path_value "$(dirname "$bin")" "$sender_dir" "$(_resolve_node_bin_dir "${sender%% *}")")"
+  local pi_env=""
+  # Optional (-): a missing file leaves Cooks unauthenticated, which verify
+  # reports, rather than keeping the daemon itself from starting.
+  homeboy_daemon_pool_client_applicable && pi_env="EnvironmentFile=-$(homeboy_daemon_pi_env_file)"
 # HOME, PATH, and the session sender can all carry whitespace (operator-set
 # paths, or a sender command like "<roadie> send"), so systemd's quoting wraps
 # them; assignments that cannot contain whitespace stay simple. The sender's
@@ -65,6 +81,7 @@ Environment=$(systemd_quote "HOME=$SERVICE_HOME")$(homeboy_data_dir_systemd_env)
 Environment=$(systemd_quote "PATH=$path")
 ${sender:+Environment=$(systemd_quote "HOMEBOY_SESSION_SEND_COMMAND=$sender")
 }${sender_env:+$sender_env
+}${pi_env:+$pi_env
 }
 ExecStart=$bin daemon serve
 Restart=always
@@ -238,6 +255,12 @@ homeboy_daemon_service_reconcile() {
   unit="$(homeboy_daemon_unit_name)"
   unit_path="$(homeboy_daemon_unit_path)"
 
+  BRIDGE_POOL_CLIENT_ENV_CHANGED=false
+  if homeboy_daemon_pool_client_applicable; then
+    # A failed registration is reported as pending; the daemon still runs.
+    bridge_pool_client_reconcile "$(homeboy_daemon_pool_client_name)" "$(homeboy_daemon_pi_env_file)" || true
+  fi
+
   if [ ! -f "$unit_path" ]; then
     write_file "$unit_path" "$(homeboy_daemon_render_systemd_service)"
     [ "${DRY_RUN:-false}" = true ] && return 0
@@ -250,6 +273,8 @@ homeboy_daemon_service_reconcile() {
 
   rendered="$(homeboy_daemon_render_systemd_service)"
   cmp -s <(printf '%s\n' "$rendered") "$unit_path" || changed=true
+  # A new key or agent dir only reaches the daemon through a restart.
+  [ "${BRIDGE_POOL_CLIENT_ENV_CHANGED:-false}" = true ] && changed=true
   _smart_update_systemd_unit "$unit_path" "$rendered" "$unit"
   [ "${DRY_RUN:-false}" = true ] && return 0
   systemctl enable "$unit" >/dev/null 2>&1 || true
@@ -273,4 +298,44 @@ homeboy_daemon_service_reconcile() {
 homeboy_daemon_service_verify() {
   homeboy_daemon_service_applicable || return 0
   [ -f "$(homeboy_daemon_unit_path)" ]
+}
+
+# homeboy_daemon_pi_route_status <unit_path>
+#
+# Report whether local Cooks under the daemon can authenticate to the Roadie
+# pool. Prints one line and returns 0 when the route is authenticated, 2 when
+# the unit has no pool client route to check, and 1 when it is
+# unauthenticated ("local Cook provider route unauthenticated: <why>").
+homeboy_daemon_pi_route_status() {
+  local unit_path="$1" env_file key agent_dir mode
+  [ -f "$unit_path" ] || { echo "no Homeboy daemon unit"; return 2; }
+  env_file="$(sed -n 's/^EnvironmentFile=-\{0,1\}//p' "$unit_path" | grep -F '/pi.env' | tail -n 1)"
+  if [ -z "$env_file" ]; then
+    echo "local Cook provider route unauthenticated: $(basename "$unit_path") loads no Roadie pool client EnvironmentFile"
+    return 1
+  fi
+  if [ ! -e "$env_file" ]; then
+    echo "local Cook provider route unauthenticated: $env_file is missing"
+    return 1
+  fi
+  if [ ! -r "$env_file" ]; then
+    echo "cannot read $env_file (run as root)"
+    return 2
+  fi
+  mode="$(file_mode "$env_file" 2>/dev/null || true)"
+  if [ "$mode" != 600 ]; then
+    echo "local Cook provider route exposed: $env_file is mode $mode, expected 600"
+    return 1
+  fi
+  key="$(sed -n 's/^ROADIE_PI_KEY=//p' "$env_file" | tail -n 1)"
+  agent_dir="$(sed -n 's/^PI_CODING_AGENT_DIR=//p' "$env_file" | tail -n 1)"
+  if [ -z "$key" ]; then
+    echo "local Cook provider route unauthenticated: $env_file has no ROADIE_PI_KEY"
+    return 1
+  fi
+  if [ -z "$agent_dir" ] || [ ! -f "$agent_dir/models.json" ]; then
+    echo "local Cook provider route unauthenticated: PI_CODING_AGENT_DIR '${agent_dir}' has no models.json"
+    return 1
+  fi
+  echo "local Cook provider route authenticated ($env_file, $agent_dir)"
 }
