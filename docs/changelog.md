@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.25] - 2026-11-24
+
+### Changed
+- Update homeboy to 0.496.0
+
 ## [3.11.24] - 2026-11-24
 
 ### Changed
