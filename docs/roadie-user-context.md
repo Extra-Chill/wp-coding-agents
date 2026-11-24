@@ -174,7 +174,7 @@ owner and WordPress administrators are `admin`, otherwise the grant's role
 | Role | Roadie capabilities | Session permission rules |
 |------|---------------------|--------------------------|
 | `admin` | `sessions`, `shell`, `admin` | none (full toolset) |
-| `operator`, `viewer`, missing/unknown | `sessions` only | `bash:deny`, `edit:deny`, `external_directory:deny`, `read:*wp-config.php:deny`, `grep:*wp-config.php:deny` |
+| `operator`, `viewer`, missing/unknown | `sessions` only | `bash:deny`, `edit:deny`, `external_directory:deny`, `read:*wp-config.php:deny`; `grep`/`find`/`ls` allowed only under `wp-content` (see below) |
 
 Roadie's `shell` capability only gates user-typed raw shell (`!cmd`,
 `/run-shell-command`). The agent's own tools follow the host runtime config,
@@ -185,6 +185,18 @@ and use Roadie's own tools; it acts on WordPress through abilities (per-person
 MCP, roadie#152) rather than through shell. Rules are applied per turn, so in a
 shared thread an admin's turn runs unrestricted and a team member's turn runs
 restricted.
+
+Team seats research code with Pi's read-only `grep`, `find` and `ls` tools
+(#898). The installer enables them for every Roadie session by merging
+`"defaultTools": ["+grep", "+find", "+ls"]` into the `settings.json` of
+Roadie's Pi agent dir (`<ROADIE_DATA_DIR>/pi-agent`), keeping other keys and
+any tool the operator already names. For team seats these tools are scoped to
+`wp-content` (plugins, themes, mu-plugins): `wp-content`, `./wp-content` and
+absolute `/…/wp-content` paths are allowed; a call with no path, the site root,
+any other path, any path containing `..`, a `~` or `@` prefix, and
+`wp-config.php` are denied. A recursive search of the site root would
+otherwise return the database credentials in `wp-config.php`. Rules are
+last-match-wins globs on the raw path, which is why `..` is refused outright.
 
 Shared/agent memory is supplied on `session_start`, without a speaker. User
 and agent-user memory is supplied on `turn`, for the speaker Roadie

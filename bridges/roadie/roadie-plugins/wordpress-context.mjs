@@ -46,12 +46,33 @@ export function resolveBinding(config, request) {
 // operator's credentials. A team member's agent therefore gets no shell, no
 // file writes and no reads outside the session directory, and works through
 // abilities instead. wp-config.php holds the database credentials.
+//
+// Code research (#898): the read-only search tools grep, find and ls are
+// scoped to wp-content (plugins, themes, mu-plugins). A grep with no path or
+// over the site root would search wp-config.php, so anything outside
+// wp-content is denied, including a call with no path (Roadie evaluates it as
+// the target `*`). Rules are last-match-wins globs on the raw path, so:
+//   - only `wp-content`, `./wp-content` and absolute `/…/wp-content` forms are
+//     allowed (absolute paths outside the session directory are still denied
+//     by external_directory; Pi expands `~` and strips `@`, so those prefixes
+//     match no allow rule);
+//   - any `..` is denied, because Roadie matches the unnormalized path and
+//     `wp-content/../wp-config.php` would otherwise match `wp-content/*`;
+//   - wp-config.php stays denied by name.
+const SEARCH_TOOLS = ['grep', 'find', 'ls']
+const WP_CONTENT_PATTERNS = ['wp-content', 'wp-content/*', './wp-content', './wp-content/*', '/*/wp-content', '/*/wp-content/*']
+
 export const TEAM_SEAT_PERMISSIONS = Object.freeze([
   'bash:deny',
   'edit:deny',
   'external_directory:deny',
   'read:*wp-config.php:deny',
-  'grep:*wp-config.php:deny',
+  ...SEARCH_TOOLS.flatMap((tool) => [
+    `${tool}:deny`,
+    ...WP_CONTENT_PATTERNS.map((pattern) => `${tool}:${pattern}:allow`),
+    `${tool}:*..*:deny`,
+    `${tool}:*wp-config.php:deny`,
+  ]),
 ])
 
 const CAPABILITY_ORDER = ['sessions', 'shell', 'admin']

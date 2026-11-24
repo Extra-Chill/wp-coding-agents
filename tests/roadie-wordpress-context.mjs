@@ -383,3 +383,101 @@ eval(file_get_contents(getenv('SNIPPET')));
   delete process.env.WP_CODING_AGENTS_ROADIE_CONTEXT_CONFIG
   fs.rmSync(temp, { recursive: true, force: true })
 }
+
+// #898: team seats get Pi's read-only grep/find/ls, scoped to wp-content so a
+// recursive search can never return wp-config.php. The cases run through
+// Roadie's own permission gate (decidePermission + parsePermissionRules) when
+// the installed Roadie package is present (ROADIE_PACKAGE_DIR, or the managed
+// system prefix), and always through a mirror of its matcher (last matching
+// rule wins, a call with no path is the target `*`, raw globs where `*`
+// spans `/`, and an external_directory check for paths outside the cwd).
+{
+  const seatRules = module.seatFor('viewer').permissions
+  assert.deepEqual(module.seatFor('admin').permissions, [], 'admin seats stay unrestricted')
+  const mirror = (() => {
+    const matches = (value, pattern) => {
+      let regex = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
+      if (regex.endsWith(' .*')) regex = regex.slice(0, -3) + '( .*)?'
+      return new RegExp(`^${regex}$`, 's').test(value)
+    }
+    const parse = (raw) => raw.map((entry) => {
+      const parts = entry.split(':').map((s) => s.trim())
+      return parts.length === 2 ? { permission: parts[0], pattern: '*', action: parts[1] } : { permission: parts[0], pattern: parts.slice(1, -1).join(':'), action: parts.at(-1) }
+    })
+    const evaluate = (rules, permission, targets) => {
+      const decisions = (targets.length ? targets : ['*']).map((target) => rules.findLast((rule) => matches(permission, rule.permission) && matches(target, rule.pattern))?.action ?? 'allow')
+      return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
+    }
+    return {
+      parse,
+      decide({ rules, tool, input, cwd }) {
+        const filePath = typeof input.path === 'string' ? input.path : undefined
+        const checks = []
+        if (tool === 'bash') checks.push({ permission: 'bash', targets: [String(input.command ?? '')] })
+        else if (tool === 'edit' || tool === 'write') checks.push({ permission: 'edit', targets: filePath ? [filePath] : [] })
+        else checks.push({ permission: tool, targets: filePath ? [filePath] : [] })
+        if (filePath) {
+          const resolved = path.resolve(cwd, filePath)
+          if (resolved !== cwd && !resolved.startsWith(`${cwd}${path.sep}`)) checks.push({ permission: 'external_directory', targets: [path.dirname(resolved)] })
+        }
+        for (const check of checks) if (evaluate(rules, check.permission, check.targets) === 'deny') return { action: 'deny' }
+        return { action: 'allow' }
+      },
+    }
+  })()
+  const gates = [['mirror', mirror]]
+  const roadieDir = process.env.ROADIE_PACKAGE_DIR || '/usr/local/lib/wp-coding-agents/roadie/lib/node_modules/@extrachill/roadie'
+  if (fs.existsSync(path.join(roadieDir, 'dist/agent-backend/pi/backend.js'))) {
+    const backend = await import(pathToFileURL(path.join(roadieDir, 'dist/agent-backend/pi/backend.js')))
+    const policy = await import(pathToFileURL(path.join(roadieDir, 'dist/permission-policy.js')))
+    gates.push([`roadie ${JSON.parse(fs.readFileSync(path.join(roadieDir, 'package.json'), 'utf8')).version}`, { parse: policy.parsePermissionRules, decide: backend.decidePermission }])
+  } else {
+    console.log(`SKIP: installed Roadie not found at ${roadieDir}; seat rules checked against the matcher mirror only`)
+  }
+  const cwd = '/var/www/site'
+  const cases = [
+    ...['grep', 'find', 'ls'].flatMap((tool) => [
+      [tool, {}, 'deny', 'no path searches the site root'],
+      [tool, { path: '.' }, 'deny', 'the site root'],
+      [tool, { path: './' }, 'deny', 'the site root (./)'],
+      [tool, { path: cwd }, 'deny', 'the absolute site root'],
+      [tool, { path: 'wp-config.php' }, 'deny', 'wp-config.php'],
+      [tool, { path: `${cwd}/wp-config.php` }, 'deny', 'absolute wp-config.php'],
+      [tool, { path: 'wp-includes' }, 'deny', 'core outside wp-content'],
+      [tool, { path: '.wp-coding-agents' }, 'deny', 'installer env dir'],
+      [tool, { path: 'wp-content/../wp-config.php' }, 'deny', '.. traversal out of wp-content'],
+      [tool, { path: 'wp-content/..' }, 'deny', '.. back to the site root'],
+      [tool, { path: `${cwd}/wp-content/../` }, 'deny', 'absolute .. traversal'],
+      [tool, { path: '../other/wp-content' }, 'deny', 'a sibling site'],
+      [tool, { path: '/var/www/other/wp-content/plugins' }, 'deny', 'another site outside the cwd'],
+      [tool, { path: '~/wp-content' }, 'deny', '~ (Pi expands it to $HOME)'],
+      [tool, { path: '@/etc/wp-content' }, 'deny', '@ prefix (Pi strips it)'],
+      [tool, { path: 'wp-content' }, 'allow', 'wp-content'],
+      [tool, { path: 'wp-content/' }, 'allow', 'wp-content/'],
+      [tool, { path: 'wp-content/plugins' }, 'allow', 'wp-content/plugins'],
+      [tool, { path: './wp-content/themes' }, 'allow', './wp-content/themes'],
+      [tool, { path: `${cwd}/wp-content/plugins` }, 'allow', 'absolute wp-content/plugins'],
+      [tool, { path: `${cwd}/wp-content/mu-plugins/x.php` }, 'allow', 'absolute file under wp-content'],
+    ]),
+    ['read', { path: 'wp-config.php' }, 'deny', 'reading wp-config.php'],
+    ['read', { path: `${cwd}/wp-config.php` }, 'deny', 'reading absolute wp-config.php'],
+    ['read', { path: 'wp-content/plugins/x/x.php' }, 'allow', 'reading plugin code'],
+    ['bash', { command: 'ls wp-content/plugins' }, 'deny', 'bash'],
+    ['bash', { command: 'grep -r DB_PASSWORD .' }, 'deny', 'bash grep'],
+    ['edit', { path: 'wp-content/plugins/x.php' }, 'deny', 'edit'],
+    ['write', { path: 'wp-content/plugins/x.php' }, 'deny', 'write'],
+    ['read', { path: '/etc/passwd' }, 'deny', 'external read'],
+  ]
+  for (const [name, gate] of gates) {
+    const rules = gate.parse(seatRules)
+    assert.equal(rules.length, seatRules.length, `${name}: every seat rule parses`)
+    for (const [tool, input, expected, label] of cases) {
+      assert.equal(gate.decide({ rules, tool, input, cwd }).action, expected, `${name}: team seat ${tool} ${JSON.stringify(input)} (${label})`)
+    }
+    // Admin seats carry no rules: the same calls are all allowed.
+    for (const [tool, input] of [['grep', {}], ['bash', { command: 'ls' }], ['read', { path: 'wp-config.php' }]]) {
+      assert.equal(gate.decide({ rules: gate.parse([]), tool, input, cwd }).action, 'allow', `${name}: admin ${tool}`)
+    }
+  }
+  console.log(`PASS: team-seat grep/find/ls scoped to wp-content (no-path, site-root, .., ~, @ and wp-config.php denied; bash/edit/external denied; admin unrestricted) via ${gates.map(([name]) => name).join(' + ')}`)
+}
