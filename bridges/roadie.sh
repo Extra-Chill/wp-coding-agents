@@ -1141,6 +1141,80 @@ for name, models in sorted(json.load(sys.stdin).items()):
     print(name + "\t" + " ".join(models))')
 }
 
+# Rotation names and entries in the shared pool's rotation file, as
+# `name<TAB>provider/model ...` lines. Prints nothing without a pool.
+_roadie_pool_rotations() {
+  python3 - "$(_roadie_rotation_file)" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    rotations = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(0)
+if isinstance(rotations, dict):
+    for name, entries in rotations.items():
+        if isinstance(entries, dict):
+            entries = entries.get("entries") or []
+        if isinstance(entries, list):
+            print(name + "\t" + " ".join(e for e in entries if isinstance(e, str)))
+PY
+}
+
+# The Homeboy Cook route check asks the pool owner whether a roadie/<name>
+# missing from models.json is at least defined (and so only waits on a
+# Roadie restart). Local pools only: a remote pool's catalog is the host's.
+homeboy_cook_route_pool_defines() {
+  local model="$1"
+  case "$model" in roadie/*) ;; *) return 1 ;; esac
+  _roadie_remote_pool_url >/dev/null 2>&1 && return 1
+  _roadie_pool_rotations | cut -f1 | grep -Fxq -- "${model#roadie/}"
+}
+
+# Keep Homeboy's Cook route served (#815). Homeboy names the route once
+# (agent_task.rotation.entries[].model = roadie/<rotation>); the pool is the
+# one place that defines what <rotation> runs on. A routed rotation the pool
+# lacks is created, hidden from the /model picker (still routable), from
+# ROADIE_COOK_ROTATION_MODELS (space-separated provider/model list) or else
+# from the current entries of ROADIE_COOK_ROTATION_FALLBACK (default: opus).
+# A rotation the pool already has is never touched, so operator definitions
+# survive upgrades. Homeboy's config is never written here. Remote pools are
+# skipped: their rotations belong to the pool host.
+_roadie_ensure_cook_rotations() {
+  declare -F homeboy_cook_route_models >/dev/null 2>&1 || return 0
+  _roadie_remote_pool_url >/dev/null 2>&1 && return 0
+  [ -f "$(_roadie_rotation_file)" ] || return 0
+  local routed pool model name entries fallback="${ROADIE_COOK_ROTATION_FALLBACK:-opus}"
+  routed="$(homeboy_cook_route_models)"
+  [ -n "$routed" ] || return 0
+  pool="$(_roadie_pool_rotations)"
+  while IFS= read -r model; do
+    case "$model" in roadie/?*) ;; *) continue ;; esac
+    name="${model#roadie/}"
+    printf '%s\n' "$pool" | cut -f1 | grep -Fxq -- "$name" && continue
+    entries="${ROADIE_COOK_ROTATION_MODELS:-}"
+    if [ -z "$entries" ]; then
+      entries="$(printf '%s\n' "$pool" | awk -F'\t' -v n="$fallback" '$1 == n { print $2; exit }')"
+    fi
+    if [ -z "$entries" ]; then
+      warn "  Homeboy routes Cooks to $model, but the Roadie pool has no '$name' rotation and no '$fallback' rotation to define it from."
+      warn "  Define it: roadie credentials rotation set $name <provider/model>... --hidden (or set ROADIE_COOK_ROTATION_MODELS)"
+      continue
+    fi
+    if [ "${DRY_RUN:-false}" = true ]; then
+      log "  Would create Roadie rotation $name ($entries) for Homeboy's Cook route"
+      continue
+    fi
+    # shellcheck disable=SC2086  # entries is a space-separated provider/model list
+    if _roadie_credentials rotation set "$name" $entries --pool shared --hidden \
+      --description "Homeboy Cook route (agent_task.rotation); created by wp-coding-agents" >/dev/null; then
+      log "  Roadie rotation $name: $entries (Homeboy Cook route)"
+      UPDATED_ITEMS+=("Roadie rotation $name for Homeboy's Cook route ($entries)")
+    else
+      warn "  Could not create Roadie rotation $name for Homeboy's Cook route"
+    fi
+  done <<< "$routed"
+  return 0
+}
+
 # A failed migration must not leave the host without a bridge: re-enable and
 # restart the Kimaki service it stopped. The enable matters when the
 # migration got as far as disabling Kimaki — the post-migration health gate
@@ -1940,6 +2014,7 @@ bridge_sync_config() {
   _roadie_install_secrets
   _roadie_sync_assets
   _roadie_reconcile_existing_project_paths
+  _roadie_ensure_cook_rotations
   [ "${EXTERNAL_WORDPRESS:-false}" != true ] && _roadie_register_cli_channel
   log "  Done."
   # Consumed downstream by upgrade.sh and agent-state ownership, which source
