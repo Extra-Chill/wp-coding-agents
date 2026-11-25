@@ -11,7 +11,7 @@ jobs:
     name: bash -n on all shell scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Syntax-check every .sh
         run: |
           set -e
@@ -28,7 +28,7 @@ jobs:
     name: every mechanism has a live consumer (#601)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/dead-mechanism.sh
         run: ./tests/dead-mechanism.sh
 
@@ -36,7 +36,7 @@ jobs:
     name: one mechanism, one implementation (#601)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/duplicate-mechanism.sh
         run: ./tests/duplicate-mechanism.sh
 
@@ -44,7 +44,7 @@ jobs:
     name: local launchd Roadie upgrade
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/roadie-local-upgrade.sh
         run: bash tests/roadie-local-upgrade.sh
 
@@ -52,7 +52,7 @@ jobs:
     name: shared JSON and XML escaping
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/escaping-helpers.sh
         run: ./tests/escaping-helpers.sh
 
@@ -60,27 +60,27 @@ jobs:
     name: launchd plists are well-formed XML
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/plist-rendering.sh
         run: ./tests/plist-rendering.sh
 
   agent-cache-placement:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: bash tests/agent-cache-placement.sh
 
   resource-policy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: bash tests/resource-policy.sh
 
   bridge-render:
     name: chat-bridge template byte-equivalence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/bridge-render.sh
         run: ./tests/bridge-render.sh
       - name: Install prompt config test dependency
@@ -92,7 +92,7 @@ jobs:
     name: privilege grants validate before install (#601)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/privilege-grants.sh
         run: ./tests/privilege-grants.sh
 
@@ -100,7 +100,7 @@ jobs:
     name: retired managed skills are removed
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/retired-skills.sh
         run: ./tests/retired-skills.sh
 
@@ -108,8 +108,8 @@ jobs:
     name: setup profile compiler
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: Run tests/setup-profile-compiler.mjs
@@ -119,7 +119,7 @@ jobs:
     name: CLI dispatch transport runtime
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/onboarding-intro.sh
         run: ./tests/onboarding-intro.sh
       - name: Run tests/cli-transport-install.sh
@@ -133,7 +133,7 @@ jobs:
     name: WordPress integration package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/wordpress-integration-package.php
         run: php -d zend.assertions=1 -d assert.exception=1 tests/wordpress-integration-package.php
 
@@ -141,7 +141,7 @@ jobs:
     name: durable inbound event bridge
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/inbound-event-bridge.sh
         run: bash tests/inbound-event-bridge.sh
       - name: Run tests/smoke-inbound-event-bridge.php
@@ -155,7 +155,7 @@ jobs:
     name: CLI channel registry permissions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/cli-channel-perms.sh
         run: ./tests/cli-channel-perms.sh
 
@@ -163,7 +163,7 @@ jobs:
     name: WP AI Gateway opt-in regression (#173)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/ai-gateway.sh
         run: ./tests/ai-gateway.sh
 
@@ -171,7 +171,7 @@ jobs:
     name: WordPress chat opt-in activation (#779)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/wordpress-chat-activation.sh
         run: ./tests/wordpress-chat-activation.sh
 
@@ -179,7 +179,7 @@ jobs:
     name: Roadie CLI channel reachable by the web user (#198)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/cli-channel-binary-path.sh
         run: ./tests/cli-channel-binary-path.sh
 
@@ -187,7 +187,7 @@ jobs:
     name: WP Codebox subtree updater
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/wp-codebox-subtree.sh
         run: ./tests/wp-codebox-subtree.sh
 
@@ -195,7 +195,7 @@ jobs:
     name: Service identity adoption regression (#204)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/service-identity-adoption.sh
         run: ./tests/service-identity-adoption.sh
 
@@ -203,7 +203,7 @@ jobs:
     name: Roadie managed env in every render site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/roadie-managed-env.sh
         run: ./tests/roadie-managed-env.sh
 
@@ -211,7 +211,7 @@ jobs:
     name: --speaker-context gated on the service plugin set (#729)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/roadie-speaker-context-gate.sh
         run: ./tests/roadie-speaker-context-gate.sh
 
@@ -219,7 +219,7 @@ jobs:
     name: Roadie identity plugins gated on resolve-chat-person (#793)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/roadie-identity-ability-gate.sh
         run: ./tests/roadie-identity-ability-gate.sh
 
@@ -227,7 +227,7 @@ jobs:
     name: runtime deactivation guard (#328)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/runtime-guard.sh
         run: ./tests/runtime-guard.sh
 
@@ -235,7 +235,7 @@ jobs:
     name: installed-source mode (#314, #324)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/source-mode.sh
         run: ./tests/source-mode.sh
 
@@ -243,7 +243,7 @@ jobs:
     name: owned mode defaults to non-root (#327)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/service-identity-defaults.sh
         run: ./tests/service-identity-defaults.sh
 
@@ -251,7 +251,7 @@ jobs:
     name: root -> non-root service identity migration (#93)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/service-migration.sh
         run: ./tests/service-migration.sh
 
@@ -259,7 +259,7 @@ jobs:
     name: AGENTS.md guidance registry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run tests/agents-md-guidance.sh
         run: ./tests/agents-md-guidance.sh
       - name: Run tests/agents-md-web-exposure.sh
@@ -341,8 +341,8 @@ jobs:
           - wp-cli-machine-output
           - wp-config-permissions
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         if: matrix.test == 'roadie-fork-workspace' || matrix.test == 'roadie-boot-smoke'
         with:
           node-version: 24
