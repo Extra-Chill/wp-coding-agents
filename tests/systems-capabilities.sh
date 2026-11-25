@@ -15,6 +15,7 @@ source lib/common.sh
 source lib/systems-capabilities.sh
 source lib/codebox-database.sh
 source lib/composer-provision.sh
+source lib/uv-provision.sh
 source lib/source-policy.sh
 SITE_PATH="$TMP/site"
 DM_WORKSPACE_DIR="$TMP/workspace"
@@ -52,6 +53,7 @@ EOF
 
 codebox_database_apply() { :; }
 composer_provision_apply() { :; }
+uv_provision_apply() { :; }
 systemctl() { :; }
 CHOWN_CALLS="$TMP/chown-calls"
 chown() { printf '%s %s\n' "$1" "$2" >> "$CHOWN_CALLS"; }

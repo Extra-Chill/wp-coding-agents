@@ -320,6 +320,7 @@ jobs:
           - codebox-database
           - codebox-database-env-wiring
           - composer-provision
+          - uv-provision
           - upgrade-help
           - verify
           - path-helpers

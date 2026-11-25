@@ -43,6 +43,7 @@ source "$SCRIPT_DIR/lib/agents-md-guidance.sh"
 source "$SCRIPT_DIR/lib/systems-capabilities.sh"
 source "$SCRIPT_DIR/lib/codebox-database.sh"
 source "$SCRIPT_DIR/lib/composer-provision.sh"
+source "$SCRIPT_DIR/lib/uv-provision.sh"
 
 QUIET=false
 JSON=false
@@ -575,6 +576,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+
+section "harness-owned uv"
+if ! systems_capabilities_enabled; then
+  skip "managed-vps profile is not enabled — no harness-owned uv expected"
+elif [ ! -f "$UV_PROVISION_LIB_DIR/uv" ]; then
+  skip "no harness-owned uv at $UV_PROVISION_LIB_DIR/uv"
+elif uv_provision_healthy; then
+  pass "uv reports pinned version $UV_PROVISION_VERSION"
+else
+  fail "harness-owned uv does not report pinned version $UV_PROVISION_VERSION"
+fi
+if systems_capabilities_enabled; then
+  for tool in uv uvx; do
+    if [ "$(command -v "$tool" 2>/dev/null || true)" = "$UV_PROVISION_BIN_DIR/$tool" ] &&
+       [ "$(readlink "$UV_PROVISION_BIN_DIR/$tool" 2>/dev/null || true)" = "$UV_PROVISION_LIB_DIR/$tool" ]; then
+      pass "$tool resolves to the harness-owned binary"
+    else
+      skip "$tool is not exposed first on PATH at $UV_PROVISION_BIN_DIR/$tool"
+    fi
+  done
+fi
 
 # Read-only disk co-tenancy doctor. Warnings do not fail invariants, but are
 # included in JSON findings so unattended checks do not silently discard them.

@@ -206,6 +206,9 @@ AGENT_TMPDIR=/srv/workspace/.tmp
 scratch="$(guidance_call agent-scratch render)"
 grep -Fq '$TMPDIR' <<< "$scratch" || error "scratch guidance omitted TMPDIR"
 grep -Fq 'CARGO_TARGET_DIR' <<< "$scratch" || error "scratch guidance omitted Cargo output"
+for expected in 'uv run --with <pkgs> script.py' 'uvx <tool>' 'UV_CACHE_DIR' 'never `pip install --user` or `--break-system-packages`'; do
+  grep -Fq "$expected" <<< "$scratch" || error "scratch guidance omitted Python policy: $expected"
+done
 guidance_call agent-scratch applies || error "configured scratch guidance did not apply"
 REGISTERED=""
 UNREGISTERED=""

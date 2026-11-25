@@ -384,6 +384,7 @@ systems_capabilities_apply() {
   systems_capabilities_install_native_packages
   codebox_database_apply
   composer_provision_apply
+  uv_provision_apply
   if [ "$DRY_RUN" = true ]; then
     log "Dry-run: provisioning managed VPS systems capabilities..."
     systems_capabilities_write_exact "$(systems_capabilities_profile_file)" "$(systems_capabilities_profile_content)" 0640 "$(systems_capabilities_service_group)"
