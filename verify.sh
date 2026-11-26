@@ -284,12 +284,13 @@ section "service identity coherence"
 UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 UNITS_CHECKED=0
 NON_ROOT_SERVICE=false
+host_resource_policy_verify
 for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "$UNIT_DIR"/homeboy-daemon.service; do
   [ -f "$unit" ] || continue
   UNITS_CHECKED=$((UNITS_CHECKED + 1))
   name="$(basename "$unit")"
-  if host_has_local_database && ! agent_systemd_memory_ceiling_present "$name"; then
-    warn "$name has no effective memory ceiling alongside a local database; run upgrade.sh"
+  if [ "$(systemctl show "$name" --property=Slice --value 2>/dev/null)" != wp-coding-agents.slice ]; then
+    warn "$name is outside the combined agent memory budget; run upgrade.sh and restart the unit"
   fi
   u_user="$(awk -F= '/^User=/ {print $2; exit}' "$unit")"
   [ -n "$u_user" ] || continue

@@ -200,6 +200,9 @@ bridge_service_adapter_apply_wordpress_service() {
 }
 
 bridge_service_adapter_apply_datamachine_worker() {
+  if [ "${EUID:-$(id -u)}" -eq 0 ] || [ "${DRY_RUN:-false}" = true ]; then
+    host_resource_policy_reconcile || return $?
+  fi
   local before=0
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && before="${#UPDATED_ITEMS[@]}"
   datamachine_worker_reconcile || return $?
@@ -215,6 +218,7 @@ bridge_service_adapter_apply_homeboy_daemon() {
     warn "Skipping Homeboy daemon unit because upgrade is running non-root"
     return 0
   fi
+  host_resource_policy_reconcile || return $?
   homeboy_daemon_service_reconcile || return $?
   declare -p UPDATED_ITEMS >/dev/null 2>&1 && [ "${#UPDATED_ITEMS[@]}" -gt "$before" ] && reconciler_adapter_changed
   return 0

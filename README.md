@@ -201,24 +201,37 @@ not execute generic due WP-Cron events.
 ### Linux runtime memory policy
 
 Managed agent systemd services (chat bridge, Homeboy daemon, and Data Machine
-worker) render `MemoryHigh=60%` and `MemoryMax=75%`. systemd sizes these against
-host physical RAM and accounts for child processes in each service's cgroup.
+worker) use `Slice=wp-coding-agents.slice`. This shared parent has
+`MemoryHigh=40%` and `MemoryMax=45%`: one combined host budget, including all
+agent child processes, not a separate allowance per service. systemd sizes
+these against physical RAM, leaving 55% for local data services and the OS.
 Override with `AGENT_MEMORY_HIGH_PERCENT` / `AGENT_MEMORY_MAX_PERCENT` in the
 setup/upgrade environment (integers, `1 <= high <= max <= 99`); supply the same
-overrides on future upgrades. These are per-service ceilings, not a combined
-budget; lower them when running multiple agent services on a shared host.
+overrides on future upgrades. Overrides apply once to the shared slice, regardless
+of the number of installed agent services. Size them for your co-tenants.
 
 Linux VPS service reconciliation also writes
 `/etc/systemd/system/<unit>.d/wp-coding-agents-oom.conf` for installed
-MariaDB/MySQL services (`OOMScoreAdjust=-600`) and php-fpm (`-300`), then
+MariaDB/MySQL services (`OOMScoreAdjust=-600`), Redis/Valkey (`-500`, including
+`redis-server`, `redis`, `valkey`, and `valkey-server`), and php-fpm (`-300`), then
 reloads systemd only when files changed. Other drop-ins are preserved. These
 scores lower global OOM victim priority, not an absolute immunity guarantee.
 The scores apply on the next service restart; setup/upgrade does not restart
-the production database or php-fpm. Dry-run reports changes without writing;
+the production database, cache, or php-fpm. Dry-run reports changes without writing;
 macOS/launchd, local mode, and absent services are skipped.
-`verify.sh` warns if an agent service has no effective memory ceiling alongside
-a local database. Existing agent processes acquire limits when their unit is
-reloaded/restarted through the normal service upgrade lifecycle.
+`verify.sh` compares each protected service's live `/proc/<MainPID>/oom_score_adj`
+with the effective unit property and warns about pending restarts. It also warns
+about agents outside the slice, a missing shared ceiling, or a ceiling exceeding
+RAM minus service reservations. Default reservations are 25% for DB buffers,
+10% for cache (allowing fork overhead), and 20% per installed FPM pool unit;
+DB/cache aliases count once. These are conservative allowances, not autodetected
+application configuration. Set `HOST_DB_RESERVED_MB`, `HOST_CACHE_RESERVED_MB`,
+and `HOST_FPM_RESERVED_MB` (MiB) in the verifier environment to reflect DB buffer
+pools, **twice** cache maxmemory, and FPM pool demand. Reservations never fall
+below each service's live cgroup memory usage. Leave additional OS headroom;
+OOM scores and the agent budget cannot prevent data services exhausting RAM
+on their own. Existing agents join the slice on restart through the normal
+service upgrade lifecycle; restart any units reported outside it.
 
 ### Optional Local WordPress Service
 
