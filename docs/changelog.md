@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.11.59] - 2026-11-26
+
+### Changed
+- Update homeboy to 0.497.31
+
+### Fixed
+- apply OOM protection to running service processes
+
 ## [3.11.58] - 2026-11-26
 
 ### Changed
