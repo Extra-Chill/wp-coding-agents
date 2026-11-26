@@ -3,8 +3,7 @@ Description=Roadie Discord bridge (wp-coding-agents)
 After=network.target
 
 [Service]
-MemoryHigh=60%
-MemoryMax=75%
+Slice=wp-coding-agents.slice
 Type=simple
 User=chubes
 WorkingDirectory=/var/www/site
