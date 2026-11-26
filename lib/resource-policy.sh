@@ -52,7 +52,59 @@ host_resource_policy_reconcile() {
     write_file "$file" "$content" || return $?
     changed=true
   done < <(host_resource_policy_services)
-  if [ "$changed" = true ]; then run_cmd systemctl daemon-reload; fi
+  if [ "$changed" = true ]; then run_cmd systemctl daemon-reload || return $?; fi
+  # Also repair running processes when the drop-ins were already up to date.
+  host_resource_policy_apply_live
+}
+
+# Snapshot descendants from procfs, including children spawned by worker threads.
+# Always include the main PID even if it exits during the snapshot.
+host_resource_policy_pids() {
+  printf '%s\n' "$1"
+  awk -v root="$1" '
+    $1 == "PPid:" {
+      split(FILENAME, path, "/")
+      parent[path[length(path) - 1]] = $2
+    }
+    END {
+      seen[root] = 1
+      do {
+        changed = 0
+        for (pid in parent) {
+          if (!seen[pid] && seen[parent[pid]]) {
+            seen[pid] = 1
+            print pid
+            changed = 1
+          }
+        }
+      } while (changed)
+    }
+  ' "${PROC_ROOT:-/proc}"/[0-9]*/status 2>/dev/null
+}
+
+host_resource_policy_apply_live() {
+  [ "${PLATFORM:-linux}" != mac ] && [ "${LOCAL_MODE:-false}" != true ] || return 0
+  # Do not invoke choom or open procfs for writing in dry-run mode.
+  [ "${DRY_RUN:-false}" != true ] || return 0
+  local unit main pid configured live file
+  while IFS= read -r unit; do
+    main="$(systemctl show "$unit" --property=MainPID --value 2>/dev/null)" || continue
+    [[ "$main" =~ ^[1-9][0-9]*$ ]] || continue
+    configured="$(systemctl show "$unit" --property=OOMScoreAdjust --value 2>/dev/null)" || continue
+    [[ "$configured" =~ ^-?[0-9]+$ ]] || continue
+    while IFS= read -r pid; do
+      file="${PROC_ROOT:-/proc}/$pid/oom_score_adj"
+      [ -r "$file" ] || continue
+      live="$(<"$file")"
+      [ "$live" != "$configured" ] || continue
+      if choom -n "$configured" -p "$pid" 2>/dev/null ||
+         { printf '%s\n' "$configured" > "$file"; } 2>/dev/null; then
+        log "$unit PID $pid oom_score_adj: $live -> $configured (live, no restart)"
+      elif [ -e "$file" ]; then
+        log "WARNING: $unit PID $pid could not apply oom_score_adj=$configured"
+      fi
+    done < <(host_resource_policy_pids "$main")
+  done < <(host_resource_policy_services)
 }
 
 # Conservative co-tenant allowances, once per service class (aliases are not
@@ -87,16 +139,18 @@ host_resource_policy_reserved_bytes() {
 host_resource_policy_verify() {
   [ "${PLATFORM:-linux}" != mac ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
-  local unit pid configured live ram reserved ceiling
+  local unit main pid configured live ram reserved ceiling
   while IFS= read -r unit; do
-    pid="$(systemctl show "$unit" --property=MainPID --value 2>/dev/null)" || continue
-    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+    main="$(systemctl show "$unit" --property=MainPID --value 2>/dev/null)" || continue
+    [[ "$main" =~ ^[1-9][0-9]*$ ]] || continue
     configured="$(systemctl show "$unit" --property=OOMScoreAdjust --value 2>/dev/null)" || continue
-    [ -r "${PROC_ROOT:-/proc}/$pid/oom_score_adj" ] || continue
-    live="$(<"${PROC_ROOT:-/proc}/$pid/oom_score_adj")"
-    if [ -n "$configured" ] && [ "$live" != "$configured" ]; then
-      warn "$unit live oom_score_adj=$live differs from unit OOMScoreAdjust=$configured; restart pending"
-    fi
+    while IFS= read -r pid; do
+      [ -r "${PROC_ROOT:-/proc}/$pid/oom_score_adj" ] || continue
+      live="$(<"${PROC_ROOT:-/proc}/$pid/oom_score_adj")"
+      if [ -n "$configured" ] && [ "$live" != "$configured" ]; then
+        warn "$unit live oom_score_adj=$live differs from unit OOMScoreAdjust=$configured (PID $pid); restart pending"
+      fi
+    done < <(host_resource_policy_pids "$main")
   done < <(host_resource_policy_services)
   ram="$(awk '/^MemTotal:/ {printf "%.0f", $2 * 1024}' "${PROC_ROOT:-/proc}/meminfo" 2>/dev/null)"
   [[ "$ram" =~ ^[1-9][0-9]*$ ]] || return 0

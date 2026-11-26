@@ -216,11 +216,16 @@ MariaDB/MySQL services (`OOMScoreAdjust=-600`), Redis/Valkey (`-500`, including
 `redis-server`, `redis`, `valkey`, and `valkey-server`), and php-fpm (`-300`), then
 reloads systemd only when files changed. Other drop-ins are preserved. These
 scores lower global OOM victim priority, not an absolute immunity guarantee.
-The scores apply on the next service restart; setup/upgrade does not restart
-the production database, cache, or php-fpm. Dry-run reports changes without writing;
+After reload, setup/upgrade also applies the effective unit score live to each
+running main PID and its descendants (including existing php-fpm workers), using
+`choom` with a `/proc` write fallback and logging changes. This also repairs live
+drift when drop-ins are unchanged. No production database, cache, or php-fpm
+restart is needed or performed. Dry-run reports file changes without writing or
+adjusting running processes;
 macOS/launchd, local mode, and absent services are skipped.
-`verify.sh` compares each protected service's live `/proc/<MainPID>/oom_score_adj`
-with the effective unit property and warns about pending restarts. It also warns
+`verify.sh` compares each protected service's main PID and descendants' live
+`/proc/<pid>/oom_score_adj` with the effective unit property and retains the
+pending-restart warning for any processes still out of sync. It also warns
 about agents outside the slice, a missing shared ceiling, or a ceiling exceeding
 RAM minus service reservations. Default reservations are 25% for DB buffers,
 10% for cache (allowing fork overhead), and 20% per installed FPM pool unit;

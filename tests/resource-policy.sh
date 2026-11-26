@@ -117,4 +117,61 @@ current=4294967296 host_resource_policy_verify > "$tmp/live-usage"
 assert_contains "$tmp/live-usage" 'exceeds RAM minus reserved service memory'
 ceiling=infinity host_resource_policy_verify > "$tmp/unbounded"
 assert_contains "$tmp/unbounded" 'no effective memory ceiling'
+# Live reconciliation uses the effective unit value, without restarting anything.
+services=$'redis.service enabled\nphp-fpm.service enabled\nvalkey.service enabled'
+systemctl() {
+  echo "$*" >> "$calls"
+  case "$1:$*" in
+    list-unit-files:*) printf '%s\n' "$services" ;;
+    *--property=MainPID*)
+      case "$2" in redis.service) echo 123 ;; php-fpm.service) echo 200 ;; *) echo 0 ;; esac ;;
+    *--property=OOMScoreAdjust*)
+      case "$2" in redis.service) echo -550 ;; *) echo -300 ;; esac ;;
+    daemon-reload:*) echo reload >> "$tmp/order" ;;
+    *) return 1 ;;
+  esac
+}
+for entry in '123 1' '200 1' '201 200' '202 201' '300 1'; do
+  read -r pid parent <<< "$entry"
+  mkdir -p "$PROC_ROOT/$pid"
+  printf 'PPid:\t%s\n' "$parent" > "$PROC_ROOT/$pid/status"
+  echo 0 > "$PROC_ROOT/$pid/oom_score_adj"
+done
+choom() {
+  echo "$*" >> "$tmp/choom"
+  echo apply >> "$tmp/order"
+  # Simulate an installed but failing choom for one worker (procfs fallback).
+  [ "$4" != 201 ] || return 1
+  printf '%s\n' "$2" > "$PROC_ROOT/$4/oom_score_adj"
+}
+SYSTEMD_UNIT_DIR="$tmp/live-units"
+host_resource_policy_reconcile > "$tmp/applied"
+[ "$(head -n 1 "$tmp/order")" = reload ]
+[ "$(<"$PROC_ROOT/123/oom_score_adj")" = -550 ]
+for pid in 200 201 202; do
+  [ "$(<"$PROC_ROOT/$pid/oom_score_adj")" = -300 ]
+done
+[ "$(<"$PROC_ROOT/300/oom_score_adj")" = 0 ]
+assert_contains "$tmp/applied" 'PID 201 oom_score_adj: 0 -> -300'
+[ "$(wc -l < "$tmp/choom")" -eq 4 ]
+reloads="$(grep -c '^daemon-reload$' "$calls")"
+host_resource_policy_reconcile
+[ "$(wc -l < "$tmp/choom")" -eq 4 ]
+# Existing drop-ins must not prevent repairing live drift; dry-run must not act.
+echo 0 > "$PROC_ROOT/202/oom_score_adj"
+DRY_RUN=true host_resource_policy_reconcile
+[ "$(<"$PROC_ROOT/202/oom_score_adj")" = 0 ]
+host_resource_policy_verify > "$tmp/worker-warning"
+assert_contains "$tmp/worker-warning" '(PID 202); restart pending'
+host_resource_policy_reconcile > /dev/null
+[ "$(<"$PROC_ROOT/202/oom_score_adj")" = -300 ]
+[ "$(grep -c '^daemon-reload$' "$calls")" -eq "$reloads" ]
+if grep -Eq '^(restart|try-restart|stop|start) ' "$calls"; then exit 1; fi
+# Missing choom also falls back to procfs, and exited processes are harmless.
+unset -f choom
+choom() { return 127; }
+echo 0 > "$PROC_ROOT/123/oom_score_adj"
+rm "$PROC_ROOT/201/oom_score_adj"
+host_resource_policy_apply_live > /dev/null
+[ "$(<"$PROC_ROOT/123/oom_score_adj")" = -550 ]
 echo 'PASS: resource policy'
