@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.11.58] - 2026-11-26
+
+### Changed
+- bump GitHub Actions off the Node 20 runtime
+
+### Fixed
+- share agent memory budget and protect local caches
+
 ## [3.11.57] - 2026-11-25
 
 ### Changed
