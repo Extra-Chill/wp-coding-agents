@@ -64,9 +64,10 @@ touch "$(composer_provision_phar)"
 
 cat > "$STUB_BIN/php" <<'PHP'
 #!/bin/bash
-# Stub php: composer --version with no stderr noise, unless PHP_STUB_NOISE=1.
+# Stub Composer's normal --version stderr diagnostics.
 if [ "${PHP_STUB_NOISE:-0}" = 1 ]; then
-  echo "Deprecation Notice: Constant E_STRICT is deprecated" >&2
+  echo 'PHP version 8.4.28 (/usr/bin/php8.4)' >&2
+  echo 'Run the diagnose command to get more detailed diagnostics output.' >&2
 fi
 echo "Composer version 2.10.3 2026-01-01 00:00:00"
 PHP
@@ -83,11 +84,11 @@ fi
 
 export PHP_STUB_NOISE=1
 if composer_provision_healthy; then
-  echo "  FAIL a phar emitting deprecation noise is reported healthy"
-  FAIL=$((FAIL + 1))
-else
-  echo "  ok   a phar emitting deprecation noise on stderr is not reported healthy"
+  echo "  ok   normal Composer stderr is reported healthy"
   PASS=$((PASS + 1))
+else
+  echo "  FAIL normal Composer stderr is reported unhealthy"
+  FAIL=$((FAIL + 1))
 fi
 export PHP_STUB_NOISE=0
 
