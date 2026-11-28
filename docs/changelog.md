@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.64] - 2026-11-28
+
+### Fixed
+- accept quoted service homes and Composer diagnostics
+- keep system runtimes behind managed service binaries
+
 ## [3.11.63] - 2026-11-27
 
 ### Changed
