@@ -73,6 +73,9 @@ grep -qx "User=wpagent" <<< "$unit" || fail "unit does not run as the service us
 grep -qx "Environment=\"HOME=$SERVICE_HOME\"" <<< "$unit" || fail "unit HOME is not the service home"
 grep -qx "ExecStart=$WP_CODING_AGENTS_HOMEBOY_MANAGED_BIN daemon serve" <<< "$unit" || fail "unit does not serve the managed binary in the foreground"
 grep -qx "Restart=always" <<< "$unit" || fail "unit is not always restarted"
+grep -qx "KillMode=process" <<< "$unit" || fail "daemon stop can kill in-flight workers"
+grep -qx "TimeoutStopSec=90" <<< "$unit" || fail "daemon stop window does not allow bounded shutdown"
+! grep -qx "SendSIGKILL=no" <<< "$unit" || fail "wedged main process can block replacement"
 grep -qx "StartLimitIntervalSec=0" <<< "$unit" || fail "unit can give up while another daemon owns the lock"
 grep -qx "WantedBy=multi-user.target" <<< "$unit" || fail "unit is not enabled at boot"
 case "$unit" in *roadie*|*kimaki*) fail "daemon unit names a chat bridge" ;; esac
@@ -178,11 +181,32 @@ reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242 FAKE_FRESH=false
 homeboy_daemon_service_reconcile
 grep -qx "restart homeboy-daemon.service" "$SYSTEMCTL_LOG" || fail "idle stale daemon was not restarted"
 
-# --- Supervised, replaced binary, busy: left serving its jobs -------------------
+# --- Supervised, replaced binary, busy: successor adopts surviving workers -----
 reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242 FAKE_FRESH=false FAKE_JOBS=2
 homeboy_daemon_service_reconcile
-grep -q "^restart" "$SYSTEMCTL_LOG" && fail "busy stale daemon was restarted under in-flight work"
-case "$LOGGED" in *"jobs in flight"*) : ;; *) fail "deferred restart was not reported" ;; esac
+[ "$(grep -cx 'restart homeboy-daemon.service' "$SYSTEMCTL_LOG")" = 1 ] || fail "busy stale daemon did not converge with exactly one restart"
+[ -z "$STOPPED" ] || fail "binary convergence launched an unsupervised replacement"
+
+# --- Legacy kill policy is replaced and reloaded BEFORE stopping a busy daemon --
+reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242 FAKE_FRESH=false FAKE_JOBS=2
+python3 - "$unit_path" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(path.read_text().replace('KillMode=process', 'KillMode=control-group').replace('TimeoutStopSec=90', 'TimeoutStopSec=60'))
+PY
+homeboy_daemon_service_reconcile
+grep -qx 'KillMode=process' "$unit_path" || fail "upgrade did not replace legacy kill policy"
+grep -qx 'TimeoutStopSec=90' "$unit_path" || fail "upgrade did not replace legacy stop window"
+python3 - "$SYSTEMCTL_LOG" <<'PY'
+import pathlib, sys
+calls = pathlib.Path(sys.argv[1]).read_text().splitlines()
+assert calls.count('restart homeboy-daemon.service') == 1, calls
+assert calls.index('daemon-reload') < calls.index('restart homeboy-daemon.service'), calls
+PY
+[ -z "$STOPPED" ] || fail "unit upgrade used daemon stop/restart outside systemd"
+reset; FAKE_UNIT_ACTIVE=true FAKE_UNIT_PID=4242 FAKE_JOBS=2
+homeboy_daemon_service_reconcile
+grep -qE '^(restart|daemon-reload)' "$SYSTEMCTL_LOG" && fail "converged busy daemon was restarted again"
 
 # --- Unknown daemon status is treated as busy -----------------------------------
 reset
