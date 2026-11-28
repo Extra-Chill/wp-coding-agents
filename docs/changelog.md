@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.65] - 2026-11-28
+
+### Fixed
+- converge existing service system PATH order
+
 ## [3.11.64] - 2026-11-28
 
 ### Fixed
