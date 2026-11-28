@@ -142,6 +142,39 @@ if ! grep -Fq 'Environment=PATH=/usr/local/lib/wp-coding-agents/bin:/home/chubes
   echo "FAIL: Roadie systemd PATH does not include managed Homeboy and Roadie directories"
   exit 1
 fi
+# A distro node must not move /usr/bin ahead of the managed composer wrapper.
+# Render through the same env helpers as installation, not just the PATH helper.
+(
+  _resolve_node_bin_dir() { printf '/usr/bin'; }
+  render_with_bridge roadie render_systemd roadie.service "$(roadie_env_block)"
+) | strip_fixture_root > "$TMPDIR_NEW/roadie-systemd-distro-node"
+if ! diff -u "$TMPDIR_NEW/roadie-systemd" "$TMPDIR_NEW/roadie-systemd-distro-node"; then
+  echo "FAIL: distro node changed the Roadie systemd PATH ordering or uniqueness"
+  exit 1
+fi
+rm "$TMPDIR_NEW/roadie-systemd-distro-node"
+
+# The shared helper also serves homeboy-daemon. System runtime directories
+# belong in the tail; custom runtimes retain their priority and deduplicate.
+for runtime_dir in /usr/local/bin /usr/bin /bin /usr/sbin /sbin /custom/node/bin; do
+  expected="/managed/bin:$SERVICE_HOME/.local/bin:$SERVICE_HOME/.local/share/pnpm:$SERVICE_HOME/.bun/bin:/bridge/bin"
+  case "$runtime_dir" in
+    /usr/local/bin|/usr/bin|/bin) expected="$expected:/usr/local/bin:/usr/bin:/bin" ;;
+    /usr/sbin|/sbin) expected="$expected:/usr/local/bin:/usr/bin:/bin:$runtime_dir" ;;
+    *) expected="$expected:$runtime_dir:/usr/local/bin:/usr/bin:/bin" ;;
+  esac
+  actual="$(_service_path_value /managed/bin /bridge/bin "$runtime_dir")"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: shared service PATH with runtime $runtime_dir: $actual"
+    exit 1
+  fi
+done
+if [ "$(_service_path_value /managed/bin /managed/bin /managed/bin)" != "/managed/bin:$SERVICE_HOME/.local/bin:$SERVICE_HOME/.local/share/pnpm:$SERVICE_HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin" ]; then
+  echo "FAIL: shared service PATH contains duplicate directories"
+  exit 1
+fi
+echo "  ok   service PATH keeps distro runtimes behind managed local binaries"
+
 for required in ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 \
   ROADIE_SERVICE_TOKEN_FILE=/etc/wp-coding-agents/roadie/send-token; do
   grep -Fq "Environment=$required" "$TMPDIR_NEW/roadie-systemd" \

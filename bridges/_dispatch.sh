@@ -151,7 +151,16 @@ _service_path_value() {
   if [ -n "${SERVICE_HOME:-}" ] && [ "${EXTERNAL_WORDPRESS:-false}" != true ]; then
     home_dirs=("$SERVICE_HOME/.local/bin" "$SERVICE_HOME/.local/share/pnpm" "$SERVICE_HOME/.bun/bin")
   fi
-  _compose_path_value "$1" "${home_dirs[@]}" "$2" "$3" /usr/local/bin /usr/bin /bin
+  # Distro runtimes must not shadow managed wrappers in /usr/local/bin.
+  # Keep sbin runtimes available too, but only after the normal system tail.
+  local runtime_dir="$3" system_runtime_dir=""
+  case "$runtime_dir" in
+    /usr/local/bin|/usr/bin|/bin|/usr/sbin|/sbin)
+      system_runtime_dir="$runtime_dir"
+      runtime_dir=""
+      ;;
+  esac
+  _compose_path_value "$1" "${home_dirs[@]}" "$2" "$runtime_dir" /usr/local/bin /usr/bin /bin "$system_runtime_dir"
 }
 
 # _merge_systemd_env_lines <current_env> <template_env>
