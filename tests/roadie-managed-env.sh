@@ -39,6 +39,24 @@ check() {
   fi
 }
 
+echo "==> system PATH normalization preserves operator directory slots"
+
+TAIL_ENV='Environment=HOST_CUSTOM=preserved
+Environment=PATH=/opt/first:/bin:/opt/middle:/usr/bin:/usr/local/bin:/opt/last:/usr/bin:/opt/first'
+EXPECTED_TAIL_ENV='Environment=HOST_CUSTOM=preserved
+Environment=PATH=/opt/first:/usr/local/bin:/opt/middle:/usr/bin:/bin:/opt/last'
+NORMALIZED="$(_normalize_systemd_path_tail "$TAIL_ENV")"
+if [ "$NORMALIZED" = "$EXPECTED_TAIL_ENV" ]; then rc=0; else rc=1; fi
+check "$rc" "only standard-bin slots reorder; all directories are deduped"
+if [ "$(_normalize_systemd_path_tail "$NORMALIZED")" = "$NORMALIZED" ]; then rc=0; else rc=1; fi
+check "$rc" "normalization is idempotent"
+for UNCHANGED in 'Environment=HOST_CUSTOM=preserved' \
+  'Environment=PATH=/opt/tools:/usr/bin:/bin' \
+  'Environment=PATH=/usr/local/bin:/usr/bin:/bin'; do
+  if [ "$(_normalize_systemd_path_tail "$UNCHANGED")" = "$UNCHANGED" ]; then rc=0; else rc=1; fi
+  check "$rc" "missing PATH or standard bins are not invented ($UNCHANGED)"
+done
+
 echo "==> upgrade merges managed env into an already-installed unit"
 
 SYSTEMD_UNIT_DIR="$TMP/systemd"
@@ -51,7 +69,7 @@ cat > "$SYSTEMD_UNIT_DIR/roadie.service" <<EOF
 User=root
 WorkingDirectory=$TMP/site
 Environment=HOME=/root
-Environment=PATH=/usr/bin:/bin
+Environment=PATH=/srv/operator/bin:/usr/bin:/usr/local/bin:/bin:/usr/bin:/srv/operator/bin:/srv/operator/last
 Environment=ROADIE_DATA_DIR=/root/.roadie
 Environment=DATAMACHINE_SITE_PATH=$TMP/site
 Environment=DATAMACHINE_WP_CMD=wp
@@ -100,6 +118,16 @@ else
 fi
 
 UNIT="$SYSTEMD_UNIT_DIR/roadie.service"
+EXPECTED_SYSTEM_TAIL='/srv/operator/bin:/usr/local/bin:/usr/bin:/bin:/srv/operator/last'
+UPGRADE_PATH="$(sed -n 's/^Environment=PATH=//p' "$UNIT")"
+case "$UPGRADE_PATH" in
+  *":$EXPECTED_SYSTEM_TAIL") check 0 "upgrade repairs distro-first PATH and retains operator order" ;;
+  *) check 1 "upgrade repairs distro-first PATH and retains operator order ($UPGRADE_PATH)" ;;
+esac
+cp "$UNIT" "$TMP/first-upgrade.service"
+bridge_update_systemd
+if cmp -s "$UNIT" "$TMP/first-upgrade.service"; then rc=0; else rc=1; fi
+check "$rc" "second upgrade leaves the entire unit byte-identical"
 MANAGED_KEYS="ROADIE_MANAGED=1 ROADIE_NO_DEFAULT_CHANNEL=1 ROADIE_PROMPT_CONFIG=/opt/roadie-config/prompt-config.yaml ROADIE_SERVICE_TOKEN_FILE=$TMP/secrets/roadie/send-token"
 check_managed_once() {
   local key
