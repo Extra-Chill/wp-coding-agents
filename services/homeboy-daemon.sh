@@ -69,9 +69,14 @@ ${sender:+Environment=$(systemd_quote "HOMEBOY_SESSION_SEND_COMMAND=$sender")
 ExecStart=$bin daemon serve
 Restart=always
 RestartSec=10
-# Workloads the daemon runs are its children; stopping the daemon stops them.
-KillMode=control-group
-TimeoutStopSec=60
+# Intentionally use process despite systemd's warning: Homeboy successors
+# re-adopt live Cook workers (homeboy#17975). Stop only the daemon, leaving
+# workers and their git/ssh/gate children alive in this cgroup for adoption.
+# mixed would still SIGKILL those children on exit/timeout; do not use it.
+KillMode=process
+# Allow Homeboy's bounded shutdown/drain to finish before killing the main PID.
+# Keep SIGKILL enabled so a wedged old daemon cannot block its replacement.
+TimeoutStopSec=90
 
 [Install]
 WantedBy=multi-user.target
@@ -155,18 +160,15 @@ homeboy_daemon_adopt_unsupervised() {
   fi
 }
 
-# After the Homeboy binary changes, restart the supervised daemon onto it, but
-# never under in-flight work. A busy daemon keeps serving its jobs; the next
-# upgrade, or `systemctl restart homeboy-daemon`, converges it.
+# After the Homeboy binary changes, restart the supervised daemon onto it.
+# Reconciliation reloads KillMode=process first: live workers survive for the
+# successor to re-adopt. Use systemctl, not `homeboy daemon restart`, so only
+# the unit launches the replacement (Homeboy's owner lock remains authoritative).
 homeboy_daemon_converge_binary() {
   _homeboy_daemon_owned_by_unit || return 0
   [ "$(_homeboy_daemon_status_field fresh)" = false ] || return 0
-  if homeboy_daemon_idle; then
-    log "  Homeboy daemon: restarting onto the installed binary"
-    systemctl restart "$(homeboy_daemon_unit_name)"
-  else
-    warn "  Homeboy daemon: running a replaced binary with jobs in flight; restart homeboy-daemon.service once idle"
-  fi
+  log "  Homeboy daemon: restarting onto the installed binary; live workers will be re-adopted"
+  systemctl restart "$(homeboy_daemon_unit_name)"
 }
 
 # Move Homeboy's data root from the service user's home onto HOMEBOY_DATA_DIR
@@ -259,12 +261,10 @@ homeboy_daemon_service_reconcile() {
     return 0
   fi
   if [ "$changed" = true ]; then
-    if homeboy_daemon_idle; then
-      log "  Homeboy daemon: restarting idle daemon onto the updated unit"
-      systemctl restart "$unit"
-    else
-      warn "  Homeboy daemon: updated unit will take effect after restart; daemon has jobs in flight"
-    fi
+    # daemon-reload above applies the safe stop policy before this first restart,
+    # including upgrades from the legacy control-group unit with busy workers.
+    log "  Homeboy daemon: restarting onto the updated unit; live workers will be re-adopted"
+    systemctl restart "$unit"
     return 0
   fi
   homeboy_daemon_converge_binary
