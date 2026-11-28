@@ -69,6 +69,9 @@ if [ "${PHP_STUB_NOISE:-0}" = 1 ]; then
   echo 'PHP version 8.4.28 (/usr/bin/php8.4)' >&2
   echo 'Run the diagnose command to get more detailed diagnostics output.' >&2
 fi
+if [ "${PHP_STUB_DEPRECATION:-0}" = 1 ]; then
+  echo "Deprecation Notice: Constant E_STRICT is deprecated" >&2
+fi
 echo "Composer version 2.10.3 2026-01-01 00:00:00"
 PHP
 chmod +x "$STUB_BIN/php"
@@ -91,6 +94,16 @@ else
   FAIL=$((FAIL + 1))
 fi
 export PHP_STUB_NOISE=0
+
+export PHP_STUB_DEPRECATION=1
+if composer_provision_healthy; then
+  echo "  FAIL a phar emitting deprecation noise is reported healthy"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ok   a phar emitting deprecation noise on stderr is not reported healthy"
+  PASS=$((PASS + 1))
+fi
+export PHP_STUB_DEPRECATION=0
 
 echo ""
 echo "==> the installer is never executed when the signature does not match"
