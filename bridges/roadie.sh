@@ -2080,6 +2080,9 @@ bridge_update_systemd() {
   # ~/.local/bin/homeboy would win and agent shells would run an old
   # controller. Keep the fresh-render order: managed Homeboy first.
   current_env=$(_ensure_systemd_path_first "$current_env" "$(_roadie_managed_homeboy_dir)")
+  # Existing PATH wins the env merge, so converge the pre-#923 system order
+  # without moving operator-added directories or replacing their PATH.
+  current_env=$(_normalize_systemd_path_tail "$current_env")
 
   # ROADIE_SHELL_ENV is template-owned (#729): it is regenerated from this
   # run's ROADIE_BIN and roadie#186 every time, so an existing unit must not

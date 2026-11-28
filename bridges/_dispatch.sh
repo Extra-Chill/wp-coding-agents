@@ -279,6 +279,44 @@ _ensure_systemd_path_first() {
   ' <<< "$current_env"
 }
 
+# _normalize_systemd_path_tail <current_env>
+# Reorder only existing standard-bin slots, leaving operator directories in
+# place. Do not invent missing directories; dedupe all entries on first use.
+_normalize_systemd_path_tail() {
+  awk '
+    /^Environment=PATH=/ {
+      delete seen
+      delete ordered
+      delete bins
+      value = substr($0, length("Environment=PATH=") + 1)
+      count = split(value, entries, ":")
+      size = 0
+      for (i = 1; i <= count; i++) {
+        dir = entries[i]
+        if (dir == "" || seen[dir]++) continue
+        ordered[++size] = dir
+      }
+      tail = "/usr/local/bin:/usr/bin:/bin"
+      count = split(tail, entries, ":")
+      total = 0
+      for (i = 1; i <= count; i++) {
+        if (seen[entries[i]]) bins[++total] = entries[i]
+      }
+      path = ""
+      slot = 0
+      for (i = 1; i <= size; i++) {
+        dir = ordered[i]
+        if (dir == "/usr/local/bin" || dir == "/usr/bin" || dir == "/bin")
+          dir = bins[++slot]
+        path = path (i == 1 ? "" : ":") dir
+      }
+      print "Environment=PATH=" path
+      next
+    }
+    { print }
+  ' <<< "$1"
+}
+
 # _systemd_unit_user <unit_file>
 #
 # Print the User= value from an existing systemd unit. Empty output +
