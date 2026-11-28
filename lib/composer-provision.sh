@@ -38,16 +38,22 @@ exec php "$(composer_provision_phar)" "\$@"
 EOF
 }
 
-# True when the installed phar exists and runs clean on this host's PHP — no
-# stderr output at all, which is exactly the property the distro package
-# lacks on PHP 8.4 and exactly what Homeboy's dependency preflight checks for.
+# Healthy means a successful exit, a version line on stdout, and no stderr
+# beyond the two informational lines Composer 2.x always prints (PHP version and
+# the diagnose hint). Anything else on stderr -- e.g. the distro package's
+# deprecation notices on PHP 8.4, which Homeboy's dependency preflight rejects --
+# is still unhealthy.
 composer_provision_healthy() {
-  local phar out
+  local phar out err errfile
   phar="$(composer_provision_phar)"
   [ -f "$phar" ] || return 1
   command -v php >/dev/null 2>&1 || return 1
-  out="$(php "$phar" --version 2>&1 1>/dev/null)" || return 1
-  [ -z "$out" ]
+  errfile="$(mktemp)" || return 1
+  out="$(php "$phar" --version 2>"$errfile")" || { rm -f "$errfile"; return 1; }
+  err="$(grep -vE '^(PHP version |Run the "?diagnose"? command)' "$errfile" | grep -v '^[[:space:]]*$')"
+  rm -f "$errfile"
+  [ -z "$err" ] || return 1
+  printf '%s\n' "$out" | grep -q '^Composer version '
 }
 
 # Download the installer and its detached signature separately, verify the

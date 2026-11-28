@@ -135,6 +135,55 @@ else
 fi
 
 echo ""
+echo "verify: quoted service assignments (#917)"
+cat > "$TMP/systemctl" <<'SYSTEMCTL'
+#!/bin/sh
+printf '%s\n' wp-coding-agents.slice
+SYSTEMCTL
+chmod +x "$TMP/systemctl"
+for quote in '"' "'"; do
+  # Exercise quoted HOME and another home-relative assignment.
+  printf '[Service]\nUser=pi\nEnvironment=%sHOME=/home/pi%s\nEnvironment=%sDATA=/home/pi/data%s\n' \
+    "$quote" "$quote" "$quote" "$quote" > "$TMP/units/homeboy-daemon.service"
+  OUT="$(run_verify)"
+  assert_contains "$OUT" 'homeboy-daemon.service: User=pi and HOME=/home/pi agree' "quoted HOME agrees"
+  refute_contains "$OUT" 'FAIL' "quoted assignments inside the user home pass"
+  printf '[Service]\nUser=pi\nEnvironment=%sHOME=/home/other%s\nEnvironment=%sDATA=/home/other/data%s\n' \
+    "$quote" "$quote" "$quote" "$quote" > "$TMP/units/homeboy-daemon.service"
+  OUT="$(run_verify)"
+  assert_contains "$OUT" 'User=pi but HOME=/home/other' "quoted wrong HOME still fails"
+  assert_contains "$OUT" "points outside pi's home" "quoted stale data path still fails"
+done
+rm "$TMP/units/homeboy-daemon.service"
+
+echo ""
+echo "verify: Composer version health (#917)"
+mkdir -p "$TMP/composer"
+touch "$TMP/composer/composer.phar"
+cat > "$TMP/php" <<'PHP'
+#!/bin/sh
+printf '%s\n' 'PHP version 8.4.28 (/usr/bin/php8.4)' 'Run the diagnose command to get more detailed diagnostics output.' >&2
+case "${COMPOSER_STUB_MODE:-healthy}" in
+  healthy) echo 'Composer version 2.10.3 2026-01-01 00:00:00' ;;
+  nonzero) echo 'Composer version 2.10.3'; exit 1 ;;
+  missing) echo 'not a version' ;;
+  stderr-only) echo 'Composer version 2.10.3' >&2 ;;
+esac
+PHP
+chmod +x "$TMP/php"
+run_verify_composer() {
+  SYSTEMS_CAPABILITIES_PROFILE=managed-vps COMPOSER_PROVISION_LIB_DIR="$TMP/composer" run_verify
+}
+OUT="$(run_verify_composer)"
+assert_contains "$OUT" 'runs successfully and reports a Composer version' "normal Composer stderr is healthy"
+refute_contains "$OUT" 'exists but does not run clean' "normal stderr does not fail verification"
+for mode in nonzero missing stderr-only; do
+  OUT="$(COMPOSER_STUB_MODE="$mode" run_verify_composer)"
+  assert_contains "$OUT" 'exists but does not run clean' "Composer $mode still fails"
+done
+rm "$TMP/php"
+
+echo ""
 echo "verify: guidance provenance exposes source/install/runtime drift"
 
 # The source checkout includes #573's bounded direct-runtime fallback, while

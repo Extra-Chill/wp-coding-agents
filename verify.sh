@@ -299,7 +299,9 @@ for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "
   [ -n "$u_home" ] || u_home="/home/$u_user"
   [ "$u_user" = "root" ] && u_home="/root"
 
-  env_home="$(awk -F= '/^Environment=HOME=/ {print $3; exit}' "$unit")"
+  env_home="$(awk -F= '/^Environment=["\047]?HOME=/ {print $3; exit}' "$unit")"
+  env_home="${env_home#\"}"; env_home="${env_home%\"}"
+  env_home="${env_home#\'}"; env_home="${env_home%\'}"
   if [ -z "$env_home" ]; then
     skip "$name declares no HOME"
   elif [ "$env_home" = "$u_home" ]; then
@@ -312,6 +314,9 @@ for unit in "$UNIT_DIR"/roadie*.service "$UNIT_DIR"/datamachine-worker.service "
   # identity that no longer exists.
   while IFS= read -r line; do
     value="${line#Environment=*=}"
+    # systemd accepts both Environment="KEY=value" and KEY="value".
+    value="${value#\"}"; value="${value%\"}"
+    value="${value#\'}"; value="${value%\'}"
     case "$value" in
       /root/*|/home/*)
         case "$value" in
@@ -543,11 +548,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Seam: Homeboy's release preflight fails on any composer stderr output, and
-# the distro composer package emits a PHP 8.4 deprecation notice on every
-# call. A harness-owned Composer that is merely installed is not enough — it
-# has to actually run clean on this host's PHP, or every release still fails
-# the exact way #624 reports.
+# Seam: the harness-owned Composer must actually run on this host's PHP,
+# not merely exist. Composer 2.x writes normal diagnostics to stderr during
+# --version; require exit 0 and a version line on stdout instead.
 # ---------------------------------------------------------------------------
 
 section "harness-owned Composer"
@@ -557,9 +560,9 @@ if ! systems_capabilities_enabled; then
 elif [ ! -f "$(composer_provision_phar)" ]; then
   skip "no harness-owned Composer at $(composer_provision_phar)"
 elif composer_provision_healthy; then
-  pass "$(composer_provision_phar) runs clean on this host's PHP (no deprecation/warning output)"
+  pass "$(composer_provision_phar) runs successfully and reports a Composer version"
 else
-  fail "$(composer_provision_phar) exists but does not run clean — composer --version emitted output on stderr"
+  fail "$(composer_provision_phar) exists but does not run clean — composer --version failed or stdout has no Composer version line"
 fi
 
 if ! systems_capabilities_enabled; then
